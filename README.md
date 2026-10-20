@@ -10,18 +10,24 @@ graphical installer. It builds for **ARM64** (Apple Silicon Macs in UTM) and **x
 
 | Area | Details |
 | --- | --- |
-| Base | Debian 13, with Debian security updates |
+| Base | Debian 13, with Debian stable and security updates |
 | Desktop | GNOME 48 with a macOS-style look: frosted-glass top bar and overview (Blur my Shell), floating translucent dock with running-app dots, window buttons on the left, tray icons for apps like Slack and Zoom |
-| Look | Inter font, JetBrains Mono for code, Papirus icons, dark style with teal accent, layered wave wallpaper (light and dark) |
-| Welcome app | Replaces GNOME's own tour. Shown once at first login: light or dark mode, accent color, one-click installs of popular apps (only those that run on this computer), and a security overview |
+| Kulan Shell | Kulan's own GNOME extension: rounded navy menus and quick settings with teal highlights, an update icon in the top bar with a count of waiting updates, and a notice after each update |
+| App grid | Apps sorted into folders: Office, Internet, Media, Developer, Utilities, System |
+| Look | Inter font, JetBrains Mono for code, Papirus icons, Bibata cursor, dark style with teal accent, layered wave wallpaper (light and dark) |
+| Welcome app | Replaces GNOME's own tour. Shown once at first login: light or dark mode, accent color, one-click installs of popular apps (only those that run on this computer), the developer kit, and a security overview |
+| Update Center | Shows waiting updates (security ones marked), installs them with a progress bar, What's new for each release, recent update history, automatic updates on or off, and restore points |
+| Restore points | Timeshift snapshots of the system (not your files): daily and weekly, plus one before updates if you choose. Skipped when the disk is low on space |
 | Boot | Kulan OS splash with spinner; installed systems skip the text menu (hold Esc while starting to see it) |
 | Branding | Boot menu, splash, login screen, wallpaper, Settings > About, installer, console banner |
-| Apps | Firefox ESR, Files, Console, Text Editor, Calculator, Image Viewer, Document Viewer, Archive Manager, Disks, System Monitor |
+| Apps | Firefox ESR, LibreOffice (Writer, Calc, Impress), VLC, GIMP, Files, Console, Text Editor, Calculator, Image Viewer, Document Viewer, Archive Manager, Disks, System Monitor |
+| Developer kit | Optional, one click in the Welcome app: Git, Python (pip, venv), build tools, Docker and Docker Compose, curl |
 | App store | GNOME Software with Debian packages and Flathub |
-| Security | Firewall on at boot (blocks incoming, allows outgoing) with a settings app; automatic daily security updates; disk encryption ticked by default in the installer; Tor Browser launcher on PCs |
+| Security | Firewall on at boot (blocks incoming, allows outgoing) with a settings app; automatic daily updates; disk encryption ticked by default in the installer; Tor Browser launcher on PCs |
 | Privacy | No telemetry; Wi-Fi hides your device's hardware address; Firefox blocks trackers and sends no usage data; old trash and temporary files are cleared after 30 days |
 | Backups | Deja Dup (back up to a drive or cloud storage) |
-| Updates | The Kulan update channel: your own signed package repository, so installed systems get Kulan fixes and new looks through normal updates |
+| Updates | The Kulan update channel: your own signed package repository, so installed systems get Kulan fixes and new versions through normal updates. Kulan OS 1.0 upgrades itself to 2.0 |
+| Build number | Each ISO is named with its build, e.g. `kulan-os-2.0-build6-arm64.iso`; Settings > About and Update Center show it too |
 | Installer | Calamares, rebranded as "Install Kulan OS" |
 | VMs | Clipboard sharing and display resizing in UTM/QEMU |
 
@@ -62,6 +68,15 @@ unzip ~/Downloads/kulan-os-arm64.zip -d ~/Projects/kulan-os-iso
 rm ~/Downloads/kulan-os-arm64.zip
 ```
 
+**If the browser blocks the download** (Chrome sometimes calls ISO zips "dangerous"),
+download the latest successful build from Terminal instead. No zip to delete:
+
+```bash
+RUN=$(gh run list -R mmohamud25/kulan-os -w build-iso.yml -b main -s success -L 1 --json databaseId -q '.[0].databaseId')
+gh run download "$RUN" -R mmohamud25/kulan-os -n kulan-os-arm64 -D ~/Projects/kulan-os-iso
+ls ~/Projects/kulan-os-iso
+```
+
 Every build first installs the Kulan packages in a clean Debian 13 system and tests them,
 then opens each ISO and checks that Kulan's parts are really inside (branding,
 boot splash, installer settings, firewall, Flathub and more). The results are in the run's
@@ -76,7 +91,7 @@ To verify the download: `cd ~/Projects/kulan-os-iso && shasum -a 256 -c *.sha256
 
 1. Install UTM from [mac.getutm.app](https://mac.getutm.app) (free).
 2. Click **+ > Virtualize > Linux**.
-3. Under **Boot ISO Image**, click **Browse** and choose `kulan-os-1.0-arm64.iso`.
+3. Under **Boot ISO Image**, click **Browse** and choose the `kulan-os-2.0-build…-arm64.iso` you downloaded.
 4. Memory: **4096 MB**, CPU cores: **4**. Storage: **32 GB**. Skip shared folders.
 5. Name it **Kulan OS**, click **Save**, then press **Play**.
 6. Choose **Kulan OS Live (arm64)** in the boot menu. The desktop opens automatically.
@@ -94,7 +109,7 @@ In the live session the user is `kulan` and the password is `live`.
 ## 4. Turn on the update channel (one time)
 
 Kulan's own parts are real Debian packages (`kulan-base`, `kulan-desktop-settings`,
-`kulan-welcome`). With the update channel on, every installed Kulan OS fetches new versions
+`kulan-welcome`, `kulan-update-center`, plus the optional `kulan-apps` and `kulan-devkit`). With the update channel on, every installed Kulan OS fetches new versions
 of them automatically, signed with a key only you hold.
 
 On your Mac:
@@ -122,7 +137,15 @@ From then on, each push to `main` goes through four stages: build the Kulan pack
 install and test them in a clean Debian 13 system, publish them to
 `https://mmohamud25.github.io/kulan-os/apt/`, then build and inspect the ISOs. A failure at
 any stage stops the later ones. ISOs built after setup include the channel; installed
-systems pick up updates in their daily automatic update.
+systems pick up updates in their daily automatic update, or right away from Update Center.
+
+## Releasing a new version
+
+New work goes on a branch first (for example `kulan-os-2.0`). Builds of a branch test the
+packages and build the ISOs, but **don't publish** to the update channel, so no installed
+system changes. To release, merge the branch's pull request into `main` on GitHub. The
+`main` build publishes the packages, waits until the channel serves them, then builds the
+ISOs. Installed systems update within a day.
 
 ## Customizing
 
@@ -136,6 +159,11 @@ systems pick up updates in their daily automatic update.
 | Boot splash | `packages/kulan-desktop-settings/root/usr/share/kulan/plymouth/kulan.plymouth` |
 | Boot menu on installed systems | `packages/kulan-desktop-settings/root/etc/default/grub.d/kulan-os.cfg` |
 | Welcome app (pages, app list) | `packages/kulan-welcome/root/usr/bin/kulan-welcome` |
+| Top bar, menus, update icon | `packages/kulan-desktop-settings/root/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com/` |
+| App grid folders | `packages/kulan-desktop-settings/root/etc/dconf/db/local.d/10-kulan-app-folders` |
+| Update Center, release notes | `packages/kulan-update-center/` (notes: `root/usr/share/kulan/release-notes.json`) |
+| Restore point schedule | `packages/kulan-update-center/root/usr/lib/kulan/restore-points` |
+| Optional office/media and developer apps | `packages/kulan-apps/`, `packages/kulan-devkit/` |
 | Firewall, privacy, Firefox defaults | `packages/kulan-base/` |
 | Installer encryption default | `config/includes.chroot/etc/calamares/modules/partition.conf` |
 
@@ -165,6 +193,9 @@ packages/                     Kulan's own Debian packages
   kulan-base/                   Identity, update channel, security and privacy defaults
   kulan-desktop-settings/       Look, wallpapers, dock, login screen, boot splash
   kulan-welcome/                The welcome app
+  kulan-update-center/          Update Center, update status, restore points
+  kulan-apps/                   Office and media apps (installed in the ISO)
+  kulan-devkit/                 Developer kit (optional, not in the ISO)
 auto/                         live-build entry points (config, build, clean)
 config/package-lists/         Debian packages in the image
 config/includes.chroot/       Installer settings (encryption on by default)
@@ -185,7 +216,8 @@ ci/                           GitHub build, ISO inspection and repository publis
   install scripts for Debian software keep working. `kulan-base` protects the file with a
   dpkg diversion, so Debian updates don't overwrite it; removing `kulan-base` restores
   Debian's.
-- **Automatic updates.** Debian security updates and Kulan updates install daily. Kulan's
+- **Automatic updates.** Debian stable and security updates and Kulan updates install
+  daily. Turn them off in Update Center. Kulan's
   own security defaults (like the firewall) are applied once, at first install, so a user's
   later choices survive updates.
 - **Hidden boot menu.** If you dual-boot, hold Esc while the computer starts to pick
@@ -193,6 +225,9 @@ ci/                           GitHub build, ISO inspection and repository publis
   `packages/kulan-desktop-settings/root/etc/default/grub.d/kulan-os.cfg`.
 - **Firewall.** Incoming connections are blocked. To allow one, open **Firewall
   Configuration** or run, for example, `sudo ufw allow ssh`.
+- **Restore points.** They cover the system, not your home folder (use Backups for that).
+  To roll back, open **Update Center > Restore points > Manage**. In the live session
+  restore points are off.
 - **License.** The packages say "All rights reserved" until you choose a license.
 - **Based on Debian.** Kulan OS is an unofficial Debian derivative and is not endorsed by
   the Debian project.

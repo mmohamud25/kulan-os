@@ -68,8 +68,11 @@ SUPPORT_URL="${KULAN_SUPPORT_URL}"
 EOF
 	install -m 0644 "${ROOT}/kulan.conf" "${root}/usr/share/kulan/kulan.conf"
 
-	# Automatic updates, daily: Debian security fixes plus updates from the
-	# Kulan channel, matched by each repository's Origin.
+	# Automatic updates, daily: Debian stable and security fixes plus updates
+	# from the Kulan channel, matched by each repository's Origin. Debian's
+	# stable archive must be trusted too: a Kulan update can need a new package
+	# from it (2.0 needs Timeshift), and the updater installs nothing from an
+	# untrusted origin. Debian's own default trusts it; this keeps it so.
 	#
 	# Debian's security sources are listed explicitly: unattended-upgrades
 	# takes the distribution name from os-release (now Kulan), so rules that
@@ -77,9 +80,10 @@ EOF
 	# DevRelease "false": there is no Kulan entry in distro-info to check.
 	install -d "${root}/etc/apt/apt.conf.d"
 	cat > "${root}/etc/apt/apt.conf.d/52kulan-auto-upgrades" <<EOF
-// ${KULAN_NAME}: install security updates and ${KULAN_NAME} updates automatically, daily.
+// ${KULAN_NAME}: install Debian stable and security updates and ${KULAN_NAME} updates automatically, daily.
 APT::Periodic::Update-Package-Lists "1";
 APT::Periodic::Unattended-Upgrade "1";
+Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=\${distro_codename},label=Debian";
 Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=\${distro_codename},label=Debian-Security";
 Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=\${distro_codename}-security,label=Debian-Security";
 Unattended-Upgrade::Origins-Pattern:: "origin=${KULAN_NAME}";

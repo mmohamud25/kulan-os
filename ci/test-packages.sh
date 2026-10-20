@@ -39,15 +39,19 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q >/dev/null
 
 shopt -s nullglob
-# Everything that goes into the ISO; kulan-devkit is an optional install,
-# checked separately below.
+# The core Kulan packages. kulan-devkit (optional) and kulan-apps (LibreOffice,
+# VLC, GIMP: large) are checked by simulating their install below.
 DEBS=()
 for DEB in dist/debs/kulan-*.deb; do
-	[[ "${DEB}" == */kulan-devkit_* ]] || DEBS+=("${DEB}")
+	case "${DEB}" in
+		*/kulan-devkit_* | */kulan-apps_*) ;;
+		*) DEBS+=("${DEB}") ;;
+	esac
 done
 DEVKIT=(dist/debs/kulan-devkit_*.deb)
-[[ ${#DEBS[@]} -eq 4 && ${#DEVKIT[@]} -eq 1 ]] || {
-	echo "::error::expected 4 ISO packages and kulan-devkit in dist/debs, found ${#DEBS[@]} and ${#DEVKIT[@]}"
+APPS=(dist/debs/kulan-apps_*.deb)
+[[ ${#DEBS[@]} -eq 4 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 ]] || {
+	echo "::error::expected 4 core packages, kulan-devkit and kulan-apps in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]} and ${#APPS[@]}"
 	exit 1
 }
 VERSION="$(cat dist/debs/VERSION)"
@@ -122,6 +126,9 @@ check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/s
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Update Center compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-updates /usr/lib/kulan/update-status
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
+check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
+# shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
+check "1.0 upgrade path" "kulan-desktop-settings pulls in kulan-update-center and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
 
 # --- Welcome app against Debian's real GTK and libadwaita ------------------------------
 check "Welcome app compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-welcome

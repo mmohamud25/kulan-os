@@ -4,8 +4,8 @@ Architecture: all
 Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: admin
 Priority: optional
-Depends: kulan-base (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.4), pkexec, apt
-Recommends: timeshift, unattended-upgrades
+Depends: kulan-base (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.4), pkexec, apt, timeshift
+Recommends: unattended-upgrades
 Homepage: @HOME_URL@
 Description: @NAME@ Update Center and restore points
  See available updates and what's new in @NAME@, install updates with

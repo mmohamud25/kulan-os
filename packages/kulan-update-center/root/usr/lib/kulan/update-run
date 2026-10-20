@@ -7,6 +7,7 @@
 #   update-run auto-on | auto-off         automatic updates on or off
 #   update-run restore-point              create a restore point now
 #   update-run install-devkit             install the Kulan developer kit
+#   update-run install-apps               install LibreOffice, VLC and GIMP
 #
 # Install progress goes to stdout as apt status lines (pmstatus/dlstatus);
 # apt's own messages go to stderr.
@@ -71,7 +72,12 @@ case "${1:-}" in
 		apt-get -q update 1>&2
 		run_apt install kulan-devkit
 		;;
+	install-apps)
+		[[ $# -eq 1 ]] || die "usage: update-run install-apps"
+		apt-get -q update 1>&2
+		run_apt install kulan-apps
+		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps"
 		;;
 esac
