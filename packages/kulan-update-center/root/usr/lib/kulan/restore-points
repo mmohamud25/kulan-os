@@ -1,0 +1,107 @@
+#!/bin/bash
+# Kulan OS restore points (Timeshift, rsync mode).
+#
+#   restore-points setup             first-boot setup, if not set up yet
+#   restore-points scheduled         daily timer: take scheduled snapshots
+#   restore-points create "<note>"   take a snapshot now
+#   restore-points status            print whether restore points are on
+#
+# Snapshots are skipped when the disk is low on space, so restore points can
+# never fill the disk. Schedule: daily (keep 2) and weekly (keep 1). Home
+# folders are not included (Timeshift's default): restore points roll back
+# the system, not personal files - Deja Dup backs those up.
+set -euo pipefail
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
+
+CONFIG=/etc/timeshift/timeshift.json
+DEFAULTS=/etc/timeshift/default.json
+MIN_FREE_PERCENT=15
+MIN_FREE_GIB=6
+
+log() { echo "kulan restore-points: $*" >&2; }
+
+is_live_or_build() {
+	[[ "${KULAN_RESTORE_FORCE:-0}" == 1 ]] && return 1 # tests only
+	grep -qw 'boot=live' /proc/cmdline 2>/dev/null && return 0
+	ischroot 2>/dev/null && return 0
+	return 1
+}
+
+have_space() {
+	local size avail
+	read -r size avail < <(df --output=size,avail -B1 / | tail -n 1)
+	if (( avail * 100 < size * MIN_FREE_PERCENT )) || (( avail < MIN_FREE_GIB * 1024 * 1024 * 1024 )); then
+		log "skipped: less than ${MIN_FREE_PERCENT}% or ${MIN_FREE_GIB} GiB free on /"
+		return 1
+	fi
+}
+
+setup() {
+	command -v timeshift >/dev/null 2>&1 || { log "Timeshift isn't installed"; return 1; }
+	[[ -f "${CONFIG}" ]] && return 0
+	is_live_or_build && return 0
+
+	local uuid
+	uuid="$(findmnt -no UUID / || true)"
+	[[ -n "${uuid}" ]] || { log "could not find the system disk's UUID"; return 1; }
+
+	python3 - "${DEFAULTS}" "${CONFIG}" "${uuid}" <<'PY'
+import json, os, sys
+defaults, config, uuid = sys.argv[1:4]
+try:
+    with open(defaults, encoding="utf-8") as fh:
+        data = json.load(fh)
+except (OSError, ValueError):
+    data = {}
+data.update({
+    "backup_device_uuid": uuid,
+    "do_first_run": "false",
+    "btrfs_mode": "false",
+    "schedule_monthly": "false",
+    "schedule_weekly": "true",
+    "schedule_daily": "true",
+    "schedule_hourly": "false",
+    "schedule_boot": "false",
+    "count_weekly": "1",
+    "count_daily": "2",
+})
+os.makedirs(os.path.dirname(config), exist_ok=True)
+tmp = config + ".kulan-tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+os.chmod(tmp, 0o644)
+os.replace(tmp, config)
+PY
+	log "set up: daily and weekly restore points on the system disk"
+}
+
+case "${1:-}" in
+	setup)
+		setup
+		;;
+	scheduled)
+		is_live_or_build && exit 0
+		setup
+		have_space || exit 0
+		timeshift --check --scripted
+		;;
+	create)
+		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
+		is_live_or_build && { log "not available in the live session"; exit 1; }
+		setup
+		have_space || exit 1
+		timeshift --create --scripted --comments "$2" --tags O
+		;;
+	status)
+		if [[ -f "${CONFIG}" ]] && command -v timeshift >/dev/null 2>&1; then
+			echo on
+		else
+			echo off
+		fi
+		;;
+	*)
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status' >&2
+		exit 2
+		;;
+esac

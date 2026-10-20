@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Kulan OS restore points
+ConditionKernelCommandLine=!boot=live
+
+[Timer]
+OnBootSec=20min
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target

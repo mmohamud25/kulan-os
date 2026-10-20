@@ -26,6 +26,11 @@ if [[ -z "${KULAN_PKG_VERSION:-}" ]]; then
 	fi
 	KULAN_PKG_VERSION="${KULAN_VERSION}.$(date -u -d "@${STAMP}" +%Y%m%d%H%M)"
 fi
+KULAN_BUILD="${KULAN_BUILD:-local}"
+if ! [[ "${KULAN_BUILD}" =~ ^[A-Za-z0-9]+$ ]]; then
+	echo "E: invalid KULAN_BUILD '${KULAN_BUILD}'" >&2
+	exit 1
+fi
 if ! [[ "${KULAN_PKG_VERSION}" =~ ^[0-9][A-Za-z0-9.+~-]*$ ]]; then
 	echo "E: invalid package version '${KULAN_PKG_VERSION}'" >&2
 	exit 1
@@ -57,6 +62,7 @@ DEBIAN_CODENAME=${KULAN_DEBIAN_SUITE}
 ID=${KULAN_ID}
 ID_LIKE=debian
 LOGO=kulan-logo
+BUILD_ID=${KULAN_BUILD:-local}
 HOME_URL="${KULAN_HOME_URL}"
 SUPPORT_URL="${KULAN_SUPPORT_URL}"
 EOF

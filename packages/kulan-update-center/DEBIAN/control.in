@@ -1,0 +1,17 @@
+Package: kulan-update-center
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: admin
+Priority: optional
+Depends: kulan-base (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.4), pkexec, apt
+Recommends: timeshift, unattended-upgrades
+Homepage: @HOME_URL@
+Description: @NAME@ Update Center and restore points
+ See available updates and what's new in @NAME@, install updates with
+ progress, review recent update history, and turn automatic updates on or
+ off. A top-bar indicator (part of the Kulan Shell look) shows when updates
+ are waiting.
+ .
+ Also sets up daily restore points with Timeshift, so the system can be
+ rolled back if an update ever causes trouble.

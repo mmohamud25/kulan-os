@@ -14,6 +14,17 @@ die() {
 
 ARCH="${KULAN_ARCH:-$(dpkg --print-architecture)}"
 
+# Build number, shown in the ISO file name (GitHub's run number in CI).
+BUILD="${KULAN_BUILD:-local}"
+case "${BUILD}" in
+	""|*[!A-Za-z0-9]*) die "KULAN_BUILD='${BUILD}' must be letters and digits only" ;;
+esac
+if [ "${BUILD}" = local ]; then
+	BUILD_TAG="local"
+else
+	BUILD_TAG="build${BUILD}"
+fi
+
 case "${ARCH}" in
 	amd64)
 		# BIOS (syslinux) + UEFI (grub), writable to USB sticks as-is.
@@ -81,6 +92,6 @@ lb config noauto \
 	--iso-application "${KULAN_NAME}" \
 	--iso-publisher "${KULAN_PUBLISHER}" \
 	--iso-volume "${ISO_VOLUME}" \
-	--image-name "${KULAN_ID}-os-${KULAN_VERSION}" \
+	--image-name "${KULAN_ID}-os-${KULAN_VERSION}-${BUILD_TAG}" \
 	--bootappend-live "boot=live components quiet splash live-config.hostname=${KULAN_HOSTNAME} live-config.username=${KULAN_LIVE_USER} live-config.user-fullname=${KULAN_SHORT_NAME} live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us" \
 	"${@}"

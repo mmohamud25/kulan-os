@@ -23,6 +23,10 @@ concurrency:
 permissions:
   contents: read
 
+# The build number shows in ISO file names and Settings > About.
+env:
+  KULAN_BUILD: ${{ github.run_number }}
+
 jobs:
   plan:
     runs-on: ubuntu-24.04
@@ -188,7 +192,7 @@ jobs:
 
       - name: Build ISO in Debian 13
         run: |
-          docker run --rm --privileged \
+          docker run --rm --privileged -e KULAN_BUILD \
             -v "$GITHUB_WORKSPACE:/build" -w /build \
             debian:trixie bash ci/build-in-container.sh "${{ matrix.arch }}"
 

@@ -1,0 +1,5 @@
+// Kulan OS: keep the Update Center and its top-bar indicator current.
+// The helper never makes apt fail, and gives up after 60 seconds.
+APT::Update::Post-Invoke-Success { "if [ -x /usr/lib/kulan/update-status ]; then timeout 60 /usr/lib/kulan/update-status refresh || true; fi"; };
+DPkg::Pre-Invoke { "if [ -x /usr/lib/kulan/update-status ]; then timeout 10 /usr/lib/kulan/update-status running || true; fi"; };
+DPkg::Post-Invoke { "if [ -x /usr/lib/kulan/update-status ]; then timeout 60 /usr/lib/kulan/update-status refresh || true; fi"; };

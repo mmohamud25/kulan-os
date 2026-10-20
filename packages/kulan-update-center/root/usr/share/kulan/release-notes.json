@@ -1,0 +1,25 @@
+[
+  {
+    "version": "2.0",
+    "title": "Kulan OS 2.0",
+    "items": [
+      "New Kulan look for the top bar, menus, quick settings, notifications, calendar and lock screen",
+      "App grid folders: Office, Internet, Media, Developer, Utilities and System",
+      "Update Center: see, install and schedule updates, with a top-bar indicator",
+      "Restore points: roll the system back if an update ever causes trouble",
+      "LibreOffice, VLC and GIMP built in",
+      "Developer kit: Python, Git, Docker and build tools in one click",
+      "New Bibata cursor",
+      "ISO files now carry their build number"
+    ]
+  },
+  {
+    "version": "1.0",
+    "title": "Kulan OS 1.0",
+    "items": [
+      "GNOME desktop on Debian 13 with the Kulan look",
+      "Welcome tour, firewall, automatic security updates and private defaults",
+      "Kulan update channel, signed with Kulan's own key"
+    ]
+  }
+]

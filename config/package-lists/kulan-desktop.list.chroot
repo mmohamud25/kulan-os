@@ -16,6 +16,7 @@ gnome-shell-extension-prefs
 
 # Look and feel
 papirus-icon-theme
+bibata-cursor-theme
 fonts-inter
 fonts-jetbrains-mono
 plymouth
@@ -30,6 +31,17 @@ evince
 file-roller
 gnome-disk-utility
 gnome-system-monitor
+
+# Office and media (native builds; run on ARM and PCs)
+libreoffice-writer
+libreoffice-calc
+libreoffice-impress
+libreoffice-gnome
+vlc
+gimp
+
+# Restore points (roll back if an update ever breaks something)
+timeshift
 
 # App store (Debian packages + Flathub)
 gnome-software

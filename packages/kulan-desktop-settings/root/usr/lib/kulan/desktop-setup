@@ -30,6 +30,7 @@ EXTENSIONS=""
 for SPEC in \
 	"dock:dash-to-dock@*:required" \
 	"blur:blur-my-shell@*:required" \
+	"kulan:kulan-shell@*:required" \
 	"tray:*appindicator*@*:optional"; do
 	LABEL="${SPEC%%:*}"
 	REST="${SPEC#*:}"
