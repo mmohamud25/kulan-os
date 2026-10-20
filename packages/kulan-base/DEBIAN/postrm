@@ -1,0 +1,17 @@
+#!/bin/sh
+# Hand /usr/lib/os-release back to Debian when kulan-base is removed.
+set -e
+
+OS_RELEASE=/usr/lib/os-release
+
+case "$1" in
+	remove|abort-install|disappear)
+		if dpkg-divert --list "${OS_RELEASE}" | grep -q 'by kulan-base$'; then
+			# Our copy has been removed by dpkg; --rename moves Debian's back.
+			dpkg-divert --package kulan-base --remove --rename \
+				--divert "${OS_RELEASE}.debian" "${OS_RELEASE}"
+		fi
+		;;
+esac
+
+exit 0

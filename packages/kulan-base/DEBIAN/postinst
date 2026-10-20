@@ -1,0 +1,40 @@
+#!/bin/sh
+set -e
+
+# shellcheck source=../../../kulan.conf
+. /usr/share/kulan/kulan.conf
+
+case "$1" in
+	configure)
+		# /etc/os-release must stay a relative symlink to the packaged file.
+		ln -sfn ../usr/lib/os-release /etc/os-release
+
+		# Console login banner (base-files' conffiles, so set here).
+		printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue
+		printf '%s %s\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue.net
+
+		# Security defaults: applied on first install only, so a user who
+		# later turns the firewall off keeps their choice through updates.
+		if [ -z "$2" ]; then
+			if [ -f /etc/ufw/ufw.conf ]; then
+				sed -i -E 's/^ENABLED=.*/ENABLED=yes/' /etc/ufw/ufw.conf
+			fi
+			if [ -f /etc/default/ufw ]; then
+				sed -i -E \
+					-e 's/^DEFAULT_INPUT_POLICY=.*/DEFAULT_INPUT_POLICY="DROP"/' \
+					-e 's/^DEFAULT_OUTPUT_POLICY=.*/DEFAULT_OUTPUT_POLICY="ACCEPT"/' \
+					-e 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="DROP"/' \
+					/etc/default/ufw
+			fi
+			deb-systemd-helper enable ufw.service >/dev/null || true
+		fi
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		;;
+	*)
+		echo "postinst called with unknown argument '$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0

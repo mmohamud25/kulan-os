@@ -1,0 +1,14 @@
+Package: kulan-base
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: admin
+Priority: optional
+Pre-Depends: dpkg (>= 1.19.1)
+Depends: ufw, unattended-upgrades
+Homepage: @HOME_URL@
+Description: @NAME@ identity, update channel and security defaults
+ Makes the system identify as @NAME@ (Settings > About, os-release), adds
+ the @NAME@ software update channel, and sets security and privacy
+ defaults: firewall on, automatic security updates, Wi-Fi address
+ randomization and private Firefox defaults.

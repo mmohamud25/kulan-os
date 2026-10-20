@@ -32,11 +32,16 @@ fi
 if ! command -v lb >/dev/null 2>&1; then
 	echo "Installing live-build..."
 	apt-get update
-	DEBIAN_FRONTEND=noninteractive apt-get install -y live-build debootstrap ca-certificates
+	DEBIAN_FRONTEND=noninteractive apt-get install -y live-build debootstrap ca-certificates apt-utils
 fi
 
-echo "==> Building Kulan OS for ${ARCH}"
+echo "==> Building the Kulan packages"
 lb clean --purge
+packages/build-debs.sh
+mkdir -p config/packages.chroot
+cp dist/debs/*.deb config/packages.chroot/
+
+echo "==> Building Kulan OS for ${ARCH}"
 KULAN_ARCH="${ARCH}" lb config
 lb build
 

@@ -1,0 +1,626 @@
+#!/usr/bin/python3
+"""Kulan Welcome: the first-login tour for Kulan OS.
+
+Pages: welcome, appearance (dark/light and accent color), apps (one-click
+installs from Flathub, filtered to what this computer can run), security
+overview, and a closing page.
+
+Runs automatically once per user at first login (--autostart), never in the
+live session. Can be reopened any time from the app grid.
+"""
+
+from __future__ import annotations
+
+import argparse
+import shlex
+import shutil
+import subprocess
+import sys
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+
+APP_ID = "org.kulan.Welcome"
+CONF_PATH = Path("/usr/share/kulan/kulan.conf")
+STATE_DIR = Path(GLib.get_user_config_dir()) / "kulan-welcome"
+DONE_FILE = STATE_DIR / "done"
+WALLPAPERS = Path("/usr/share/backgrounds/kulan")
+INTERFACE_SCHEMA = "org.gnome.desktop.interface"
+
+ACCENTS = ["blue", "teal", "green", "yellow", "orange", "red", "pink", "purple", "slate"]
+
+
+@dataclass(frozen=True)
+class AppChoice:
+    app_id: str
+    name: str
+    summary: str
+    category: str
+    symbol: str  # shown until the app is installed and its own icon exists
+
+
+APPS = [
+    AppChoice("org.signal.Signal", "Signal", "Private messaging", "Communication", "chat-message-new-symbolic"),
+    AppChoice("org.telegram.desktop", "Telegram", "Messaging", "Communication", "mail-send-symbolic"),
+    AppChoice("com.slack.Slack", "Slack", "Team chat", "Communication", "user-available-symbolic"),
+    AppChoice("us.zoom.Zoom", "Zoom", "Video meetings", "Communication", "camera-web-symbolic"),
+    AppChoice("com.discordapp.Discord", "Discord", "Voice and text chat", "Communication", "call-start-symbolic"),
+    AppChoice(
+        "com.visualstudio.code", "Visual Studio Code", "Code editor", "Work", "applications-engineering-symbolic"
+    ),
+    AppChoice("md.obsidian.Obsidian", "Obsidian", "Notes and knowledge base", "Work", "document-edit-symbolic"),
+    AppChoice(
+        "org.libreoffice.LibreOffice",
+        "LibreOffice",
+        "Documents, spreadsheets, slides",
+        "Work",
+        "x-office-document-symbolic",
+    ),
+    AppChoice("com.bitwarden.desktop", "Bitwarden", "Password manager", "Work", "dialog-password-symbolic"),
+    AppChoice("com.google.Chrome", "Google Chrome", "Web browser", "Internet and media", "web-browser-symbolic"),
+    AppChoice("com.spotify.Client", "Spotify", "Music", "Internet and media", "emblem-music-symbolic"),
+    AppChoice("org.videolan.VLC", "VLC", "Video player", "Internet and media", "multimedia-player-symbolic"),
+    AppChoice(
+        "com.obsproject.Studio",
+        "OBS Studio",
+        "Screen recording and streaming",
+        "Internet and media",
+        "media-record-symbolic",
+    ),
+    AppChoice("org.gimp.GIMP", "GIMP", "Photo editing", "Internet and media", "applications-graphics-symbolic"),
+]
+
+CSS = """
+.kulan-title { font-size: 22pt; font-weight: 800; }
+.theme-card { padding: 6px; border-radius: 14px; }
+.theme-card picture { border-radius: 10px; }
+.accent-swatch { min-width: 30px; min-height: 30px; padding: 0; border-radius: 999px; }
+.accent-swatch image { color: white; -gtk-icon-size: 14px; }
+.accent-blue { background: #3584e4; }
+.accent-teal { background: #2190a4; }
+.accent-green { background: #3a944a; }
+.accent-yellow { background: #c88800; }
+.accent-orange { background: #ed5b00; }
+.accent-red { background: #e62d42; }
+.accent-pink { background: #d56199; }
+.accent-purple { background: #9141ac; }
+.accent-slate { background: #6f8396; }
+"""
+
+
+def read_conf() -> dict[str, str]:
+    conf = {"KULAN_NAME": "Kulan OS", "KULAN_HOME_URL": ""}
+    try:
+        for line in CONF_PATH.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            parts = shlex.split(value)
+            conf[key.strip()] = parts[0] if parts else ""
+    except (OSError, ValueError):
+        pass
+    return conf
+
+
+def is_live_session() -> bool:
+    try:
+        return "boot=live" in Path("/proc/cmdline").read_text().split()
+    except OSError:
+        return False
+
+
+def interface_settings() -> Gio.Settings | None:
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup(INTERFACE_SCHEMA, True) is None:
+        return None
+    return Gio.Settings.new(INTERFACE_SCHEMA)
+
+
+def has_key(settings: Gio.Settings | None, key: str) -> bool:
+    return settings is not None and settings.props.settings_schema.has_key(key)
+
+
+def run(cmd: list[str], timeout: int = 120) -> tuple[int, str, str]:
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        return proc.returncode, proc.stdout, proc.stderr
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 1, "", str(exc)
+
+
+def run_async(cmd: list[str], done, timeout: int = 120) -> None:
+    """Run cmd in a worker thread; call done(code, out, err) on the main loop."""
+
+    def worker() -> None:
+        result = run(cmd, timeout)
+        # Default priority, not idle: an idle callback can wait indefinitely
+        # behind a running animation such as the install spinner.
+        GLib.idle_add(lambda: done(*result) and False, priority=GLib.PRIORITY_DEFAULT)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+class WelcomeWindow(Adw.ApplicationWindow):
+    def __init__(self, app: Adw.Application, conf: dict[str, str], start_page: int) -> None:
+        super().__init__(application=app, title=f"Welcome to {conf['KULAN_NAME']}")
+        self.conf = conf
+        self.name = conf["KULAN_NAME"]
+        self.settings = interface_settings()
+        self.app_checks: dict[str, Gtk.CheckButton] = {}
+        self.app_rows: dict[str, Adw.ActionRow] = {}
+        self.apps_loaded = False
+        self.set_default_size(780, 600)
+
+        self.toasts = Adw.ToastOverlay()
+        self.carousel = Adw.Carousel(hexpand=True, vexpand=True, allow_scroll_wheel=False)
+        self.carousel.connect("page-changed", self.on_page_changed)
+        for builder in (
+            self.build_welcome,
+            self.build_appearance,
+            self.build_apps,
+            self.build_security,
+            self.build_done,
+        ):
+            self.carousel.append(builder())
+
+        self.back = Gtk.Button(label="Back")
+        self.back.connect("clicked", lambda _b: self.go(-1))
+        self.next = Gtk.Button(label="Next", css_classes=["suggested-action", "pill"])
+        self.next.connect("clicked", self.on_next)
+        dots = Adw.CarouselIndicatorDots(carousel=self.carousel, hexpand=True)
+
+        footer = Gtk.CenterBox(margin_start=18, margin_end=18, margin_top=6, margin_bottom=14)
+        footer.set_start_widget(self.back)
+        footer.set_center_widget(dots)
+        footer.set_end_widget(self.next)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.append(self.carousel)
+        box.append(footer)
+        self.toasts.set_child(box)
+
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar(show_title=False))
+        view.set_content(self.toasts)
+        self.set_content(view)
+        self.connect("close-request", self.on_close)
+
+        if start_page:
+            GLib.idle_add(self.jump_to, start_page)
+        self.on_page_changed(self.carousel, 0)
+
+    # --- navigation -----------------------------------------------------------
+    def jump_to(self, index: int) -> bool:
+        index = max(0, min(index, self.carousel.get_n_pages() - 1))
+        self.carousel.scroll_to(self.carousel.get_nth_page(index), False)
+        self.on_page_changed(self.carousel, index)
+        return False
+
+    def go(self, step: int) -> None:
+        index = round(self.carousel.get_position()) + step
+        if 0 <= index < self.carousel.get_n_pages():
+            self.carousel.scroll_to(self.carousel.get_nth_page(index), True)
+
+    def on_next(self, _button: Gtk.Button) -> None:
+        if round(self.carousel.get_position()) >= self.carousel.get_n_pages() - 1:
+            self.close()
+        else:
+            self.go(1)
+
+    def on_page_changed(self, carousel: Adw.Carousel, index: int) -> None:
+        last = index >= carousel.get_n_pages() - 1
+        self.back.set_visible(index > 0)
+        self.next.set_label("Start using " + self.name if last else "Next")
+        if index == 2 and not self.apps_loaded:
+            self.apps_loaded = True
+            self.load_app_availability()
+
+    def on_close(self, _window: Gtk.Window) -> bool:
+        try:
+            if self.startup_switch.get_active():
+                DONE_FILE.unlink(missing_ok=True)
+            else:
+                STATE_DIR.mkdir(parents=True, exist_ok=True)
+                DONE_FILE.write_text("1\n")
+        except OSError:
+            pass
+        return False
+
+    def toast(self, text: str) -> None:
+        self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
+
+    @staticmethod
+    def page(child: Gtk.Widget, width: int = 620) -> Gtk.Widget:
+        clamp = Adw.Clamp(maximum_size=width, child=child, margin_start=24, margin_end=24)
+        scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True, hexpand=True)
+        scroller.set_child(clamp)
+        return scroller
+
+    @staticmethod
+    def heading(title: str, subtitle: str) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=12, margin_bottom=18)
+        box.append(Gtk.Label(label=title, css_classes=["title-1"], wrap=True, justify=Gtk.Justification.CENTER))
+        box.append(Gtk.Label(label=subtitle, css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER))
+        return box
+
+    # --- page 1: welcome ------------------------------------------------------
+    def build_welcome(self) -> Gtk.Widget:
+        status = Adw.StatusPage(
+            icon_name="kulan-logo",
+            title=f"Welcome to {self.name}",
+            description="Let's get you set up in a minute: choose your look, add the apps "
+            "you use, and see how your computer is protected.",
+            vexpand=True,
+        )
+        return status
+
+    # --- page 2: appearance ---------------------------------------------------
+    def build_appearance(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.append(self.heading("Choose your look", "You can change this any time in Settings > Appearance."))
+
+        cards = Gtk.Box(spacing=18, halign=Gtk.Align.CENTER, homogeneous=True)
+        dark_now = self.settings is None or self.settings.get_string("color-scheme") != "default"
+        dark = self.theme_card("Dark", WALLPAPERS / "kulan-dark.png", "prefer-dark", dark_now)
+        light = self.theme_card("Light", WALLPAPERS / "kulan-light.png", "default", not dark_now)
+        light.set_group(dark)
+        cards.append(dark)
+        cards.append(light)
+        box.append(cards)
+
+        if has_key(self.settings, "accent-color"):
+            box.append(Gtk.Label(label="Accent color", css_classes=["heading"], margin_top=6))
+            swatches = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+            current = self.settings.get_string("accent-color")
+            group: Gtk.ToggleButton | None = None
+            for accent in ACCENTS:
+                mark = Gtk.Image(icon_name="object-select-symbolic", visible=accent == current)
+                button = Gtk.ToggleButton(
+                    child=mark,
+                    active=accent == current,
+                    tooltip_text=accent.capitalize(),
+                    css_classes=["accent-swatch", f"accent-{accent}"],
+                )
+                if group is None:
+                    group = button
+                else:
+                    button.set_group(group)
+                button.connect("toggled", self.on_accent, accent, mark)
+                swatches.append(button)
+            box.append(swatches)
+        return self.page(box)
+
+    def theme_card(self, label: str, image: Path, scheme: str, active: bool) -> Gtk.ToggleButton:
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        if image.exists():
+            picture = Gtk.Picture.new_for_filename(str(image))
+            picture.set_content_fit(Gtk.ContentFit.COVER)
+            picture.set_size_request(240, 135)
+            inner.append(picture)
+        inner.append(Gtk.Label(label=label, css_classes=["heading"]))
+        button = Gtk.ToggleButton(child=inner, active=active, css_classes=["theme-card"])
+        button.connect("toggled", self.on_theme, scheme)
+        return button
+
+    def on_theme(self, button: Gtk.ToggleButton, scheme: str) -> None:
+        if button.get_active() and self.settings is not None:
+            self.settings.set_string("color-scheme", scheme)
+
+    def on_accent(self, button: Gtk.ToggleButton, accent: str, mark: Gtk.Image) -> None:
+        mark.set_visible(button.get_active())
+        if button.get_active() and self.settings is not None:
+            self.settings.set_string("accent-color", accent)
+
+    # --- page 3: apps ---------------------------------------------------------
+    def build_apps(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.append(
+            self.heading(
+                "Add your apps",
+                "Pick the apps you want and install them in one go. More are in the Software app.",
+            )
+        )
+        self.apps_status = Gtk.Label(label="Checking which apps this computer can run...", css_classes=["dim-label"])
+        box.append(self.apps_status)
+
+        groups: dict[str, Adw.PreferencesGroup] = {}
+        for choice in APPS:
+            if choice.category not in groups:
+                groups[choice.category] = Adw.PreferencesGroup(title=choice.category)
+                box.append(groups[choice.category])
+            check = Gtk.CheckButton(valign=Gtk.Align.CENTER, sensitive=False)
+            check.connect("toggled", self.on_app_toggled)
+            row = Adw.ActionRow(title=choice.name, subtitle=choice.summary, activatable_widget=check)
+            theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+            if theme.has_icon(choice.app_id):
+                icon = Gtk.Image(icon_name=choice.app_id, pixel_size=32)
+            else:
+                icon = Gtk.Image(icon_name=choice.symbol, pixel_size=24, margin_start=4, margin_end=4)
+            row.add_prefix(icon)
+            row.add_suffix(check)
+            groups[choice.category].add(row)
+            self.app_checks[choice.app_id] = check
+            self.app_rows[choice.app_id] = row
+
+        self.install_button = Gtk.Button(
+            label="Install selected", css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER, sensitive=False
+        )
+        self.install_button.connect("clicked", self.on_install)
+        self.install_spinner = Gtk.Spinner(visible=False, halign=Gtk.Align.CENTER)
+        box.append(self.install_button)
+        box.append(self.install_spinner)
+        box.append(Gtk.Box(margin_bottom=12))
+        return self.page(box)
+
+    def load_app_availability(self) -> None:
+        if shutil.which("flatpak") is None:
+            self.apps_status.set_label("Flatpak isn't installed, so these apps can't be added here.")
+            return
+
+        code, out, _ = run(["flatpak", "--default-arch"], timeout=10)
+        arch = out.strip() if code == 0 and out.strip() else None
+        cmd = ["flatpak", "remote-ls", "--system", "--app", "--columns=application", "flathub"]
+        if arch:
+            cmd.append(f"--arch={arch}")
+
+        def got_remote(code: int, out: str, err: str) -> bool:
+            if code != 0:
+                self.apps_status.set_label("Couldn't reach Flathub. Connect to the internet, then reopen this page.")
+                self.apps_loaded = False
+                return False
+            available = {line.strip() for line in out.splitlines() if line.strip()}
+            run_async(
+                ["flatpak", "list", "--app", "--columns=application"],
+                lambda c, o, e: self.apply_availability(available, set(o.split()) if c == 0 else set(), arch),
+                timeout=30,
+            )
+            return False
+
+        run_async(cmd, got_remote, timeout=120)
+
+    def apply_availability(self, available: set[str], installed: set[str], arch: str | None) -> bool:
+        unavailable = 0
+        for app_id, check in self.app_checks.items():
+            row = self.app_rows[app_id]
+            choice = next(c for c in APPS if c.app_id == app_id)
+            if app_id in installed:
+                row.set_sensitive(True)
+                check.set_active(True)
+                check.set_sensitive(False)
+                row.set_subtitle(f"{choice.summary} - installed")
+            elif app_id in available:
+                row.set_sensitive(True)
+                check.set_sensitive(True)
+                row.set_subtitle(choice.summary)
+            else:
+                unavailable += 1
+                check.set_active(False)
+                check.set_sensitive(False)
+                row.set_sensitive(False)
+                row.set_subtitle("Not available for this computer - use its website instead")
+        machine = {"aarch64": "ARM", "x86_64": "PC"}.get(arch or "", "this")
+        if unavailable:
+            self.apps_status.set_label(
+                f"{unavailable} of these aren't made for {machine} computers yet and are greyed out."
+            )
+        else:
+            self.apps_status.set_label("All of these work on this computer.")
+        self.on_app_toggled(None)
+        return False
+
+    def selected_apps(self) -> list[str]:
+        return [app_id for app_id, check in self.app_checks.items() if check.get_active() and check.get_sensitive()]
+
+    def on_app_toggled(self, _check: Gtk.CheckButton | None) -> None:
+        count = len(self.selected_apps())
+        self.install_button.set_sensitive(count > 0)
+        label = f"Install {count} app{'s' if count != 1 else ''}" if count else "Install selected"
+        self.install_button.set_label(label)
+
+    def on_install(self, _button: Gtk.Button) -> None:
+        apps = self.selected_apps()
+        if not apps:
+            return
+        self.install_button.set_sensitive(False)
+        self.install_button.set_label("Installing... this can take a few minutes")
+        self.install_spinner.set_visible(True)
+        self.install_spinner.start()
+        for check in self.app_checks.values():
+            check.set_sensitive(False)
+
+        def done(code: int, _out: str, err: str) -> bool:
+            self.install_spinner.stop()
+            self.install_spinner.set_visible(False)
+            if code == 0:
+                self.toast(f"Installed {len(apps)} app{'s' if len(apps) != 1 else ''}")
+            else:
+                reason = (err.strip().splitlines() or ["unknown error"])[-1]
+                self.toast(f"Couldn't install: {reason}")
+            self.load_app_availability()
+            return False
+
+        # A system-wide install asks for your password through the normal
+        # GNOME prompt; apps then appear for every user on this computer.
+        run_async(["flatpak", "install", "--system", "--noninteractive", "-y", "flathub", *apps], done, timeout=3600)
+
+    # --- page 4: security -----------------------------------------------------
+    def build_security(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.append(self.heading("How you're protected", f"{self.name} turns on these protections for you."))
+        group = Adw.PreferencesGroup()
+        live = is_live_session()
+
+        firewall_on = self.firewall_enabled()
+        group.add(
+            self.status_row(
+                "Firewall",
+                "Blocks connections coming in from the network",
+                firewall_on,
+                "gufw",
+                "Settings",
+            )
+        )
+        group.add(
+            self.status_row(
+                "Automatic security updates",
+                "Fixes for security problems install every day",
+                self.auto_updates_enabled(),
+            )
+        )
+        if live:
+            group.add(self.info_row("Disk encryption", "Choose it when you install - it's on by default"))
+        else:
+            encrypted = self.disk_encrypted()
+            group.add(
+                self.status_row(
+                    "Disk encryption",
+                    "Your files are locked if this computer is lost"
+                    if encrypted
+                    else "Reinstall with encryption turned on to protect your files if this computer is lost",
+                    encrypted,
+                )
+            )
+        group.add(
+            self.status_row(
+                "Network privacy",
+                "Wi-Fi hides your device's hardware address",
+                Path("/etc/NetworkManager/conf.d/80-kulan-privacy.conf").exists(),
+            )
+        )
+        group.add(
+            self.status_row(
+                "Private browsing defaults",
+                "Firefox blocks trackers and sends no usage data",
+                Path("/etc/firefox/policies/policies.json").exists(),
+            )
+        )
+        backups = shutil.which("deja-dup") is not None
+        group.add(
+            self.status_row(
+                "Backups",
+                "Back up your files to a drive or cloud storage",
+                None if backups else False,
+                "deja-dup" if backups else None,
+                "Set up",
+            )
+        )
+        box.append(group)
+        return self.page(box)
+
+    def status_row(
+        self,
+        title: str,
+        subtitle: str,
+        state: bool | None,
+        launch: str | None = None,
+        launch_label: str = "Open",
+    ) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=title, subtitle=subtitle)
+        if state is True:
+            row.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic", css_classes=["success"]))
+            row.add_suffix(Gtk.Label(label="On", css_classes=["success"]))
+        elif state is False:
+            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
+            row.add_suffix(Gtk.Label(label="Off", css_classes=["warning"]))
+        else:
+            row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+        if launch and shutil.which(launch):
+            button = Gtk.Button(label=launch_label, valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda _b: self.launch(launch))
+            row.add_suffix(button)
+        return row
+
+    @staticmethod
+    def info_row(title: str, subtitle: str) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=title, subtitle=subtitle)
+        row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+        return row
+
+    def launch(self, program: str) -> None:
+        try:
+            subprocess.Popen([program], start_new_session=True)
+        except OSError as exc:
+            self.toast(f"Couldn't open {program}: {exc.strerror}")
+
+    @staticmethod
+    def firewall_enabled() -> bool:
+        try:
+            return "ENABLED=yes" in Path("/etc/ufw/ufw.conf").read_text().split()
+        except OSError:
+            return False
+
+    @staticmethod
+    def auto_updates_enabled() -> bool:
+        code, out, _ = run(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"], timeout=10)
+        return code == 0 and '"1"' in out
+
+    @staticmethod
+    def disk_encrypted() -> bool:
+        code, out, _ = run(["lsblk", "--noheadings", "--output", "TYPE"], timeout=10)
+        return code == 0 and "crypt" in out.split()
+
+    # --- page 5: done ---------------------------------------------------------
+    def build_done(self) -> Gtk.Widget:
+        status = Adw.StatusPage(
+            icon_name="emblem-ok-symbolic",
+            title="You're all set",
+            description="Open this tour again any time from your apps.",
+            vexpand=True,
+        )
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        group = Adw.PreferencesGroup()
+        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=False)
+        group.add(self.startup_switch)
+        inner.append(group)
+        url = self.conf.get("KULAN_HOME_URL", "")
+        if url:
+            publisher = self.conf.get("KULAN_PUBLISHER", "").removesuffix(" Ltd").strip() or "our website"
+            visit = Gtk.Button(label=f"Visit {publisher}", css_classes=["pill"], halign=Gtk.Align.CENTER)
+            visit.connect("clicked", lambda _b: Gtk.UriLauncher.new(url).launch(self, None, None, None))
+            inner.append(visit)
+        status.set_child(Adw.Clamp(maximum_size=420, child=inner))
+        return status
+
+
+class WelcomeApp(Adw.Application):
+    def __init__(self, start_page: int) -> None:
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.start_page = start_page
+        self.conf = read_conf()
+
+    def do_startup(self) -> None:
+        Adw.Application.do_startup(self)
+        provider = Gtk.CssProvider()
+        if hasattr(provider, "load_from_string"):  # GTK 4.12+
+            provider.load_from_string(CSS)
+        else:
+            provider.load_from_data(CSS.encode())
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+    def do_activate(self) -> None:
+        window = self.props.active_window or WelcomeWindow(self, self.conf, self.start_page)
+        window.present()
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Kulan OS welcome tour")
+    parser.add_argument("--autostart", action="store_true", help="run only if this is the first login")
+    parser.add_argument("--page", type=int, default=0, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv[1:])
+
+    if args.autostart and (DONE_FILE.exists() or is_live_session()):
+        return 0
+    return WelcomeApp(args.page).run([argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

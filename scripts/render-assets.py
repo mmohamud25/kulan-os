@@ -22,7 +22,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "assets"
-CHROOT = ROOT / "config" / "includes.chroot"
+# Images ship in the kulan-desktop-settings package.
+CHROOT = ROOT / "packages" / "kulan-desktop-settings" / "root"
 FONT = "Inter, Noto Sans, DejaVu Sans, sans-serif"
 
 
@@ -81,7 +82,8 @@ def render(
 
         with Image.open(out) as img:
             img.convert("RGB").save(out, optimize=True)
-    print(f"  wrote {out.relative_to(ROOT)}")
+    shown = out.relative_to(ROOT) if out.is_relative_to(ROOT) else out
+    print(f"  wrote {shown}")
 
 
 def main() -> int:

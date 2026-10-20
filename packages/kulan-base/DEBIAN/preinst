@@ -1,0 +1,22 @@
+#!/bin/sh
+# Divert Debian's /usr/lib/os-release so this package can ship its own.
+# Future base-files updates write Debian's copy to os-release.debian instead.
+# --no-rename: base-files is Essential, so the file must never be missing,
+# even for a moment; Debian's copy is kept alongside first.
+set -e
+
+OS_RELEASE=/usr/lib/os-release
+
+case "$1" in
+	install|upgrade)
+		if ! dpkg-divert --list "${OS_RELEASE}" | grep -q 'by kulan-base$'; then
+			if [ -e "${OS_RELEASE}" ] && [ ! -e "${OS_RELEASE}.debian" ]; then
+				cp -p "${OS_RELEASE}" "${OS_RELEASE}.debian"
+			fi
+			dpkg-divert --package kulan-base --add --no-rename \
+				--divert "${OS_RELEASE}.debian" "${OS_RELEASE}"
+		fi
+		;;
+esac
+
+exit 0

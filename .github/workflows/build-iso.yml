@@ -7,7 +7,7 @@ on:
     paths-ignore:
       - "**.md"
       - "assets/**"
-      - "scripts/**"
+      - "scripts/render-assets.py"
   workflow_dispatch:
     inputs:
       arch:
@@ -42,8 +42,28 @@ jobs:
           esac
           echo "matrix={\"include\":$list}" >> "$GITHUB_OUTPUT"
 
+  packages:
+    name: Kulan packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build kulan-base, kulan-desktop-settings, kulan-welcome
+        run: packages/build-debs.sh
+      - name: Check packages
+        run: |
+          for deb in dist/debs/*.deb; do
+            echo "== $deb"
+            dpkg-deb --info "$deb" | sed -n '/Package:/,/Description:/p'
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kulan-debs
+          path: dist/debs/
+          if-no-files-found: error
+          retention-days: 14
+
   build:
-    needs: plan
+    needs: [plan, packages]
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
@@ -53,6 +73,12 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+
+      - name: Get the Kulan packages
+        uses: actions/download-artifact@v4
+        with:
+          name: kulan-debs
+          path: config/packages.chroot/
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships
       # with toolchains we don't use, so remove them first.
@@ -70,6 +96,12 @@ jobs:
           docker run --rm --privileged \
             -v "$GITHUB_WORKSPACE:/build" -w /build \
             debian:trixie bash ci/build-in-container.sh "${{ matrix.arch }}"
+
+      - name: Inspect ISO
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q xorriso squashfs-tools initramfs-tools-core zstd
+          ci/verify-iso.sh out/*.iso "${{ matrix.arch }}"
 
       - name: Upload ISO
         uses: actions/upload-artifact@v4
@@ -92,3 +124,57 @@ jobs:
             build.log
           retention-days: 14
           if-no-files-found: ignore
+
+  # Publishes the packages to the update channel, but only after the ISOs
+  # built and passed inspection, and only once the channel is set up
+  # (scripts/setup-update-channel.sh).
+  publish:
+    needs: [packages, build]
+    if: github.ref == 'refs/heads/main'
+    name: Publish updates
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Is the update channel set up?
+        id: ready
+        env:
+          KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
+        run: |
+          if [ -n "$KEY" ] && [ -f packages/kulan-archive-keyring.gpg ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Update channel::Not set up yet - run scripts/setup-update-channel.sh to switch it on."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-debs
+          path: dist/debs/
+
+      - name: Build signed package repository
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          KULAN_APT_SIGNING_KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q apt-utils gnupg xz-utils
+          ci/publish-repo.sh
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          path: site/
+
+      - id: deploy
+        if: steps.ready.outputs.ready == 'true'
+        uses: actions/deploy-pages@v4

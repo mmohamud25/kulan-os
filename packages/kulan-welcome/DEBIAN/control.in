@@ -1,0 +1,13 @@
+Package: kulan-welcome
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: gnome
+Priority: optional
+Depends: kulan-base (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.4), flatpak
+Recommends: kulan-desktop-settings (= @VERSION@), gufw, deja-dup
+Homepage: @HOME_URL@
+Description: @NAME@ welcome tour
+ Shown once at first login: pick light or dark mode and an accent color,
+ install popular apps from Flathub in one go (only those that run on this
+ computer are offered), and see which security protections are on.

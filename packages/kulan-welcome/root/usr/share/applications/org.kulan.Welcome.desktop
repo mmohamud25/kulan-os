@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Welcome to Kulan OS
+GenericName=Welcome tour
+Comment=Choose your look, add apps and check your security
+Exec=kulan-welcome
+Icon=kulan-logo
+Terminal=false
+Categories=GNOME;GTK;System;
+Keywords=welcome;tour;setup;apps;security;theme;
+StartupNotify=true

@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	remove|purge)
+		rm -f /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
+		if command -v glib-compile-schemas >/dev/null 2>&1; then
+			glib-compile-schemas /usr/share/glib-2.0/schemas || true
+		fi
+		rm -rf /usr/share/plymouth/themes/kulan
+		if update-alternatives --query default.plymouth >/dev/null 2>&1; then
+			update-alternatives --quiet --remove default.plymouth \
+				/usr/share/plymouth/themes/kulan/kulan.plymouth || true
+		fi
+		if [ -f /etc/plymouth/plymouthd.conf ] && grep -qx 'Theme=kulan' /etc/plymouth/plymouthd.conf; then
+			rm -f /etc/plymouth/plymouthd.conf
+		fi
+		if command -v dconf >/dev/null 2>&1; then
+			dconf update || true
+		fi
+		;;
+esac
+
+exit 0

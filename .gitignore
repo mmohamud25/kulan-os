@@ -19,4 +19,7 @@
 /config/chroot
 /config/common
 /config/source
-/config/includes.chroot/usr/share/kulan/kulan.conf
+/config/packages.chroot/
+# built packages
+/dist/
+/site/

@@ -9,7 +9,17 @@ cd "$(dirname "$0")/.."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-	live-build debootstrap ca-certificates dpkg-dev
+	live-build debootstrap ca-certificates dpkg-dev apt-utils
+
+# The Kulan packages are built by the "packages" job and downloaded here.
+shopt -s nullglob
+DEBS=(config/packages.chroot/kulan-*.deb)
+if [[ ${#DEBS[@]} -lt 3 ]]; then
+	echo "::error::Expected the 3 Kulan packages in config/packages.chroot, found ${#DEBS[@]}" >&2
+	exit 1
+fi
+printf 'Kulan package: %s\n' "${DEBS[@]}"
+shopt -u nullglob
 
 HOST_ARCH="$(dpkg --print-architecture)"
 if [[ "${HOST_ARCH}" != "${ARCH}" ]]; then

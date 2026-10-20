@@ -1,0 +1,47 @@
+#!/bin/sh
+# Kulan OS boot splash (Plymouth): builds the "kulan" theme from the spinner
+# theme's animation frames plus the Kulan logo, and makes it the default.
+#
+# The splash is loaded from the initramfs; the package asks initramfs-tools
+# to rebuild it afterwards, and the ISO build checks the result.
+set -eu
+
+THEMES=/usr/share/plymouth/themes
+BASE="${THEMES}/spinner"
+THEME="${THEMES}/kulan"
+SRC=/usr/share/kulan/plymouth
+
+if [ ! -d "${BASE}" ]; then
+	echo "W: ${BASE} missing (is plymouth-themes installed?); boot splash not set" >&2
+	exit 0
+fi
+for FILE in kulan.plymouth watermark.png; do
+	[ -f "${SRC}/${FILE}" ] || { echo "E: ${SRC}/${FILE} missing" >&2; exit 1; }
+done
+
+# Rebuild the theme folder in a temporary location, then swap it in, so an
+# interrupted update never leaves a half-copied theme.
+STAGE="$(mktemp -d "${THEMES}/.kulan.XXXXXX")"
+cp -a "${BASE}"/*.png "${STAGE}/"
+install -m 0644 "${SRC}/watermark.png" "${STAGE}/watermark.png"
+install -m 0644 "${SRC}/kulan.plymouth" "${STAGE}/kulan.plymouth"
+chmod 0755 "${STAGE}"
+rm -rf "${THEME}"
+mv "${STAGE}" "${THEME}"
+
+# Select it through every mechanism a Plymouth build may use: the config
+# file, plymouth-set-default-theme, and the default.plymouth alternative.
+mkdir -p /etc/plymouth
+printf '[Daemon]\nTheme=kulan\n' > /etc/plymouth/plymouthd.conf
+
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+	plymouth-set-default-theme kulan
+fi
+
+if update-alternatives --query default.plymouth >/dev/null 2>&1; then
+	update-alternatives --quiet --install "${THEMES}/default.plymouth" default.plymouth \
+		"${THEME}/kulan.plymouth" 200
+	update-alternatives --quiet --set default.plymouth "${THEME}/kulan.plymouth"
+fi
+
+echo "I: Kulan OS boot splash theme set"

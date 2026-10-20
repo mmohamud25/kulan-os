@@ -1,6 +1,11 @@
 # Kulan OS desktop - GNOME on Debian 13.
 # One package per line. Package names verified against Debian trixie.
 
+# Kulan OS's own packages (built by packages/build-debs.sh)
+kulan-base
+kulan-desktop-settings
+kulan-welcome
+
 # Desktop
 gnome-core
 gnome-tweaks
@@ -39,9 +44,16 @@ calamares-settings-debian
 fonts-noto-core
 fonts-noto-color-emoji
 
-# Security defaults
+# Security and privacy
 ufw
+gufw
 unattended-upgrades
+deja-dup
+
+# Tor Browser launcher: Tor Browser is only built for PCs (x86-64).
+#if ARCHITECTURES amd64
+torbrowser-launcher
+#endif
 
 # Useful tools
 sudo

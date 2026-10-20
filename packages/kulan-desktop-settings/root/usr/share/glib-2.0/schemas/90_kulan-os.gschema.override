@@ -51,3 +51,12 @@ running-indicator-style='DOTS'
 show-trash=false
 show-mounts=false
 show-apps-at-top=false
+
+# Privacy: clear old trash and temporary files after 30 days; never send
+# usage or crash reports.
+[org.gnome.desktop.privacy]
+remove-old-trash-files=true
+remove-old-temp-files=true
+old-files-age=uint32 30
+report-technical-problems=false
+send-software-usage-stats=false

@@ -1,0 +1,33 @@
+#!/bin/sh
+set -e
+
+apply() {
+	/usr/lib/kulan/desktop-setup
+}
+
+case "$1" in
+	configure)
+		apply
+		/usr/lib/kulan/boot-splash-setup
+		# Rebuild the initramfs so the boot splash change takes effect.
+		if command -v update-initramfs >/dev/null 2>&1; then
+			dpkg-trigger --no-await update-initramfs || true
+		fi
+		# Refresh the boot menu on installed systems (not during the ISO build).
+		if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1; then
+			update-grub || echo "W: update-grub failed; boot menu settings apply after the next kernel update" >&2
+		fi
+		;;
+	triggered)
+		# Extensions or the installer launcher were added or removed.
+		apply
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		;;
+	*)
+		echo "postinst called with unknown argument '$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0

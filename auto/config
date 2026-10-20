@@ -57,9 +57,10 @@ if [ "${#ISO_VOLUME}" -gt 32 ]; then
 	die "ISO volume label '${ISO_VOLUME}' is longer than 32 characters; shorten KULAN_NAME"
 fi
 
-# Ship kulan.conf inside the image so the chroot hooks share the same values.
-mkdir -p config/includes.chroot/usr/share/kulan
-cp kulan.conf config/includes.chroot/usr/share/kulan/kulan.conf
+# The Kulan packages (kulan.conf, branding, welcome app) must be built first.
+if ! ls config/packages.chroot/kulan-base_*.deb >/dev/null 2>&1; then
+	die "Kulan packages missing from config/packages.chroot - run packages/build-debs.sh and copy dist/debs/*.deb there (build.sh does this)"
+fi
 
 lb config noauto \
 	--mode debian \
