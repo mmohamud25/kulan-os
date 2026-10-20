@@ -27,6 +27,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "org.kulan.Welcome"
+UPDATE_HELPER = "/usr/lib/kulan/update-run"
+RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 CONF_PATH = Path("/usr/share/kulan/kulan.conf")
 STATE_DIR = Path(GLib.get_user_config_dir()) / "kulan-welcome"
 DONE_FILE = STATE_DIR / "done"
@@ -55,17 +57,9 @@ APPS = [
         "com.visualstudio.code", "Visual Studio Code", "Code editor", "Work", "applications-engineering-symbolic"
     ),
     AppChoice("md.obsidian.Obsidian", "Obsidian", "Notes and knowledge base", "Work", "document-edit-symbolic"),
-    AppChoice(
-        "org.libreoffice.LibreOffice",
-        "LibreOffice",
-        "Documents, spreadsheets, slides",
-        "Work",
-        "x-office-document-symbolic",
-    ),
     AppChoice("com.bitwarden.desktop", "Bitwarden", "Password manager", "Work", "dialog-password-symbolic"),
     AppChoice("com.google.Chrome", "Google Chrome", "Web browser", "Internet and media", "web-browser-symbolic"),
     AppChoice("com.spotify.Client", "Spotify", "Music", "Internet and media", "emblem-music-symbolic"),
-    AppChoice("org.videolan.VLC", "VLC", "Video player", "Internet and media", "multimedia-player-symbolic"),
     AppChoice(
         "com.obsproject.Studio",
         "OBS Studio",
@@ -73,7 +67,6 @@ APPS = [
         "Internet and media",
         "media-record-symbolic",
     ),
-    AppChoice("org.gimp.GIMP", "GIMP", "Photo editing", "Internet and media", "applications-graphics-symbolic"),
 ]
 
 CSS = """
@@ -356,8 +349,58 @@ class WelcomeWindow(Adw.ApplicationWindow):
         self.install_spinner = Gtk.Spinner(visible=False, halign=Gtk.Align.CENTER)
         box.append(self.install_button)
         box.append(self.install_spinner)
+        box.append(self.build_devkit())
         box.append(Gtk.Box(margin_bottom=12))
         return self.page(box)
+
+    def build_devkit(self) -> Gtk.Widget:
+        group = Adw.PreferencesGroup(
+            title="Developer kit",
+            description="Git, Python with pip and virtual environments, build tools, Docker and Docker Compose.",
+        )
+        row = Adw.ActionRow(title="Kulan developer kit", subtitle="About 600 MB")
+        row.add_prefix(Gtk.Image(icon_name="applications-engineering-symbolic", pixel_size=24))
+        self.devkit_button = Gtk.Button(label="Install", valign=Gtk.Align.CENTER)
+        self.devkit_button.connect("clicked", self.on_install_devkit)
+        row.add_suffix(self.devkit_button)
+        group.add(row)
+        self.devkit_row = row
+        if self.devkit_installed():
+            self.mark_devkit_installed()
+        elif is_live_session() or not Path(UPDATE_HELPER).exists():
+            self.devkit_button.set_sensitive(False)
+            row.set_subtitle("Available after you install Kulan OS")
+        return group
+
+    @staticmethod
+    def devkit_installed() -> bool:
+        code, out, _ = run(["dpkg-query", "-W", "-f=${Status}", "kulan-devkit"], timeout=10)
+        return code == 0 and out.strip() == "install ok installed"
+
+    def mark_devkit_installed(self) -> None:
+        self.devkit_button.set_label("Installed")
+        self.devkit_button.set_sensitive(False)
+        self.devkit_row.set_subtitle("Docker needs sudo, or run: sudo usermod -aG docker $USER (then log out and in)")
+
+    def on_install_devkit(self, button: Gtk.Button) -> None:
+        button.set_sensitive(False)
+        button.set_label("Installing\u2026")
+
+        def done(code: int, _out: str, err: str) -> bool:
+            if code == 0:
+                self.mark_devkit_installed()
+                self.toast("Developer kit installed")
+            else:
+                button.set_sensitive(True)
+                button.set_label("Install")
+                if code in (126, 127):
+                    self.toast("Cancelled")
+                else:
+                    reason = (err.strip().splitlines() or ["unknown error"])[-1]
+                    self.toast(f"Couldn't install: {reason[:120]}")
+            return False
+
+        run_async(["pkexec", UPDATE_HELPER, "install-devkit"], done, timeout=3600)
 
     def load_app_availability(self) -> None:
         if shutil.which("flatpak") is None:
@@ -501,6 +544,19 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 Path("/etc/firefox/policies/policies.json").exists(),
             )
         )
+        if live:
+            group.add(self.info_row("Restore points", "Set up automatically after you install Kulan OS"))
+        else:
+            restore_on = RESTORE_CONFIG.exists() and shutil.which("timeshift") is not None
+            group.add(
+                self.status_row(
+                    "Restore points",
+                    "Roll the system back if an update causes trouble",
+                    restore_on,
+                    "kulan-updates" if shutil.which("kulan-updates") else None,
+                    "Open",
+                )
+            )
         backups = shutil.which("deja-dup") is not None
         group.add(
             self.status_row(

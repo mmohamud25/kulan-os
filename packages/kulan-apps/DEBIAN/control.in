@@ -1,0 +1,12 @@
+Package: kulan-apps
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: metapackages
+Priority: optional
+Depends: libreoffice-writer, libreoffice-calc, libreoffice-impress, libreoffice-gnome, vlc, gimp
+Homepage: @HOME_URL@
+Description: @NAME@ office and media apps
+ LibreOffice (documents, spreadsheets and slides), VLC and GIMP: the office
+ and media apps built into @NAME@ 2.0. Systems installed from an earlier
+ version can add them from the Update Center.

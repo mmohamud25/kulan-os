@@ -79,11 +79,22 @@ has_path() { grep -q "squashfs-root/$1\$" "${WORK}/listing"; }
 check "Boot menu" "\"Kulan OS Live\" entries in GRUB" grep -q "Kulan OS Live" "${WORK}/grub.cfg"
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
-for PKG in kulan-base kulan-desktop-settings kulan-welcome; do
+for PKG in kulan-base kulan-desktop-settings kulan-welcome kulan-update-center kulan-apps; do
 	VER="$(awk -v p="${PKG}" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" {match($0, /\nVersion: [^\n]+/); print substr($0, RSTART+10, RLENGTH-10)}' "${R}/var/lib/dpkg/status")"
 	check "Package ${PKG}" "installed ${VER:-?}" installed "${PKG}"
 done
 check "Desktop extensions" "dock + blur enabled" grep -q "dash-to-dock.*blur-my-shell" "${R}/usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override"
+check "Kulan Shell" "kulan-shell@kulangroup.com enabled" grep -q "kulan-shell@kulangroup.com" "${R}/usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override"
+check "Build number" "os-release BUILD_ID=${KULAN_BUILD:-?}" grep -qx "BUILD_ID=${KULAN_BUILD:-.*}" "${R}/usr/lib/os-release"
+check "Cursor" "Bibata cursor installed" installed bibata-cursor-theme
+check "Office apps" "LibreOffice Writer, Calc, Impress" bash -c "$(declare -f installed); R='${R}'; installed libreoffice-writer && installed libreoffice-calc && installed libreoffice-impress"
+check "Media apps" "VLC and GIMP" bash -c "$(declare -f installed); R='${R}'; installed vlc && installed gimp"
+check "Restore points" "Timeshift installed" installed timeshift
+if installed kulan-devkit; then
+	result fail "Developer kit" "kulan-devkit must be an optional install, but it is in the ISO"
+else
+	result pass "Developer kit" "not in the ISO (one-click install from the Welcome app)"
+fi
 check "Icons" "Papirus icon theme installed" installed papirus-icon-theme
 check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"

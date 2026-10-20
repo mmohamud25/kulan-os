@@ -39,15 +39,28 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -q >/dev/null
 
 shopt -s nullglob
-DEBS=(dist/debs/kulan-*.deb)
-[[ ${#DEBS[@]} -eq 3 ]] || { echo "::error::expected 3 packages in dist/debs, found ${#DEBS[@]}"; exit 1; }
+# The core Kulan packages. kulan-devkit (optional) and kulan-apps (LibreOffice,
+# VLC, GIMP: large) are checked by simulating their install below.
+DEBS=()
+for DEB in dist/debs/kulan-*.deb; do
+	case "${DEB}" in
+		*/kulan-devkit_* | */kulan-apps_*) ;;
+		*) DEBS+=("${DEB}") ;;
+	esac
+done
+DEVKIT=(dist/debs/kulan-devkit_*.deb)
+APPS=(dist/debs/kulan-apps_*.deb)
+[[ ${#DEBS[@]} -eq 4 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 ]] || {
+	echo "::error::expected 4 core packages, kulan-devkit and kulan-apps in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]} and ${#APPS[@]}"
+	exit 1
+}
 VERSION="$(cat dist/debs/VERSION)"
 
 # --- Install, as the ISO build does (recommends included) -----------------------
 # htop and gnome-tour are installed too, so the "Clutter hidden" check has
 # real launchers to hide.
 if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour >/tmp/install.log 2>&1; then
-	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-welcome ${VERSION} with Debian dependencies"
+	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-welcome, kulan-update-center ${VERSION} with Debian dependencies"
 else
 	result fail "Install" "apt failed: $(grep -E '^E:|error' /tmp/install.log | tail -n 3 | tr '\n' ' ')"
 	tail -n 40 /tmp/install.log
@@ -58,12 +71,25 @@ fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' /usr/lib/os-release
 check "Identity is upgrade-safe" "os-release diverted by kulan-base" bash -c 'dpkg-divert --list /usr/lib/os-release | grep -q "by kulan-base$"'
 check "Debian's copy kept" "os-release.debian is Debian's" grep -q '^ID=debian' /usr/lib/os-release.debian
+check "Build number" "os-release has BUILD_ID" grep -q '^BUILD_ID=' /usr/lib/os-release
 check "Symlink" "/etc/os-release points at the Kulan file" test "$(readlink /etc/os-release)" = ../usr/lib/os-release
 
 # --- Desktop (real Debian extensions and GNOME 48 schemas) ---------------------------
 check "Extensions (strict)" "dock and blur found under their real Debian IDs" env KULAN_STRICT=1 /usr/lib/kulan/desktop-setup
 check "Extensions enabled" "dash-to-dock and blur-my-shell in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q dash-to-dock && gs org.gnome.shell enabled-extensions | grep -q blur-my-shell"
 check "Dock defaults applied" "dash-to-dock reads Kulan's settings (bottom, translucent)" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-position)\" = \"'BOTTOM'\" && test \"\$(gs org.gnome.shell.extensions.dash-to-dock transparency-mode)\" = \"'FIXED'\""
+check "Kulan Shell enabled" "kulan-shell@kulangroup.com in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q kulan-shell@kulangroup.com"
+check "Kulan Shell files" "GNOME 48 listed; dark and light stylesheets present" python3 - <<'PY'
+import json, os
+d = "/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com"
+meta = json.load(open(f"{d}/metadata.json"))
+assert "48" in meta["shell-version"], meta["shell-version"]
+for f in ("extension.js", "stylesheet-dark.css", "stylesheet-light.css"):
+    assert os.path.getsize(f"{d}/{f}") > 0, f
+PY
+check "Cursor" "Bibata-Modern-Classic set and installed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface cursor-theme)\" = \"'Bibata-Modern-Classic'\" && test -d /usr/share/icons/Bibata-Modern-Classic"
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "App folders" "Kulan folders are the default for new users" bash -c 'HOME=$(mktemp -d) XDG_CONFIG_HOME="" dconf read /org/gnome/desktop/app-folders/folder-children | grep -q Kulan-Office'
 check "Accent color" "GNOME 48 accent = teal" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface accent-color)\" = \"'teal'\""
 check "Fonts and icons" "Inter + Papirus-Dark" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface font-name)\" = \"'Inter 11'\" && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Papirus-Dark'\""
 check "Privacy defaults" "old files cleared after 30 days, no usage reports" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.privacy old-files-age)\" = 'uint32 30' && test \"\$(gs org.gnome.desktop.privacy send-software-usage-stats)\" = false"
@@ -89,6 +115,21 @@ if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
 fi
 
+# --- Update Center ------------------------------------------------------------------
+check "Update status" "status file written by the package" python3 -c 'import json; d = json.load(open("/var/lib/kulan/updates.json")); assert d["state"] == "idle" and isinstance(d["available"], list), d'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Update hooks" "apt keeps the status current (3 hooks)" bash -c 'test "$(apt-config dump | grep -c /usr/lib/kulan/update-status)" -eq 3'
+check "Update status refresh" "refresh runs and stays idle" bash -c '/usr/lib/kulan/update-status refresh && grep -q "\"state\": \"idle\"" /var/lib/kulan/updates.json'
+check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/kulan/update-run auto-off && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"0\"" && /usr/lib/kulan/update-run auto-on && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"1\""'
+check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
+check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
+check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
+check "Update Center compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-updates /usr/lib/kulan/update-status
+check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
+check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
+# shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
+check "1.0 upgrade path" "kulan-desktop-settings pulls in kulan-update-center and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
+
 # --- Welcome app against Debian's real GTK and libadwaita ------------------------------
 check "Welcome app compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-welcome
 check "Welcome app APIs" "every GTK/libadwaita class it uses exists" python3 - <<'PY'
@@ -98,8 +139,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gtk
 needed = {
     Adw: ["Application", "ApplicationWindow", "ToolbarView", "HeaderBar", "ToastOverlay", "Toast", "Carousel",
-          "CarouselIndicatorDots", "StatusPage", "Clamp", "PreferencesGroup", "ActionRow", "SwitchRow"],
-    Gtk: ["UriLauncher", "CenterBox", "Picture", "ContentFit", "Spinner", "CheckButton", "ToggleButton", "CssProvider"],
+          "CarouselIndicatorDots", "StatusPage", "Clamp", "PreferencesGroup", "ActionRow", "SwitchRow",
+          "PreferencesPage", "ExpanderRow"],
+    Gtk: ["UriLauncher", "CenterBox", "Picture", "ContentFit", "Spinner", "CheckButton", "ToggleButton", "CssProvider",
+          "ProgressBar", "Image"],
 }
 missing = [f"{lib.__name__}.{n}" for lib, names in needed.items() for n in names if not hasattr(lib, n)]
 print(f"libadwaita {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}, GTK {Gtk.MAJOR_VERSION}.{Gtk.MINOR_VERSION}")
@@ -108,9 +151,9 @@ PY
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # --- Removal restores Debian -------------------------------------------------------
-if dpkg --purge kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then
+if dpkg --purge kulan-update-center kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
-	check "Removal cleans up" "no diversion, splash theme or generated settings left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi

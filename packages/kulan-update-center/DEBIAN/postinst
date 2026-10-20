@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	configure)
+		# Daily restore points and a status refresh at every boot.
+		deb-systemd-helper enable kulan-restore-points.timer >/dev/null || true
+		deb-systemd-helper enable kulan-update-status.service >/dev/null || true
+		if [ -d /run/systemd/system ]; then
+			systemctl --system daemon-reload >/dev/null 2>&1 || true
+			deb-systemd-invoke start kulan-restore-points.timer >/dev/null 2>&1 || true
+		fi
+		# Both helpers skip the ISO build and the live session by themselves.
+		/usr/lib/kulan/restore-points setup || true
+		/usr/lib/kulan/update-status refresh || true
+		;;
+	abort-upgrade|abort-remove|abort-deconfigure)
+		;;
+	*)
+		echo "postinst called with unknown argument '$1'" >&2
+		exit 1
+		;;
+esac
+
+exit 0

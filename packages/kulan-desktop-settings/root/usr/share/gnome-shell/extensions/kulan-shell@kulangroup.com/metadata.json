@@ -1,0 +1,9 @@
+{
+  "uuid": "kulan-shell@kulangroup.com",
+  "name": "Kulan Shell",
+  "description": "The Kulan OS look for the top bar, menus, quick settings, notifications and lock screen, plus the Update Center indicator.",
+  "shell-version": ["46", "47", "48"],
+  "session-modes": ["user", "unlock-dialog"],
+  "url": "https://github.com/mmohamud25/kulan-os",
+  "version": 2
+}

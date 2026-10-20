@@ -1,0 +1,524 @@
+#!/usr/bin/python3
+"""Kulan Update Center: see, install and schedule updates.
+
+Reads /var/lib/kulan/updates.json (kept current by apt's own hooks through
+/usr/lib/kulan/update-status) and /var/log/apt/history.log. Every action that
+changes the system runs /usr/lib/kulan/update-run through pkexec, which asks
+for an administrator password.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shlex
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+
+APP_ID = "org.kulan.Updates"
+STATUS_FILE = Path("/var/lib/kulan/updates.json")
+HISTORY_LOG = Path("/var/log/apt/history.log")
+RELEASE_NOTES = Path("/usr/share/kulan/release-notes.json")
+OS_RELEASE = Path("/usr/lib/os-release")
+HELPER = "/usr/lib/kulan/update-run"
+RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
+PREFS_FILE = Path(GLib.get_user_config_dir()) / "kulan" / "updates.ini"
+STALE_RUNNING_S = 3 * 3600
+
+
+def plural(count: int, word: str, words: str | None = None) -> str:
+    return f"{count} {word if count == 1 else (words or word + 's')}"
+
+
+def read_json(path: Path, default):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return default
+
+
+def os_release() -> dict[str, str]:
+    info = {}
+    try:
+        for line in OS_RELEASE.read_text().splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                parts = shlex.split(value)
+                info[key] = parts[0] if parts else ""
+    except (OSError, ValueError):
+        pass
+    return info
+
+
+def when_text(stamp: float) -> str:
+    if not stamp:
+        return "never"
+    delta = time.time() - stamp
+    if delta < 90:
+        return "just now"
+    if delta < 3600:
+        return plural(int(delta // 60), "minute") + " ago"
+    if delta < 86400:
+        return plural(int(delta // 3600), "hour") + " ago"
+    return datetime.fromtimestamp(stamp).strftime("%-d %b %Y, %H:%M")
+
+
+def history(limit: int = 8) -> list[dict]:
+    """Recent apt runs that installed or upgraded packages."""
+    try:
+        entries = HISTORY_LOG.read_text(encoding="utf-8", errors="replace").strip().split("\n\n")
+    except OSError:
+        return []
+    runs = []
+    for entry in reversed(entries):
+        fields = {}
+        for line in entry.splitlines():
+            key, sep, value = line.partition(": ")
+            if sep:
+                fields[key] = value
+        changed = [fields[k] for k in ("Upgrade", "Install") if k in fields]
+        if not changed:
+            continue
+        names = [p.split(":")[0].split(" ")[0] for chunk in changed for p in chunk.split("), ") if p.strip()]
+        try:
+            stamp = datetime.strptime(" ".join(fields.get("End-Date", fields.get("Start-Date", "")).split()),
+                                      "%Y-%m-%d %H:%M:%S").timestamp()
+        except ValueError:
+            stamp = 0
+        runs.append({"time": stamp, "packages": names, "automatic": "unattended" in fields.get("Commandline", "")})
+        if len(runs) >= limit:
+            break
+    return runs
+
+
+def package_installed(name: str) -> bool:
+    try:
+        out = subprocess.run(["dpkg-query", "-W", "-f=${Status}", name],
+                             capture_output=True, text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return out.strip() == "install ok installed"
+
+
+def auto_updates_on() -> bool:
+    try:
+        out = subprocess.run(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"],
+                             capture_output=True, text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return 'Unattended-Upgrade "1"' in out
+
+
+class Prefs:
+    """Per-user preferences (restore point before installing)."""
+
+    def __init__(self) -> None:
+        self.keyfile = GLib.KeyFile()
+        try:
+            self.keyfile.load_from_file(str(PREFS_FILE), GLib.KeyFileFlags.NONE)
+        except GLib.Error:
+            pass
+
+    def restore_before_install(self) -> bool:
+        try:
+            return self.keyfile.get_boolean("updates", "restore-point-before-install")
+        except GLib.Error:
+            return True
+
+    def set_restore_before_install(self, value: bool) -> None:
+        self.keyfile.set_boolean("updates", "restore-point-before-install", value)
+        try:
+            PREFS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self.keyfile.save_to_file(str(PREFS_FILE))
+        except (OSError, GLib.Error):
+            pass
+
+
+class UpdateWindow(Adw.ApplicationWindow):
+    def __init__(self, app: Adw.Application) -> None:
+        super().__init__(application=app, title="Update Center")
+        self.set_default_size(720, 760)
+        self.prefs = Prefs()
+        self.busy = False
+        self.release = os_release()
+        self.status: dict = {}
+
+        self.toasts = Adw.ToastOverlay()
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.refresh_button = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Check for updates")
+        self.refresh_button.connect("clicked", lambda _b: self.check())
+        header.pack_start(self.refresh_button)
+        view.add_top_bar(header)
+
+        page = Adw.PreferencesPage()
+        page.add(self.build_status_group())
+        self.available_group = Adw.PreferencesGroup(title="Available updates")
+        page.add(self.available_group)
+        page.add(self.build_whats_new())
+        if not package_installed("kulan-apps"):
+            page.add(self.build_add_apps())
+        self.history_group = Adw.PreferencesGroup(title="Recent updates")
+        page.add(self.history_group)
+        page.add(self.build_settings())
+
+        self.toasts.set_child(page)
+        view.set_content(self.toasts)
+        self.set_content(view)
+
+        self.available_rows: list[Gtk.Widget] = []
+        self.history_rows: list[Gtk.Widget] = []
+
+        self.monitor = Gio.File.new_for_path(str(STATUS_FILE)).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        self.monitor.connect("changed", lambda *_a: GLib.timeout_add(400, self.reload))
+        self.reload()
+
+    # --- status ------------------------------------------------------------
+    def build_status_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=12, margin_bottom=6)
+        self.status_icon = Gtk.Image(pixel_size=72, icon_name="kulan-logo")
+        self.status_title = Gtk.Label(css_classes=["title-1"], wrap=True, justify=Gtk.Justification.CENTER)
+        self.status_detail = Gtk.Label(css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER)
+        self.progress = Gtk.ProgressBar(show_text=True, visible=False, margin_start=40, margin_end=40)
+        buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, margin_top=6)
+        self.install_button = Gtk.Button(css_classes=["suggested-action", "pill"], visible=False)
+        self.install_button.connect("clicked", lambda _b: self.install())
+        self.check_button = Gtk.Button(label="Check for updates", css_classes=["pill"])
+        self.check_button.connect("clicked", lambda _b: self.check())
+        buttons.append(self.install_button)
+        buttons.append(self.check_button)
+        for widget in (self.status_icon, self.status_title, self.status_detail, self.progress, buttons):
+            box.append(widget)
+        group.add(box)
+        return group
+
+    def reload(self) -> bool:
+        self.status = read_json(STATUS_FILE, {})
+        if not isinstance(self.status, dict):
+            self.status = {}
+        self.render_status()
+        self.render_available()
+        self.render_history()
+        return False
+
+    def running(self) -> bool:
+        since = self.status.get("running_since") or 0
+        return self.status.get("state") == "running" and time.time() - since < STALE_RUNNING_S
+
+    def render_status(self) -> None:
+        available = self.status.get("available") if isinstance(self.status.get("available"), list) else []
+        security = sum(1 for u in available if isinstance(u, dict) and u.get("security"))
+        name = self.release.get("NAME", "Kulan OS")
+        checked = when_text(self.status.get("checked") or 0)
+
+        if self.busy:
+            return  # the running action owns the status area
+        if self.running():
+            self.status_icon.set_from_icon_name("emblem-synchronizing-symbolic")
+            self.status_title.set_label("Installing updates…")
+            self.status_detail.set_label("Updates are being installed in the background. You can keep working.")
+            self.install_button.set_visible(False)
+        elif available:
+            self.status_icon.set_from_icon_name(
+                "software-update-urgent-symbolic" if security else "software-update-available-symbolic")
+            self.status_title.set_label(f"{plural(len(available), 'update')} available")
+            extra = f" · {plural(security, 'security fix', 'security fixes')}" if security else ""
+            self.status_detail.set_label(f"Last checked {checked}{extra}")
+            self.install_button.set_label(f"Install {plural(len(available), 'update')}")
+            self.install_button.set_visible(True)
+        else:
+            self.status_icon.set_from_icon_name("kulan-logo")
+            self.status_title.set_label(f"{name} is up to date")
+            self.status_detail.set_label(f"Last checked {checked}")
+            self.install_button.set_visible(False)
+
+    def render_available(self) -> None:
+        for row in self.available_rows:
+            self.available_group.remove(row)
+        self.available_rows = []
+        available = self.status.get("available") if isinstance(self.status.get("available"), list) else []
+        self.available_group.set_visible(bool(available) and not self.running())
+        for update in available[:60]:
+            if not isinstance(update, dict):
+                continue
+            row = Adw.ActionRow(title=GLib.markup_escape_text(str(update.get("name", "?"))),
+                                subtitle=GLib.markup_escape_text(
+                                    f"{update.get('from') or 'new'} → {update.get('to', '?')}"))
+            row.add_prefix(Gtk.Image(icon_name="package-x-generic-symbolic"))
+            if update.get("security"):
+                row.add_suffix(Gtk.Label(label="Security", css_classes=["warning", "caption-heading"]))
+            self.available_group.add(row)
+            self.available_rows.append(row)
+
+    # --- what's new and history ---------------------------------------------
+    def build_whats_new(self) -> Adw.PreferencesGroup:
+        notes = read_json(RELEASE_NOTES, [])
+        current = self.release.get("VERSION_ID", "")
+        note = next((n for n in notes if isinstance(n, dict) and n.get("version") == current),
+                    notes[0] if notes else None)
+        build = self.release.get("BUILD_ID", "")
+        group = Adw.PreferencesGroup(
+            title=f"What’s new in {note.get('title', 'Kulan OS')}" if note else "What’s new",
+            description=f"Build {build}" if build and build != "local" else None,
+        )
+        for item in (note or {}).get("items", []):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(str(item)))
+            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["accent"]))
+            group.add(row)
+        return group
+
+    def build_add_apps(self) -> Adw.PreferencesGroup:
+        """Systems installed before 2.0 can add the apps 2.0 builds in."""
+        group = Adw.PreferencesGroup(title="Office and media apps",
+                                     description="Built into Kulan OS 2.0. Add them to this computer in one go.")
+        row = Adw.ActionRow(title="LibreOffice, VLC and GIMP",
+                            subtitle="Documents, spreadsheets, slides, video and photo editing · about 500 MB")
+        row.add_prefix(Gtk.Image(icon_name="x-office-document-symbolic"))
+        button = Gtk.Button(label="Add", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+
+        def done(ok: bool) -> None:
+            if ok:
+                button.set_label("Added")
+                button.set_sensitive(False)
+            else:
+                button.set_sensitive(True)
+
+        def clicked(_b: Gtk.Button) -> None:
+            button.set_sensitive(False)
+            self.run_helper(["install-apps"], "Adding office and media apps…", "Apps added", on_done=done)
+
+        button.connect("clicked", clicked)
+        row.add_suffix(button)
+        group.add(row)
+        return group
+
+    def render_history(self) -> None:
+        for row in self.history_rows:
+            self.history_group.remove(row)
+        self.history_rows = []
+        runs = history()
+        if not runs:
+            row = Adw.ActionRow(title="No updates installed yet")
+            self.history_group.add(row)
+            self.history_rows.append(row)
+            return
+        for run in runs:
+            how = "automatically" if run["automatic"] else ""
+            row = Adw.ExpanderRow(
+                title=f"{plural(len(run['packages']), 'package')} updated {how}".strip(),
+                subtitle=when_text(run["time"]),
+            )
+            for name in run["packages"][:40]:
+                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name)))
+            self.history_group.add(row)
+            self.history_rows.append(row)
+
+    # --- settings -------------------------------------------------------------
+    def build_settings(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title="Settings")
+        self.auto_row = Adw.SwitchRow(
+            title="Install updates automatically",
+            subtitle="Debian and Kulan updates, including security fixes, install daily in the background",
+            active=auto_updates_on(),
+        )
+        self.auto_handler = self.auto_row.connect("notify::active", self.on_auto_toggled)
+        group.add(self.auto_row)
+
+        restore_on = RESTORE_CONFIG.exists() and shutil.which("timeshift") is not None
+        self.restore_before_row = Adw.SwitchRow(
+            title="Create a restore point before installing",
+            subtitle="Lets you roll back if an update causes trouble",
+            active=self.prefs.restore_before_install() and restore_on,
+            sensitive=restore_on,
+        )
+        self.restore_before_row.connect(
+            "notify::active", lambda row, _p: self.prefs.set_restore_before_install(row.get_active()))
+        group.add(self.restore_before_row)
+
+        restore_row = Adw.ActionRow(
+            title="Restore points",
+            subtitle="Daily, keeping the last 2 days and 1 week" if restore_on
+            else "Set up automatically after you install Kulan OS",
+        )
+        if shutil.which("timeshift"):
+            create = Gtk.Button(label="Create now", valign=Gtk.Align.CENTER)
+            create.connect("clicked", lambda _b: self.run_helper(
+                ["restore-point"], "Creating a restore point…", "Restore point created"))
+            create.set_sensitive(restore_on)
+            restore_row.add_suffix(create)
+            manage = Gtk.Button(label="Manage", valign=Gtk.Align.CENTER, css_classes=["flat"])
+            manage.connect("clicked", lambda _b: self.launch("timeshift-gtk.desktop"))
+            restore_row.add_suffix(manage)
+        group.add(restore_row)
+        return group
+
+    def on_auto_toggled(self, row: Adw.SwitchRow, _pspec) -> None:
+        wanted = row.get_active()
+
+        def done(ok: bool) -> None:
+            if not ok:  # put the switch back if the change didn't happen
+                row.handler_block(self.auto_handler)
+                row.set_active(not wanted)
+                row.handler_unblock(self.auto_handler)
+
+        self.run_helper(["auto-on" if wanted else "auto-off"], None,
+                        "Automatic updates on" if wanted else "Automatic updates off", on_done=done)
+
+    # --- actions --------------------------------------------------------------
+    def launch(self, desktop_id: str) -> None:
+        info = Gio.DesktopAppInfo.new(desktop_id)
+        if info is None:
+            self.toast("That app isn't installed")
+            return
+        try:
+            info.launch([], None)
+        except GLib.Error as exc:
+            self.toast(f"Couldn't open it: {exc.message}")
+
+    def toast(self, text: str) -> None:
+        self.toasts.add_toast(Adw.Toast(title=text, timeout=4))
+
+    def set_busy(self, busy: bool, label: str | None = None) -> None:
+        self.busy = busy
+        for widget in (self.check_button, self.refresh_button, self.install_button):
+            widget.set_sensitive(not busy)
+        self.progress.set_visible(busy)
+        if busy:
+            self.progress.set_fraction(0)
+            self.progress.set_text(label or "Working…")
+            self.status_icon.set_from_icon_name("emblem-synchronizing-symbolic")
+            if label:
+                self.status_title.set_label(label)
+            self.status_detail.set_label("You can keep working while this runs.")
+
+    def check(self) -> None:
+        self.run_helper(["check"], "Checking for updates…", None)
+
+    def install(self) -> None:
+        args = ["install"]
+        if self.restore_before_row.get_active():
+            args.append("--restore-point")
+        self.run_helper(args, "Installing updates…", "Updates installed")
+
+    def run_helper(self, args: list[str], busy_label: str | None, success: str | None, on_done=None) -> None:
+        if self.busy:
+            return
+        if shutil.which("pkexec") is None:
+            self.toast("pkexec isn't installed, so updates can't be run from here")
+            if on_done:
+                on_done(False)
+            return
+        if busy_label:
+            self.set_busy(True, busy_label)
+        try:
+            proc = Gio.Subprocess.new(["pkexec", HELPER, *args],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+        except GLib.Error as exc:
+            self.finish(False, exc.message, busy_label is not None, on_done)
+            return
+
+        errors: list[str] = []
+        out = Gio.DataInputStream.new(proc.get_stdout_pipe())
+        err = Gio.DataInputStream.new(proc.get_stderr_pipe())
+
+        def read_progress(stream, result) -> None:
+            try:
+                line, _len = stream.read_line_finish_utf8(result)
+            except GLib.Error:
+                line = None
+            if line is None:
+                return
+            self.on_progress_line(line)
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, read_progress)
+
+        def read_errors(stream, result) -> None:
+            try:
+                line, _len = stream.read_line_finish_utf8(result)
+            except GLib.Error:
+                line = None
+            if line is None:
+                return
+            if line.strip():
+                errors.append(line.strip())
+                del errors[:-20]
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, read_errors)
+
+        out.read_line_async(GLib.PRIORITY_DEFAULT, None, read_progress)
+        err.read_line_async(GLib.PRIORITY_DEFAULT, None, read_errors)
+
+        def exited(process, result) -> None:
+            try:
+                process.wait_finish(result)
+                code = process.get_exit_status() if process.get_if_exited() else 1
+            except GLib.Error:
+                code = 1
+            if code == 0:
+                self.finish(True, success, busy_label is not None, on_done)
+            elif code in (126, 127):  # password dialog dismissed / not authorised
+                self.finish(False, "Cancelled", busy_label is not None, on_done)
+            else:
+                reason = next((e for e in reversed(errors) if not e.startswith(("W:", "N:"))), "Something went wrong")
+                self.finish(False, reason, busy_label is not None, on_done)
+
+        proc.wait_async(None, exited)
+
+    def on_progress_line(self, line: str) -> None:
+        # apt status lines: "pmstatus:<pkg>:<percent>:<message>" / "dlstatus:..."
+        parts = line.split(":", 3)
+        if len(parts) != 4 or parts[0] not in ("pmstatus", "dlstatus"):
+            return
+        try:
+            percent = float(parts[2])
+        except ValueError:
+            return
+        fraction = max(0.0, min(1.0, percent / 100))
+        if parts[0] == "dlstatus":
+            fraction *= 0.3  # downloading is the first ~30%
+        else:
+            fraction = 0.3 + fraction * 0.7
+        self.progress.set_fraction(fraction)
+        self.progress.set_text(parts[3][:80] or f"{round(fraction * 100)}%")
+
+    def finish(self, ok: bool, message: str | None, was_busy: bool, on_done) -> None:
+        if was_busy:
+            self.set_busy(False)
+        if message:
+            self.toast(message if ok or message == "Cancelled" else f"Couldn’t finish: {message[:120]}")
+        if on_done:
+            on_done(ok)
+        self.reload()
+
+
+class UpdateCenter(Adw.Application):
+    def __init__(self, check_on_start: bool) -> None:
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.check_on_start = check_on_start
+
+    def do_activate(self) -> None:
+        window = self.props.active_window
+        if window is None:
+            window = UpdateWindow(self)
+            if self.check_on_start:
+                GLib.idle_add(lambda: window.check() and False)
+        window.present()
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description="Kulan Update Center")
+    parser.add_argument("--check", action="store_true", help="check for updates on start")
+    args = parser.parse_args(argv[1:])
+    return UpdateCenter(args.check).run([argv[0]])
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

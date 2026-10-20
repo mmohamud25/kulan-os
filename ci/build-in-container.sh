@@ -18,6 +18,10 @@ if [[ ${#DEBS[@]} -lt 3 ]]; then
 	echo "::error::Expected the 3 Kulan packages in config/packages.chroot, found ${#DEBS[@]}" >&2
 	exit 1
 fi
+# kulan-devkit is an optional install (Welcome app); live-build installs every
+# package in packages.chroot, so keep it out of the image.
+rm -f config/packages.chroot/kulan-devkit_*.deb
+DEBS=(config/packages.chroot/kulan-*.deb)
 printf 'Kulan package: %s\n' "${DEBS[@]}"
 shopt -u nullglob
 

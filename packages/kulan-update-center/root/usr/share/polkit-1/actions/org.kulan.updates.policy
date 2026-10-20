@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Kulan Update Center: one administrator password unlocks updates,
+     restore points and the developer kit for a few minutes. -->
+<policyconfig>
+  <vendor>Kulan OS</vendor>
+  <vendor_url>https://github.com/mmohamud25/kulan-os</vendor_url>
+  <icon_name>kulan-logo</icon_name>
+  <action id="org.kulan.updates.manage">
+    <description>Manage Kulan OS updates</description>
+    <message>Authentication is required to install updates or change update settings</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/kulan/update-run</annotate>
+  </action>
+</policyconfig>

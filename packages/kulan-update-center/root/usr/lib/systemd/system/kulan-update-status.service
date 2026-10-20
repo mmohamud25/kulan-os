@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Kulan Update Center status
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/update-status refresh
+
+[Install]
+WantedBy=multi-user.target

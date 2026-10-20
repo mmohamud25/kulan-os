@@ -40,6 +40,8 @@ lb clean --purge
 packages/build-debs.sh
 mkdir -p config/packages.chroot
 cp dist/debs/*.deb config/packages.chroot/
+# kulan-devkit is an optional install; live-build would install every package here.
+rm -f config/packages.chroot/kulan-devkit_*.deb
 
 echo "==> Building Kulan OS for ${ARCH}"
 KULAN_ARCH="${ARCH}" lb config
