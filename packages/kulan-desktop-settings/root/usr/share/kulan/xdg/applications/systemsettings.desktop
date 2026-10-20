@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Kulan OS hides this launcher: KDE app pulled in by the installer; not used on GNOME.
+Type=Application
+Name=KDE System Settings
+Hidden=true

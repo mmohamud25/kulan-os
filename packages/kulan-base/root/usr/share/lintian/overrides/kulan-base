@@ -1,0 +1,4 @@
+# kulan-base is the vendor package of a Debian derivative: adding the
+# derivative's own signed update channel is its purpose. (This rule exists
+# for packages in Debian's own archive, which must not add repositories.)
+kulan-base: package-installs-apt-sources [etc/apt/sources.list.d/kulan.sources]

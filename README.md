@@ -13,7 +13,7 @@ graphical installer. It builds for **ARM64** (Apple Silicon Macs in UTM) and **x
 | Base | Debian 13, with Debian security updates |
 | Desktop | GNOME 48 with a macOS-style look: frosted-glass top bar and overview (Blur my Shell), floating translucent dock with running-app dots, window buttons on the left, tray icons for apps like Slack and Zoom |
 | Look | Inter font, JetBrains Mono for code, Papirus icons, dark style with teal accent, layered wave wallpaper (light and dark) |
-| Welcome app | Shown once at first login: light or dark mode, accent color, one-click installs of popular apps (only those that run on this computer), and a security overview |
+| Welcome app | Replaces GNOME's own tour. Shown once at first login: light or dark mode, accent color, one-click installs of popular apps (only those that run on this computer), and a security overview |
 | Boot | Kulan OS splash with spinner; installed systems skip the text menu (hold Esc while starting to see it) |
 | Branding | Boot menu, splash, login screen, wallpaper, Settings > About, installer, console banner |
 | Apps | Firefox ESR, Files, Console, Text Editor, Calculator, Image Viewer, Document Viewer, Archive Manager, Disks, System Monitor |
@@ -62,7 +62,8 @@ unzip ~/Downloads/kulan-os-arm64.zip -d ~/Projects/kulan-os-iso
 rm ~/Downloads/kulan-os-arm64.zip
 ```
 
-Every build opens each ISO and checks that Kulan's parts are really inside (branding,
+Every build first installs the Kulan packages in a clean Debian 13 system and tests them,
+then opens each ISO and checks that Kulan's parts are really inside (branding,
 boot splash, installer settings, firewall, Flathub and more). The results are in the run's
 **Summary**; a failed check fails the build.
 
@@ -117,9 +118,11 @@ git push
 Store the backup (`~/kulan-os-signing-key-BACKUP.asc`) in a password manager, then delete it
 with `rm ~/kulan-os-signing-key-BACKUP.asc`.
 
-From then on, each push to `main` that builds and passes inspection publishes the packages
-to `https://mmohamud25.github.io/kulan-os/apt/`. ISOs built after this point include the
-channel; installed systems pick up updates in their daily automatic update.
+From then on, each push to `main` goes through four stages: build the Kulan packages,
+install and test them in a clean Debian 13 system, publish them to
+`https://mmohamud25.github.io/kulan-os/apt/`, then build and inspect the ISOs. A failure at
+any stage stops the later ones. ISOs built after setup include the channel; installed
+systems pick up updates in their daily automatic update.
 
 ## Customizing
 

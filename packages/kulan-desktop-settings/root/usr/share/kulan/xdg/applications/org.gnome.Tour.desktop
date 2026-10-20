@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Kulan OS hides this launcher: Replaced by the Kulan OS welcome app.
+Type=Application
+Name=Tour
+Hidden=true

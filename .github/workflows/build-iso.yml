@@ -46,7 +46,7 @@ jobs:
     name: Kulan packages
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build kulan-base, kulan-desktop-settings, kulan-welcome
         run: packages/build-debs.sh
       - name: Check packages
@@ -55,15 +55,110 @@ jobs:
             echo "== $deb"
             dpkg-deb --info "$deb" | sed -n '/Package:/,/Description:/p'
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: kulan-debs
           path: dist/debs/
           if-no-files-found: error
           retention-days: 14
 
+  # Installs the packages into a clean Debian 13 system with their real
+  # dependencies, checks them, removes them. Gates publishing and ISOs.
+  test-packages:
+    needs: packages
+    name: Test packages on Debian 13
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-debs
+          path: dist/debs/
+      - name: Install, check and remove in Debian 13
+        run: |
+          docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
+            -v "$GITHUB_WORKSPACE:/build" -w /build \
+            debian:trixie bash ci/test-packages.sh
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+
+  # Publishes the tested packages to the update channel before the ISOs are
+  # built: an ISO that includes the channel reads it during the build, so it
+  # must already be online. Skipped until scripts/setup-update-channel.sh
+  # has been run.
+  publish:
+    needs: test-packages
+    if: github.ref == 'refs/heads/main'
+    name: Publish updates
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Is the update channel set up?
+        id: ready
+        env:
+          KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
+        run: |
+          if [ -n "$KEY" ] && [ -f packages/kulan-archive-keyring.gpg ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Update channel::Not set up yet - run scripts/setup-update-channel.sh to switch it on."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-debs
+          path: dist/debs/
+
+      - name: Build signed package repository
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          KULAN_APT_SIGNING_KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q apt-utils gnupg xz-utils
+          ci/publish-repo.sh
+
+      - uses: actions/upload-pages-artifact@v5
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          path: site/
+
+      - id: deploy
+        if: steps.ready.outputs.ready == 'true'
+        uses: actions/deploy-pages@v5
+
+      - name: Wait until the update channel serves this version
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          . ./kulan.conf
+          VERSION="$(cat dist/debs/VERSION)"
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 20 "${KULAN_APT_URL}Packages" 2>/dev/null | grep -qx "Version: ${VERSION}"; then
+              echo "::notice title=Update channel::Live at ${KULAN_APT_URL} with ${VERSION}"
+              exit 0
+            fi
+            echo "Not live yet (attempt ${attempt}/30); waiting..."
+            sleep 20
+          done
+          echo "::error title=Update channel::${KULAN_APT_URL} is not serving ${VERSION} after 10 minutes"
+          exit 1
+
   build:
-    needs: [plan, packages]
+    needs: [plan, packages, test-packages, publish]
+    # Runs when publishing succeeded or was skipped (tags, channel not set up).
+    if: >-
+      !cancelled() &&
+      needs.test-packages.result == 'success' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
@@ -72,10 +167,10 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Get the Kulan packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: kulan-debs
           path: config/packages.chroot/
@@ -97,6 +192,17 @@ jobs:
             -v "$GITHUB_WORKSPACE:/build" -w /build \
             debian:trixie bash ci/build-in-container.sh "${{ matrix.arch }}"
 
+      # On failure, put the end of the build log where it can be read
+      # without downloading anything (annotations and the run summary).
+      - name: Show build errors
+        if: failure()
+        run: |
+          [ -f build.log ] || exit 0
+          grep -nE '^(E|W): |[Ee]rror|Failed to fetch|returned error' build.log | tail -n 15 | while IFS= read -r line; do
+            echo "::error title=ISO ${{ matrix.arch }} build::${line:0:400}"
+          done
+          { echo '### Last 60 lines of build.log'; echo '```'; tail -n 60 build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Inspect ISO
         run: |
           sudo apt-get update -q
@@ -104,7 +210,7 @@ jobs:
           ci/verify-iso.sh out/*.iso "${{ matrix.arch }}"
 
       - name: Upload ISO
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: kulan-os-${{ matrix.arch }}
           path: |
@@ -116,7 +222,7 @@ jobs:
 
       - name: Upload build log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-log-${{ matrix.arch }}
           path: |
@@ -124,57 +230,3 @@ jobs:
             build.log
           retention-days: 14
           if-no-files-found: ignore
-
-  # Publishes the packages to the update channel, but only after the ISOs
-  # built and passed inspection, and only once the channel is set up
-  # (scripts/setup-update-channel.sh).
-  publish:
-    needs: [packages, build]
-    if: github.ref == 'refs/heads/main'
-    name: Publish updates
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Is the update channel set up?
-        id: ready
-        env:
-          KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
-        run: |
-          if [ -n "$KEY" ] && [ -f packages/kulan-archive-keyring.gpg ]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice title=Update channel::Not set up yet - run scripts/setup-update-channel.sh to switch it on."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/download-artifact@v4
-        if: steps.ready.outputs.ready == 'true'
-        with:
-          name: kulan-debs
-          path: dist/debs/
-
-      - name: Build signed package repository
-        if: steps.ready.outputs.ready == 'true'
-        env:
-          KULAN_APT_SIGNING_KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q apt-utils gnupg xz-utils
-          ci/publish-repo.sh
-
-      - uses: actions/upload-pages-artifact@v3
-        if: steps.ready.outputs.ready == 'true'
-        with:
-          path: site/
-
-      - id: deploy
-        if: steps.ready.outputs.ready == 'true'
-        uses: actions/deploy-pages@v4

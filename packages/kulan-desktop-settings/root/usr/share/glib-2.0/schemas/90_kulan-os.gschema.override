@@ -60,3 +60,7 @@ remove-old-temp-files=true
 old-files-age=uint32 30
 report-technical-problems=false
 send-software-usage-stats=false
+
+# The Kulan OS welcome app replaces GNOME's own first-login tour popup.
+[org.gnome.shell]
+welcome-dialog-last-shown-version='999'
