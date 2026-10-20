@@ -1,0 +1,27 @@
+#!/bin/sh
+# Adds Flathub so the Software app can install apps like Spotify, Zoom,
+# Slack and VS Code that Debian itself doesn't package.
+# Needs internet during the build (GitHub's build machines have it).
+set -eu
+
+FLATHUB_URL="${KULAN_FLATHUB_URL:-https://dl.flathub.org/repo/flathub.flatpakrepo}"
+MAX_ATTEMPTS=5
+
+attempt=1
+until flatpak remote-add --system --if-not-exists flathub "${FLATHUB_URL}"; do
+	if [ "${attempt}" -ge "${MAX_ATTEMPTS}" ]; then
+		echo "E: could not add Flathub after ${attempt} attempts - check the build machine's internet access" >&2
+		exit 1
+	fi
+	delay=$((attempt * 15))
+	attempt=$((attempt + 1))
+	echo "W: adding Flathub failed, retrying in ${delay}s (${attempt}/${MAX_ATTEMPTS})..." >&2
+	sleep "${delay}"
+done
+
+flatpak remotes --system --columns=name | grep -qx flathub || {
+	echo "E: Flathub remote missing after add" >&2
+	exit 1
+}
+
+echo "I: Flathub enabled"

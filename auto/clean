@@ -1,0 +1,10 @@
+#!/bin/sh
+# Called by "lb clean". Removes build output and the generated config,
+# keeping the hand-written parts of config/ (package lists, includes, hooks).
+set -e
+
+lb clean noauto "${@}"
+
+rm -f config/binary config/bootstrap config/chroot config/common config/source
+rm -f config/includes.chroot/usr/share/kulan/kulan.conf
+rm -f build.log

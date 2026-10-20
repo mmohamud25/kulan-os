@@ -1,0 +1,54 @@
+#!/bin/sh
+# Kulan OS boot splash (Plymouth): logo plus spinner while the system starts,
+# instead of scrolling text. Also used for the disk-encryption password prompt.
+set -eu
+
+THEMES=/usr/share/plymouth/themes
+BASE="${THEMES}/spinner"
+THEME="${THEMES}/kulan"
+SRC=/usr/share/kulan/plymouth
+
+[ -d "${BASE}" ] || { echo "E: ${BASE} missing - is plymouth-themes installed?" >&2; exit 1; }
+for FILE in kulan.plymouth watermark.png; do
+	[ -f "${SRC}/${FILE}" ] || { echo "E: ${SRC}/${FILE} missing" >&2; exit 1; }
+done
+
+# Reuse the spinner's animation frames and dialog images; add our logo and settings.
+rm -rf "${THEME}"
+mkdir -p "${THEME}"
+cp -a "${BASE}"/*.png "${THEME}/"
+install -m 0644 "${SRC}/watermark.png" "${THEME}/watermark.png"
+install -m 0644 "${SRC}/kulan.plymouth" "${THEME}/kulan.plymouth"
+
+# Select the theme through every mechanism a Plymouth build may use:
+# the config file, the plymouth-set-default-theme tool, and the
+# default.plymouth alternative (used by some distributions' initramfs hook).
+mkdir -p /etc/plymouth
+printf '[Daemon]\nTheme=kulan\n' > /etc/plymouth/plymouthd.conf
+
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+	plymouth-set-default-theme kulan
+fi
+
+if update-alternatives --query default.plymouth >/dev/null 2>&1; then
+	update-alternatives --install "${THEMES}/default.plymouth" default.plymouth \
+		"${THEME}/kulan.plymouth" 200
+	update-alternatives --set default.plymouth "${THEME}/kulan.plymouth"
+fi
+
+# The splash is loaded from the initramfs, so rebuild it and check the theme
+# really made it in - otherwise the build would silently ship a text boot.
+INITRDS="$(ls /boot/initrd.img-* 2>/dev/null || true)"
+if [ -z "${INITRDS}" ]; then
+	echo "W: no initramfs in /boot yet; the splash will apply when one is built" >&2
+else
+	update-initramfs -u -k all
+	for INITRD in ${INITRDS}; do
+		if ! lsinitramfs "${INITRD}" | grep -q 'plymouth/themes/kulan/kulan.plymouth'; then
+			echo "E: Kulan OS splash theme is missing from ${INITRD}" >&2
+			exit 1
+		fi
+	done
+fi
+
+echo "I: Kulan OS boot splash installed"

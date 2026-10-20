@@ -1,0 +1,57 @@
+# Kulan OS desktop - GNOME on Debian 13.
+# One package per line. Package names verified against Debian trixie.
+
+# Desktop
+gnome-core
+gnome-tweaks
+gnome-shell-extension-dashtodock
+gnome-shell-extension-blur-my-shell
+gnome-shell-extension-appindicator
+gnome-shell-extension-prefs
+
+# Look and feel
+papirus-icon-theme
+fonts-inter
+fonts-jetbrains-mono
+plymouth
+plymouth-themes
+
+# Everyday apps
+firefox-esr
+gnome-text-editor
+gnome-calculator
+loupe
+evince
+file-roller
+gnome-disk-utility
+gnome-system-monitor
+
+# App store (Debian packages + Flathub)
+gnome-software
+flatpak
+gnome-software-plugin-flatpak
+
+# Graphical installer (shown in the live session)
+calamares
+calamares-settings-debian
+
+# Fonts
+fonts-noto-core
+fonts-noto-color-emoji
+
+# Security defaults
+ufw
+unattended-upgrades
+
+# Useful tools
+sudo
+curl
+wget
+git
+nano
+htop
+
+# Virtual machine integration (clipboard, display resize in UTM/QEMU).
+# Harmless on real hardware: the services only start inside a VM.
+spice-vdagent
+qemu-guest-agent

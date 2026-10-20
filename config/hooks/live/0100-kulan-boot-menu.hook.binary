@@ -1,0 +1,53 @@
+#!/bin/sh
+# Kulan OS boot menu: replaces Debian's wording and background in the GRUB
+# (UEFI) and ISOLINUX (BIOS) menus on the ISO.
+#
+# Edits the generated files rather than copying live-build's templates, so it
+# keeps working when live-build changes its templates between versions.
+set -eu
+
+# Binary hooks run from the binary/ directory; also accept the build root.
+if [ -d binary ]; then
+	BUILD_ROOT=.
+	MEDIUM=binary
+else
+	BUILD_ROOT=..
+	MEDIUM=.
+fi
+
+CONF="${BUILD_ROOT}/chroot/usr/share/kulan/kulan.conf"
+SPLASH="${BUILD_ROOT}/chroot/usr/share/kulan/boot-splash.png"
+[ -r "${CONF}" ] || { echo "E: ${CONF} missing" >&2; exit 1; }
+[ -r "${SPLASH}" ] || { echo "E: ${SPLASH} missing" >&2; exit 1; }
+# shellcheck source=../../../kulan.conf
+. "${CONF}"
+
+CHANGED=0
+for DIR in "${MEDIUM}/boot/grub" "${MEDIUM}/isolinux"; do
+	[ -d "${DIR}" ] || continue
+
+	for CFG in "${DIR}"/*.cfg "${DIR}"/*/*.cfg "${DIR}"/*/theme.txt; do
+		[ -f "${CFG}" ] || continue
+		sed -i \
+			-e "s|Debian GNU/Linux Live|${KULAN_NAME} Live|g" \
+			-e "s|Live system|${KULAN_NAME} Live|g" \
+			-e "s|Debian GNU/Linux|${KULAN_NAME}|g" \
+			"${CFG}"
+		CHANGED=$((CHANGED + 1))
+	done
+
+	for IMG in "${DIR}"/splash.png "${DIR}"/*/splash.png; do
+		[ -f "${IMG}" ] || continue
+		cp "${SPLASH}" "${IMG}"
+		CHANGED=$((CHANGED + 1))
+	done
+	# Some ISOLINUX themes use an SVG splash; drop it so the PNG is used.
+	rm -f "${DIR}/splash.svg"
+done
+
+if [ "${CHANGED}" -eq 0 ]; then
+	echo "E: no boot menu files found to brand under ${MEDIUM}" >&2
+	exit 1
+fi
+
+echo "I: Kulan OS boot menu branded (${CHANGED} files)"

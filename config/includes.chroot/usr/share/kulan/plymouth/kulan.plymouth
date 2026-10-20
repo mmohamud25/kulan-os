@@ -1,0 +1,47 @@
+[Plymouth Theme]
+Name=Kulan OS
+Description=Kulan OS boot splash: logo with a spinner.
+ModuleName=two-step
+
+[two-step]
+Font=Inter 12
+TitleFont=Inter Light 28
+ImageDir=/usr/share/plymouth/themes/kulan
+DialogHorizontalAlignment=.5
+DialogVerticalAlignment=.6
+TitleHorizontalAlignment=.5
+TitleVerticalAlignment=.382
+HorizontalAlignment=.5
+VerticalAlignment=.72
+WatermarkHorizontalAlignment=.5
+WatermarkVerticalAlignment=.45
+Transition=none
+TransitionDuration=0.0
+BackgroundStartColor=0x040b16
+BackgroundEndColor=0x081a33
+ProgressBarBackgroundColor=0x1e3a5f
+ProgressBarForegroundColor=0x2dd4bf
+MessageBelowAnimation=true
+
+[boot-up]
+UseEndAnimation=false
+
+[shutdown]
+UseEndAnimation=false
+
+[reboot]
+UseEndAnimation=false
+
+[updates]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Installing updates...
+SubTitle=Keep your computer on
+
+[system-upgrade]
+SuppressMessages=true
+ProgressBarShowPercentComplete=true
+UseProgressBar=true
+Title=Upgrading Kulan OS...
+SubTitle=Keep your computer on

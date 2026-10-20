@@ -1,0 +1,52 @@
+#!/bin/sh
+# Kulan OS identity: os-release (Settings > About, neofetch, scripts), the
+# console login banner, and the dpkg vendor note.
+#
+# /usr/lib/os-release belongs to Debian's base-files package and would be
+# overwritten on the next base-files update. A dpkg diversion sends future
+# base-files copies to os-release.debian, so our version survives upgrades.
+# --no-rename: base-files is Essential, so the file must never be missing,
+# even for a moment; we overwrite it in place right after diverting.
+set -eu
+
+CONF=/usr/share/kulan/kulan.conf
+[ -r "${CONF}" ] || { echo "E: ${CONF} missing (run 'lb config' via auto/config)" >&2; exit 1; }
+# shellcheck source=../../../kulan.conf
+. "${CONF}"
+
+OS_RELEASE=/usr/lib/os-release
+
+if ! dpkg-divert --list "${OS_RELEASE}" | grep -q kulan; then
+	# Keep Debian's original next to it for reference.
+	cp -p "${OS_RELEASE}" "${OS_RELEASE}.debian"
+	dpkg-divert --package kulan-os-branding --add --no-rename \
+		--divert "${OS_RELEASE}.debian" "${OS_RELEASE}"
+fi
+
+# ID_LIKE=debian and VERSION_CODENAME=<debian suite> keep third-party install
+# scripts working (they read these to pick the right Debian repositories).
+# Written to a temp file and moved into place atomically.
+TMP="$(mktemp "${OS_RELEASE}.XXXXXX")"
+cat > "${TMP}" <<EOF
+PRETTY_NAME="${KULAN_NAME} ${KULAN_VERSION}"
+NAME="${KULAN_NAME}"
+VERSION_ID="${KULAN_VERSION}"
+VERSION="${KULAN_VERSION} (based on Debian ${KULAN_DEBIAN_VERSION})"
+VERSION_CODENAME=${KULAN_DEBIAN_SUITE}
+DEBIAN_CODENAME=${KULAN_DEBIAN_SUITE}
+ID=${KULAN_ID}
+ID_LIKE=debian
+LOGO=kulan-logo
+HOME_URL="${KULAN_HOME_URL}"
+SUPPORT_URL="${KULAN_SUPPORT_URL}"
+EOF
+chmod 0644 "${TMP}"
+mv -f "${TMP}" "${OS_RELEASE}"
+
+# /etc/os-release must stay a relative symlink to the file above.
+ln -sfn ../usr/lib/os-release /etc/os-release
+
+printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue
+printf '%s %s\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue.net
+
+echo "I: Kulan OS identity installed: $(grep "^PRETTY_NAME=" "${OS_RELEASE}")"

@@ -1,0 +1,6 @@
+#!/bin/bash
+# Called by "lb build". Keeps a full log in build.log and preserves the
+# real exit status (a plain pipe into tee would hide a failed build).
+set -eo pipefail
+
+lb build noauto "${@}" 2>&1 | tee build.log

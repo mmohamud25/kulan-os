@@ -1,0 +1,64 @@
+#!/bin/sh
+# Kulan OS installer branding: rebrands Debian's Calamares setup in place.
+set -eu
+
+# shellcheck source=../../../kulan.conf
+. /usr/share/kulan/kulan.conf
+
+CAL=/etc/calamares
+DEBIAN_BRANDING="${CAL}/branding/debian"
+KULAN_BRANDING="${CAL}/branding/kulan"
+ASSETS=/usr/share/kulan/calamares
+LAUNCHER=/usr/share/applications/calamares-install-debian.desktop
+
+[ -d "${DEBIAN_BRANDING}" ] || { echo "E: ${DEBIAN_BRANDING} not found - is calamares-settings-debian installed?" >&2; exit 1; }
+[ -f "${CAL}/settings.conf" ] || { echo "E: ${CAL}/settings.conf not found" >&2; exit 1; }
+
+rm -rf "${KULAN_BRANDING}"
+cp -a "${DEBIAN_BRANDING}" "${KULAN_BRANDING}"
+install -m 0644 "${ASSETS}/logo.png" "${KULAN_BRANDING}/kulan-logo.png"
+install -m 0644 "${ASSETS}/welcome.png" "${KULAN_BRANDING}/welcome.png"
+install -m 0644 "${ASSETS}/slide1.png" "${KULAN_BRANDING}/slide1.png"
+install -m 0644 "${ASSETS}/show.qml" "${KULAN_BRANDING}/show.qml"
+rm -f "${KULAN_BRANDING}/debian-logo.png"
+
+# Rewrite the strings. bootloaderEntryName stays "Debian" on purpose: Debian's
+# Secure Boot-signed GRUB only looks for its config under EFI/debian, so
+# renaming it would stop installed systems booting with Secure Boot on.
+DESC="${KULAN_BRANDING}/branding.desc"
+sed -i -E \
+	-e "s|^componentName:.*|componentName:   kulan|" \
+	-e "s|^([[:space:]]+productName:[[:space:]]+).*|\1${KULAN_NAME}|" \
+	-e "s|^([[:space:]]+shortProductName:[[:space:]]+).*|\1${KULAN_SHORT_NAME}|" \
+	-e "s|^([[:space:]]+version:[[:space:]]+).*|\1${KULAN_VERSION}|" \
+	-e "s|^([[:space:]]+shortVersion:[[:space:]]+).*|\1${KULAN_VERSION}|" \
+	-e "s|^([[:space:]]+versionedName:[[:space:]]+).*|\1${KULAN_NAME} ${KULAN_VERSION}|" \
+	-e "s|^([[:space:]]+shortVersionedName:[[:space:]]+).*|\1${KULAN_SHORT_NAME} ${KULAN_VERSION}|" \
+	-e "s|^([[:space:]]+productUrl:[[:space:]]+).*|\1${KULAN_HOME_URL}|" \
+	-e "s|^([[:space:]]+supportUrl:[[:space:]]+).*|\1${KULAN_SUPPORT_URL}|" \
+	-e "s|^([[:space:]]+productLogo:[[:space:]]+).*|\1\"kulan-logo.png\"|" \
+	-e "s|^([[:space:]]+productIcon:[[:space:]]+).*|\1\"kulan-logo.png\"|" \
+	-e "s|^([[:space:]]+SidebarBackground:[[:space:]]+).*|\1\"#0A2240\"|" \
+	-e "s|^([[:space:]]+SidebarBackgroundCurrent:[[:space:]]+).*|\1\"#0D9488\"|" \
+	"${DESC}"
+
+grep -q "^componentName:   kulan" "${DESC}" || { echo "E: failed to rebrand ${DESC}" >&2; exit 1; }
+
+sed -i -E 's|^branding:.*|branding: kulan|' "${CAL}/settings.conf"
+grep -q '^branding: kulan$' "${CAL}/settings.conf" || { echo "E: failed to switch Calamares branding" >&2; exit 1; }
+
+# Launcher in the app grid / dock.
+if [ -f "${LAUNCHER}" ]; then
+	sed -i -E \
+		-e "s|^Name=.*|Name=Install ${KULAN_NAME}|" \
+		-e "s|^Comment=.*|Comment=Install ${KULAN_NAME} on this computer|" \
+		-e "s|^Icon=.*|Icon=kulan-logo|" \
+		"${LAUNCHER}"
+fi
+# The desktop-icon helper hardcodes "Install Debian" for LXDE only; rebrand it too.
+if [ -f /usr/bin/add-calamares-desktop-icon ]; then
+	sed -i "s|Install Debian|Install ${KULAN_NAME}|g; s|Icon=install-debian|Icon=kulan-logo|g" \
+		/usr/bin/add-calamares-desktop-icon
+fi
+
+echo "I: Kulan OS installer branding installed"

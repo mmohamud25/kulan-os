@@ -1,0 +1,53 @@
+# Kulan OS desktop defaults. Users can change all of these in Settings.
+# (Enabled extensions and dock apps live in 98_kulan-os-generated.gschema.override,
+#  generated at build time from what is actually installed.)
+
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/kulan/kulan-light.png'
+picture-uri-dark='file:///usr/share/backgrounds/kulan/kulan-dark.png'
+picture-options='zoom'
+primary-color='#040B16'
+
+[org.gnome.desktop.screensaver]
+picture-uri='file:///usr/share/backgrounds/kulan/kulan-dark.png'
+picture-options='zoom'
+primary-color='#040B16'
+
+[org.gnome.desktop.interface]
+color-scheme='prefer-dark'
+accent-color='teal'
+icon-theme='Papirus-Dark'
+font-name='Inter 11'
+document-font-name='Inter 11'
+monospace-font-name='JetBrains Mono 11'
+font-antialiasing='grayscale'
+font-hinting='slight'
+clock-show-weekday=true
+show-battery-percentage=true
+
+# macOS-style: close, minimise, maximise on the left.
+[org.gnome.desktop.wm.preferences]
+button-layout='close,minimize,maximize:appmenu'
+titlebar-font='Inter Semi-Bold 11'
+
+[org.gnome.desktop.peripherals.touchpad]
+tap-to-click=true
+natural-scroll=true
+
+[org.gnome.mutter]
+center-new-windows=true
+
+# Floating, translucent dock with running-app dots.
+[org.gnome.shell.extensions.dash-to-dock]
+dock-position='BOTTOM'
+dock-fixed=false
+intellihide=true
+extend-height=false
+dash-max-icon-size=48
+custom-theme-shrink=true
+transparency-mode='FIXED'
+background-opacity=0.35
+running-indicator-style='DOTS'
+show-trash=false
+show-mounts=false
+show-apps-at-top=false

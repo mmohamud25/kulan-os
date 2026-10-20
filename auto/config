@@ -1,0 +1,85 @@
+#!/bin/sh
+# Called by "lb config". Sets every live-build option for Kulan OS.
+# Choose the CPU architecture with KULAN_ARCH=arm64 or KULAN_ARCH=amd64
+# (default: the machine you build on).
+set -e
+
+# shellcheck source=../kulan.conf
+. ./kulan.conf
+
+die() {
+	echo "E: $*" >&2
+	exit 1
+}
+
+ARCH="${KULAN_ARCH:-$(dpkg --print-architecture)}"
+
+case "${ARCH}" in
+	amd64)
+		# BIOS (syslinux) + UEFI (grub), writable to USB sticks as-is.
+		BOOTLOADERS="grub-efi syslinux"
+		IMAGE_TYPE="iso-hybrid"
+		# Wi-Fi/GPU firmware for real PCs.
+		FIRMWARE="true"
+		MEMTEST="memtest86+"
+		;;
+	arm64)
+		# UEFI only - this is what UTM on Apple Silicon Macs boots.
+		BOOTLOADERS="grub-efi"
+		IMAGE_TYPE="iso"
+		FIRMWARE="false"
+		MEMTEST="none"
+		;;
+	*)
+		die "unsupported architecture '${ARCH}' (use KULAN_ARCH=amd64 or KULAN_ARCH=arm64)"
+		;;
+esac
+
+# Guard values that end up on the kernel command line, in file names, or as
+# a Linux user name (which must be lowercase and start with a letter).
+for _VAR in KULAN_ID KULAN_HOSTNAME KULAN_LIVE_USER; do
+	_VAL=""
+	eval "_VAL=\${${_VAR}}"
+	case "${_VAL}" in
+		[a-z]*) ;;
+		*) die "${_VAR}='${_VAL}' in kulan.conf must start with a lowercase letter" ;;
+	esac
+	case "${_VAL}" in
+		*[!a-z0-9-]*) die "${_VAR}='${_VAL}' in kulan.conf must be lowercase letters, digits and dashes only" ;;
+	esac
+done
+case "${KULAN_SHORT_NAME}" in
+	""|*[!A-Za-z0-9-]*) die "KULAN_SHORT_NAME='${KULAN_SHORT_NAME}' in kulan.conf must be letters, digits and dashes only" ;;
+esac
+
+ISO_VOLUME="${KULAN_NAME} ${KULAN_VERSION} ${ARCH}"
+if [ "${#ISO_VOLUME}" -gt 32 ]; then
+	die "ISO volume label '${ISO_VOLUME}' is longer than 32 characters; shorten KULAN_NAME"
+fi
+
+# Ship kulan.conf inside the image so the chroot hooks share the same values.
+mkdir -p config/includes.chroot/usr/share/kulan
+cp kulan.conf config/includes.chroot/usr/share/kulan/kulan.conf
+
+lb config noauto \
+	--mode debian \
+	--distribution "${KULAN_DEBIAN_SUITE}" \
+	--architecture "${ARCH}" \
+	--linux-flavours "${ARCH}" \
+	--archive-areas "main contrib non-free non-free-firmware" \
+	--security true \
+	--updates true \
+	--apt-recommends true \
+	--bootloaders "${BOOTLOADERS}" \
+	--binary-image "${IMAGE_TYPE}" \
+	--debian-installer none \
+	--firmware-chroot "${FIRMWARE}" \
+	--firmware-binary false \
+	--memtest "${MEMTEST}" \
+	--uefi-secure-boot auto \
+	--iso-application "${KULAN_NAME}" \
+	--iso-publisher "${KULAN_PUBLISHER}" \
+	--iso-volume "${ISO_VOLUME}" \
+	--image-name "${KULAN_ID}-os-${KULAN_VERSION}" \
+	--bootappend-live "boot=live components quiet splash live-config.hostname=${KULAN_HOSTNAME} live-config.username=${KULAN_LIVE_USER} live-config.user-fullname=${KULAN_SHORT_NAME} live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us" \
+	"${@}"

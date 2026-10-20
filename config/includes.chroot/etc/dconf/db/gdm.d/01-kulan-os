@@ -1,0 +1,9 @@
+# Kulan OS login screen. Compiled by "dconf update" in a build hook.
+[org/gnome/login-screen]
+logo='/usr/share/kulan/login-wordmark.png'
+
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+accent-color='teal'
+icon-theme='Papirus-Dark'
+font-name='Inter 11'
