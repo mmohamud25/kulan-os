@@ -13,6 +13,19 @@ case "$1" in
 		printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue
 		printf '%s %s\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue.net
 
+		# Boot speed: a desktop doesn't need to wait for the network before
+		# starting up, and that wait is a known cause of a black screen at
+		# boot in virtual machines. Done once (also on systems upgrading to
+		# this version), so a user who re-enables it keeps their choice.
+		MARK=/var/lib/kulan/network-wait-disabled
+		if [ ! -e "${MARK}" ]; then
+			for UNIT in NetworkManager-wait-online.service systemd-networkd-wait-online.service; do
+				deb-systemd-helper disable "${UNIT}" >/dev/null 2>&1 || true
+			done
+			mkdir -p /var/lib/kulan
+			touch "${MARK}"
+		fi
+
 		# Security defaults: applied on first install only, so a user who
 		# later turns the firewall off keeps their choice through updates.
 		if [ -z "$2" ]; then

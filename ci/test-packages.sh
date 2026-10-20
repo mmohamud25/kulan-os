@@ -81,6 +81,7 @@ PY
 check "Boot splash" "Plymouth theme kulan built and selected" bash -c 'test -f /usr/share/plymouth/themes/kulan/kulan.plymouth && grep -qx "Theme=kulan" /etc/plymouth/plymouthd.conf'
 
 # --- Security and updates ---------------------------------------------------------
+check "Boot speed" "network-wait startup step switched off once" test -e /var/lib/kulan/network-wait-disabled
 check "Firewall" "ufw enabled on first install" grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf
 check "Auto updates" "Debian security + Kulan origins allowed" bash -c 'apt-config dump | grep -q "origin=Kulan OS" && apt-config dump | grep -q "label=Debian-Security"'
 check "Firefox privacy" "policies.json valid" python3 -c 'import json; json.load(open("/etc/firefox/policies/policies.json"))'

@@ -45,6 +45,23 @@ for DIR in "${MEDIUM}/boot/grub" "${MEDIUM}/isolinux"; do
 	rm -f "${DIR}/splash.svg"
 done
 
+# Start the first entry (Kulan OS Live) automatically after 5 seconds, so
+# booting from the ISO needs no key press. Any key stops the countdown.
+GRUB_CFG="${MEDIUM}/boot/grub/grub.cfg"
+if [ -f "${GRUB_CFG}" ]; then
+	# Appended at the end: GRUB reads the value once the whole file (including
+	# files it sources, such as config.cfg) has run, so the last setting wins.
+	sed -i -e '/^[[:space:]]*set[[:space:]]\+timeout=/d' -e '/^[[:space:]]*set[[:space:]]\+default=/d' -e '/^# Kulan OS: start the first entry/d' "${GRUB_CFG}"
+	printf '# Kulan OS: start the first entry after 5 seconds.\nset default=0\nset timeout=5\n' >> "${GRUB_CFG}"
+	CHANGED=$((CHANGED + 1))
+fi
+ISOLINUX_CFG="${MEDIUM}/isolinux/isolinux.cfg"
+if [ -f "${ISOLINUX_CFG}" ]; then
+	sed -i '/^[[:space:]]*timeout[[:space:]]/Id' "${ISOLINUX_CFG}"
+	echo "timeout 50" >> "${ISOLINUX_CFG}"
+	CHANGED=$((CHANGED + 1))
+fi
+
 if [ "${CHANGED}" -eq 0 ]; then
 	echo "E: no boot menu files found to brand under ${MEDIUM}" >&2
 	exit 1
