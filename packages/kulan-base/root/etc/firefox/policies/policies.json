@@ -34,10 +34,6 @@
       "Locked": false
     },
     "Preferences": {
-      "widget.gtk.non-native-titlebar-buttons.enabled": {
-        "Value": false,
-        "Status": "default"
-      },
       "privacy.globalprivacycontrol.enabled": {
         "Value": true,
         "Status": "default"
