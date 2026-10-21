@@ -26,7 +26,8 @@ enabled=false
 [org.gnome.desktop.interface]
 color-scheme='prefer-dark'
 accent-color='teal'
-icon-theme='Adwaita'
+# Kulan folders (teal, with symbols); GNOME's Adwaita icons for everything else.
+icon-theme='Kulan'
 cursor-theme='Bibata-Modern-Classic'
 font-name='Inter 11'
 document-font-name='Inter 11'
@@ -77,11 +78,29 @@ switch-input-source-backward=['<Shift>XF86Keyboard', '<Shift><Control><Alt>space
 [org.gnome.settings-daemon.plugins.media-keys]
 custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kulan-emoji/']
 
+# Files: large icons, folders first, "Delete permanently" and "Create link"
+# in the menu, readable dates such as "Yesterday 14:05".
+[org.gnome.nautilus.preferences]
+default-folder-viewer='icon-view'
+show-delete-permanently=true
+show-create-link=true
+date-time-format='simple'
+
+[org.gnome.nautilus.icon-view]
+default-zoom-level='large'
+
+[org.gtk.gtk4.Settings.FileChooser]
+sort-directories-first=true
+
+[org.gtk.Settings.FileChooser]
+sort-directories-first=true
+
 # Files on the desktop (Desktop Icons NG), Mac-style: they start at the top
 # right with drives first; no Home or Bin icons (they're in the dock and Files).
 [org.gnome.shell.extensions.ding]
 show-home=false
-show-trash=false
+# The Bin at the end of the dock, as on a Mac.
+show-trash=true
 show-volumes=true
 add-volumes-opposite=false
 start-corner='top-right'

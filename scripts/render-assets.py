@@ -168,6 +168,95 @@ def main() -> int:
              f'<path fill="#FBBF24" d="{sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>')
     write_icon("kulan-welcome", "kulan-setup-assistant", adwaita_tile("#3A7BD5", "#1E4E9C", "#173A75", stars))
 
+    # Kulan folders: an icon theme with just the folder icons, inheriting
+    # Adwaita for everything else. Teal folders, a white symbol on the special
+    # ones, and colour versions for the Folder Colour menu in Files.
+    folder_colours = {
+        # name: (back, front top, front bottom, edge)
+        "teal": ("#13857C", "#3CC3B2", "#1A9C8F", "#0E6F67"),
+        "blue": ("#2F6FC4", "#6AA6EE", "#4A8BE0", "#285FA8"),
+        "purple": ("#6E3FA8", "#A97BDE", "#8A57C8", "#5C3490"),
+        "red": ("#B7343F", "#EE7680", "#DC4C58", "#9C2B35"),
+        "orange": ("#C65A12", "#F7A15A", "#EC7D2C", "#A84B0E"),
+        "yellow": ("#B88A06", "#F6D364", "#E8B71E", "#9B7405"),
+        "green": ("#2F8A3E", "#6FCB7E", "#45AE55", "#277334"),
+        "grey": ("#6F7A86", "#B9C2CC", "#949FAB", "#5F6974"),
+    }
+    stroke = 'stroke="#FFFFFF" stroke-opacity="0.92" fill="none" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"'
+    fill = 'fill="#FFFFFF" fill-opacity="0.92"'
+    folder_symbols = {
+        "folder": "",
+        "folder-documents": (f'<path {fill} d="M206 228 h76 l42 42 v112 q0 10 -10 10 h-108 q-10 0 -10 -10 v-144 q0 -10 10 -10 Z"/>'
+                             '<path fill="#000000" fill-opacity="0.12" d="M282 228 v32 q0 10 10 10 h32 Z"/>'),
+        "folder-pictures": (f'<rect {stroke} x="188" y="236" width="136" height="150" rx="16"/>'
+                            f'<path {fill} d="M200 372 l40 -52 l30 34 l18 -20 l32 38 Z"/><circle {fill} cx="292" cy="276" r="14"/>'),
+        "folder-download": f'<path {stroke} d="M256 228 v116 M210 300 l46 46 l46 -46 M196 388 h120"/>',
+        "folder-music": (f'<path {stroke} d="M236 360 v-118 l84 -18 v118"/><circle {fill} cx="216" cy="362" r="26"/>'
+                         f'<circle {fill} cx="300" cy="342" r="26"/>'),
+        "folder-videos": (f'<rect {stroke} x="180" y="248" width="152" height="124" rx="18"/>'
+                          f'<path {fill} d="M240 284 v52 l46 -26 Z"/>'),
+        "folder-templates": (f'<path {stroke} stroke-dasharray="30 24" d="M206 236 h100 q12 0 12 12 v124 q0 12 -12 12 h-100 q-12 0 -12 -12 v-124 q0 -12 12 -12 Z"/>'
+                             f'<path {stroke} d="M228 290 h56 M228 330 h40"/>'),
+        "folder-publicshare": (f'<circle {fill} cx="256" cy="262" r="30"/>'
+                               f'<path {fill} d="M196 382 q0 -64 60 -64 q60 0 60 64 Z"/>'),
+        "folder-remote": (f'<circle {stroke} cx="256" cy="310" r="66"/>'
+                          f'<path {stroke} d="M190 310 h132 M256 244 q-34 66 0 132 M256 244 q34 66 0 132"/>'),
+        "user-desktop": (f'<rect {stroke} x="182" y="240" width="148" height="100" rx="14"/>'
+                         f'<path {stroke} d="M226 382 h60 M256 342 v38"/>'),
+        "user-home": f'<path {stroke} d="M188 306 l68 -62 l68 62 M206 292 v86 h100 v-86 M240 378 v-46 h32 v46"/>',
+    }
+
+    def kulan_folder(colour: str, symbol: str = "", open_: bool = False) -> str:
+        back, top, bottom, edge = folder_colours[colour]
+        front_y = 186 if open_ else 168  # drag-and-drop target: the front tips down a little
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="{top}"/>
+      <stop offset="1" stop-color="{bottom}"/>
+    </linearGradient>
+  </defs>
+  <path fill="{back}" d="M56 128 q0 -28 28 -28 h118 q14 0 24 10 l26 26 h176 q28 0 28 28 v244 q0 28 -28 28 H84 q-28 0 -28 -28 Z"/>
+  <rect x="56" y="{front_y + 8}" width="400" height="{428 - front_y}" rx="30" fill="{edge}"/>
+  <rect x="56" y="{front_y}" width="400" height="{428 - front_y}" rx="30" fill="url(#front)"/>
+  <rect x="56" y="{front_y}" width="400" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.35"/>
+  <g transform="translate(0 12)">{symbol}</g>
+</svg>'''
+
+    theme = CHROOT / "usr/share/icons/Kulan"
+    places = theme / "scalable/places"
+    mimes = theme / "scalable/mimetypes"
+    places.mkdir(parents=True, exist_ok=True)
+    mimes.mkdir(parents=True, exist_ok=True)
+    for name, symbol in folder_symbols.items():
+        (places / f"{name}.svg").write_text(kulan_folder("teal", symbol) + "\n")
+    (places / "folder-drag-accept.svg").write_text(kulan_folder("teal", open_=True) + "\n")
+    (mimes / "inode-directory.svg").write_text(kulan_folder("teal") + "\n")
+    for colour in folder_colours:
+        (places / f"folder-kulan-{colour}.svg").write_text(kulan_folder(colour) + "\n")
+    (theme / "index.theme").write_text(
+        "[Icon Theme]\n"
+        "Name=Kulan\n"
+        "Comment=Kulan OS folders, with GNOME's Adwaita icons for everything else\n"
+        "Inherits=Adwaita,hicolor\n"
+        "Directories=scalable/places,scalable/mimetypes\n"
+        "\n"
+        "[scalable/places]\n"
+        "Context=Places\n"
+        "Size=128\n"
+        "MinSize=8\n"
+        "MaxSize=512\n"
+        "Type=Scalable\n"
+        "\n"
+        "[scalable/mimetypes]\n"
+        "Context=MimeTypes\n"
+        "Size=128\n"
+        "MinSize=8\n"
+        "MaxSize=512\n"
+        "Type=Scalable\n"
+    )
+    print(f"  wrote {theme.relative_to(ROOT)} ({len(list(places.iterdir())) + 1} icons)")
+
     # Wallpapers.
     render((ASSETS / "wallpaper-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-dark.png")
     render((ASSETS / "wallpaper-light.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-light.png")

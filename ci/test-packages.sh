@@ -146,7 +146,7 @@ check "App folders" "only Utilities and System are folders for new users" bash -
 check "Calmer dock" "40 px icons, quick animations" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dash-max-icon-size)\" = 40 && test \"\$(gs org.gnome.shell.extensions.dash-to-dock animation-time)\" = 0.125"
 check "Wallpaper" "Kulan light and dark wallpapers set and present" bash -c "$(declare -f gs); for k in picture-uri picture-uri-dark; do f=\$(gs org.gnome.desktop.background \$k | sed \"s|^'file://||; s|'\$||\"); test -s \"\$f\" && case \"\$f\" in /usr/share/backgrounds/kulan/*) ;; *) echo \"\$k=\$f\"; exit 1;; esac; done"
 check "Accent color" "GNOME 48 accent = teal" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface accent-color)\" = \"'teal'\""
-check "Fonts and icons" "Inter + Adwaita icons" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface font-name)\" = \"'Inter 11'\" && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Adwaita'\""
+check "Fonts and icons" "Inter + Kulan icons" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface font-name)\" = \"'Inter 11'\" && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Kulan'\" && test -f /usr/share/icons/Kulan/index.theme"
 check "Privacy defaults" "old files cleared after 30 days, no usage reports" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.privacy old-files-age)\" = 'uint32 30' && test \"\$(gs org.gnome.desktop.privacy send-software-usage-stats)\" = false"
 check "One welcome tour" "GNOME's own welcome popup suppressed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell welcome-dialog-last-shown-version)\" = \"'999'\""
 check "Clutter hidden" "Tour, Htop and KDE System Settings hidden from the app grid" python3 - <<'PY'
@@ -209,10 +209,28 @@ check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hi
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
 check "Sound theme" "Kulan chimes installed and chosen" bash -c "$(declare -f gs); test -f /usr/share/sounds/kulan/index.theme && test -s /usr/share/sounds/kulan/stereo/message-new-instant.oga && test \"\$(gs org.gnome.desktop.sound theme-name)\" = \"'kulan'\""
-check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Adwaita'\""
+check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Kulan'\" && test -f /usr/share/icons/Kulan/index.theme"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Helper refuses bad input" "computer name, DNS and add-on values are checked before anything runs as root" bash -c 'for args in "set-hostname Bad_Name" "set-hostname -x" "set-hostname a.b"; do out="$(/usr/lib/kulan/update-run $args 2>&1)"; echo "$out" | grep -q "letters, numbers and dashes" || { echo "not refused by the check: $args"; exit 1; }; done; for args in "dns bogus" "dns" "addon-install ../x" "addon-remove nope" "nonsense"; do if /usr/lib/kulan/update-run $args >/dev/null 2>&1; then echo "accepted: $args"; exit 1; fi; done'
 check "Dock default" "always visible" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-fixed)\" = true"
+check "Files defaults" "large icons, folders first, readable dates, Delete permanently, Bin in the dock" bash -c "$(declare -f gs); test \"\$(gs org.gnome.nautilus.preferences default-folder-viewer)\" = \"'icon-view'\" && test \"\$(gs org.gnome.nautilus.icon-view default-zoom-level)\" = \"'large'\" && test \"\$(gs org.gnome.nautilus.preferences date-time-format)\" = \"'simple'\" && test \"\$(gs org.gnome.nautilus.preferences show-delete-permanently)\" = true && test \"\$(gs org.gtk.gtk4.Settings.FileChooser sort-directories-first)\" = true && test \"\$(gs org.gnome.shell.extensions.dash-to-dock show-trash)\" = true"
+check "Folder Colour" "the Files extension parses and every colour has its icon" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-folder-colour.py && for c in red orange yellow green teal blue purple grey; do test -s /usr/share/icons/Kulan/scalable/places/folder-kulan-\$c.svg || exit 1; done"
+check "Templates" "New Document templates are valid OpenDocument files" python3 - <<'PY'
+import zipfile
+from pathlib import Path
+d = Path("/usr/share/kulan/templates")
+names = sorted(p.name for p in d.iterdir())
+assert names == ["Document.odt", "Markdown Note.md", "Presentation.odp", "Spreadsheet.ods", "Text File.txt"], names
+for p, kind in ((d / "Document.odt", "text"), (d / "Spreadsheet.ods", "spreadsheet"), (d / "Presentation.odp", "presentation")):
+    with zipfile.ZipFile(p) as z:
+        first = z.infolist()[0]
+        assert first.filename == "mimetype" and first.compress_type == zipfile.ZIP_STORED, p
+        assert z.read("mimetype").decode() == f"application/vnd.oasis.opendocument.{kind}", p
+        assert z.testzip() is None, p
+        for member in ("content.xml", "styles.xml", "META-INF/manifest.xml"):
+            __import__("xml.etree.ElementTree").etree.ElementTree.fromstring(z.read(member))
+PY
+check "Projects and templates" "first sign-in makes Projects (in the sidebar) and the templates, once" bash -c 'h=$(mktemp -d) && desktop-file-validate /etc/xdg/autostart/org.kulan.UserSetup.desktop && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test -d $h/Projects && grep -qx "file://$h/Projects" $h/.config/gtk-3.0/bookmarks && t=$(HOME=$h xdg-user-dir TEMPLATES) && test -f "$t/Document.odt" && rm "$t/Document.odt" && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test ! -e "$t/Document.odt" && test "$(wc -l < $h/.config/gtk-3.0/bookmarks)" -eq 1'
 check "Add-on list" "every add-on names its apps; the helper refuses anything else" python3 - <<'PY'
 import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
@@ -237,7 +255,7 @@ check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get 
 check "Upgrade path" "kulan-desktop-settings pulls in kulan-update-center, kulan-settings and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-settings && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
 
 # --- Welcome app against Debian's real GTK and libadwaita ------------------------------
-check "Icons exist" "every icon Kulan's apps and shell use is in Adwaita, hicolor or libadwaita" python3 - <<'PY'
+check "Icons exist" "every icon Kulan's apps and shell use is in Kulan, Adwaita, hicolor or libadwaita" python3 - <<'PY'
 import pathlib, re
 sources = [*pathlib.Path("/usr/share/kulan-settings").rglob("*.py"), pathlib.Path("/usr/bin/kulan-welcome"),
            pathlib.Path("/usr/share/kulan/addons.json"),
@@ -248,7 +266,7 @@ for f in sources:
     names |= set(re.findall(r"['\"]([a-z0-9][a-z0-9.-]*-symbolic)['\"]", t))
     names |= set(re.findall(r"icon_name=['\"]([A-Za-z0-9.-]+)['\"]", t))
     names |= set(re.findall(r"\"icon\": \"([a-z0-9.-]+)\"", t))
-have = {q.stem for d in ("/usr/share/icons/Adwaita", "/usr/share/icons/hicolor")
+have = {q.stem for d in ("/usr/share/icons/Kulan", "/usr/share/icons/Adwaita", "/usr/share/icons/hicolor")
         for q in pathlib.Path(d).rglob("*") if q.suffix in (".svg", ".png")}
 missing = sorted(n for n in names if "{" not in n and n not in have and not n.startswith("adw-"))
 print(f"{len(names)} icon names checked")

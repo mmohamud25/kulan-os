@@ -1,0 +1,51 @@
+#!/bin/sh
+# Kulan OS, once for each person when they first sign in (and again only when
+# a later Kulan OS release adds something here, see VERSION):
+#   - a Projects folder, pinned in the Files sidebar
+#   - "New Document" templates (Text File, Markdown Note, Document,
+#     Spreadsheet, Presentation) in their Templates folder
+# Nothing that already exists is changed or replaced, and anything removed
+# afterwards stays removed: the work is only done once per VERSION.
+set -u
+
+VERSION=1
+STATE="${XDG_STATE_HOME:-${HOME}/.local/state}/kulan"
+MARKER="${STATE}/user-setup"
+TEMPLATES_SRC=/usr/share/kulan/templates
+
+[ -n "${HOME:-}" ] && [ -d "${HOME}" ] || exit 0
+DONE="$(cat "${MARKER}" 2>/dev/null || echo 0)"
+case "${DONE}" in ''|*[!0-9]*) DONE=0 ;; esac
+[ "${DONE}" -ge "${VERSION}" ] && exit 0
+
+if [ "${DONE}" -lt 1 ]; then
+	# Projects, pinned in the sidebar (GTK's bookmarks file, which Files reads).
+	PROJECTS="${HOME}/Projects"
+	[ -e "${PROJECTS}" ] || mkdir -p "${PROJECTS}"
+	if [ -d "${PROJECTS}" ]; then
+		BOOKMARKS="${XDG_CONFIG_HOME:-${HOME}/.config}/gtk-3.0/bookmarks"
+		URI="$(python3 -c 'import pathlib, sys; print(pathlib.Path(sys.argv[1]).as_uri())' "${PROJECTS}" 2>/dev/null)"
+		if [ -n "${URI}" ] && ! grep -qs "^${URI}\( \|\$\)" "${BOOKMARKS}"; then
+			mkdir -p "$(dirname "${BOOKMARKS}")"
+			printf '%s\n' "${URI}" >> "${BOOKMARKS}"
+		fi
+	fi
+
+	# Templates: GNOME has no Templates folder of its own when xdg-user-dirs
+	# points it at the home folder, so give it the usual one.
+	TEMPLATES="$(xdg-user-dir TEMPLATES 2>/dev/null || true)"
+	if [ -z "${TEMPLATES}" ] || [ "${TEMPLATES}" = "${HOME}" ] || [ "${TEMPLATES}" = "${HOME}/" ]; then
+		TEMPLATES="${HOME}/Templates"
+		xdg-user-dirs-update --set TEMPLATES "${TEMPLATES}" 2>/dev/null || true
+	fi
+	mkdir -p "${TEMPLATES}" 2>/dev/null || true
+	if [ -d "${TEMPLATES}" ] && [ -d "${TEMPLATES_SRC}" ]; then
+		for SRC in "${TEMPLATES_SRC}"/*; do
+			[ -f "${SRC}" ] || continue
+			DEST="${TEMPLATES}/$(basename "${SRC}")"
+			[ -e "${DEST}" ] || cp "${SRC}" "${DEST}" 2>/dev/null || true
+		done
+	fi
+fi
+
+mkdir -p "${STATE}" && printf '%s\n' "${VERSION}" > "${MARKER}"

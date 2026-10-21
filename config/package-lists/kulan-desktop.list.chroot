@@ -50,6 +50,7 @@ baobab
 # Live Text: copy text out of anything on screen (Super+Shift+T)
 tesseract-ocr
 tesseract-ocr-eng
+python3-nautilus
 
 # Office and media (native builds; run on ARM and PCs)
 libreoffice-writer
