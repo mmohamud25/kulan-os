@@ -47,6 +47,11 @@
       <summary>Shortcut for Kulan Assistant's writing tools</summary>
       <description>Proofread, rewrite, shorten or translate the selected text (needs Kulan Assistant).</description>
     </key>
+    <key name="dictation-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;d']</default>
+      <summary>Shortcut for Dictation</summary>
+      <description>Start and stop Dictation: what you say is typed where the cursor is (needs Kulan Assistant).</description>
+    </key>
     <key name="focus-schedule" type="b">
       <default>false</default>
       <summary>Focus schedule</summary>
@@ -68,6 +73,55 @@
       <default>7.0</default>
       <summary>Focus ends</summary>
       <description>Hour of the day, such as 7.0 for 07:00.</description>
+    </key>
+    <key name="prayer-times" type="b">
+      <default>false</default>
+      <summary>Prayer times</summary>
+      <description>Show the next prayer in the top bar and a notification at each prayer time.</description>
+    </key>
+    <key name="prayer-city" type="s">
+      <default>''</default>
+      <summary>City for prayer times</summary>
+      <description>Shown in the menu; the times come from prayer-latitude and prayer-longitude.</description>
+    </key>
+    <key name="prayer-country" type="s">
+      <default>''</default>
+      <summary>Country code for prayer times</summary>
+      <description>Two-letter code, used to suggest the local calculation method.</description>
+    </key>
+    <key name="prayer-latitude" type="d">
+      <range min="-90" max="90"/>
+      <default>0</default>
+      <summary>Latitude for prayer times</summary>
+      <description>Degrees north (negative for south).</description>
+    </key>
+    <key name="prayer-longitude" type="d">
+      <range min="-180" max="180"/>
+      <default>0</default>
+      <summary>Longitude for prayer times</summary>
+      <description>Degrees east (negative for west).</description>
+    </key>
+    <key name="prayer-method" type="s">
+      <choices>
+        <choice value=''/><choice value='MWL'/><choice value='ISNA'/><choice value='Egypt'/>
+        <choice value='Makkah'/><choice value='Karachi'/><choice value='Tehran'/><choice value='Jafari'/>
+        <choice value='Gulf'/><choice value='Kuwait'/><choice value='Qatar'/><choice value='Singapore'/>
+        <choice value='Turkey'/>
+      </choices>
+      <default>''</default>
+      <summary>Calculation method</summary>
+      <description>Empty: the one used in the chosen city's country.</description>
+    </key>
+    <key name="prayer-asr" type="s">
+      <choices><choice value='standard'/><choice value='hanafi'/></choices>
+      <default>'standard'</default>
+      <summary>Asr time</summary>
+      <description>standard (Shafi'i, Maliki, Hanbali) or hanafi.</description>
+    </key>
+    <key name="prayer-notify" type="b">
+      <default>true</default>
+      <summary>Notify at prayer times</summary>
+      <description>A notification and a soft sound when each prayer time comes.</description>
     </key>
   </schema>
 </schemalist>

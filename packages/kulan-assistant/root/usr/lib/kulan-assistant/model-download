@@ -57,7 +57,7 @@ def lookup(model_id: str) -> dict:
     if info is None:
         fail("Unknown model.")
     if (not str(info.get("url", "")).startswith(ALLOWED) or not re.fullmatch(r"[0-9a-f]{64}", info.get("sha256", ""))
-            or not re.fullmatch(r"[A-Za-z0-9._-]+\.gguf", info.get("file", ""))
+            or not re.fullmatch(r"[A-Za-z0-9._-]+\.(gguf|bin)", info.get("file", ""))
             or not isinstance(info.get("size"), int)):
         fail("This model's entry is not valid.")
     return info

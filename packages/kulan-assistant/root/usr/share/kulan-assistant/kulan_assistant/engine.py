@@ -96,27 +96,35 @@ def model_path(model_id: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def chosen_model() -> str:
+def _setting(key: str, default: str) -> str:
     try:
         from gi.repository import Gio
         source = Gio.SettingsSchemaSource.get_default()
-        if source is not None and source.lookup("org.kulan.assistant", True) is not None:
-            return Gio.Settings.new("org.kulan.assistant").get_string("model")
+        schema = source.lookup("org.kulan.assistant", True) if source is not None else None
+        if schema is not None and schema.has_key(key):
+            return Gio.Settings.new("org.kulan.assistant").get_string(key)
     except Exception:  # noqa: BLE001 - no GSettings (CLI in a bare session): use the default
         pass
-    return "qwen3-4b"
+    return default
 
 
-def installed_models() -> list[dict]:
-    return [m for m in models() if model_path(m["id"]) is not None]
+def chosen_model(kind: str = "writing") -> str:
+    if kind == "dictation":
+        return _setting("dictation-model", "whisper-base")
+    return _setting("model", "qwen3-4b")
 
 
-def usable_model() -> str | None:
-    """The chosen model if downloaded, else any downloaded one."""
-    chosen = chosen_model()
-    if model_path(chosen):
+def installed_models(kind: str = "writing") -> list[dict]:
+    return [m for m in models() if m.get("kind", "writing") == kind and model_path(m["id"]) is not None]
+
+
+def usable_model(kind: str = "writing") -> str | None:
+    """The chosen model if downloaded, else any downloaded one of that kind."""
+    chosen = chosen_model(kind)
+    info = model_info(chosen)
+    if info and info.get("kind", "writing") == kind and model_path(chosen):
         return chosen
-    first = next(iter(installed_models()), None)
+    first = next(iter(installed_models(kind)), None)
     return first["id"] if first else None
 
 

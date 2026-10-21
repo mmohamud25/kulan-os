@@ -209,7 +209,7 @@ check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/s
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "15/15 pages built" && ! echo "$out" | grep -q Traceback'
+check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "17/17 pages built" && ! echo "$out" | grep -q Traceback'
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
@@ -271,7 +271,8 @@ import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
 ids = [a["id"] for a in addons]
 assert len(ids) == len(set(ids)), ids
-assert {"apps", "devkit"} <= set(ids), ids
+assert {"apps", "devkit", "assistant", "learning-pack", "steam"} <= set(ids), ids
+assert next(a for a in addons if a["id"] == "steam").get("arch") == ["amd64"]
 for a in addons:
     assert a.get("title") and a.get("description") and (a.get("packages") or a.get("flatpak")), a
     for port in a.get("firewall", []):
@@ -308,7 +309,7 @@ print(f"{len(names)} icon names checked")
 raise SystemExit(f"missing: {missing}" if missing else 0)
 PY
 check "Assistant compiles" "every Kulan Assistant Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-assistant /usr/lib/kulan-assistant/kulan-assistant-engine /usr/lib/kulan-assistant/model-download /usr/share/kulan-assistant/kulan_assistant/*.py /usr/share/nautilus-python/extensions/kulan-assistant-summarise.py"
-check "Assistant in GNOME" "app entry, Activities search provider and its D-Bus service" bash -c 'desktop-file-validate /usr/share/applications/org.kulan.Assistant.desktop && grep -qx "DesktopId=org.kulan.Assistant.desktop" /usr/share/gnome-shell/search-providers/org.kulan.Assistant.search-provider.ini && grep -qx "Exec=/usr/bin/kulan-assistant search-provider" /usr/share/dbus-1/services/org.kulan.Assistant.SearchProvider.service && test -d /var/lib/kulan-assistant/models && python3 -c "import json; m = json.load(open(\"/usr/share/kulan-assistant/models.json\")); assert len(m) == 3 and all(x[\"url\"].startswith(\"https://huggingface.co/\") and len(x[\"sha256\"]) == 64 for x in m)"'
+check "Assistant in GNOME" "app entry, Activities search provider and its D-Bus service" bash -c 'desktop-file-validate /usr/share/applications/org.kulan.Assistant.desktop && grep -qx "DesktopId=org.kulan.Assistant.desktop" /usr/share/gnome-shell/search-providers/org.kulan.Assistant.search-provider.ini && grep -qx "Exec=/usr/bin/kulan-assistant search-provider" /usr/share/dbus-1/services/org.kulan.Assistant.SearchProvider.service && test -d /var/lib/kulan-assistant/models && python3 -c "import json; m = json.load(open(\"/usr/share/kulan-assistant/models.json\")); assert [x.get(\"kind\", \"writing\") for x in m].count(\"writing\") == 3 and [x.get(\"kind\") for x in m].count(\"dictation\") == 2 and all(x[\"url\"].startswith(\"https://huggingface.co/\") and len(x[\"sha256\"]) == 64 for x in m)"'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Assistant without a model" "says how to get one instead of failing silently" bash -c 'out="$(kulan-assistant ask proofread "hello there" 2>&1)"; rc=$?; echo "$out"; [ "$rc" -eq 1 ] && echo "$out" | grep -qE "No model yet|engine isn.t installed"'
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -330,6 +331,17 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 	fi
 	check "Assistant understands questions" "a search question becomes words, a kind of file and dates" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; q = search.understand("the invoice PDF from last month"); print(q); assert q and q["words"] and q["kind"] in ("pdf", "document", "any")'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
+	check "Dictation engine" "whisper.cpp starts and picks the CPU code for this processor" bash -c '/usr/lib/kulan-assistant/whisper/whisper-cli --help >/dev/null 2>&1; test -x /usr/lib/kulan-assistant/whisper/whisper-cli && ls /usr/lib/kulan-assistant/whisper/libggml-cpu-*.so >/dev/null'
+	check "Dictation model download" "Quick speech model downloaded and its SHA-256 checked" timeout 600 /usr/lib/kulan/update-run assistant-model whisper-base
+	# Speech made by espeak-ng, then turned back into text.
+	apt-get install -y -q espeak-ng >/dev/null 2>&1
+	espeak-ng -s 140 -w /tmp/dictation.wav "Please send the report to the team before Friday." 2>/dev/null
+	HEARD="$(timeout 300 kulan-assistant dictate /tmp/dictation.wav 2>&1)"
+	if grep -qi "report" <<<"${HEARD}" && grep -qi "friday" <<<"${HEARD}"; then
+		result pass "Dictation" "heard: ${HEARD:0:150}"
+	else
+		result fail "Dictation" "heard: ${HEARD:0:200}"
+	fi
 else
 	result skip "Assistant engine" "no PC engine package in this run (only the Mac (arm64) ISO was chosen, or the engine job failed: see its results)"
 fi

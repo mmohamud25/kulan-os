@@ -275,3 +275,10 @@
   color: rgba(255, 255, 255, 0.6);
   padding: 12px;
 }
+
+/* Dictation: listening, in the top bar */
+.kulan-dictation { spacing: 6px; color: #ff6b6b; font-weight: bold; }
+
+/* Prayer times: next prayer in the top bar, highlighted in its menu */
+.kulan-prayer-label { font-feature-settings: "tnum"; }
+.kulan-prayer-next { font-weight: bold; color: #2bb3a3; }

@@ -27,6 +27,7 @@ DNS_CHOICES = [
     ("off", "Your network’s"),
     ("quad9", "Encrypted (Quad9)"),
     ("adblock", "Encrypted, blocks ads and trackers"),
+    ("family", "Encrypted, family-safe (blocks adult and harmful sites)"),
 ]
 
 CONNECTIONS = [
@@ -35,7 +36,7 @@ CONNECTIONS = [
     ("Software updates", ("deb.debian.org, security.debian.org and the Kulan OS update server, to check "
                           "for and download updates")),
     ("Clock", "A Debian time server, to keep the clock right"),
-    ("Encrypted DNS", "Quad9 or Mullvad, only if you turn it on above"),
+    ("Encrypted DNS", "Quad9, Mullvad or Cloudflare for Families, only if you turn it on"),
     ("Nothing else", ("No usage data, crash reports or advertising IDs are sent. Apps you install may "
                       "connect to their own services")),
 ]
@@ -46,7 +47,9 @@ def dns_mode() -> str:
         text = DNS_CONF.read_text()
     except OSError:
         return "off"
-    return "adblock" if "mullvad" in text else "quad9"
+    if "mullvad" in text:
+        return "adblock"
+    return "family" if "cloudflare-dns" in text else "quad9"
 
 
 def current_name() -> str:
@@ -188,7 +191,8 @@ class PrivacyPage(Page):
         if mode == dns_mode():
             return
         message = {"off": "Using your network’s DNS", "quad9": "Encrypted DNS on",
-                   "adblock": "Encrypted DNS with ad blocking on"}[mode]
+                   "adblock": "Encrypted DNS with ad blocking on",
+                   "family": "Family-safe DNS on"}[mode]
         self.window.helper.run(["dns", mode], message, on_done=lambda _ok: self.window.reload_page(self))
 
     # --- history ---------------------------------------------------------------------

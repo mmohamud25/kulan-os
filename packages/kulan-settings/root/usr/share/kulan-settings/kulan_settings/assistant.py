@@ -1,4 +1,4 @@
-"""Assistant: Kulan Assistant's model and features, all on this computer."""
+"""Assistant: Kulan Assistant's models and features, all on this computer."""
 from __future__ import annotations
 
 import os
@@ -11,10 +11,23 @@ from .common import Page, choice_row, read_json, settings, switch_row
 REGISTRY = Path("/usr/share/kulan-assistant/models.json")
 MODELS_DIR = Path("/var/lib/kulan-assistant/models")
 ENGINE = Path("/usr/lib/kulan-assistant/engine/llama-server")
+WHISPER = Path("/usr/lib/kulan-assistant/whisper/whisper-cli")
 SCHEMA = "org.kulan.assistant"
 LANGUAGES = ["English", "Arabic", "French", "Spanish", "German", "Italian", "Portuguese", "Dutch", "Swedish",
              "Turkish", "Russian", "Chinese", "Japanese", "Korean", "Hindi", "Urdu", "Swahili", "Amharic",
              "Persian", "Indonesian", "Polish", "Ukrainian"]
+# Spoken languages for Dictation (Whisper's codes).
+SPOKEN = [("en", "English"), ("ar", "Arabic"), ("fr", "French"), ("es", "Spanish"), ("de", "German"),
+          ("it", "Italian"), ("pt", "Portuguese"), ("nl", "Dutch"), ("sv", "Swedish"), ("tr", "Turkish"),
+          ("ru", "Russian"), ("zh", "Chinese"), ("ja", "Japanese"), ("ko", "Korean"), ("hi", "Hindi"),
+          ("ur", "Urdu"), ("sw", "Swahili"), ("am", "Amharic"), ("fa", "Persian"), ("id", "Indonesian"),
+          ("pl", "Polish"), ("uk", "Ukrainian")]
+# kind: (settings key, what the models are for)
+KINDS = {
+    "writing": ("model", "Bigger models write better but need more memory and are slower."),
+    "dictation": ("dictation-model", "Turns what you say into text. The Accurate model copes better with "
+                                     "accents, background noise and other languages."),
+}
 
 
 def memory_gb() -> float:
@@ -24,8 +37,9 @@ def memory_gb() -> float:
         return 0.0
 
 
-def models() -> list[dict]:
-    return [m for m in read_json(REGISTRY, []) if isinstance(m, dict) and m.get("id") and m.get("file")]
+def models(kind: str = "writing") -> list[dict]:
+    return [m for m in read_json(REGISTRY, []) if isinstance(m, dict) and m.get("id") and m.get("file")
+            and m.get("kind", "writing") == kind]
 
 
 def downloaded(model: dict) -> bool:
@@ -39,39 +53,46 @@ def recommended(all_models: list[dict], memory: float) -> str | None:
     return (fits[-1] if fits else (all_models[0] if all_models else {})).get("id")
 
 
+def size_text(size: int) -> str:
+    return f"{size / 1e9:.1f} GB" if size >= 1e9 else f"{size / 1e6:.0f} MB"
+
+
 class AssistantPage(Page):
     title = "Assistant"
     icon = "kulan-assistant-symbolic"
     keywords = ("assistant", "ai", "writing", "proofread", "rewrite", "summarise", "summarize", "translate",
-                "model", "private", "search")
+                "model", "private", "search", "dictation", "speech", "voice", "microphone")
 
     def __init__(self, window) -> None:
         super().__init__(window)
         self.settings = settings(SCHEMA)
         # Rounded: an "8 GB" computer reports a little less than 8.
         self.memory = round(memory_gb())
+        self.groups: dict[str, Adw.PreferencesGroup] = {}
+        self.rows: dict[str, list[Gtk.Widget]] = {}
+        self.buttons: list[Gtk.Button] = []
         if self.settings is None or not ENGINE.exists():
             status = Adw.StatusPage(icon_name="kulan-assistant-symbolic", title="Kulan Assistant isn’t installed",
-                                    description="Private writing help, summaries in Files and search with "
-                                                "questions, all on this computer. Install it from Add-ons.")
+                                    description="Private writing help, dictation, summaries in Files and search "
+                                                "with questions, all on this computer. Install it from Add-ons.")
             button = Gtk.Button(label="Open Add-ons", halign=Gtk.Align.CENTER, css_classes=["pill", "suggested-action"])
             button.connect("clicked", lambda _b: self.window.show_page("add-ons"))
             status.set_child(button)
             self.set_child(status)
-            self.model_group = None
             return
 
         self.add_group(
             None,
-            "Writing help, summaries and search with questions. The assistant runs entirely on this computer: "
-            "what you select, summarise or search for never leaves it, and it works without the internet "
-            "once a model is downloaded.")
-        self.model_group = self.add_group("Model", self.model_description())
-        self.model_rows: list[Gtk.Widget] = []
+            "Writing help, dictation, summaries and search with questions. Kulan Assistant runs entirely on this "
+            "computer: what you select, say, summarise or search for never leaves it, and it works without the "
+            "internet once a model is downloaded.")
+        memory = f"This computer has {self.memory:.0f} GB of memory. " if self.memory else ""
+        self.groups["writing"] = self.add_group("Writing model", memory + KINDS["writing"][1] + " Models are "
+                                                "downloaded once, for everyone on this computer, from Hugging Face.")
         self.progress = Gtk.ProgressBar(show_text=True, margin_top=6, visible=False)
         self.progress.update_property([Gtk.AccessibleProperty.LABEL], ["Model download"])
 
-        features = self.add_group("Features")
+        features = self.add_group("Writing features")
         self.add_rows(
             features,
             switch_row(self.settings, "writing-tools", "Writing tools",
@@ -90,50 +111,66 @@ class AssistantPage(Page):
             choices.append((current, current))
         features.add(choice_row("Translate to", None, choices, lambda: self.settings.get_string("translate-to"),
                                 lambda v: self.settings.set_string("translate-to", v)))
+
+        if WHISPER.exists() and self.settings.props.settings_schema.has_key("dictation"):
+            dictation = self.add_group("Dictation", "Press Shift+Super+D, speak, then press it again: the words "
+                                                    "are typed where the cursor is. Nothing is recorded or kept.")
+            self.add_rows(dictation, switch_row(self.settings, "dictation", "Dictation",
+                                                "Shift+Super+D starts and stops it"))
+            spoken = [("", "Detect it each time")] + SPOKEN
+            dictation.add(choice_row("Language you speak", "Choosing one is faster and more accurate", spoken,
+                                     lambda: self.settings.get_string("dictation-language"),
+                                     lambda v: self.settings.set_string("dictation-language", v)))
+            self.groups["dictation"] = self.add_group("Dictation model", KINDS["dictation"][1])
+
         # Rebuilt after the click that changed it has finished.
-        self.watch(self.settings, "changed::model", lambda *_a: GLib.idle_add(lambda: self.shown() and False))
+        for key, _desc in KINDS.values():
+            if self.settings.props.settings_schema.has_key(key):
+                self.watch(self.settings, f"changed::{key}", lambda *_a: GLib.idle_add(lambda: self.shown() and False))
         self.listen_busy(self.on_busy)
         self.shown()
 
-    def model_description(self) -> str:
-        memory = f"This computer has {self.memory:.0f} GB of memory. " if self.memory else ""
-        return (memory + "Bigger models write better but need more memory and are slower. Models are "
-                "downloaded once, for everyone on this computer, from Hugging Face.")
-
     def shown(self) -> None:
-        if self.model_group is None:
+        if not self.groups:
             return
-        for row in self.model_rows:
-            self.model_group.remove(row)
-        self.model_rows = []
-        self.buttons: list[Gtk.Button] = []
-        all_models = models()
-        best = recommended(all_models, self.memory)
+        self.buttons = []
+        for kind, group in self.groups.items():
+            for row in self.rows.get(kind, []):
+                group.remove(row)
+            self.rows[kind] = self.model_rows(kind, group)
+        # The progress bar sits under the list being downloaded to.
+        group = self.groups.get(getattr(self, "downloading", "writing"), self.groups["writing"])
+        group.add(self.progress)
+        self.rows.setdefault(getattr(self, "downloading", "writing"), []).append(self.progress)
+
+    def model_rows(self, kind: str, group: Adw.PreferencesGroup) -> list[Gtk.Widget]:
+        key = KINDS[kind][0]
+        all_models = models(kind)
+        best = recommended(all_models, self.memory) if kind == "writing" else None
         # Until someone picks one (or downloads one), the choice shown follows
         # what suits this computer; nothing is saved until then.
-        picked = self.settings.get_user_value("model")
-        chosen = picked.get_string() if picked is not None else (best or self.settings.get_string("model"))
+        picked = self.settings.get_user_value(key)
+        chosen = picked.get_string() if picked is not None else (best or self.settings.get_string(key))
+        rows: list[Gtk.Widget] = []
         first_radio = None
         for model in all_models:
-            have = downloaded(model)
-            size = f"{model.get('size', 0) / 1e9:.1f} GB"
             title = model.get("title", model["id"])
             if model["id"] == best:
                 title += " (recommended for this computer)"
             row = Adw.ActionRow(title=GLib.markup_escape_text(title),
-                                subtitle=GLib.markup_escape_text(f"{model.get('description', '')} · {size} · "
-                                                                 f"{model.get('source', '')}, "
-                                                                 f"{model.get('license', '')}"))
+                                subtitle=GLib.markup_escape_text(
+                                    f"{model.get('description', '')} · {size_text(model.get('size', 0))} · "
+                                    f"{model.get('source', '')}, {model.get('license', '')}"))
             radio = Gtk.CheckButton(valign=Gtk.Align.CENTER, active=model["id"] == chosen)
             radio.update_property([Gtk.AccessibleProperty.LABEL], [f"Use {model.get('title', model['id'])}"])
             if first_radio is None:
                 first_radio = radio
             else:
                 radio.set_group(first_radio)
-            radio.connect("toggled", self.on_choose, model["id"])
+            radio.connect("toggled", self.on_choose, key, model["id"])
             row.add_prefix(radio)
             row.set_activatable_widget(radio)
-            if have:
+            if downloaded(model):
                 row.add_suffix(Gtk.Label(label="Downloaded", css_classes=["dim-label", "caption"]))
                 button = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
                                     tooltip_text="Delete this model", css_classes=["flat"])
@@ -143,21 +180,22 @@ class AssistantPage(Page):
                 button = Gtk.Button(label="Download", valign=Gtk.Align.CENTER,
                                     css_classes=["suggested-action"] if model["id"] == chosen else [])
                 button.update_property([Gtk.AccessibleProperty.LABEL], [f"Download the {model.get('title')} model"])
-                button.connect("clicked", self.on_download, model)
+                button.connect("clicked", self.on_download, kind, model)
             button.set_sensitive(not self.window.helper.busy)
             row.add_suffix(button)
             self.buttons.append(button)
-            self.model_group.add(row)
-            self.model_rows.append(row)
-        self.model_group.add(self.progress)
-        self.model_rows.append(self.progress)
+            group.add(row)
+            rows.append(row)
+        return rows
 
-    def on_choose(self, radio: Gtk.CheckButton, model_id: str) -> None:
-        if radio.get_active() and self.settings.get_user_value("model") != GLib.Variant("s", model_id):
-            self.settings.set_string("model", model_id)
+    def on_choose(self, radio: Gtk.CheckButton, key: str, model_id: str) -> None:
+        if radio.get_active() and self.settings.get_user_value(key) != GLib.Variant("s", model_id):
+            self.settings.set_string(key, model_id)
 
-    def on_download(self, _button: Gtk.Button, model: dict) -> None:
-        self.settings.set_string("model", model["id"])
+    def on_download(self, _button: Gtk.Button, kind: str, model: dict) -> None:
+        self.downloading = kind
+        self.settings.set_string(KINDS[kind][0], model["id"])
+        self.shown()
         self.progress.set_fraction(0)
         self.progress.set_text("Starting the download…")
         self.progress.set_visible(True)
@@ -178,7 +216,7 @@ class AssistantPage(Page):
     def on_remove(self, _button: Gtk.Button, model: dict) -> None:
         title = model.get("title", model["id"])
         dialog = Adw.AlertDialog(heading=f"Delete the {title} model?",
-                                 body=f"This frees {model.get('size', 0) / 1e9:.1f} GB for everyone on this "
+                                 body=f"This frees {size_text(model.get('size', 0))} for everyone on this "
                                       "computer. You can download it again later.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete")
@@ -188,5 +226,5 @@ class AssistantPage(Page):
         dialog.present(self.window)
 
     def on_busy(self, busy: bool) -> None:
-        for button in getattr(self, "buttons", []):
+        for button in self.buttons:
             button.set_sensitive(not busy)

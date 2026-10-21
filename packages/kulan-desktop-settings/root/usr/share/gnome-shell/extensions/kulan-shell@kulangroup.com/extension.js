@@ -26,7 +26,9 @@ import {UnlockDialog} from 'resource:///org/gnome/shell/ui/unlockDialog.js';
 
 import {Assistant} from './assistant.js';
 import {ClipboardHistory} from './clipboard.js';
+import {Dictation} from './dictation.js';
 import {LiveText} from './livetext.js';
+import {PrayerTimes} from './prayer.js';
 
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
@@ -45,6 +47,7 @@ const STYLE_CHECK_S = 60;
 const SHORTCUTS = {
     'live-text-shortcut': ext => ext._liveText?.start(),
     'writing-tools-shortcut': ext => ext._assistant?.writingTools(),
+    'dictation-shortcut': ext => ext._dictation?.toggle(),
     'clipboard-history-shortcut': ext => {
         if (ext._clipboard)
             ext._clipboard.show();
@@ -305,8 +308,10 @@ export default class KulanShellExtension extends Extension {
         this._sessionId = Main.sessionMode.connect('updated', () => {
             this._syncSession();
             this._syncStyle(); // the time may have passed sunset while locked
-            if (Main.sessionMode.isLocked)
+            if (Main.sessionMode.isLocked) {
                 this._clipboard?.clear(); // nothing copied survives a lock
+                this._dictation?.destroy(); // and nothing is recorded while locked
+            }
         });
 
         this._settings = kulanSettings();
@@ -330,6 +335,8 @@ export default class KulanShellExtension extends Extension {
         this._notifications = new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'});
         this._assistant = new Assistant();
         this._liveText = new LiveText(this._assistant);
+        this._dictation = new Dictation(this._assistant);
+        this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
         this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
         this._syncClipboard();
         this._addShortcuts();
@@ -453,6 +460,10 @@ export default class KulanShellExtension extends Extension {
         this._clipboard = null;
         this._liveText?.destroy();
         this._liveText = null;
+        this._dictation?.destroy();
+        this._dictation = null;
+        this._prayer?.destroy();
+        this._prayer = null;
         this._assistant?.destroy();
         this._assistant = null;
         this._notifications = null;

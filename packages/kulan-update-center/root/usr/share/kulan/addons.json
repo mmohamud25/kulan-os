@@ -75,5 +75,40 @@
       "53317/tcp",
       "53317/udp"
     ]
+  },
+  {
+    "id": "learning-pack",
+    "title": "Learning Pack",
+    "description": "Tools for learning network and system defence: Wireshark and tcpdump to see network traffic, Nmap to check your own network, YARA and The Sleuth Kit for malware and forensics practice, TestDisk to recover files, a hex editor, and DNS, traceroute and whois tools",
+    "icon": "system-search-symbolic",
+    "size": "about 250 MB",
+    "note": "To capture network traffic without sudo, run: sudo dpkg-reconfigure wireshark-common (choose Yes), then sudo usermod -aG wireshark $USER, then sign out and in again. Only scan networks you own or have permission to test.",
+    "packages": [
+      "wireshark",
+      "tshark",
+      "tcpdump",
+      "nmap",
+      "yara",
+      "sleuthkit",
+      "testdisk",
+      "ghex",
+      "bind9-dnsutils",
+      "traceroute",
+      "whois"
+    ]
+  },
+  {
+    "id": "steam",
+    "title": "Steam",
+    "description": "Valve's game store and launcher, with Proton to play many Windows games, from Flathub",
+    "icon": "input-gaming-symbolic",
+    "size": "about 1 GB from Flathub, plus your games",
+    "note": "Open Steam from the app grid and sign in. In Steam > Settings > Compatibility, turn on Steam Play to run Windows games.",
+    "arch": [
+      "amd64"
+    ],
+    "flatpak": [
+      "com.valvesoftware.Steam"
+    ]
   }
 ]

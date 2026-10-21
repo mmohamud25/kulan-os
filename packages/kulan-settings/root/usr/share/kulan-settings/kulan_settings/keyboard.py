@@ -29,10 +29,11 @@ SHORTCUTS = [
     ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
     ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
     ("Writing tools for the selected text (Kulan Assistant)", KULAN_SCHEMA, "writing-tools-shortcut"),
+    ("Dictation: start and stop (Kulan Assistant)", KULAN_SCHEMA, "dictation-shortcut"),
     ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
 ]
 KULAN_SHORTCUT_KEYS = ["live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
-                       "clipboard-history"]
+                       "dictation-shortcut", "clipboard-history"]
 ASSISTANT = Path("/usr/bin/kulan-assistant")
 
 
@@ -78,7 +79,7 @@ class KeyboardPage(Page):
         for title, schema, key in SHORTCUTS:
             gsettings = self.kulan if schema == KULAN_SCHEMA else settings(schema)
             accel = first_binding(gsettings, key)
-            if not accel or (key == "writing-tools-shortcut" and not ASSISTANT.exists()):
+            if not accel or (key in ("writing-tools-shortcut", "dictation-shortcut") and not ASSISTANT.exists()):
                 continue
             row = Adw.ActionRow(title=title)
             row.add_suffix(Gtk.ShortcutLabel(accelerator=accel, valign=Gtk.Align.CENTER))

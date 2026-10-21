@@ -12,10 +12,12 @@ from .assistant import AssistantPage
 from .common import Helper, open_gnome_panel
 from .desktop import DesktopPage
 from .display import DisplayPage
+from .family import FamilyPage
 from .dock import DockPage
 from .focus import FocusPage
 from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
+from .prayer import PrayerPage
 from .privacy import PrivacyPage
 from .security import SecurityPage
 from .storage import StoragePage
@@ -34,10 +36,12 @@ PAGES = [
     ("keyboard", KeyboardPage),
     ("focus", FocusPage),
     ("assistant", AssistantPage),
+    ("prayer-times", PrayerPage),
     ("login-items", LoginItemsPage),
     ("storage", StoragePage),
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
+    ("parental-controls", FamilyPage),
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),

@@ -32,5 +32,20 @@
       <summary>Translate to</summary>
       <description>Language name for translations; empty means the computer's language.</description>
     </key>
+    <key name="dictation" type="b">
+      <default>true</default>
+      <summary>Dictation</summary>
+      <description>Press Shift+Super+D, speak, press it again: the words are typed where the cursor is.</description>
+    </key>
+    <key name="dictation-model" type="s">
+      <default>'whisper-base'</default>
+      <summary>Dictation model</summary>
+      <description>The id of the speech model, from /usr/share/kulan-assistant/models.json.</description>
+    </key>
+    <key name="dictation-language" type="s">
+      <default>''</default>
+      <summary>Dictation language</summary>
+      <description>Two-letter code of the language you speak; empty means detect it each time.</description>
+    </key>
   </schema>
 </schemalist>

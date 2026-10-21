@@ -9,7 +9,8 @@
     "size": 1834426016,
     "memory_gb": 3,
     "license": "Apache-2.0",
-    "source": "Qwen3 1.7B by the Qwen team (Alibaba Cloud)"
+    "source": "Qwen3 1.7B by the Qwen team (Alibaba Cloud)",
+    "kind": "writing"
   },
   {
     "id": "qwen3-4b",
@@ -21,7 +22,8 @@
     "size": 2497280256,
     "memory_gb": 4,
     "license": "Apache-2.0",
-    "source": "Qwen3 4B by the Qwen team (Alibaba Cloud)"
+    "source": "Qwen3 4B by the Qwen team (Alibaba Cloud)",
+    "kind": "writing"
   },
   {
     "id": "qwen3-8b",
@@ -33,6 +35,33 @@
     "size": 5027783488,
     "memory_gb": 7,
     "license": "Apache-2.0",
-    "source": "Qwen3 8B by the Qwen team (Alibaba Cloud)"
+    "source": "Qwen3 8B by the Qwen team (Alibaba Cloud)",
+    "kind": "writing"
+  },
+  {
+    "id": "whisper-base",
+    "kind": "dictation",
+    "title": "Quick",
+    "description": "Fast on any computer. Good for clear speech in a quiet room.",
+    "file": "ggml-base.bin",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base.bin",
+    "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+    "size": 147951465,
+    "memory_gb": 1,
+    "license": "MIT",
+    "source": "Whisper base by OpenAI, converted by the whisper.cpp project"
+  },
+  {
+    "id": "whisper-turbo",
+    "kind": "dictation",
+    "title": "Accurate",
+    "description": "Much more accurate, including accents and other languages; slower on older computers.",
+    "file": "ggml-large-v3-turbo-q5_0.bin",
+    "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo-q5_0.bin",
+    "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+    "size": 574041195,
+    "memory_gb": 2,
+    "license": "MIT",
+    "source": "Whisper large-v3-turbo by OpenAI, converted by the whisper.cpp project"
   }
 ]
