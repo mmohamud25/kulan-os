@@ -179,13 +179,14 @@ def main() -> int:
     }
     variants = {"": logo_svg}
     for suffix, colour in flat.items():
-        # The tree and the gathered people alone (no badge, no sun), in one colour.
-        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <path d="M60 176 C104 96 408 96 452 176 C408 206 104 206 60 176 Z" fill="{colour}"/>
-  <path d="M256 352 V266 M256 266 L196 190 M256 266 L316 190" stroke="{colour}" stroke-width="40" stroke-linecap="round" fill="none"/>
+        # The tree and the gathered people alone (no badge, no sun), in one
+        # colour. Bold and cropped close, so it still reads at top-bar size.
+        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="24 40 464 464">
+  <path d="M36 196 C 84 96, 428 96, 476 196 C 428 236, 84 236, 36 196 Z" fill="{colour}"/>
+  <path d="M256 356 V 270 M256 270 L 186 186 M256 270 L 326 186" stroke="{colour}" stroke-width="58" stroke-linecap="round" fill="none"/>
   <g fill="{colour}">
-    <circle cx="104" cy="380" r="34"/><circle cx="178" cy="420" r="34"/><circle cx="256" cy="432" r="34"/>
-    <circle cx="334" cy="420" r="34"/><circle cx="408" cy="380" r="34"/>
+    <circle cx="92" cy="400" r="44"/><circle cx="172" cy="446" r="44"/><circle cx="256" cy="460" r="44"/>
+    <circle cx="340" cy="446" r="44"/><circle cx="420" cy="400" r="44"/>
   </g>
 </svg>'''
     # The Kulan menu's top-bar icon (GNOME recolours "-symbolic" icons).
