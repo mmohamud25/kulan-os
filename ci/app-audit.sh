@@ -154,6 +154,22 @@ WAYLAND_DISPLAY="$(basename "$(ls -t "${XDG_RUNTIME_DIR}"/wayland-* 2>/dev/null 
 # Screenshots come from the virtual screen; apps that only speak X11 go to
 # the shell's own Xwayland, so they get GNOME's window frames as on a PC.
 SCREEN="${DISPLAY}"
+# Which icon theme the session uses, and which file GTK picks for a folder.
+{
+	echo "icon-theme: $(gsettings get org.gnome.desktop.interface icon-theme)"
+	python3 - <<'PYI'
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gdk, Gtk
+Gtk.init()
+theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+print("gtk theme:", theme.get_theme_name())
+for name in ("folder", "folder-download", "inode-directory"):
+    icon = theme.lookup_icon(name, None, 96, 1, Gtk.TextDirection.NONE, 0)
+    print(name, "->", icon.get_file().get_path() if icon.get_file() else icon.get_icon_name())
+PYI
+	ls -la /usr/share/icons/Kulan/
+} > "$OUT_DIR/icons.txt" 2>&1
 XWAYLAND="$(ev "global.context.get_wayland_compositor().get_xwayland_display_name()" | sed -n 's/.*"\(:[0-9]*\)".*/\1/p')"
 echo "wayland=${WAYLAND_DISPLAY} xwayland=${XWAYLAND:-none} screen=${SCREEN}" > "$OUT_DIR/displays.txt"
 for scheme in light dark; do
@@ -170,7 +186,8 @@ for scheme in light dark; do
 		fi
 		APP=$!
 		sleep "$wait_s"
-		wins="$(ev "global.get_window_actors().filter(a => !a.meta_window.is_override_redirect() && a.meta_window.get_window_type() === 0).length" | sed -n 's/.*"\([0-9]*\)".*/\1/p')"
+		# GNOME 48's Eval returns JSON: a number comes back as '2'.
+		wins="$(ev "global.get_window_actors().filter(a => !a.meta_window.is_override_redirect() && a.meta_window.get_window_type() === 0).length" | sed -n "s/.*'\"\{0,1\}\([0-9]*\)\"\{0,1\}'.*/\1/p")"
 		ev "Main.overview.hide(); 'ok'" >/dev/null
 		sleep 1
 		DISPLAY="$SCREEN" import -window root "/tmp/shot.png" 2>/dev/null && convert /tmp/shot.png -quality 82 "$OUT_DIR/${base}-${scheme}.jpg"
