@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <g stroke="#BEBEBE" stroke-width="44" stroke-linecap="round" fill="none">
+    <line x1="166" y1="96" x2="166" y2="416"/>
+    <line x1="166" y1="256" x2="380" y2="96"/>
+    <line x1="166" y1="256" x2="380" y2="416"/>
+  </g>
+  <g fill="#BEBEBE">
+    <circle cx="166" cy="96" r="40"/><circle cx="166" cy="416" r="40"/>
+    <circle cx="380" cy="96" r="40"/><circle cx="380" cy="416" r="40"/>
+    <path fill-rule="evenodd" d="M166 202a54 54 0 1 1 0 108a54 54 0 1 1 0-108zM166 232a24 24 0 1 0 0 48a24 24 0 1 0 0-48z"/>
+  </g>
+</svg>

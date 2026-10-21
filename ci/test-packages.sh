@@ -58,8 +58,9 @@ VERSION="$(cat dist/debs/VERSION)"
 
 # --- Install, as the ISO build does (recommends included) -----------------------
 # htop and gnome-tour are installed too, so the "Clutter hidden" check has
-# real launchers to hide; gdm3 so the login screen's settings can be checked.
-if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour gdm3 >/tmp/install.log 2>&1; then
+# real launchers to hide; gdm3 and desktop-base so the login screen's settings
+# and Debian's vendor logos can be checked.
+if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour gdm3 desktop-base >/tmp/install.log 2>&1; then
 	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-welcome, kulan-update-center ${VERSION} with Debian dependencies"
 else
 	result fail "Install" "apt failed: $(grep -E '^E:|error' /tmp/install.log | tail -n 3 | tr '\n' ' ')"
@@ -117,7 +118,11 @@ login_logo_ok() {
 	echo "${info} dbs: $(ls /etc/dconf/db | tr '\n' ' ') gdm: $(ls /usr/share/gdm | tr '\n' ' ')"
 	return 1
 }
-check "Login screen logo" "GDM shows the Kulan logo" login_logo_ok
+check "Login screen logo (Kulan)" "GDM setting points at the Kulan logo" login_logo_ok
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Login screen logo (Debian)" "Debian's greeter logo now resolves to Kulan's" bash -c 'f="$(sed -n "s/^logo=.\(.*\).$/\1/p" /etc/gdm3/greeter.dconf-defaults | head -n 1)"; echo "greeter logo: ${f:-none} -> $(readlink -f "${f:-/nonexistent}")"; case "$(readlink -f "${f:-/nonexistent}")" in /usr/share/kulan/vendor-logos/*) test -s "$f" ;; *) exit 1 ;; esac'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Vendor emblems" "Debian's vendor emblem links point at Kulan's" bash -c 'for f in /usr/share/icons/vendor/*/emblems/emblem-vendor*; do case "$(readlink -f "$f")" in /usr/share/kulan/vendor-emblems/*) ;; *) echo "$f"; exit 1 ;; esac; done; test "$(ls /usr/share/icons/vendor/*/emblems/ | grep -c emblem-vendor)" -eq 12'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Live session" "does nothing on installed systems; autostart entry valid" bash -c 'desktop-file-validate /etc/xdg/autostart/org.kulan.LiveSession.desktop && test -z "$(GSETTINGS_BACKEND=memory /usr/lib/kulan/live-session 2>&1)"'
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -172,6 +177,8 @@ check "Welcome app runs" "--help" kulan-welcome --help
 # --- Removal restores Debian -------------------------------------------------------
 if dpkg --purge kulan-update-center kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
+	# shellcheck disable=SC2016  # expanded by the inner bash
+	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
 	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"

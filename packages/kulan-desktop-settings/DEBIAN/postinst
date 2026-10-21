@@ -5,8 +5,33 @@ apply() {
 	/usr/lib/kulan/desktop-setup
 }
 
+# Debian's "vendor-logos": the logo shown by Debian's login screen defaults
+# (/etc/gdm3/greeter.dconf-defaults) and other Debian software. Debian's own
+# (desktop-base) is priority 50; Kulan's wins while this package is installed.
+vendor_logos() {
+	E=/usr/share/kulan/vendor-emblems
+	V=/usr/share/icons/vendor
+	# update-alternatives doesn't create the links' folders (desktop-base
+	# does, but it may not be installed).
+	mkdir -p /usr/share/images "$V/64x64/emblems" "$V/128x128/emblems" \
+		"$V/256x256/emblems" "$V/scalable/emblems"
+	set -- --install /usr/share/images/vendor-logos vendor-logos /usr/share/kulan/vendor-logos 80
+	for SIZE in 64 128 256; do
+		for KIND in "" -symbolic -white; do
+			set -- "$@" --slave "$V/${SIZE}x${SIZE}/emblems/emblem-vendor${KIND}.png" \
+				"emblem-vendor${KIND}-${SIZE}" "$E/emblem-vendor${KIND}-${SIZE}.png"
+		done
+	done
+	for KIND in "" -symbolic -white; do
+		set -- "$@" --slave "$V/scalable/emblems/emblem-vendor${KIND}.svg" \
+			"emblem-vendor${KIND}-scalable" "$E/emblem-vendor${KIND}.svg"
+	done
+	update-alternatives --quiet "$@"
+}
+
 case "$1" in
 	configure)
+		vendor_logos
 		apply
 		/usr/lib/kulan/boot-splash-setup
 		# Rebuild the initramfs so the boot splash change takes effect.

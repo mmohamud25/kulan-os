@@ -127,6 +127,50 @@ def main() -> int:
         CHROOT / "usr/share/kulan/login-wordmark.png",
     )
 
+    # Debian's "vendor-logos": the logo Debian's login screen (greeter defaults)
+    # and other Debian software show. kulan-desktop-settings registers this
+    # directory as the vendor-logos alternative, so they show Kulan instead.
+    vendor = CHROOT / "usr/share/kulan/vendor-logos"
+    wordmark_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="440" height="96" viewBox="0 0 440 96">
+  {logo_group(0, 8, 80)}
+  <text x="100" y="64" font-family="{FONT}" font-size="46" font-weight="600" fill="#FFFFFF">{name}</text>
+</svg>'''
+    vendor.mkdir(parents=True, exist_ok=True)
+    (vendor / "logo.svg").write_text(logo_svg)
+    for stem in ("logo-text", "logo-text-version"):
+        (vendor / f"{stem}.svg").write_text(wordmark_svg + "\n")
+    for px in (64, 128, 256):
+        render(logo_svg, vendor / f"logo-{px}.png", px, px)
+        for stem in ("logo-text", "logo-text-version"):
+            render(wordmark_svg, vendor / f"{stem}-{px}.png", height=px)
+    # Emblems (the alternative's slave links): full colour, white, and
+    # symbolic (GNOME recolours #bebebe symbolic icons to match the theme).
+    emblems = CHROOT / "usr/share/kulan/vendor-emblems"
+    emblems.mkdir(parents=True, exist_ok=True)
+    flat = {
+        "white": "#FFFFFF",
+        "symbolic": "#BEBEBE",
+    }
+    variants = {"": logo_svg}
+    for suffix, colour in flat.items():
+        # The "K" alone (no badge) in one colour; the centre node keeps its hole.
+        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <g stroke="{colour}" stroke-width="44" stroke-linecap="round" fill="none">
+    <line x1="166" y1="96" x2="166" y2="416"/>
+    <line x1="166" y1="256" x2="380" y2="96"/>
+    <line x1="166" y1="256" x2="380" y2="416"/>
+  </g>
+  <g fill="{colour}">
+    <circle cx="166" cy="96" r="40"/><circle cx="166" cy="416" r="40"/>
+    <circle cx="380" cy="96" r="40"/><circle cx="380" cy="416" r="40"/>
+    <path fill-rule="evenodd" d="M166 202a54 54 0 1 1 0 108a54 54 0 1 1 0-108zM166 232a24 24 0 1 0 0 48a24 24 0 1 0 0-48z"/>
+  </g>
+</svg>'''
+    for suffix, svg in variants.items():
+        (emblems / f"emblem-vendor{suffix}.svg").write_text(svg if svg.endswith("\n") else svg + "\n")
+        for px in (64, 128, 256):
+            render(svg, emblems / f"emblem-vendor{suffix}-{px}.png", px, px)
+
     # Boot-menu background (GRUB + ISOLINUX need 640x480). Keep the centre clear
     # for the menu text; branding sits in the bottom-right corner.
     render(

@@ -62,6 +62,7 @@ FILES=(
 	var/lib/flatpak/repo/config
 	etc/firefox/policies/policies.json
 	etc/NetworkManager/conf.d/80-kulan-privacy.conf
+	etc/alternatives/vendor-logos
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -104,6 +105,7 @@ if [[ -f "${WORK}/initrd.img" ]]; then
 else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
 fi
+check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
 check "Installer encryption" "encryption ticked by default" grep -qE "^preCheckEncryption:[[:space:]]+true" "${R}/etc/calamares/modules/partition.conf"
