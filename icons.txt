@@ -1,0 +1,333 @@
+icon-theme: 'Kulan'
+<stdin>:3: PyGIWarning: Gdk was imported without specifying a version first. Use gi.require_version('Gdk', '4.0') before import to ensure that the right version gets loaded.
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:94:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:98:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:112:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:116:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:190:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:196:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:204:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:220:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:224:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:232:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.556: Theme parser error: libadwaita.css:244:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.557: Theme parser error: libadwaita.css:248:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.558: Theme parser error: libadwaita.css:288:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.558: Theme parser error: libadwaita.css:290:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.558: Theme parser error: libadwaita.css:308:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.558: Theme parser error: libadwaita.css:344:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.558: Theme parser error: libadwaita.css:346:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:384:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:470:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:476:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:498:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:542:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:558:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:566:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:570:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:574:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:606:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:624:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.559: Theme parser error: libadwaita.css:630:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:650:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:658:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:670:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:674:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:702:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:706:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:729:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:735:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:761:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:765:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:773:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:781:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:787:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:796:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:824:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:879:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:883:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:901:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:944:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:960:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:966:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:970:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:986:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:990:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:996:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:1006:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.560: Theme parser error: libadwaita.css:1012:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1020:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1042:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1100:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1114:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1124:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1138:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1142:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1146:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1150:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1159:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1185:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1230:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1257:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1343:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1445:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1475:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.561: Theme parser error: libadwaita.css:1552:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1578:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1607:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1616:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1618:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1670:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1697:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1707:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1739:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1765:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1777:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1781:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1805:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1819:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1830:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1845:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1849:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1902:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1944:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1948:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1954:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.562: Theme parser error: libadwaita.css:1965:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:1981:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2109:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2167:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2177:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2179:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2185:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2195:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2289:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2303:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2307:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2311:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2331:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2343:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2347:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2351:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2355:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2359:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2363:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2383:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2389:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2403:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2407:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2420:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.563: Theme parser error: libadwaita.css:2424:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2461:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2504:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2532:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2538:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2556:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2562:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2576:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2584:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2588:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2602:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2620:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2628:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2634:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2652:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2654:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2658:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2672:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2701:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2721:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2727:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2733:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2743:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2747:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2779:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.564: Theme parser error: libadwaita.css:2783:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2829:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2852:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2888:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2892:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2896:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2900:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2904:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2908:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2944:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2948:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:2958:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:3009:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:3013:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:3017:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:3033:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita.css:3046:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita-tweaks.css:46:1-7: Unknown @ rule
+
+(process:29713): Gtk-WARNING **: 17:39:22.565: Theme parser error: libadwaita-tweaks.css:54:1-7: Unknown @ rule
+gtk theme: Kulan
+folder -> /usr/share/icons/Kulan/scalable/places/folder.svg
+folder-download -> /usr/share/icons/Kulan/scalable/places/folder-download.svg
+inode-directory -> /usr/share/icons/Kulan/scalable/mimetypes/inode-directory.svg
+total 16
+drwxr-xr-x  3 root root 4096 Oct 21 17:38 .
+drwxr-xr-x 14 root root 4096 Oct 21 17:38 ..
+-rw-r--r--  1 root root  333 Oct 21 17:34 index.theme
+drwxr-xr-x  4 root root 4096 Oct 21 17:38 scalable

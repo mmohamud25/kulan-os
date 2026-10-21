@@ -1,0 +1,72 @@
+Unable to find image 'debian:trixie' locally
+trixie: Pulling from library/debian
+8d0037029946: Pulling fs layer
+8d0037029946: Verifying Checksum
+8d0037029946: Download complete
+8d0037029946: Pull complete
+Digest: sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308
+Status: Downloaded newer image for debian:trixie
+Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+Get:4 http://deb.debian.org/debian trixie/non-free-firmware amd64 Packages [6884 B]
+Get:5 http://deb.debian.org/debian trixie/non-free amd64 Packages [100 kB]
+Get:6 http://deb.debian.org/debian trixie/contrib amd64 Packages [53.9 kB]
+Get:7 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+Get:8 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+Get:9 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [269 kB]
+Get:10 http://deb.debian.org/debian-security trixie-security/non-free-firmware amd64 Packages [544 B]
+Get:11 http://deb.debian.org/debian-security trixie-security/contrib amd64 Packages [3152 B]
+Fetched 10.3 MB in 1s (14.1 MB/s)
+Reading package lists...
+Apps to check: 47
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+gnome-shell-calendar-server[29204]: Lost (or failed to acquire) the name org.gnome.Shell.CalendarServer - exiting
+Screenshots: 92
+  Firefox ESR	Firefox (its own look, GTK 3 underneath)
+  Advanced Network Configuration	GTK 3
+  Connections	GTK 3
+  Disks	GTK 3
+  Document Viewer	GTK 3
+  Firewall Configuration	GTK 3
+  GNU Image Manipulation Program	GTK 3
+  Help	GTK 3
+  Timeshift	GTK 3
+  Tor Browser	GTK 3
+  Videos	GTK 3
+  Backups	GTK 4 + libadwaita (native)
+  Calculator	GTK 4 + libadwaita (native)
+  Calendar	GTK 4 + libadwaita (native)
+  Camera	GTK 4 + libadwaita (native)
+  Characters	GTK 4 + libadwaita (native)
+  Clocks	GTK 4 + libadwaita (native)
+  Contacts	GTK 4 + libadwaita (native)
+  Disk Usage Analyzer	GTK 4 + libadwaita (native)
+  Document Scanner	GTK 4 + libadwaita (native)
+  Extensions	GTK 4 + libadwaita (native)
+  File Roller	GTK 4 + libadwaita (native)
+  Files	GTK 4 + libadwaita (native)
+  Fonts	GTK 4 + libadwaita (native)
+  Image Viewer	GTK 4 + libadwaita (native)
+  Kulan Assistant	GTK 4 + libadwaita (native)
+  Kulan Settings	GTK 4 + libadwaita (native)
+  Logs	GTK 4 + libadwaita (native)
+  Maps	GTK 4 + libadwaita (native)
+  Metadata Cleaner	GTK 4 + libadwaita (native)
+  Parental Controls	GTK 4 + libadwaita (native)
+  Ptyxis	GTK 4 + libadwaita (native)
+  Settings	GTK 4 + libadwaita (native)
+  Setup Assistant	GTK 4 + libadwaita (native)
+  Software	GTK 4 + libadwaita (native)
+  System Monitor	GTK 4 + libadwaita (native)
+  Text Editor	GTK 4 + libadwaita (native)
+  Tweaks	GTK 4 + libadwaita (native)
+  Weather	GTK 4 + libadwaita (native)
+  LibreOffice	LibreOffice (its own look, GTK 3 underneath)
+  LibreOffice Calc	LibreOffice (its own look, GTK 3 underneath)
+  LibreOffice Draw	LibreOffice (its own look, GTK 3 underneath)
+  LibreOffice Impress	LibreOffice (its own look, GTK 3 underneath)
+  LibreOffice Writer	LibreOffice (its own look, GTK 3 underneath)
+  KeePassXC	Qt 5
+  VLC media player	other
+  Install Debian	script: /bin/sh
