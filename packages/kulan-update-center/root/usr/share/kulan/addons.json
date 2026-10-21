@@ -38,7 +38,7 @@
     "description": "Connect your Android phone: notifications, texts, shared clipboard, files and media controls (GSConnect, works with the KDE Connect app)",
     "icon": "phone-symbolic",
     "size": "about 5 MB",
-    "note": "Install KDE Connect on your phone, then open Phone Link from the top-bar menu to pair.",
+    "note": "Install KDE Connect on your phone. After you log out and back in, pair it from Phone Link in the top bar.",
     "packages": [
       "gnome-shell-extension-gsconnect"
     ],

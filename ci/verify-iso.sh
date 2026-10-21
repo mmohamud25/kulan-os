@@ -97,9 +97,10 @@ check "Restore points" "Timeshift installed" installed timeshift
 if installed kulan-devkit; then
 	result fail "Developer kit" "kulan-devkit must be an optional install, but it is in the ISO"
 else
-	result pass "Developer kit" "not in the ISO (one-click install from the Welcome app)"
+	result pass "Developer kit" "not in the ISO (one-click add-on in Kulan Settings)"
 fi
-check "Icons" "Adwaita icon theme installed" installed adwaita-icon-theme
+check "Mac-style apps" "Quick Look, Live Text OCR, window snapping, emoji and weather" bash -c "$(declare -f installed); R='${R}'; installed gnome-sushi && installed tesseract-ocr-eng && installed gnome-shell-extension-tiling-assistant && installed gnome-characters && installed gnome-weather"
+check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then

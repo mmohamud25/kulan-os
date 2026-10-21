@@ -208,6 +208,9 @@ check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwai
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
+check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Adwaita'\""
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Helper refuses bad input" "computer name, DNS and add-on values are checked before anything runs as root" bash -c 'for args in "set-hostname Bad_Name" "set-hostname -x" "set-hostname a.b" "dns bogus" "dns" "addon-install ../x" "addon-remove nope" "nonsense"; do if /usr/lib/kulan/update-run $args >/dev/null 2>&1; then echo "accepted: $args"; exit 1; fi; done'
 check "Dock default" "always visible" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-fixed)\" = true"
 check "Add-on list" "every add-on names its apps; the helper refuses anything else" python3 - <<'PY'
 import json, re, subprocess
@@ -251,22 +254,8 @@ print(f"{len(names)} icon names checked")
 raise SystemExit(f"missing: {missing}" if missing else 0)
 PY
 check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
-check "Welcome app APIs" "every GTK/libadwaita class it uses exists" python3 - <<'PY'
-import gi
-gi.require_version("Gtk", "4.0")
-gi.require_version("Adw", "1")
-from gi.repository import Adw, Gtk
-needed = {
-    Adw: ["Application", "ApplicationWindow", "ToolbarView", "HeaderBar", "ToastOverlay", "Toast", "Carousel",
-          "CarouselIndicatorDots", "StatusPage", "Clamp", "PreferencesGroup", "ActionRow", "SwitchRow",
-          "PreferencesPage", "ExpanderRow"],
-    Gtk: ["UriLauncher", "CenterBox", "Picture", "ContentFit", "Spinner", "CheckButton", "ToggleButton", "CssProvider",
-          "ProgressBar", "Image"],
-}
-missing = [f"{lib.__name__}.{n}" for lib, names in needed.items() for n in names if not hasattr(lib, n)]
-print(f"libadwaita {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}, GTK {Gtk.MAJOR_VERSION}.{Gtk.MINOR_VERSION}")
-raise SystemExit(f"missing: {missing}" if missing else 0)
-PY
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built"'
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # --- Removal restores Debian -------------------------------------------------------

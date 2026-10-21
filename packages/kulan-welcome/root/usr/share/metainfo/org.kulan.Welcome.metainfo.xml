@@ -3,10 +3,10 @@
   <id>org.kulan.Welcome</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LicenseRef-proprietary</project_license>
-  <name>Welcome to Kulan OS</name>
+  <name>Setup Assistant</name>
   <summary>Set up Kulan OS the way you like it</summary>
   <description>
-    <p>Shown once at your first sign-in: choose light or dark mode and an accent colour, install popular apps in one go, add the Developer Kit, and see which security protections are on.</p>
+    <p>Shown once at your first sign-in, like a Mac's Setup Assistant: choose light, dark or automatic mode and an accent colour, turn on accessibility options, make your computer more private, bring files over from another computer, set up backups and a password vault, install popular apps in one go, and see which protections are on.</p>
   </description>
   <launchable type="desktop-id">org.kulan.Welcome.desktop</launchable>
   <developer id="com.kulangroup">

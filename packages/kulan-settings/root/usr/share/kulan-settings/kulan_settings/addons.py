@@ -33,9 +33,13 @@ def addon_installed(addon: dict) -> bool:
 
 
 def set_extension(uuid: str, on: bool) -> None:
-    """Turn a GNOME extension on or off for this user (an add-on's own)."""
+    """Turn an add-on's GNOME extension on or off for this user.
+
+    Kulan's defaults already list it once it is installed; only a user who has
+    their own list of extensions (they turned one on or off themselves) needs
+    it added there, and the list is left alone otherwise."""
     shell = settings("org.gnome.shell")
-    if shell is None or not uuid:
+    if shell is None or not uuid or shell.get_user_value("enabled-extensions") is None:
         return
     enabled = [u for u in shell.get_strv("enabled-extensions") if u != uuid]
     disabled = [u for u in shell.get_strv("disabled-extensions") if u != uuid]

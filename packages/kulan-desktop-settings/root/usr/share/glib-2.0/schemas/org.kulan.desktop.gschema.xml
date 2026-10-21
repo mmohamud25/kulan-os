@@ -28,9 +28,9 @@
       <description>Dark from sunset to sunrise (Night Light's schedule when it knows your location, otherwise 19:00 to 07:00).</description>
     </key>
     <key name="clipboard-history" type="b">
-      <default>true</default>
+      <default>false</default>
       <summary>Clipboard history</summary>
-      <description>Remember the last 25 things you copied (text only), in memory only. Cleared when the screen locks or you log out; passwords from password managers are skipped.</description>
+      <description>Remember the last 25 things you copied (text only), in memory only, until the screen locks or you log out. Passwords copied from KeePassXC are skipped; passwords copied from a browser are not, which is why this is off by default.</description>
     </key>
     <key name="clipboard-history-shortcut" type="as">
       <default>['&lt;Shift&gt;&lt;Super&gt;v']</default>
@@ -52,6 +52,11 @@
       <default>22.0</default>
       <summary>Focus starts</summary>
       <description>Hour of the day, such as 22.5 for 22:30.</description>
+    </key>
+    <key name="focus-active" type="b">
+      <default>false</default>
+      <summary>Focus is on because of the schedule</summary>
+      <description>Set by Kulan Shell while the Focus schedule has Do Not Disturb on, so it is turned off again at the end even after a restart.</description>
     </key>
     <key name="focus-to" type="d">
       <range min="0" max="23.99"/>

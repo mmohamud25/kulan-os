@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import secrets
+import socket
 from pathlib import Path
 
 from gi.repository import Adw, GLib, Gtk
@@ -29,6 +30,8 @@ DNS_CHOICES = [
 ]
 
 CONNECTIONS = [
+    ("Browser blockers", ("Firefox and Chromium download uBlock Origin from their own add-on stores, "
+                          "and keep it up to date")),
     ("Software updates", ("deb.debian.org, security.debian.org and the Kulan OS update server, to check "
                           "for and download updates")),
     ("Clock", "A Debian time server, to keep the clock right"),
@@ -44,6 +47,11 @@ def dns_mode() -> str:
     except OSError:
         return "off"
     return "adblock" if "mullvad" in text else "quad9"
+
+
+def current_name() -> str:
+    """The computer's name now (GLib caches it for the life of the app)."""
+    return socket.gethostname()
 
 
 def private_name() -> str:
@@ -145,13 +153,13 @@ class PrivacyPage(Page):
 
     # --- computer name --------------------------------------------------------------
     def shown(self) -> None:
-        self.name_row.set_subtitle(GLib.markup_escape_text(GLib.get_host_name()))
+        self.name_row.set_subtitle(GLib.markup_escape_text(current_name()))
 
     def ask_name(self) -> None:
         dialog = Adw.AlertDialog(heading="Computer name",
                                  body="Letters, numbers and dashes. Avoid your own name: other devices on "
                                       "the network can see it.")
-        entry = Gtk.Entry(text=GLib.get_host_name(), activates_default=True)
+        entry = Gtk.Entry(text=current_name(), activates_default=True)
         dialog.set_extra_child(entry)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("rename", "Rename")

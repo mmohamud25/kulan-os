@@ -42,7 +42,12 @@ const STYLE_CHECK_S = 60;
 // Kulan shortcuts (org.kulan.desktop keys) and what they do.
 const SHORTCUTS = {
     'live-text-shortcut': ext => ext._liveText?.start(),
-    'clipboard-history-shortcut': ext => ext._clipboard?.show(),
+    'clipboard-history-shortcut': ext => {
+        if (ext._clipboard)
+            ext._clipboard.show();
+        else
+            Main.notify('Clipboard history is off', 'Turn it on in Kulan Settings > Keyboard.');
+    },
 };
 
 // GNOME writes its own folder list into a user's settings at first login,
@@ -311,7 +316,6 @@ export default class KulanShellExtension extends Extension {
             return GLib.SOURCE_CONTINUE;
         });
         this._notifications = new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'});
-        this._focusOn = null;
         this._liveText = new LiveText();
         this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
         this._syncClipboard();
@@ -377,27 +381,28 @@ export default class KulanShellExtension extends Extension {
 
     // Focus: Do Not Disturb between two times of day. Only the switch-over
     // moments change it, so turning Do Not Disturb on or off by hand in
-    // between is kept.
+    // between is kept. "focus-active" remembers (across logins and restarts)
+    // that the schedule turned it on, so it is always turned off again.
     _syncFocus() {
-        if (!this._settings?.get_boolean('focus-schedule') || !this._notifications) {
-            // Schedule turned off during Focus: end it.
-            if (this._focusOn && this._notifications)
-                this._notifications.set_boolean('show-banners', true);
-            this._focusOn = null;
+        const kulan = this._settings;
+        if (!kulan?.settings_schema.has_key('focus-active') || !this._notifications)
             return;
+        const active = kulan.get_boolean('focus-active');
+        let inside = false;
+        if (kulan.get_boolean('focus-schedule')) {
+            const from = kulan.get_double('focus-from');
+            const to = kulan.get_double('focus-to');
+            const now = GLib.DateTime.new_now_local();
+            const hour = now.get_hour() + now.get_minute() / 60;
+            inside = from > to ? hour >= from || hour < to : hour >= from && hour < to;
         }
-        const from = this._settings.get_double('focus-from');
-        const to = this._settings.get_double('focus-to');
-        const now = GLib.DateTime.new_now_local();
-        const hour = now.get_hour() + now.get_minute() / 60;
-        const inside = from > to ? hour >= from || hour < to : hour >= from && hour < to;
-        if (inside === this._focusOn)
-            return;
-        // At login or when the schedule is first turned on, only start Focus;
-        // never switch notifications back on that someone turned off.
-        if (inside || this._focusOn !== null)
-            this._notifications.set_boolean('show-banners', !inside);
-        this._focusOn = inside;
+        if (inside && !active) {
+            kulan.set_boolean('focus-active', true);
+            this._notifications.set_boolean('show-banners', false);
+        } else if (!inside && active) {
+            kulan.set_boolean('focus-active', false);
+            this._notifications.set_boolean('show-banners', true);
+        }
     }
 
     // "Automatic" appearance: dark from sunset to sunrise. GNOME's colour

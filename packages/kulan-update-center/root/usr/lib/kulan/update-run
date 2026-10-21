@@ -51,15 +51,21 @@ autoremovable() {
 	apt-get -s autoremove 2>/dev/null | awk '/^Remv /{print $2}' | sort -u
 }
 
-# The installed packages that Kulan metapackages (kulan-*) among $@ depend on.
+# Metapackages whose apps the ISO also installs directly (so apt marks those
+# apps as installed by hand). Only for these are the apps marked automatic
+# before removal; for other add-ons, apps you installed yourself are kept.
+IMAGE_METAPACKAGES=(kulan-apps)
+
+# The installed packages that the image metapackages among $@ depend on
+# (never Kulan's own packages).
 metapackage_depends() {
 	local pkg dep
 	for pkg in "$@"; do
-		[[ "${pkg}" == kulan-* ]] || continue
+		[[ " ${IMAGE_METAPACKAGES[*]} " == *" ${pkg} "* ]] || continue
 		dpkg-query -W -f '${Depends}\n' "${pkg}" 2>/dev/null | tr ',' '\n' |
 			sed -E 's/\|.*//; s/\(.*\)//; s/:.*//; s/[[:space:]]//g'
 	done | sort -u | while read -r dep; do
-		[[ "${dep}" =~ ^[a-z0-9][a-z0-9+.-]+$ ]] || continue
+		[[ "${dep}" =~ ^[a-z0-9][a-z0-9+.-]+$ && "${dep}" != kulan-* ]] || continue
 		if dpkg-query -W -f '${db:Status-Status}' "${dep}" 2>/dev/null | grep -qx installed; then
 			echo "${dep}"
 		fi
@@ -98,6 +104,9 @@ sys.exit(1)
 }
 
 FLATHUB_URL=https://dl.flathub.org/repo/flathub.flatpakrepo
+# Add-on ports (phone pairing, nearby sharing) open only to home and office
+# networks, never to the whole internet.
+PRIVATE_NETS=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fe80::/10 fd00::/8)
 
 case "${1:-}" in
 	check)
@@ -168,15 +177,20 @@ case "${1:-}" in
 			fi
 			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
 				for PORT in "${PORTS[@]}"; do
-					# The app is installed either way; a firewall hiccup only warns.
-					ufw allow "${PORT}" comment "Kulan add-on: $2" 1>&2 ||
-						echo "W: couldn't open ${PORT} in the firewall; open it in Firewall Configuration" >&2
+					for NET in "${PRIVATE_NETS[@]}"; do
+						# The app is installed either way; a firewall hiccup only warns.
+						ufw allow from "${NET}" to any port "${PORT%/*}" proto "${PORT#*/}" \
+							comment "Kulan add-on: $2" 1>&2 ||
+							echo "W: couldn't open ${PORT} for ${NET} in the firewall" >&2
+					done
 				done
 			fi
 		else
 			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
 				for PORT in "${PORTS[@]}"; do
-					ufw --force delete allow "${PORT}" 1>&2 || true
+					for NET in "${PRIVATE_NETS[@]}"; do
+						ufw --force delete allow from "${NET}" to any port "${PORT%/*}" proto "${PORT#*/}" 1>&2 || true
+					done
 				done
 			fi
 			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
@@ -227,9 +241,13 @@ case "${1:-}" in
 		[[ $# -eq 1 ]] || die "usage: update-run security-checkup"
 		command -v lynis >/dev/null 2>&1 || die "The security checkup tool (lynis) isn't installed."
 		REPORT="$(mktemp)"
-		trap 'rm -f "${REPORT}"' EXIT
+		PROFILE="$(mktemp --suffix=.prf)"
+		trap 'rm -f "${REPORT}" "${PROFILE}"' EXIT
+		# Stay offline: no check for a newer Lynis version.
+		echo "skip-upgrade-test=yes" > "${PROFILE}"
 		# --quick: no pauses; results go to our own report file.
-		lynis audit system --quick --no-colors --report-file "${REPORT}" --logfile /dev/null 1>&2 || true
+		lynis audit system --quick --no-colors --profile "${PROFILE}" --report-file "${REPORT}" \
+			--logfile /dev/null 1>&2 || true
 		install -d -m 0755 /var/lib/kulan
 		python3 -I - "${REPORT}" "${CHECKUP}" <<'PY'
 import json, os, sys, tempfile, time
@@ -250,7 +268,13 @@ with open(report, encoding="utf-8", errors="replace") as f:
 fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out))
 with os.fdopen(fd, "w") as f:
     json.dump(result, f)
-os.chmod(tmp, 0o644)
+# Readable by administrators (who run the checkup), not by every user.
+try:
+    import grp
+    os.chown(tmp, 0, grp.getgrnam("sudo").gr_gid)
+    os.chmod(tmp, 0o640)
+except (KeyError, OSError):
+    os.chmod(tmp, 0o600)
 os.replace(tmp, out)
 PY
 		;;
@@ -278,7 +302,9 @@ PY
 					SERVERS="194.242.2.3#adblock.dns.mullvad.net 2a07:e340::3#adblock.dns.mullvad.net"
 				fi
 				install -d -m 0755 "$(dirname "${DNS_CONF}")"
-				printf '# Set by Kulan Settings > Privacy (encrypted DNS: %s).\n[Resolve]\nDNS=%s\nDNSOverTLS=yes\nDomains=~.\n' \
+				# opportunistic: encrypted whenever the network allows it, so Wi-Fi
+				# sign-in pages (hotels, airports) that block encrypted DNS still load.
+				printf '# Set by Kulan Settings > Privacy (encrypted DNS: %s).\n[Resolve]\nDNS=%s\nDNSOverTLS=opportunistic\nDomains=~.\n' \
 					"$2" "${SERVERS}" > "${DNS_CONF}"
 				chmod 0644 "${DNS_CONF}"
 				;;
@@ -286,6 +312,9 @@ PY
 		esac
 		if command -v resolvectl >/dev/null 2>&1; then
 			systemctl restart systemd-resolved 1>&2 || true
+			# NetworkManager hands the network's own DNS servers to
+			# systemd-resolved only once it knows resolved is in use.
+			systemctl try-reload-or-restart NetworkManager 1>&2 || true
 		fi
 		;;
 	set-hostname)

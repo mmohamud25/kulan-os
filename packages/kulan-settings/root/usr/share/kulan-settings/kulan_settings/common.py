@@ -123,9 +123,8 @@ def time_row(title: str, subtitle: str | None, get: Callable[[], float],
     """A row with an HH:MM picker for a time of day stored as hours (22.5 = 22:30)."""
     row = Adw.ActionRow(title=title, subtitle=subtitle or "")
     value = max(0.0, min(get(), 23.99))
-    hour, minute = int(value), round((value - int(value)) * 60 / 5) * 5
-    if minute == 60:
-        hour, minute = (hour + 1) % 24, 0
+    hour = int(value)
+    minute = min(round((value - hour) * 60 / 5) * 5, 55)
 
     def spin(upper: int, step: int, current: int, label: str) -> Gtk.SpinButton:
         button = Gtk.SpinButton.new_with_range(0, upper, step)

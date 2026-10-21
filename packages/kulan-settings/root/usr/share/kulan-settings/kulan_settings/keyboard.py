@@ -87,8 +87,9 @@ class KeyboardPage(Page):
         clipboard = self.add_group("Clipboard")
         self.add_rows(clipboard,
                       switch_row(self.kulan, "clipboard-history", "Clipboard history",
-                                 "Remembers the last 25 things you copied, until you lock the screen. Kept in "
-                                 "memory only; passwords from password managers are skipped"))
+                                 "Remembers the last 25 things you copied, in memory only, until you lock the "
+                                 "screen. Passwords from KeePassXC are skipped, but passwords copied from a "
+                                 "browser are remembered too"))
 
         more = self.add_group("More")
         for title, subtitle, panel in (("Keyboard layouts", "Add or switch typing languages", "keyboard"),
