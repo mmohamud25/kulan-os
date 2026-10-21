@@ -13,6 +13,12 @@ die() {
 }
 
 ARCH="${KULAN_ARCH:-$(dpkg --print-architecture)}"
+# ARM: show the console (boot splash, prompts) on the screen, not only on a
+# serial port the firmware announces. See kulan-desktop-settings' grub.d file.
+CONSOLE_ARGS=""
+if [ "${ARCH}" = arm64 ]; then
+	CONSOLE_ARGS="console=ttyAMA0 console=tty0 "
+fi
 
 # Build number, shown in the ISO file name (GitHub's run number in CI).
 BUILD="${KULAN_BUILD:-local}"
@@ -93,5 +99,5 @@ lb config noauto \
 	--iso-publisher "${KULAN_PUBLISHER}" \
 	--iso-volume "${ISO_VOLUME}" \
 	--image-name "${KULAN_ID}-os-${KULAN_VERSION}-${BUILD_TAG}" \
-	--bootappend-live "boot=live components quiet splash live-config.hostname=${KULAN_HOSTNAME} live-config.username=${KULAN_LIVE_USER} live-config.user-fullname=${KULAN_SHORT_NAME} live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us" \
+	--bootappend-live "boot=live components quiet splash ${CONSOLE_ARGS}live-config.hostname=${KULAN_HOSTNAME} live-config.username=${KULAN_LIVE_USER} live-config.user-fullname=${KULAN_SHORT_NAME} live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us" \
 	"${@}"

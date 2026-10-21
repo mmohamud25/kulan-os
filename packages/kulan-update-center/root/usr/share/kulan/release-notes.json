@@ -8,7 +8,8 @@
       "Automatic light and dark mode, following the sunset",
       "Dock: always visible by default, or show on hover, or hide when a window covers it",
       "Add-ons: install or remove the Developer Kit and office and media apps in one click",
-      "Kulan apps have store pages in Software"
+      "Kulan apps have store pages in Software",
+      "Apple silicon and other ARM computers: the boot splash and disk password prompt now appear on the screen"
     ]
   },
   {

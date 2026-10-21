@@ -78,6 +78,9 @@ has_path() { grep -q "squashfs-root/$1\$" "${WORK}/listing"; }
 
 # --- Checks -------------------------------------------------------------------
 check "Boot menu" "\"Kulan OS Live\" entries in GRUB" grep -q "Kulan OS Live" "${WORK}/grub.cfg"
+if [[ "${ARCH}" == arm64 ]]; then
+	check "Console on screen" "boot messages and prompts shown on the screen, not only the serial port" grep -q "console=tty0" "${WORK}/grub.cfg"
+fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
 for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps; do
