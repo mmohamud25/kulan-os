@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2BB3A3"/>
+      <stop offset="1" stop-color="#12807A"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="40" y="64" width="432" height="416" rx="88" fill="#0B5B5A"/>
+  <rect x="40" y="40" width="432" height="416" rx="88" fill="url(#face)"/>
+  <rect x="40" y="40" width="432" height="416" rx="88" fill="url(#shine)"/>
+  <path fill="#0B3B4A" fill-opacity="0.25" transform="translate(0 8)" d="M228,130 Q250.4,247.6 368,270 Q250.4,292.4 228,410 Q205.6,292.4 88,270 Q205.6,247.6 228,130 Z M352,88 Q361.92,140.08 414,150 Q361.92,159.92 352,212 Q342.08,159.92 290,150 Q342.08,140.08 352,88 Z"/>
+  <path fill="#F2FBF9" d="M228,130 Q250.4,247.6 368,270 Q250.4,292.4 228,410 Q205.6,292.4 88,270 Q205.6,247.6 228,130 Z M352,88 Q361.92,140.08 414,150 Q361.92,159.92 352,212 Q342.08,159.92 290,150 Q342.08,140.08 352,88 Z"/>
+</svg>

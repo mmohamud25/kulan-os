@@ -8,6 +8,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from .about import AboutPage
 from .addons import AddonsPage
 from .appearance import AppearancePage
+from .assistant import AssistantPage
 from .common import Helper, open_gnome_panel
 from .desktop import DesktopPage
 from .display import DisplayPage
@@ -32,6 +33,7 @@ PAGES = [
     ("display", DisplayPage),
     ("keyboard", KeyboardPage),
     ("focus", FocusPage),
+    ("assistant", AssistantPage),
     ("login-items", LoginItemsPage),
     ("storage", StoragePage),
     ("security", SecurityPage),

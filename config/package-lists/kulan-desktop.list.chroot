@@ -6,6 +6,8 @@ kulan-base
 kulan-desktop-settings
 kulan-settings
 kulan-welcome
+kulan-assistant
+kulan-assistant-engine
 
 # Desktop
 gnome-core

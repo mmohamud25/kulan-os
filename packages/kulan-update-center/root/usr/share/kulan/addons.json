@@ -1,5 +1,18 @@
 [
   {
+    "id": "assistant",
+    "title": "Kulan Assistant",
+    "description": "Private writing help for selected text, summaries in Files, Translate and Explain after Live Text, and search with questions. Runs on this computer",
+    "icon": "kulan-assistant-symbolic",
+    "size": "about 40 MB, plus a model of 1.8 to 5 GB",
+    "note": "Choose and download a model in Kulan Settings > Assistant.",
+    "packages": [
+      "kulan-assistant",
+      "kulan-assistant-engine"
+    ],
+    "settings-page": "assistant"
+  },
+  {
     "id": "apps",
     "title": "Office and media apps",
     "description": "LibreOffice Writer, Calc and Impress, VLC and GIMP",

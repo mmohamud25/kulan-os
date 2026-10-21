@@ -42,6 +42,11 @@
       <summary>Shortcut for Live Text</summary>
       <description>Drag over part of the screen to copy the text in it (recognised on this computer).</description>
     </key>
+    <key name="writing-tools-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;w']</default>
+      <summary>Shortcut for Kulan Assistant's writing tools</summary>
+      <description>Proofread, rewrite, shorten or translate the selected text (needs Kulan Assistant).</description>
+    </key>
     <key name="focus-schedule" type="b">
       <default>false</default>
       <summary>Focus schedule</summary>

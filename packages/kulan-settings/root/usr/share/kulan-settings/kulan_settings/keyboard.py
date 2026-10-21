@@ -1,6 +1,8 @@
 """Keyboard: typing repeat, Caps Lock, Mac-style shortcuts, clipboard history."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from gi.repository import Adw, Gio, Gtk
 
 from .common import (
@@ -26,9 +28,12 @@ SHORTCUTS = [
     ("Record the screen", "org.gnome.shell.keybindings", "show-screen-recording-ui"),
     ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
     ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
+    ("Writing tools for the selected text (Kulan Assistant)", KULAN_SCHEMA, "writing-tools-shortcut"),
     ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
 ]
-KULAN_SHORTCUT_KEYS = ["live-text-shortcut", "clipboard-history-shortcut", "clipboard-history"]
+KULAN_SHORTCUT_KEYS = ["live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
+                       "clipboard-history"]
+ASSISTANT = Path("/usr/bin/kulan-assistant")
 
 
 def first_binding(gsettings, key: str) -> str:
@@ -73,7 +78,7 @@ class KeyboardPage(Page):
         for title, schema, key in SHORTCUTS:
             gsettings = self.kulan if schema == KULAN_SCHEMA else settings(schema)
             accel = first_binding(gsettings, key)
-            if not accel:
+            if not accel or (key == "writing-tools-shortcut" and not ASSISTANT.exists()):
                 continue
             row = Adw.ActionRow(title=title)
             row.add_suffix(Gtk.ShortcutLabel(accelerator=accel, valign=Gtk.Align.CENTER))

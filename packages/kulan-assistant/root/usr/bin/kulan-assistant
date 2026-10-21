@@ -91,12 +91,12 @@ def _message(text: str) -> int:
     app = Adw.Application(application_id="org.kulan.Assistant", flags=Gio.ApplicationFlags.NON_UNIQUE)
 
     def activate(a: Adw.Application) -> None:
+        # A dialog of its own (no parent window); the app stays open until it closes.
+        a.hold()
         dialog = Adw.AlertDialog(heading="Kulan Assistant", body=text)
         dialog.add_response("ok", "OK")
-        window = Adw.ApplicationWindow(application=a, default_width=1, default_height=1)
-        dialog.connect("response", lambda *_r: window.close())
-        window.present()
-        dialog.present(window)
+        dialog.connect("closed", lambda *_c: a.release())
+        dialog.present(None)
 
     app.connect("activate", activate)
     app.run([sys.argv[0]])

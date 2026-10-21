@@ -54,7 +54,7 @@ TASKS = [
 ]
 WRITING_TASKS = ["proofread", "rewrite", "friendly", "professional", "shorter", "summary", "key-points", "translate"]
 
-LANGUAGES = {"en": "English", "so": "Somali", "ar": "Arabic", "fr": "French", "es": "Spanish", "de": "German",
+LANGUAGES = {"en": "English", "ar": "Arabic", "fr": "French", "es": "Spanish", "de": "German",
              "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "sv": "Swedish", "tr": "Turkish", "ru": "Russian",
              "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi", "ur": "Urdu", "sw": "Swahili",
              "am": "Amharic", "fa": "Persian", "id": "Indonesian", "pl": "Polish", "uk": "Ukrainian"}

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+if [ "$1" = purge ]; then
+	# Downloaded models (several GB).
+	rm -rf /var/lib/kulan-assistant
+fi
+exit 0

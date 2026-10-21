@@ -89,6 +89,12 @@ class AddonsPage(Page):
             row.add_prefix(Gtk.Image(icon_name=addon.get("icon", "application-x-addon-symbolic"), pixel_size=24))
             if installed:
                 row.add_suffix(Gtk.Label(label="Installed", css_classes=["dim-label", "caption"]))
+                if addon.get("settings-page"):
+                    setup = Gtk.Button(label="Set up", valign=Gtk.Align.CENTER)
+                    setup.update_property([Gtk.AccessibleProperty.LABEL],
+                                          [f"Set up {addon.get('title', addon['id'])}"])
+                    setup.connect("clicked", lambda _b, page=addon["settings-page"]: self.window.show_page(page))
+                    row.add_suffix(setup)
             button = Gtk.Button(label="Remove" if installed else "Install", valign=Gtk.Align.CENTER,
                                 css_classes=[] if installed else ["suggested-action"])
             button.update_property([Gtk.AccessibleProperty.LABEL],

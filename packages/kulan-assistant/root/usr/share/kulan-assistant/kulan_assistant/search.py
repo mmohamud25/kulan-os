@@ -16,8 +16,13 @@ from pathlib import Path
 
 import gi
 
-gi.require_version("Tsparql", "3.0")
-from gi.repository import Gio, GLib, Tsparql  # noqa: E402
+try:  # LocalSearch's library: "Tsparql" from 3.8, "Tracker" before
+    gi.require_version("Tsparql", "3.0")
+    from gi.repository import Tsparql  # noqa: E402
+except (ValueError, ImportError):
+    gi.require_version("Tracker", "3.0")
+    from gi.repository import Tracker as Tsparql  # noqa: E402
+from gi.repository import Gio, GLib  # noqa: E402
 
 from . import engine  # noqa: E402
 
@@ -103,30 +108,43 @@ def understand(question: str) -> dict | None:
     return {"words": words, "kind": kind, "after": after, "before": before}
 
 
-def sparql(query: dict) -> str:
-    """A LocalSearch query: file name or full-text matches, newest first."""
-    words = query["words"]
+def sparql(query: dict) -> list[str]:
+    """LocalSearch queries for the files: one on their text, one on their names.
+
+    Words are letters, digits, dashes and spaces only (see understand()), so
+    they can't change the query."""
+    words = [SAFE_WORD.sub(" ", w).strip() for w in query["words"]]
+    words = [w for w in words if w]
     if not words:
-        return ""
-    fts = " ".join(words).replace('"', "")
-    names = " || ".join(f'CONTAINS(LCASE(?name), "{w.lower()}")' for w in words)
+        return []
     kind = KINDS.get(query["kind"])
     kind_filter = f"?ie a {kind} ." if kind else ""
+    name_kind = f"?ie nie:isStoredAs ?f ; a {kind} ." if kind else ""
     dates = []
     if query["after"]:
         dates.append(f'?modified >= "{query["after"]}T00:00:00Z"^^xsd:dateTime')
     if query["before"]:
         dates.append(f'?modified <= "{query["before"]}T23:59:59Z"^^xsd:dateTime')
     date_filter = f"FILTER ({' && '.join(dates)})" if dates else ""
-    return f"""
+    fts = " ".join(words)
+    names = " || ".join(f'CONTAINS(LCASE(?name), "{w.lower()}")' for w in words)
+    text = f"""
 SELECT DISTINCT ?url ?modified WHERE {{
-  ?f a nfo:FileDataObject ; nie:url ?url ; nfo:fileName ?name ; nfo:fileLastModified ?modified .
-  OPTIONAL {{ ?ie nie:isStoredAs ?f }}
-  {{ ?ie fts:match "{fts}" }} UNION {{ FILTER ({names}) }}
+  ?ie fts:match "{fts}" ; nie:isStoredAs ?f .
   {kind_filter}
+  ?f nie:url ?url ; nfo:fileLastModified ?modified .
   {date_filter}
 }} ORDER BY DESC(?modified) LIMIT {MAX_RESULTS}
 """
+    name = f"""
+SELECT DISTINCT ?url ?modified WHERE {{
+  {name_kind}
+  ?f a nfo:FileDataObject ; nfo:fileName ?name ; nie:url ?url ; nfo:fileLastModified ?modified .
+  FILTER ({names})
+  {date_filter}
+}} ORDER BY DESC(?modified) LIMIT {MAX_RESULTS}
+"""
+    return [text, name]
 
 
 def index() -> Tsparql.SparqlConnection | None:
@@ -142,17 +160,22 @@ def find(question: str) -> list[str]:
     query = understand(question)
     if not query:
         return []
-    text = sparql(query)
+    queries = sparql(query)
     connection = index()
-    if not text or connection is None:
+    if not queries or connection is None:
         return []
-    cursor = connection.query(text, None)
-    urls = []
-    while cursor.next(None):
-        url = cursor.get_string(0)[0]
-        if url and url.startswith("file://"):
-            urls.append(url)
-    return urls
+    found: dict[str, str] = {}
+    for text in queries:
+        try:
+            cursor = connection.query(text, None)
+        except GLib.Error:
+            continue
+        while cursor.next(None):
+            url = cursor.get_string(0)[0]
+            if url and url.startswith("file://") and url not in found:
+                found[url] = cursor.get_string(1)[0] or ""
+    # Newest first, from both queries together.
+    return sorted(found, key=lambda u: found[u], reverse=True)[:MAX_RESULTS]
 
 
 class Provider:

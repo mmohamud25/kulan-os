@@ -66,10 +66,46 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # llama.cpp's server for Kulan Assistant, one package per architecture.
+  # Rebuilt only when ci/build-engine.sh changes (it pins the llama.cpp
+  # release); otherwise the cached package is reused.
+  engine:
+    needs: plan
+    name: Assistant engine (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: cache
+        uses: actions/cache@v4
+        with:
+          path: dist/engine
+          key: kulan-engine-${{ matrix.arch }}-${{ hashFiles('ci/build-engine.sh', 'kulan.conf') }}
+      - name: Build kulan-assistant-engine in Debian 13
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-engine.sh
+          sudo chown -R "$(id -u):$(id -g)" dist
+      - name: Check the package
+        run: |
+          ls -l dist/engine/
+          dpkg-deb --info dist/engine/kulan-assistant-engine_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kulan-engine-${{ matrix.arch }}
+          path: dist/engine/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
   # Installs the packages into a clean Debian 13 system with their real
   # dependencies, checks them, removes them. Gates publishing and ISOs.
   test-packages:
-    needs: packages
+    needs: [packages, engine]
+    # The engine for PCs is tested with a real model when it was built.
+    if: ${{ !cancelled() && needs.packages.result == 'success' }}
     name: Test packages on Debian 13
     runs-on: ubuntu-24.04
     steps:
@@ -78,6 +114,11 @@ jobs:
         with:
           name: kulan-debs
           path: dist/debs/
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kulan-engine-amd64
+          path: dist/engine/
+          merge-multiple: true
       - name: Install, check and remove in Debian 13
         run: |
           docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
@@ -90,7 +131,7 @@ jobs:
   # must already be online. Skipped until scripts/setup-update-channel.sh
   # has been run.
   publish:
-    needs: test-packages
+    needs: [test-packages, engine]
     if: github.ref == 'refs/heads/main'
     name: Publish updates
     runs-on: ubuntu-24.04
@@ -121,6 +162,14 @@ jobs:
         with:
           name: kulan-debs
           path: dist/debs/
+
+      # Both engines, for systems that add Kulan Assistant from Add-ons.
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          pattern: kulan-engine-*
+          path: dist/debs/
+          merge-multiple: true
 
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
@@ -157,11 +206,12 @@ jobs:
           exit 1
 
   build:
-    needs: [plan, packages, test-packages, publish]
+    needs: [plan, packages, engine, test-packages, publish]
     # Runs when publishing succeeded or was skipped (tags, channel not set up).
     if: >-
       !cancelled() &&
       needs.test-packages.result == 'success' &&
+      needs.engine.result == 'success' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -177,6 +227,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: kulan-debs
+          path: config/packages.chroot/
+
+      - name: Get the assistant engine
+        uses: actions/download-artifact@v7
+        with:
+          name: kulan-engine-${{ matrix.arch }}
           path: config/packages.chroot/
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships

@@ -17,6 +17,8 @@
 #   update-run clean-cache                remove downloaded update files
 #   update-run cleanup                    remove old kernels and unneeded packages
 #   update-run clean-logs                 keep only the last two weeks of system logs
+#   update-run assistant-model <id>       download a Kulan Assistant model (checked by SHA-256)
+#   update-run assistant-model-remove <id>  delete a downloaded Kulan Assistant model
 #
 # Install progress goes to stdout as apt status lines (pmstatus/dlstatus);
 # apt's own messages go to stderr.
@@ -330,7 +332,18 @@ PY
 		fi
 		echo "Renamed ${OLD} to $2" >&2
 		;;
+	assistant-model | assistant-model-remove)
+		[[ $# -eq 2 ]] || die "usage: update-run $1 <model>"
+		[[ "$2" =~ ^[a-z0-9][a-z0-9.-]{0,40}$ ]] || die "Unknown model."
+		MODEL_TOOL=/usr/lib/kulan-assistant/model-download
+		[[ -x "${MODEL_TOOL}" ]] || die "Kulan Assistant isn't installed."
+		if [[ "$1" = assistant-model ]]; then
+			"${MODEL_TOOL}" install "$2"
+		else
+			"${MODEL_TOOL}" remove "$2"
+		fi
+		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
 		;;
 esac

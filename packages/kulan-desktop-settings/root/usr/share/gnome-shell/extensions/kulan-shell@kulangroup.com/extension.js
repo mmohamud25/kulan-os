@@ -24,6 +24,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as SystemActions from 'resource:///org/gnome/shell/misc/systemActions.js';
 import {UnlockDialog} from 'resource:///org/gnome/shell/ui/unlockDialog.js';
 
+import {Assistant} from './assistant.js';
 import {ClipboardHistory} from './clipboard.js';
 import {LiveText} from './livetext.js';
 
@@ -43,6 +44,7 @@ const STYLE_CHECK_S = 60;
 // Kulan shortcuts (org.kulan.desktop keys) and what they do.
 const SHORTCUTS = {
     'live-text-shortcut': ext => ext._liveText?.start(),
+    'writing-tools-shortcut': ext => ext._assistant?.writingTools(),
     'clipboard-history-shortcut': ext => {
         if (ext._clipboard)
             ext._clipboard.show();
@@ -326,7 +328,8 @@ export default class KulanShellExtension extends Extension {
             return GLib.SOURCE_CONTINUE;
         });
         this._notifications = new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'});
-        this._liveText = new LiveText();
+        this._assistant = new Assistant();
+        this._liveText = new LiveText(this._assistant);
         this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
         this._syncClipboard();
         this._addShortcuts();
@@ -450,6 +453,8 @@ export default class KulanShellExtension extends Extension {
         this._clipboard = null;
         this._liveText?.destroy();
         this._liveText = null;
+        this._assistant?.destroy();
+        this._assistant = null;
         this._notifications = null;
         if (this._settingsId) {
             this._settings.disconnect(this._settingsId);

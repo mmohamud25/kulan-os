@@ -9,6 +9,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import {SelectArea} from 'resource:///org/gnome/shell/ui/screenshot.js';
 
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
@@ -22,7 +23,9 @@ const UPSCALE_BELOW = 2;
 const TIMEOUT_S = 60;
 
 export class LiveText {
-    constructor() {
+    // assistant: Kulan Assistant (assistant.js), for Translate and Explain.
+    constructor(assistant = null) {
+        this._assistant = assistant;
         this._busy = false;
         this._cancellable = null;
     }
@@ -68,7 +71,7 @@ export class LiveText {
             }
             St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
             const preview = text.length > 120 ? `${text.slice(0, 117)}…` : text;
-            Main.notify(TITLE, `Copied. Paste it anywhere.\n${preview}`);
+            this._notifyCopied(text, preview);
         } catch (e) {
             if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
                 logError(e, 'Kulan Shell: Live Text');
@@ -83,6 +86,19 @@ export class LiveText {
             this._cancellable = null;
             this._busy = false;
         }
+    }
+
+    _notifyCopied(text, preview) {
+        const body = `Copied. Paste it anywhere.\n${preview}`;
+        if (!this._assistant?.enabled('live-text-actions')) {
+            Main.notify(TITLE, body);
+            return;
+        }
+        const source = MessageTray.getSystemSource();
+        const notification = new MessageTray.Notification({source, title: TITLE, body});
+        notification.addAction('Translate', () => this._assistant?.show('translate', text));
+        notification.addAction('Explain', () => this._assistant?.show('explain', text));
+        source.addNotification(notification);
     }
 
     async _recognise(tesseract, path) {

@@ -1,0 +1,173 @@
+#!/usr/bin/python3
+"""Download or remove a Kulan Assistant model, for the whole computer.
+
+  model-download install <id>    download, check its SHA-256, put it in place
+  model-download remove <id>
+
+Run as root by /usr/lib/kulan/update-run (Kulan Settings > Assistant). Only
+models listed in /usr/share/kulan-assistant/models.json can be fetched, only
+from Hugging Face, and a file is used only once its SHA-256 matches. An
+interrupted download continues where it stopped the next time.
+
+Progress goes to stdout as "pmstatus:model:<percent>:<text>" lines.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+import sys
+import time
+import urllib.error
+import urllib.request
+from urllib.parse import urlsplit
+from pathlib import Path
+
+REGISTRY = Path("/usr/share/kulan-assistant/models.json")
+MODELS_DIR = Path("/var/lib/kulan-assistant/models")
+ALLOWED = "https://huggingface.co/"
+CHUNK = 1 << 20
+SPARE = 500 * 1024 * 1024  # leave room for updates and the system
+
+
+def fail(message: str) -> None:
+    print(message, file=sys.stderr)
+    sys.exit(1)
+
+
+def progress(percent: float, text: str) -> None:
+    print(f"pmstatus:model:{percent:.1f}:{text}", flush=True)
+
+
+def gb(n: int) -> str:
+    return f"{n / 1e9:.1f} GB"
+
+
+def lookup(model_id: str) -> dict:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,40}", model_id):
+        fail("Unknown model.")
+    try:
+        models = json.loads(REGISTRY.read_text())
+    except (OSError, ValueError):
+        fail("The list of models is missing. Reinstall Kulan Assistant.")
+    info = next((m for m in models if isinstance(m, dict) and m.get("id") == model_id), None)
+    if info is None:
+        fail("Unknown model.")
+    if (not str(info.get("url", "")).startswith(ALLOWED) or not re.fullmatch(r"[0-9a-f]{64}", info.get("sha256", ""))
+            or not re.fullmatch(r"[A-Za-z0-9._-]+\.gguf", info.get("file", ""))
+            or not isinstance(info.get("size"), int)):
+        fail("This model's entry is not valid.")
+    return info
+
+
+def trusted(url: str) -> bool:
+    """Hugging Face and its download servers (the file's SHA-256 is checked anyway)."""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and (host in ("huggingface.co", "hf.co")
+                                        or host.endswith((".huggingface.co", ".hf.co")))
+
+
+def sha256_of(path: Path, size: int) -> str:
+    digest = hashlib.sha256()
+    done = 0
+    last = 0.0
+    with path.open("rb") as f:
+        while chunk := f.read(CHUNK * 8):
+            digest.update(chunk)
+            done += len(chunk)
+            if time.monotonic() - last > 0.5:
+                progress(95 + 5 * done / size, "Checking the download")
+                last = time.monotonic()
+    return digest.hexdigest()
+
+
+def download(info: dict) -> None:
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(MODELS_DIR, 0o755)
+    final = MODELS_DIR / info["file"]
+    size = info["size"]
+    if final.is_file() and final.stat().st_size == size:
+        progress(95, "Checking the model you already have")
+        if sha256_of(final, size) == info["sha256"]:
+            progress(100, "Ready")
+            return
+        final.unlink()
+    part = MODELS_DIR / (info["file"] + ".part")
+    have = part.stat().st_size if part.exists() else 0
+    if have > size:
+        part.unlink()
+        have = 0
+    if shutil.disk_usage(MODELS_DIR).free < size - have + SPARE:
+        fail(f"Not enough free space: this model needs {gb(size - have + SPARE)} free. "
+             "Free up space in Kulan Settings > Storage, or choose a smaller model.")
+
+    title = info.get("title", info["id"])
+    attempts = 0
+    while have < size:
+        req = urllib.request.Request(info["url"], headers={"User-Agent": "Kulan-Assistant/1"})
+        if have:
+            req.add_header("Range", f"bytes={have}-")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                if not trusted(resp.geturl()):
+                    fail("The download was redirected somewhere unexpected; stopped.")
+                if have and resp.status != 206:
+                    have = 0  # the server sent the whole file again
+                mode = "ab" if have else "wb"
+                with part.open(mode) as out:
+                    last = 0.0
+                    while chunk := resp.read(CHUNK):
+                        out.write(chunk)
+                        have += len(chunk)
+                        if have > size:
+                            break
+                        if time.monotonic() - last > 0.5:
+                            progress(95 * have / size, f"Downloading the {title} model ({gb(have)} of {gb(size)})")
+                            last = time.monotonic()
+            attempts = 0
+            if have > size:
+                part.unlink()
+                fail("The download is larger than expected; stopped.")
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            attempts += 1
+            if attempts > 5:
+                fail(f"The download stopped ({getattr(exc, 'reason', exc)}). Try again later: it will continue "
+                     "where it stopped.")
+            time.sleep(min(30, 3 * attempts))
+            have = part.stat().st_size if part.exists() else 0
+
+    if sha256_of(part, size) != info["sha256"]:
+        part.unlink()
+        fail("The downloaded model didn't pass its check, so it was deleted. Please try again.")
+    os.chmod(part, 0o644)
+    part.replace(final)
+    progress(100, "Ready")
+
+
+def remove(info: dict) -> None:
+    for path in (MODELS_DIR / info["file"], MODELS_DIR / (info["file"] + ".part")):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def main(argv: list[str]) -> int:
+    if os.geteuid() != 0:
+        fail("model-download must run as root (through Kulan Settings).")
+    if len(argv) != 3 or argv[1] not in ("install", "remove"):
+        fail("usage: model-download install|remove <id>")
+    info = lookup(argv[2])
+    os.umask(0o022)
+    if argv[1] == "install":
+        download(info)
+    else:
+        remove(info)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
