@@ -142,6 +142,9 @@ cat > /tmp/audit-inner.sh <<'IN'
 set -u
 ev() { gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell --method org.gnome.Shell.Eval "$1" 2>/dev/null; }
 export XDG_RUNTIME_DIR=/run/user/1000 MUTTER_DEBUG_DUMMY_MODE_SPECS=1440x900 NO_AT_BRIDGE=1
+# The session's environment (systemd reads these on a real login).
+export XDG_DATA_DIRS="/usr/share/kulan/xdg:/usr/local/share:/usr/share"
+grep -q '^QT_QPA_PLATFORMTHEME=' /usr/lib/environment.d/60-kulan-os.conf 2>/dev/null && export QT_QPA_PLATFORMTHEME=gtk3
 gnome-shell --nested --wayland --unsafe-mode >/tmp/audit-shell.log 2>&1 &
 SHELL_PID=$!
 UP=0
@@ -174,7 +177,7 @@ XWAYLAND="$(sed -n 's/.*Using public X11 display \(:[0-9]*\).*/\1/p' /tmp/audit-
 # Apps started by D-Bus (Files, Settings, Maps...) get the session bus's
 # environment: point it at this shell too, not at the virtual screen.
 dbus-update-activation-environment WAYLAND_DISPLAY="${WAYLAND_DISPLAY}" DISPLAY="${XWAYLAND:-$SCREEN}" \
-	XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" 2>/dev/null
+	XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" XDG_DATA_DIRS="${XDG_DATA_DIRS}" QT_QPA_PLATFORMTHEME="${QT_QPA_PLATFORMTHEME:-}" 2>/dev/null
 echo "wayland=${WAYLAND_DISPLAY} xwayland=${XWAYLAND:-none} screen=${SCREEN}" > "$OUT_DIR/displays.txt"
 for scheme in light dark; do
 	if [ "$scheme" = dark ]; then gsettings set org.gnome.desktop.interface color-scheme prefer-dark; else gsettings set org.gnome.desktop.interface color-scheme default; fi

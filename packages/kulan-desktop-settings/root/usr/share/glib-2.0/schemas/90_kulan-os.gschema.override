@@ -28,6 +28,9 @@ color-scheme='prefer-dark'
 accent-color='teal'
 # Kulan folders (teal, with symbols); GNOME's Adwaita icons for everything else.
 icon-theme='Kulan'
+# Older (GTK 3) apps: adw-gtk3 with the accent colour, so they look like the
+# rest (Kulan Shell keeps it on the chosen accent and light or dark).
+gtk-theme='Kulan-teal'
 cursor-theme='Bibata-Modern-Classic'
 font-name='Inter 11'
 document-font-name='Inter 11'

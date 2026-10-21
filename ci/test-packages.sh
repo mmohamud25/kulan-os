@@ -154,12 +154,13 @@ check "Accent color" "GNOME 48 accent = teal" bash -c "$(declare -f gs); test \"
 check "Fonts and icons" "Inter + Kulan icons" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface font-name)\" = \"'Inter 11'\" && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Kulan'\" && test -f /usr/share/icons/Kulan/index.theme"
 check "Privacy defaults" "old files cleared after 30 days, no usage reports" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.privacy old-files-age)\" = 'uint32 30' && test \"\$(gs org.gnome.desktop.privacy send-software-usage-stats)\" = false"
 check "One welcome tour" "GNOME's own welcome popup suppressed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell welcome-dialog-last-shown-version)\" = \"'999'\""
-check "Clutter hidden" "Tour, Htop and KDE System Settings hidden from the app grid" python3 - <<'PY'
+check "Clutter hidden" "Tour, Htop, KDE System Settings, Input Method and Tor launcher settings hidden from the app grid" python3 - <<'PY'
 import os, subprocess
 code = "from gi.repository import Gio; print(sorted(a.get_id() for a in Gio.AppInfo.get_all() if a.should_show()))"
 env = dict(os.environ, XDG_DATA_DIRS="/usr/share/kulan/xdg:/usr/local/share:/usr/share")
 shown = subprocess.run(["python3", "-c", code], env=env, capture_output=True, text=True, check=True).stdout
-hidden = ["org.gnome.Tour.desktop", "htop.desktop", "systemsettings.desktop", "org.kde.systemsettings.desktop"]
+hidden = ["org.gnome.Tour.desktop", "htop.desktop", "systemsettings.desktop", "org.kde.systemsettings.desktop",
+          "kdesystemsettings.desktop", "im-config.desktop", "torbrowser-settings.desktop"]
 leaked = [h for h in hidden if f"'{h}'" in shown]
 assert open("/usr/lib/environment.d/60-kulan-os.conf").read().count("/usr/share/kulan/xdg") == 1
 raise SystemExit(f"still shown: {leaked}" if leaked else 0)
@@ -237,6 +238,24 @@ for p, kind in ((d / "Document.odt", "text"), (d / "Spreadsheet.ods", "spreadshe
         for member in ("content.xml", "styles.xml", "META-INF/manifest.xml"):
             __import__("xml.etree.ElementTree").etree.ElementTree.fromstring(z.read(member))
 PY
+check "Older apps' theme" "adw-gtk3 and the 18 Kulan accent themes installed, Kulan-teal chosen, Qt apps follow GTK" python3 - <<'PY'
+import os, re, subprocess
+T = "/usr/share/themes"
+for base in ("adw-gtk3", "adw-gtk3-dark"):
+    for f in ("gtk-3.0/gtk.css", "gtk-4.0/gtk.css", "index.theme", "LICENSE"):
+        assert os.path.getsize(f"{T}/{base}/{f}") > 0, (base, f)
+names = [n for n in os.listdir(T) if n.startswith("Kulan-")]
+assert len(names) == 18, names
+for n in names:
+    for gtk in ("gtk-3.0", "gtk-4.0"):
+        css = open(f"{T}/{n}/{gtk}/gtk.css").read()
+        target = re.search(r'@import url\("([^"]+)"\)', css).group(1)
+        assert os.path.exists(os.path.normpath(f"{T}/{n}/{gtk}/{target}")), (n, target)
+out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "gtk-theme"], capture_output=True, text=True,
+                     env={"GSETTINGS_BACKEND": "memory", "PATH": "/usr/bin:/bin"}).stdout.strip()
+assert out == "'Kulan-teal'", out
+assert "QT_QPA_PLATFORMTHEME=gtk3" in open("/usr/lib/environment.d/60-kulan-os.conf").read()
+PY
 check "Terminal colours" "Kulan palette for Ptyxis (light and dark, 16 colours each) chosen by default" python3 - <<'PY'
 import configparser, re, subprocess
 c = configparser.ConfigParser(); c.optionxform = str
@@ -284,7 +303,7 @@ PY
 # Every Debian package an add-on installs, and the security and privacy apps
 # the ISO adds in 2.2, must exist in Debian 13 (main).
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
+check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting qt5-gtk-platformtheme qt6-gtk-platformtheme; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields

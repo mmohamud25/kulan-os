@@ -58,6 +58,9 @@ ptyxis
 zsh
 zsh-autosuggestions
 zsh-syntax-highlighting
+# Qt apps follow the GTK theme (QT_QPA_PLATFORMTHEME=gtk3)
+qt5-gtk-platformtheme
+qt6-gtk-platformtheme
 
 # Office and media (native builds; run on ARM and PCs)
 libreoffice-writer

@@ -1,0 +1,4 @@
+/* Kulan OS: adw-gtk3 with the teal accent. */
+@import url("../../adw-gtk3/gtk-4.0/gtk.css");
+@define-color accent_bg_color #2190a4;
+@define-color accent_color mix(@accent_bg_color, black, 0.17);

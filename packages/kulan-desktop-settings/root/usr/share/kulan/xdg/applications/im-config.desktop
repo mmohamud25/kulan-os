@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Kulan OS hides this launcher: input methods are chosen in Settings > Keyboard.
+Type=Application
+Name=Input Method
+Hidden=true

@@ -1,0 +1,4 @@
+/* Kulan OS: adw-gtk3-dark with the pink accent. */
+@import url("../../adw-gtk3-dark/gtk-4.0/gtk.css");
+@define-color accent_bg_color #d56199;
+@define-color accent_color mix(@accent_bg_color, white, 0.17);

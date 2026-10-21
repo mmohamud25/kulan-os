@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Kulan OS hides this launcher: Tor Browser itself stays in the app grid.
+Type=Application
+Name=Tor Browser Launcher Settings
+Hidden=true

@@ -326,7 +326,11 @@ export default class KulanShellExtension extends Extension {
                 this._settings?.get_boolean('automatic-style'))
                 this._settings.set_boolean('automatic-style', false);
             this._styleSet = null;
+            this._syncGtkTheme();
         });
+        this._accentId = this._interface.settings_schema.has_key('accent-color')
+            ? this._interface.connect('changed::accent-color', () => this._syncGtkTheme()) : 0;
+        this._syncGtkTheme();
         this._styleTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, STYLE_CHECK_S, () => {
             this._syncStyle();
             this._syncFocus();
@@ -446,6 +450,22 @@ export default class KulanShellExtension extends Extension {
         }
     }
 
+    // Older (GTK 3) apps use the "Kulan-<accent>" themes (adw-gtk3 with the
+    // accent): keep them on the accent and light or dark chosen for the rest
+    // of the system. A theme someone picked themselves is left alone.
+    _syncGtkTheme() {
+        const current = this._interface?.get_string('gtk-theme') ?? '';
+        if (!current.startsWith('Kulan-'))
+            return;
+        const accents = ['blue', 'teal', 'green', 'yellow', 'orange', 'red', 'pink', 'purple', 'slate'];
+        const accent = this._interface.settings_schema.has_key('accent-color')
+            ? this._interface.get_string('accent-color') : 'teal';
+        const dark = this._interface.get_string('color-scheme') === 'prefer-dark';
+        const wanted = `Kulan-${accents.includes(accent) ? accent : 'teal'}${dark ? '-dark' : ''}`;
+        if (current !== wanted)
+            this._interface.set_string('gtk-theme', wanted);
+    }
+
     disable() {
         this._injections?.clear();
         this._injections = null;
@@ -475,6 +495,10 @@ export default class KulanShellExtension extends Extension {
         this._colorCancel?.cancel();
         this._colorCancel = null;
         this._color = null;
+        if (this._accentId) {
+            this._interface.disconnect(this._accentId);
+            this._accentId = 0;
+        }
         if (this._schemeId) {
             this._interface.disconnect(this._schemeId);
             this._schemeId = 0;
