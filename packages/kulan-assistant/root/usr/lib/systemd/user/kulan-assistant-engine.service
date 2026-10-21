@@ -1,0 +1,14 @@
+[Unit]
+Description=Kulan Assistant engine (runs on this computer only)
+Documentation=man:kulan-assistant(1)
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/kulan-assistant/kulan-assistant-engine
+# A model uses a lot of memory: let the system take it back first when short.
+OOMScoreAdjust=500
+Nice=5
+Restart=no
+# The engine needs nothing from the network and nothing outside its model.
+PrivateTmp=yes
+NoNewPrivileges=yes
