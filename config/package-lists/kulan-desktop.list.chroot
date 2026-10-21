@@ -14,6 +14,8 @@ gnome-shell-extension-dashtodock
 gnome-shell-extension-blur-my-shell
 gnome-shell-extension-appindicator
 gnome-shell-extension-prefs
+# Files and folders on the desktop, like a Mac
+gnome-shell-extension-desktop-icons-ng
 # App menus when right-clicking an app in the dock (Discord, Slack, Spotify...)
 gir1.2-dbusmenu-glib-0.4
 # Window snapping into halves and quarters, like macOS

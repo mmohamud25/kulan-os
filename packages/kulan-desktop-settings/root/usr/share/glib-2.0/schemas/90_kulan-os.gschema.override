@@ -77,6 +77,16 @@ switch-input-source-backward=['<Shift>XF86Keyboard', '<Shift><Control><Alt>space
 [org.gnome.settings-daemon.plugins.media-keys]
 custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kulan-emoji/']
 
+# Files on the desktop (Desktop Icons NG), Mac-style: they start at the top
+# right with drives first; no Home or Bin icons (they're in the dock and Files).
+[org.gnome.shell.extensions.ding]
+show-home=false
+show-trash=false
+show-volumes=true
+add-volumes-opposite=false
+start-corner='top-right'
+icon-size='standard'
+
 # Window snapping: drag a window to an edge or corner for halves and quarters,
 # with a small gap, like macOS. No popup offering other windows.
 [org.gnome.shell.extensions.tiling-assistant]

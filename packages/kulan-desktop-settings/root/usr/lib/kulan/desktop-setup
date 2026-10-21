@@ -33,6 +33,7 @@ for SPEC in \
 	"kulan:kulan-shell@*:required" \
 	"tray:*appindicator*@*:optional" \
 	"tiling:tiling-assistant@*:optional" \
+	"desktop:ding@*:optional" \
 	"phone:gsconnect@*:optional"; do
 	LABEL="${SPEC%%:*}"
 	REST="${SPEC#*:}"

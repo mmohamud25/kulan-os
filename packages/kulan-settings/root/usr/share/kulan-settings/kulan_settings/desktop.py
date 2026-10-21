@@ -1,11 +1,41 @@
-"""Desktop and windows: animations, app folders, hot corner, workspaces."""
+"""Desktop and windows: files on the desktop, animations, app folders, hot corner, workspaces."""
 from __future__ import annotations
 
-from gi.repository import Adw, Gio, GLib
+from pathlib import Path
 
-from .common import KULAN_SCHEMA, Page, choice_row, has_key, reset_keys, settings, switch_row
+from gi.repository import Adw, Gio, GLib, GObject
+
+from .common import (
+    KULAN_SCHEMA,
+    Page,
+    choice_row,
+    has_key,
+    reset_keys,
+    settings,
+    switch_row,
+)
 
 KULAN_FOLDERS = ["Kulan-Utilities", "Kulan-System"]
+DESKTOP_ICONS = "ding@rastersoft.com"
+DESKTOP_ICONS_DIR = Path("/usr/share/gnome-shell/extensions") / DESKTOP_ICONS
+
+
+def desktop_icons_on(shell) -> bool:
+    if DESKTOP_ICONS in shell.get_strv("disabled-extensions"):
+        return False
+    return DESKTOP_ICONS in shell.get_strv("enabled-extensions")
+
+
+def set_desktop_icons(shell, on: bool) -> None:
+    """Turn the desktop icons extension on or off for this user. Off goes in
+    the disabled list (which wins), so Kulan's default list stays as it is."""
+    disabled = [u for u in shell.get_strv("disabled-extensions") if u != DESKTOP_ICONS]
+    shell.set_strv("disabled-extensions", disabled if on else [*disabled, DESKTOP_ICONS])
+    # Kulan's defaults list it; only someone with their own list of
+    # extensions needs it added there.
+    if on and shell.get_user_value("enabled-extensions") is not None \
+            and DESKTOP_ICONS not in shell.get_strv("enabled-extensions"):
+        shell.set_strv("enabled-extensions", [*shell.get_strv("enabled-extensions"), DESKTOP_ICONS])
 # "No folders" can't be an empty list: GNOME Shell writes its own default
 # folders back over an empty list at the next login. A folder with no apps
 # is never shown, so this one stands for "folders off".
@@ -29,6 +59,23 @@ class DesktopPage(Page):
         self.folders = settings("org.gnome.desktop.app-folders")
         self.mutter = settings("org.gnome.mutter")
         self.wm = settings("org.gnome.desktop.wm.preferences")
+        self.shell = settings("org.gnome.shell")
+        self.ding = settings("org.gnome.shell.extensions.ding")
+
+        if self.shell is not None and DESKTOP_ICONS_DIR.is_dir():
+            desktop = self.add_group("Desktop")
+            icons = Adw.SwitchRow(title="Show files on the desktop",
+                                  subtitle="Folders and files in your Desktop folder, and drives you plug in",
+                                  active=desktop_icons_on(self.shell))
+            icons.connect("notify::active", lambda r, _p: set_desktop_icons(self.shell, r.get_active()))
+            desktop.add(icons)
+            if has_key(self.ding, "icon-size"):
+                size = choice_row("Icon size", None, [("small", "Small"), ("standard", "Standard"),
+                                                      ("large", "Large")],
+                                  lambda: self.ding.get_string("icon-size"),
+                                  lambda v: self.ding.set_string("icon-size", v))
+                icons.bind_property("active", size, "sensitive", GObject.BindingFlags.SYNC_CREATE)
+                desktop.add(size)
 
         motion = self.add_group("Motion")
         motion.add(choice_row("Animations", "Kulan’s default is a little quicker than GNOME’s",
@@ -85,5 +132,8 @@ class DesktopPage(Page):
         reset_keys(self.folders, ["folder-children"])
         reset_keys(self.mutter, ["center-new-windows", "dynamic-workspaces"])
         reset_keys(self.wm, ["num-workspaces"])
+        reset_keys(self.ding, ["icon-size"])
+        if self.shell is not None and DESKTOP_ICONS_DIR.is_dir():
+            set_desktop_icons(self.shell, True)
         GLib.idle_add(lambda: self.window.reload_page(self) and False)
         self.toast("Desktop and windows reset to Kulan defaults")
