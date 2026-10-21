@@ -274,23 +274,39 @@ export default class KulanShellExtension extends Extension {
             this._reload();
             return GLib.SOURCE_CONTINUE;
         });
-        this._sessionId = Main.sessionMode.connect('updated', () => this._syncSession());
+        this._sessionId = Main.sessionMode.connect('updated', () => {
+            this._syncSession();
+            this._syncStyle(); // the time may have passed sunset while locked
+        });
 
         this._settings = kulanSettings();
         this._settingsId = this._settings?.connect('changed', () => this._applySettings()) ?? 0;
         this._interface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        // Choosing light or dark anywhere else (Quick Settings, GNOME
+        // Settings) means the user wants that now: stop switching for them.
+        this._styleSet = null;
+        this._schemeId = this._interface.connect('changed::color-scheme', () => {
+            const value = this._interface.get_string('color-scheme');
+            if (this._styleSet !== null && value !== this._styleSet &&
+                this._settings?.get_boolean('automatic-style'))
+                this._settings.set_boolean('automatic-style', false);
+            this._styleSet = null;
+        });
         this._styleTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, STYLE_CHECK_S, () => {
             this._syncStyle();
             return GLib.SOURCE_CONTINUE;
         });
+        this._colorCancel = new Gio.Cancellable();
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, null,
             'org.gnome.SettingsDaemon.Color', '/org/gnome/SettingsDaemon/Color',
-            'org.gnome.SettingsDaemon.Color', null, (_o, result) => {
+            'org.gnome.SettingsDaemon.Color', this._colorCancel, (_o, result) => {
+                let proxy = null;
                 try {
-                    this._color = Gio.DBusProxy.new_for_bus_finish(result);
+                    proxy = Gio.DBusProxy.new_for_bus_finish(result);
                 } catch {
-                    this._color = null;
+                    return; // cancelled by disable(), or no colour daemon
                 }
+                this._color = proxy;
                 this._syncStyle();
             });
 
@@ -324,8 +340,10 @@ export default class KulanShellExtension extends Extension {
         const hour = now.get_hour() + now.get_minute() / 60;
         const dark = sunset > sunrise ? hour >= sunset || hour < sunrise : hour >= sunset && hour < sunrise;
         const wanted = dark ? 'prefer-dark' : 'default';
-        if (this._interface.get_string('color-scheme') !== wanted)
+        if (this._interface.get_string('color-scheme') !== wanted) {
+            this._styleSet = wanted;
             this._interface.set_string('color-scheme', wanted);
+        }
     }
 
     disable() {
@@ -334,7 +352,13 @@ export default class KulanShellExtension extends Extension {
             this._settingsId = 0;
         }
         this._settings = null;
+        this._colorCancel?.cancel();
+        this._colorCancel = null;
         this._color = null;
+        if (this._schemeId) {
+            this._interface.disconnect(this._schemeId);
+            this._schemeId = 0;
+        }
         this._interface = null;
         if (this._styleTimerId) {
             GLib.source_remove(this._styleTimerId);

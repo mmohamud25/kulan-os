@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from .common import Page, launch, os_release, plural, read_json
 
@@ -120,10 +120,27 @@ class UpdatesPage(Page):
         self.history_group = self.add_group("Recent updates")
         self.page.add(self.build_settings())
 
-        self.window.helper.listeners.append(self.on_busy)
-        self.monitor = Gio.File.new_for_path(str(STATUS_FILE)).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
-        self.monitor.connect("changed", lambda *_a: GLib.timeout_add(400, self.reload))
+        self.listen_busy(self.on_busy)
+        self.reload_id = 0
+        self.monitor_file(str(STATUS_FILE), self.queue_reload)
         self.reload()
+
+    def queue_reload(self) -> None:
+        """apt writes the status file several times in a row: reload once it settles."""
+        if self.reload_id:
+            GLib.source_remove(self.reload_id)
+        self.reload_id = GLib.timeout_add(400, self.reload_settled)
+
+    def reload_settled(self) -> bool:
+        self.reload_id = 0
+        self.reload()
+        return GLib.SOURCE_REMOVE
+
+    def teardown(self) -> None:
+        if self.reload_id:
+            GLib.source_remove(self.reload_id)
+            self.reload_id = 0
+        super().teardown()
 
     def shown(self) -> None:
         self.reload()

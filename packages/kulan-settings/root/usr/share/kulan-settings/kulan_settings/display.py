@@ -49,7 +49,7 @@ class DisplayPage(Page):
                               lambda s: self.color.set_uint("night-light-temperature", int(s.get_value())))
                 warmth.add_suffix(scale)
                 night.add(warmth)
-            self.color.connect("changed", lambda *_a: self.sync())
+            self.watch(self.color, "changed", lambda *_a: self.sync())
             self.sync()
 
         display = self.add_group("Display")

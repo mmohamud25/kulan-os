@@ -1,0 +1,14 @@
+{
+  "BlockThirdPartyCookies": true,
+  "PrivacySandboxPromptEnabled": false,
+  "PrivacySandboxAdTopicsEnabled": false,
+  "PrivacySandboxSiteEnabledAdsEnabled": false,
+  "PrivacySandboxAdMeasurementEnabled": false,
+  "MetricsReportingEnabled": false,
+  "UrlKeyedAnonymizedDataCollectionEnabled": false,
+  "HttpsUpgradesEnabled": true,
+  "DefaultBrowserSettingEnabled": false,
+  "ExtensionInstallForcelist": [
+    "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx"
+  ]
+}

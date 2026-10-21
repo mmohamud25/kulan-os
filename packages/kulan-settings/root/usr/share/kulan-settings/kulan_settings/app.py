@@ -14,6 +14,8 @@ from .display import DisplayPage
 from .dock import DockPage
 from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
+from .privacy import PrivacyPage
+from .security import SecurityPage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
 
@@ -28,6 +30,8 @@ PAGES = [
     ("display", DisplayPage),
     ("keyboard", KeyboardPage),
     ("login-items", LoginItemsPage),
+    ("security", SecurityPage),
+    ("privacy", PrivacyPage),
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),
@@ -169,6 +173,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         page_id = next((pid for pid, p in self.pages.items() if p is page), None)
         if page_id is None:
             return
+        page.teardown()
         self.stack.remove(page)
         del self.pages[page_id]
         self.show_page(page_id)
@@ -207,7 +212,12 @@ class KulanSettings(Adw.Application):
         for page_id, _cls in PAGES:
             try:
                 window.show_page(page_id)
+                listeners = len(window.helper.listeners)
+                # Rebuilding a page (what Reset does) must not leave the old one listening.
                 window.reload_page(window.pages[page_id])
+                window.reload_page(window.pages[page_id])
+                if len(window.helper.listeners) != listeners:
+                    failures.append(f"{page_id}: old page still listening after a rebuild")
             except Exception as exc:  # noqa: BLE001 - report every page, then fail
                 failures.append(f"{page_id}: {exc!r}")
         window.destroy()

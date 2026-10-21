@@ -34,7 +34,12 @@ vendor_logos() {
 # copy as debian-logo.png.debian, and point it at Kulan's wordmark.
 SPLASH_LOGO=/usr/share/plymouth/debian-logo.png
 splash_logo() {
-	if ! dpkg-divert --list "${SPLASH_LOGO}" | grep -q 'by kulan-desktop-settings$'; then
+	DIVERTED_BY="$(dpkg-divert --listpackage "${SPLASH_LOGO}")"
+	if [ -n "${DIVERTED_BY}" ] && [ "${DIVERTED_BY}" != kulan-desktop-settings ]; then
+		echo "kulan-desktop-settings: ${SPLASH_LOGO} is diverted by ${DIVERTED_BY}; leaving the splash logo alone" >&2
+		return 0
+	fi
+	if [ -z "${DIVERTED_BY}" ]; then
 		dpkg-divert --package kulan-desktop-settings --add --rename \
 			--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
 	fi

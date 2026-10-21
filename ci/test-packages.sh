@@ -37,6 +37,12 @@ gs() { GSETTINGS_BACKEND=memory gsettings get "$@"; }
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q >/dev/null
+# Checks run as root; byte-code caches written into /usr would be left
+# behind on purge and hide what "Removal cleans up" should catch.
+export PYTHONDONTWRITEBYTECODE=1
+# Parse Python files without writing caches (py_compile always writes them).
+# shellcheck disable=SC2317  # used through bash -c "$(declare -f pycheck)"
+pycheck() { python3 -c 'import sys; [compile(open(f, encoding="utf-8").read(), f, "exec") for f in sys.argv[1:]]' "$@"; }
 
 shopt -s nullglob
 # The core Kulan packages. kulan-devkit (optional) and kulan-apps (LibreOffice,
@@ -56,6 +62,26 @@ APPS=(dist/debs/kulan-apps_*.deb)
 }
 VERSION="$(cat dist/debs/VERSION)"
 
+# --- Start from the released version, as existing users do -----------------------
+# The published packages go in first, so the install below is a real upgrade:
+# files moving between packages, Breaks/Replaces and maintainer scripts.
+CHANNEL="$(sed -n 's/^KULAN_APT_URL="\(.*\)"$/\1/p' kulan.conf)"
+UPGRADE_FROM=""
+install -m 0644 packages/kulan-archive-keyring.gpg /usr/share/keyrings/kulan-ci-released.gpg
+printf 'Types: deb\nURIs: %s\nSuites: ./\nSigned-By: /usr/share/keyrings/kulan-ci-released.gpg\n' "${CHANNEL}" \
+	>/etc/apt/sources.list.d/kulan-ci-released.sources
+if apt-get update -q >/tmp/released.log 2>&1 &&
+	apt-get install -y -q kulan-base kulan-desktop-settings kulan-update-center kulan-welcome gdm3 desktop-base \
+		>>/tmp/released.log 2>&1; then
+	UPGRADE_FROM="$(dpkg-query -W -f '${Version}' kulan-base)"
+	result pass "Released version" "kulan-base ${UPGRADE_FROM} installed from the update channel first"
+else
+	result fail "Released version" "couldn't install from ${CHANNEL}: $(grep -E '^(E|W):' /tmp/released.log | tail -n 2 | tr '\n' ' ')"
+fi
+# The released kulan-base brings its own kulan.sources for the same channel.
+rm -f /etc/apt/sources.list.d/kulan-ci-released.sources /usr/share/keyrings/kulan-ci-released.gpg
+apt-get update -q >/dev/null 2>&1
+
 # --- Install, as the ISO build does (recommends included) -----------------------
 # htop and gnome-tour are installed too, so the "Clutter hidden" check has
 # real launchers to hide; gdm3 and desktop-base so the login screen's settings
@@ -69,6 +95,16 @@ else
 	result fail "Install" "apt failed: $(grep -E '^E:|error' /tmp/install.log | tail -n 3 | tr '\n' ' ')"
 	tail -n 40 /tmp/install.log
 	exit 1
+fi
+
+if [[ -n "${UPGRADE_FROM}" ]]; then
+	# shellcheck disable=SC2016  # expanded by the inner bash
+	check "Upgrade from ${UPGRADE_FROM}" "every package at ${VERSION}, nothing half-configured, moved files owned by kulan-settings" bash -c '
+		for p in kulan-base kulan-desktop-settings kulan-update-center kulan-welcome kulan-settings; do
+			[[ "$(dpkg-query -W -f "\${Version}" "$p")" == "$1" ]] || { echo "$p not upgraded"; exit 1; }
+		done
+		[[ -z "$(dpkg --audit)" ]] || { dpkg --audit | head -n 3; exit 1; }
+		[[ "$(dpkg -S /usr/bin/kulan-updates | cut -d: -f1)" == kulan-settings ]]' _ "${VERSION}"
 fi
 
 # --- Identity ---------------------------------------------------------------------
@@ -160,9 +196,9 @@ check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
-check "Kulan Settings compiles" "python3 -m py_compile" bash -c 'python3 -m py_compile /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py'
+check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 pages built"'
+check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "12/12 pages built"'
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
@@ -179,13 +215,17 @@ for bad in ("nope", "x;y", "../etc", ""):
     r = subprocess.run(["/usr/lib/kulan/update-run", "addon-install", bad], capture_output=True, text=True)
     assert r.returncode != 0, bad
 PY
+# Every Debian package an add-on installs, and the security and privacy apps
+# the ISO adds in 2.2, must exist in Debian 13 (main).
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a[\"packages\"] if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
 check "Upgrade path" "kulan-desktop-settings pulls in kulan-update-center, kulan-settings and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-settings && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
 
 # --- Welcome app against Debian's real GTK and libadwaita ------------------------------
-check "Welcome app compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-welcome
+check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 check "Welcome app APIs" "every GTK/libadwaita class it uses exists" python3 - <<'PY'
 import gi
 gi.require_version("Gtk", "4.0")
@@ -209,7 +249,7 @@ if dpkg --purge kulan-settings kulan-update-center kulan-welcome kulan-desktop-s
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
-	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /usr/share/kulan-settings && test ! -e /usr/bin/__pycache__'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi

@@ -2,7 +2,7 @@
 set -e
 
 case "$1" in
-	remove|purge)
+	remove|purge|abort-install)
 		# Give Debian's splash logo back.
 		SPLASH_LOGO=/usr/share/plymouth/debian-logo.png
 		if [ -L "${SPLASH_LOGO}" ] && [ "$(readlink "${SPLASH_LOGO}")" = /usr/share/kulan/vendor-logos/logo-text-version-64.png ]; then
@@ -26,6 +26,10 @@ case "$1" in
 		fi
 		if command -v dconf >/dev/null 2>&1; then
 			dconf update || true
+		fi
+		# Take the Kulan splash hook and early graphics out of the boot image.
+		if [ "$1" = remove ] && command -v update-initramfs >/dev/null 2>&1; then
+			update-initramfs -u || true
 		fi
 		;;
 esac

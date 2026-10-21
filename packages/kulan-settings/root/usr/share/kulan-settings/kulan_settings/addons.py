@@ -26,7 +26,7 @@ class AddonsPage(Page):
             "Optional add-ons",
             "Extra bundles for Kulan OS. Installing or removing one asks for your password.")
         self.rows: list[Gtk.Widget] = []
-        self.window.helper.listeners.append(self.on_busy)
+        self.listen_busy(self.on_busy)
         self.shown()
 
     def addons(self) -> list[dict]:

@@ -4,7 +4,7 @@ Architecture: all
 Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: admin
 Priority: optional
-Depends: kulan-base (= @VERSION@), python3 (>= 3.11), pkexec, apt, timeshift
+Depends: kulan-base (= @VERSION@), python3 (>= 3.11), pkexec, apt, timeshift, lynis
 Recommends: unattended-upgrades, kulan-settings (= @VERSION@)
 Homepage: @HOME_URL@
 Description: @NAME@ updates, add-ons and restore points

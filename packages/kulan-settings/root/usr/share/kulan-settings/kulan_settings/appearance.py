@@ -78,6 +78,25 @@ def set_button_style(style: str) -> None:
             path.unlink()
 
 
+_swatch_style_added = False
+
+
+def add_swatch_style() -> None:
+    """Colours for the accent swatches, added to the display once."""
+    global _swatch_style_added
+    if _swatch_style_added:
+        return
+    provider = Gtk.CssProvider()
+    css = "".join(f".kulan-swatch-{v} {{ background: {c}; border-radius: 999px; min-width: 22px; "
+                  f"min-height: 22px; padding: 0; }}" for v, _l, c in ACCENTS)
+    css += (".kulan-swatch:checked { box-shadow: 0 0 0 2px @window_bg_color, 0 0 0 4px currentColor; }"
+            ".kulan-swatch image { color: white; }")
+    provider.load_from_string(css)
+    Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+    _swatch_style_added = True
+
+
 class AppearancePage(Page):
     title = "Appearance"
     icon = "applications-graphics-symbolic"
@@ -129,7 +148,7 @@ class AppearancePage(Page):
                                                                 LAYOUT_LEFT if v == "left" else LAYOUT_RIGHT)))
         self.add_reset(self.reset)
         if self.background is not None:
-            self.background.connect("changed", lambda *_a: self.shown())
+            self.watch(self.background, "changed", lambda *_a: self.shown())
         self.shown()
 
     # --- light / dark / automatic -------------------------------------------------
@@ -150,14 +169,7 @@ class AppearancePage(Page):
     def accent_row(self) -> Adw.ActionRow:
         row = Adw.ActionRow(title="Accent colour")
         box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
-        provider = Gtk.CssProvider()
-        css = "".join(f".kulan-swatch-{v} {{ background: {c}; border-radius: 999px; min-width: 22px; "
-                      f"min-height: 22px; padding: 0; }}" for v, _l, c in ACCENTS)
-        css += (".kulan-swatch:checked { box-shadow: 0 0 0 2px @window_bg_color, 0 0 0 4px currentColor; }"
-                ".kulan-swatch image { color: white; }")
-        provider.load_from_string(css)
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
-                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        add_swatch_style()
         current = self.interface.get_string("accent-color")
         first = None
         self.swatches = {}

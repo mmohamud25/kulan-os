@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 OS_RELEASE = Path("/usr/lib/os-release")
 HELPER = "/usr/lib/kulan/update-run"
@@ -240,6 +240,34 @@ class Page(Adw.Bin):
         self.window = window
         self.page = Adw.PreferencesPage()
         self.set_child(self.page)
+        self._watches: list[tuple[GObject.Object, int]] = []
+        self._monitors: list[Gio.FileMonitor] = []
+
+    def watch(self, obj: GObject.Object | None, signal: str, callback) -> None:
+        """Connect to something that outlives the page (settings, the helper's
+        file monitor); teardown() disconnects it when the page is rebuilt."""
+        if obj is not None:
+            self._watches.append((obj, obj.connect(signal, callback)))
+
+    def listen_busy(self, callback: Callable[[bool], None]) -> None:
+        self.window.helper.listeners.append(callback)
+
+    def monitor_file(self, path: str, callback: Callable[[], None]) -> None:
+        monitor = Gio.File.new_for_path(path).monitor_file(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        monitor.connect("changed", lambda *_a: callback())
+        self._monitors.append(monitor)
+
+    def teardown(self) -> None:
+        """Disconnect everything watch(), listen_busy() and monitor_file() set up."""
+        for obj, handler in self._watches:
+            if obj.handler_is_connected(handler):
+                obj.disconnect(handler)
+        self._watches.clear()
+        for monitor in self._monitors:
+            monitor.cancel()
+        self._monitors.clear()
+        listeners = self.window.helper.listeners
+        listeners[:] = [f for f in listeners if getattr(f, "__self__", None) is not self]
 
     def toast(self, text: str) -> None:
         self.window.toast(text)

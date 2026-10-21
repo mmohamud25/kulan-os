@@ -2,3 +2,8 @@
 # derivative's own signed update channel is its purpose. (This rule exists
 # for packages in Debian's own archive, which must not add repositories.)
 kulan-base: package-installs-apt-sources [etc/apt/sources.list.d/kulan.sources]
+# Google Chrome reads managed policies only from /etc/opt/chrome/policies.
+kulan-base: dir-or-file-in-etc-opt [etc/opt/chrome/]
+kulan-base: dir-or-file-in-etc-opt [etc/opt/chrome/policies/]
+kulan-base: dir-or-file-in-etc-opt [etc/opt/chrome/policies/managed/]
+kulan-base: dir-or-file-in-etc-opt [etc/opt/chrome/policies/managed/kulan-privacy.json]

@@ -5,7 +5,9 @@
     "description": "LibreOffice Writer, Calc and Impress, VLC and GIMP",
     "icon": "x-office-document-symbolic",
     "size": "about 500 MB",
-    "packages": ["kulan-apps"]
+    "packages": [
+      "kulan-apps"
+    ]
   },
   {
     "id": "devkit",
@@ -14,6 +16,20 @@
     "icon": "utilities-terminal-symbolic",
     "size": "about 600 MB",
     "note": "To use Docker without sudo, run: sudo usermod -aG docker $USER, then sign out and in again.",
-    "packages": ["kulan-devkit"]
+    "packages": [
+      "kulan-devkit"
+    ]
+  },
+  {
+    "id": "virus-scan",
+    "title": "Virus scanner",
+    "description": "ClamAV with a simple app (ClamTk) to scan files, folders and USB drives on demand, useful for files from Windows computers",
+    "icon": "security-high-symbolic",
+    "size": "about 300 MB with virus definitions",
+    "packages": [
+      "clamtk",
+      "clamav",
+      "clamav-freshclam"
+    ]
   }
 ]

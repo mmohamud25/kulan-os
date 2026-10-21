@@ -12,6 +12,16 @@ primary-color='#040B16'
 picture-uri='file:///usr/share/backgrounds/kulan/kulan-dark.png'
 picture-options='zoom'
 primary-color='#040B16'
+# Lock as soon as the screen blanks (after 5 minutes idle, or the lid closes).
+lock-enabled=true
+lock-delay=uint32 0
+
+[org.gnome.desktop.session]
+idle-delay=uint32 300
+
+# Location services stay off until an app asks and you turn them on.
+[org.gnome.system.location]
+enabled=false
 
 [org.gnome.desktop.interface]
 color-scheme='prefer-dark'

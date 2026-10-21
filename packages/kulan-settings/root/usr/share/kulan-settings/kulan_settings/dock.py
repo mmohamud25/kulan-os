@@ -72,7 +72,7 @@ class DockPage(Page):
                                  "The grid of dots that shows all apps"),
                       switch_row(self.dock, "show-apps-at-top", "App grid button first"))
         self.add_reset(self.reset)
-        self.dock.connect("changed::dock-fixed", lambda *_a: self.sync_speed())
+        self.watch(self.dock, "changed::dock-fixed", lambda *_a: self.sync_speed())
         self.sync_speed()
 
     def get_mode(self) -> str:

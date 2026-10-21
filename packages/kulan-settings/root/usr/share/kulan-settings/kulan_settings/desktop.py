@@ -6,6 +6,15 @@ from gi.repository import Adw, Gio, GLib
 from .common import KULAN_SCHEMA, Page, choice_row, has_key, reset_keys, settings, switch_row
 
 KULAN_FOLDERS = ["Kulan-Utilities", "Kulan-System"]
+# "No folders" can't be an empty list: GNOME Shell writes its own default
+# folders back over an empty list at the next login. A folder with no apps
+# is never shown, so this one stands for "folders off".
+NO_FOLDERS = ["Kulan-NoFolders"]
+
+
+def folders_on(folders) -> bool:
+    children = folders.get_strv("folder-children")
+    return bool(children) and children != NO_FOLDERS
 
 
 class DesktopPage(Page):
@@ -30,7 +39,7 @@ class DesktopPage(Page):
         if self.folders is not None:
             row = Adw.SwitchRow(title="Folders for Utilities and System",
                                 subtitle="Everyday apps always stay out in the open",
-                                active=bool(self.folders.get_strv("folder-children")))
+                                active=folders_on(self.folders))
             row.connect("notify::active", lambda r, _p: self.set_folders(r.get_active()))
             grid.add(row)
 
@@ -65,10 +74,10 @@ class DesktopPage(Page):
     def set_folders(self, on: bool) -> None:
         if on:
             self.folders.reset("folder-children")
-            if not self.folders.get_strv("folder-children"):
+            if not folders_on(self.folders):
                 self.folders.set_strv("folder-children", KULAN_FOLDERS)
         else:
-            self.folders.set_strv("folder-children", [])
+            self.folders.set_strv("folder-children", NO_FOLDERS)
 
     def reset(self) -> None:
         reset_keys(self.kulan, ["animation-speed"])

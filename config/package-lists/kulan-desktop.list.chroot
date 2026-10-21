@@ -62,6 +62,14 @@ ufw
 gufw
 unattended-upgrades
 deja-dup
+# Password manager (offline, encrypted vault, browser autofill)
+keepassxc
+# Removes hidden location and device details from photos and documents
+metadata-cleaner
+# VPN: OpenVPN files import in Settings (WireGuard is built into NetworkManager)
+network-manager-openvpn-gnome
+# Extra AppArmor profiles that fence in common apps
+apparmor-profiles-extra
 
 # Tor Browser launcher: Tor Browser is only built for PCs (x86-64).
 #if ARCHITECTURES amd64
