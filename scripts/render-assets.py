@@ -48,7 +48,6 @@ def logo_group(x: float, y: float, size: float) -> str:
     body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
     # Make gradient ids unique so several logos can share one document.
     body = body.replace('id="badge"', 'id="lgBadge"').replace("url(#badge)", "url(#lgBadge)")
-    body = body.replace('id="shine"', 'id="lgShine"').replace("url(#shine)", "url(#lgShine)")
     scale = size / 512
     return f'<g transform="translate({x},{y}) scale({scale})">{body}</g>'
 
@@ -153,17 +152,13 @@ def main() -> int:
     }
     variants = {"": logo_svg}
     for suffix, colour in flat.items():
-        # The "K" alone (no badge) in one colour; the centre node keeps its hole.
+        # The tree and the gathered people alone (no badge, no sun), in one colour.
         variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <g stroke="{colour}" stroke-width="44" stroke-linecap="round" fill="none">
-    <line x1="166" y1="96" x2="166" y2="416"/>
-    <line x1="166" y1="256" x2="380" y2="96"/>
-    <line x1="166" y1="256" x2="380" y2="416"/>
-  </g>
+  <path d="M60 176 C104 96 408 96 452 176 C408 206 104 206 60 176 Z" fill="{colour}"/>
+  <path d="M256 352 V266 M256 266 L196 190 M256 266 L316 190" stroke="{colour}" stroke-width="40" stroke-linecap="round" fill="none"/>
   <g fill="{colour}">
-    <circle cx="166" cy="96" r="40"/><circle cx="166" cy="416" r="40"/>
-    <circle cx="380" cy="96" r="40"/><circle cx="380" cy="416" r="40"/>
-    <path fill-rule="evenodd" d="M166 202a54 54 0 1 1 0 108a54 54 0 1 1 0-108zM166 232a24 24 0 1 0 0 48a24 24 0 1 0 0-48z"/>
+    <circle cx="104" cy="380" r="34"/><circle cx="178" cy="420" r="34"/><circle cx="256" cy="432" r="34"/>
+    <circle cx="334" cy="420" r="34"/><circle cx="408" cy="380" r="34"/>
   </g>
 </svg>'''
     for suffix, svg in variants.items():
