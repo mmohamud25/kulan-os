@@ -101,7 +101,13 @@ check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
-	check "Keyboard layout in initramfs" "disk password typed with the chosen layout" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'etc/boottime.kmap.gz'"
+	if lsinitramfs "${WORK}/initrd.img" | grep -q 'etc/boottime.kmap.gz'; then
+		result pass "Keyboard layout in initramfs" "disk password typed with the chosen layout"
+	else
+		CS="no"; installed console-setup && CS="yes"
+		KM="$(lsinitramfs "${WORK}/initrd.img" | grep -iE 'kmap|keymap|setupcon|console-setup' | head -n 5 | tr '\n' ' ')"
+		result fail "Keyboard layout in initramfs" "no etc/boottime.kmap.gz; console-setup installed: ${CS}; related files: ${KM:-none}"
+	fi
 else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
 fi
