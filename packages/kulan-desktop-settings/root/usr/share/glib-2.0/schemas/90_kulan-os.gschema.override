@@ -44,8 +44,14 @@ dock-position='BOTTOM'
 dock-fixed=false
 intellihide=true
 extend-height=false
-dash-max-icon-size=48
+# Calmer dock: smaller icons, quick show and hide, no bounce on launch.
+dash-max-icon-size=40
 custom-theme-shrink=true
+animation-time=0.125
+show-delay=0.125
+hide-delay=0.25
+pressure-threshold=80.0
+animate-show-apps=false
 transparency-mode='FIXED'
 background-opacity=0.35
 running-indicator-style='DOTS'

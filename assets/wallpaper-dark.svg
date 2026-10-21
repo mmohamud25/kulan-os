@@ -1,47 +1,55 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3840 2160" width="3840" height="2160">
-  <!-- Kulan OS default wallpaper (dark): layered flowing bands, teal into blue. -->
+  <!-- Kulan OS default wallpaper (dark): dusk over the savanna, a lone acacia
+       on the horizon - the gathering tree from the Kulan OS logo. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#040B16"/>
-      <stop offset="1" stop-color="#081A33"/>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#030A15"/>
+      <stop offset="0.45" stop-color="#0A2342"/>
+      <stop offset="0.72" stop-color="#0E4A5A"/>
+      <stop offset="0.82" stop-color="#16736F"/>
     </linearGradient>
-    <radialGradient id="halo" cx="0.72" cy="0.28" r="0.55">
-      <stop offset="0" stop-color="#2B6CD4" stop-opacity="0.55"/>
-      <stop offset="0.6" stop-color="#1A3F86" stop-opacity="0.18"/>
-      <stop offset="1" stop-color="#1A3F86" stop-opacity="0"/>
+    <radialGradient id="glow" cx="0.66" cy="0.70" r="0.42">
+      <stop offset="0" stop-color="#F59E0B" stop-opacity="0.55"/>
+      <stop offset="0.35" stop-color="#D97706" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#D97706" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="b1" x1="0" y1="0" x2="1" y2="0.4">
-      <stop offset="0" stop-color="#0B4F5C"/>
-      <stop offset="0.5" stop-color="#0E7C86"/>
-      <stop offset="1" stop-color="#1B5FB8"/>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FCD34D"/>
+      <stop offset="0.75" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#F59E0B" stop-opacity="0.9"/>
+    </radialGradient>
+    <linearGradient id="h1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0B3B4A"/>
+      <stop offset="1" stop-color="#0E4F57"/>
     </linearGradient>
-    <linearGradient id="b2" x1="0" y1="0" x2="1" y2="0.3">
-      <stop offset="0" stop-color="#14B8A6"/>
-      <stop offset="0.45" stop-color="#1497B8"/>
-      <stop offset="1" stop-color="#2563EB"/>
+    <linearGradient id="h2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#082A3D"/>
+      <stop offset="1" stop-color="#0A3446"/>
     </linearGradient>
-    <linearGradient id="b3" x1="0" y1="0" x2="1" y2="0.2">
-      <stop offset="0" stop-color="#0A3D5C"/>
-      <stop offset="0.6" stop-color="#173E8F"/>
-      <stop offset="1" stop-color="#2A2F87"/>
-    </linearGradient>
-    <linearGradient id="b4" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#061629"/>
-      <stop offset="1" stop-color="#0B2147"/>
-    </linearGradient>
-    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#5EEAD4" stop-opacity="0"/>
-      <stop offset="0.4" stop-color="#5EEAD4" stop-opacity="0.75"/>
-      <stop offset="0.8" stop-color="#93C5FD" stop-opacity="0.6"/>
-      <stop offset="1" stop-color="#93C5FD" stop-opacity="0"/>
+    <linearGradient id="h3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#061B2E"/>
+      <stop offset="1" stop-color="#040E1C"/>
     </linearGradient>
   </defs>
-  <rect width="3840" height="2160" fill="url(#bg)"/>
-  <rect width="3840" height="2160" fill="url(#halo)"/>
-  <path d="M0 1180 C 620 960, 1240 1420, 1960 1210 S 3260 760, 3840 980 L 3840 2160 L 0 2160 Z" fill="url(#b1)" opacity="0.85"/>
-  <path d="M0 1400 C 700 1150, 1360 1640, 2080 1400 S 3300 1000, 3840 1220 L 3840 2160 L 0 2160 Z" fill="url(#b2)" opacity="0.9"/>
-  <path d="M0 1400 C 700 1150, 1360 1640, 2080 1400 S 3300 1000, 3840 1220" fill="none" stroke="url(#edge)" stroke-width="5"/>
-  <path d="M0 1640 C 760 1420, 1460 1860, 2200 1640 S 3360 1300, 3840 1480 L 3840 2160 L 0 2160 Z" fill="url(#b3)"/>
-  <path d="M0 1880 C 820 1700, 1540 2040, 2300 1880 S 3420 1600, 3840 1740 L 3840 2160 L 0 2160 Z" fill="url(#b4)"/>
-  <path d="M0 1640 C 760 1420, 1460 1860, 2200 1640 S 3360 1300, 3840 1480" fill="none" stroke="#93C5FD" stroke-opacity="0.22" stroke-width="3"/>
+  <rect width="3840" height="2160" fill="url(#sky)"/>
+  <rect width="3840" height="2160" fill="url(#glow)"/>
+  <g fill="#E2F3FF">
+    <circle cx="420" cy="260" r="3" opacity="0.55"/>
+    <circle cx="980" cy="420" r="2" opacity="0.45"/>
+    <circle cx="1520" cy="180" r="2.5" opacity="0.5"/>
+    <circle cx="2240" cy="330" r="2" opacity="0.4"/>
+    <circle cx="3060" cy="210" r="3" opacity="0.5"/>
+    <circle cx="3540" cy="470" r="2" opacity="0.4"/>
+    <circle cx="640" cy="640" r="2" opacity="0.3"/>
+    <circle cx="2760" cy="560" r="2" opacity="0.3"/>
+  </g>
+  <circle cx="2540" cy="1500" r="230" fill="url(#sun)"/>
+  <path d="M0 1500 C 520 1430, 1100 1520, 1700 1470 S 2900 1400, 3840 1460 L 3840 2160 L 0 2160 Z" fill="url(#h1)"/>
+  <g fill="#04111F">
+    <path d="M2570 1272 C 2610 1196, 2760 1172, 2862 1192 C 2966 1168, 3118 1190, 3150 1266 C 3080 1302, 2648 1308, 2570 1272 Z"/>
+    <path d="M2852 1600 L 2848 1420 L 2760 1286 L 2790 1280 L 2860 1384 L 2864 1280 L 2892 1280 L 2888 1384 L 2964 1282 L 2992 1290 L 2896 1424 L 2892 1600 Z"/>
+  </g>
+  <path d="M0 1640 C 700 1560, 1380 1700, 2100 1610 S 3300 1560, 3840 1620 L 3840 2160 L 0 2160 Z" fill="url(#h2)"/>
+  <path d="M0 1610 C 700 1530, 1380 1670, 2100 1580 S 3300 1530, 3840 1590" fill="none" stroke="#5EEAD4" stroke-opacity="0.18" stroke-width="4"/>
+  <path d="M0 1840 C 820 1760, 1560 1920, 2380 1820 S 3480 1760, 3840 1800 L 3840 2160 L 0 2160 Z" fill="url(#h3)"/>
 </svg>

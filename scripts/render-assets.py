@@ -161,6 +161,10 @@ def main() -> int:
     <circle cx="334" cy="420" r="34"/><circle cx="408" cy="380" r="34"/>
   </g>
 </svg>'''
+    # The Kulan menu's top-bar icon (GNOME recolours "-symbolic" icons).
+    symbolic = CHROOT / "usr/share/icons/hicolor/scalable/apps/kulan-logo-symbolic.svg"
+    symbolic.write_text(variants["-symbolic"] + "\n")
+    print(f"  wrote {symbolic.relative_to(ROOT)}")
     for suffix, svg in variants.items():
         (emblems / f"emblem-vendor{suffix}.svg").write_text(svg if svg.endswith("\n") else svg + "\n")
         for px in (64, 128, 256):

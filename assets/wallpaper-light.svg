@@ -1,40 +1,45 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3840 2160" width="3840" height="2160">
-  <!-- Kulan OS default wallpaper (light): same bands as the dark version, daylight palette. -->
+  <!-- Kulan OS default wallpaper (light): dawn over the savanna, a lone acacia
+       on the horizon - the gathering tree from the Kulan OS logo. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#EEF5FC"/>
-      <stop offset="1" stop-color="#DCEAF7"/>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E6F6F8"/>
+      <stop offset="0.5" stop-color="#D3F1EC"/>
+      <stop offset="0.74" stop-color="#FCE9C4"/>
+      <stop offset="0.82" stop-color="#FBD38D"/>
     </linearGradient>
-    <radialGradient id="halo" cx="0.72" cy="0.28" r="0.55">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    <radialGradient id="glow" cx="0.66" cy="0.70" r="0.40">
+      <stop offset="0" stop-color="#FDE68A" stop-opacity="0.85"/>
+      <stop offset="0.4" stop-color="#FCD34D" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#FCD34D" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="b1" x1="0" y1="0" x2="1" y2="0.4">
-      <stop offset="0" stop-color="#99F6E4"/>
-      <stop offset="0.5" stop-color="#7DD3E8"/>
-      <stop offset="1" stop-color="#93C5FD"/>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFF7E0"/>
+      <stop offset="0.7" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </radialGradient>
+    <linearGradient id="h1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7DD3C8"/>
+      <stop offset="1" stop-color="#5CC2B8"/>
     </linearGradient>
-    <linearGradient id="b2" x1="0" y1="0" x2="1" y2="0.3">
-      <stop offset="0" stop-color="#2DD4BF"/>
-      <stop offset="0.45" stop-color="#22B5D4"/>
-      <stop offset="1" stop-color="#3B82F6"/>
+    <linearGradient id="h2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2AA198"/>
+      <stop offset="1" stop-color="#14857F"/>
     </linearGradient>
-    <linearGradient id="b3" x1="0" y1="0" x2="1" y2="0.2">
-      <stop offset="0" stop-color="#0E9F9A"/>
-      <stop offset="0.6" stop-color="#2563EB"/>
-      <stop offset="1" stop-color="#4F46E5"/>
-    </linearGradient>
-    <linearGradient id="b4" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#0B5F73"/>
-      <stop offset="1" stop-color="#1E3A8A"/>
+    <linearGradient id="h3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0F5E63"/>
+      <stop offset="1" stop-color="#0B3B4A"/>
     </linearGradient>
   </defs>
-  <rect width="3840" height="2160" fill="url(#bg)"/>
-  <rect width="3840" height="2160" fill="url(#halo)"/>
-  <path d="M0 1180 C 620 960, 1240 1420, 1960 1210 S 3260 760, 3840 980 L 3840 2160 L 0 2160 Z" fill="url(#b1)" opacity="0.8"/>
-  <path d="M0 1400 C 700 1150, 1360 1640, 2080 1400 S 3300 1000, 3840 1220 L 3840 2160 L 0 2160 Z" fill="url(#b2)" opacity="0.9"/>
-  <path d="M0 1400 C 700 1150, 1360 1640, 2080 1400 S 3300 1000, 3840 1220" fill="none" stroke="#FFFFFF" stroke-opacity="0.7" stroke-width="5"/>
-  <path d="M0 1640 C 760 1420, 1460 1860, 2200 1640 S 3360 1300, 3840 1480 L 3840 2160 L 0 2160 Z" fill="url(#b3)"/>
-  <path d="M0 1880 C 820 1700, 1540 2040, 2300 1880 S 3420 1600, 3840 1740 L 3840 2160 L 0 2160 Z" fill="url(#b4)"/>
-  <path d="M0 1640 C 760 1420, 1460 1860, 2200 1640 S 3360 1300, 3840 1480" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="3"/>
+  <rect width="3840" height="2160" fill="url(#sky)"/>
+  <rect width="3840" height="2160" fill="url(#glow)"/>
+  <circle cx="2540" cy="1500" r="230" fill="url(#sun)"/>
+  <path d="M0 1500 C 520 1430, 1100 1520, 1700 1470 S 2900 1400, 3840 1460 L 3840 2160 L 0 2160 Z" fill="url(#h1)"/>
+  <g fill="#0B2A4A">
+    <path d="M2570 1272 C 2610 1196, 2760 1172, 2862 1192 C 2966 1168, 3118 1190, 3150 1266 C 3080 1302, 2648 1308, 2570 1272 Z"/>
+    <path d="M2852 1600 L 2848 1420 L 2760 1286 L 2790 1280 L 2860 1384 L 2864 1280 L 2892 1280 L 2888 1384 L 2964 1282 L 2992 1290 L 2896 1424 L 2892 1600 Z"/>
+  </g>
+  <path d="M0 1640 C 700 1560, 1380 1700, 2100 1610 S 3300 1560, 3840 1620 L 3840 2160 L 0 2160 Z" fill="url(#h2)"/>
+  <path d="M0 1610 C 700 1530, 1380 1670, 2100 1580 S 3300 1530, 3840 1590" fill="none" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="4"/>
+  <path d="M0 1840 C 820 1760, 1560 1920, 2380 1820 S 3480 1760, 3840 1800 L 3840 2160 L 0 2160 Z" fill="url(#h3)"/>
 </svg>

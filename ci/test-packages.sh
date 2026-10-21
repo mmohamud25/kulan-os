@@ -80,17 +80,25 @@ check "Extensions (strict)" "dock and blur found under their real Debian IDs" en
 check "Extensions enabled" "dash-to-dock and blur-my-shell in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q dash-to-dock && gs org.gnome.shell enabled-extensions | grep -q blur-my-shell"
 check "Dock defaults applied" "dash-to-dock reads Kulan's settings (bottom, translucent)" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-position)\" = \"'BOTTOM'\" && test \"\$(gs org.gnome.shell.extensions.dash-to-dock transparency-mode)\" = \"'FIXED'\""
 check "Kulan Shell enabled" "kulan-shell@kulangroup.com in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q kulan-shell@kulangroup.com"
-check "Kulan Shell files" "GNOME 48 listed; dark and light stylesheets present" python3 - <<'PY'
+check "Kulan Shell files" "GNOME 48 listed; stylesheets, Kulan menu and window-button styles present" python3 - <<'PY'
 import json, os
 d = "/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com"
 meta = json.load(open(f"{d}/metadata.json"))
 assert "48" in meta["shell-version"], meta["shell-version"]
 for f in ("extension.js", "stylesheet-dark.css", "stylesheet-light.css"):
     assert os.path.getsize(f"{d}/{f}") > 0, f
+js = open(f"{d}/extension.js").read()
+for needle in ("KulanMenu", "kulan-logo-symbolic", "installGtkStyle", "activateRestart", "activatePowerOff"):
+    assert needle in js, needle
+for f in ("/usr/share/icons/hicolor/scalable/apps/kulan-logo-symbolic.svg",
+          "/usr/share/kulan/gtk/gtk-4.0.css", "/usr/share/kulan/gtk/gtk-3.0.css"):
+    assert os.path.getsize(f) > 0, f
 PY
 check "Cursor" "Bibata-Modern-Classic set and installed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface cursor-theme)\" = \"'Bibata-Modern-Classic'\" && test -d /usr/share/icons/Bibata-Modern-Classic"
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "App folders" "Kulan folders are the default for new users" bash -c 'HOME=$(mktemp -d) XDG_CONFIG_HOME="" dconf read /org/gnome/desktop/app-folders/folder-children | grep -q Kulan-Office'
+check "App folders" "only Utilities and System are folders for new users" bash -c 'test "$(HOME=$(mktemp -d) XDG_CONFIG_HOME="" dconf read /org/gnome/desktop/app-folders/folder-children)" = "['"'"'Kulan-Utilities'"'"', '"'"'Kulan-System'"'"']"'
+check "Calmer dock" "40 px icons, quick animations" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dash-max-icon-size)\" = 40 && test \"\$(gs org.gnome.shell.extensions.dash-to-dock animation-time)\" = 0.125 && test \"\$(gs org.gnome.shell.extensions.dash-to-dock animate-show-apps)\" = false"
+check "Wallpaper" "Kulan light and dark wallpapers set and present" bash -c "$(declare -f gs); for k in picture-uri picture-uri-dark; do f=\$(gs org.gnome.desktop.background \$k | sed \"s|^'file://||; s|'\$||\"); test -s \"\$f\" && case \"\$f\" in /usr/share/backgrounds/kulan/*) ;; *) echo \"\$k=\$f\"; exit 1;; esac; done"
 check "Accent color" "GNOME 48 accent = teal" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface accent-color)\" = \"'teal'\""
 check "Fonts and icons" "Inter + Papirus-Dark" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface font-name)\" = \"'Inter 11'\" && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Papirus-Dark'\""
 check "Privacy defaults" "old files cleared after 30 days, no usage reports" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.privacy old-files-age)\" = 'uint32 30' && test \"\$(gs org.gnome.desktop.privacy send-software-usage-stats)\" = false"

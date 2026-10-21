@@ -182,3 +182,15 @@
   color: rgba(11, 42, 74, 0.65);
   font-size: 10pt;
 }
+
+/* ---- Kulan menu (the logo at the top left) ------------------------------ */
+#panel .kulan-menu-button {
+  -natural-hpadding: 12px;
+  -minimum-hpadding: 8px;
+}
+.kulan-menu-icon {
+  icon-size: 18px;
+}
+.kulan-menu .popup-menu-content {
+  min-width: 15em;
+}
