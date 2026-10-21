@@ -265,11 +265,15 @@ jobs:
         if: failure()
         run: |
           [ -f build.log ] || exit 0
-          grep -nE '^(E|W): |[Ee]rror|Failed to fetch|returned error' build.log | tail -n 15 | while IFS= read -r line; do
-            echo "::error title=ISO ${{ matrix.arch }} build::${line:0:400}"
-          done
-          # The last lines usually say what actually stopped the build.
-          echo "::error title=ISO ${{ matrix.arch }} build ended with::$(tail -n 12 build.log | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          # GitHub shows at most 10 error notes per step: the end of the log
+          # first (it usually says what stopped the build), then up to 8 real
+          # error lines (not apt's progress lines for packages named *error*).
+          echo "::error title=ISO ${{ matrix.arch }} build ended with::$(tail -n 20 build.log | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          grep -nE '^(E|W): |[Ee]rror|Failed to fetch|returned error' build.log |
+            grep -vE ':(Setting up|Unpacking|Selecting previously|Preparing to unpack|Get:[0-9]+) ' | tail -n 8 |
+            while IFS= read -r line; do
+              echo "::error title=ISO ${{ matrix.arch }} build::${line:0:400}"
+            done
           { echo '### Last 60 lines of build.log'; echo '```'; tail -n 60 build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inspect ISO
