@@ -94,7 +94,7 @@ if [[ "${ARCH}" == arm64 ]]; then
 fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
-for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps; do
+for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps kulan-assistant kulan-assistant-engine; do
 	VER="$(awk -v p="${PKG}" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" {match($0, /\nVersion: [^\n]+/); print substr($0, RSTART+10, RLENGTH-10)}' "${R}/var/lib/dpkg/status")"
 	check "Package ${PKG}" "installed ${VER:-?}" installed "${PKG}"
 done
@@ -115,6 +115,7 @@ if [[ "${ARCH}" == amd64 ]]; then
 	check "Laptop firmware" "Intel and AMD graphics, Wi-Fi, Bluetooth, sound and CPU microcode" bash -c "$(declare -f installed); R='${R}'; for p in firmware-intel-graphics firmware-amd-graphics firmware-iwlwifi firmware-realtek firmware-atheros firmware-mediatek firmware-sof-signed bluez-firmware intel-microcode amd64-microcode; do installed \$p || { echo \$p; exit 1; }; done"
 fi
 check "Compressed memory" "zram swap generator installed" installed systemd-zram-generator
+check "Boot report" "kulan-boot-report.service enabled, for the boot test" has_path etc/systemd/system/multi-user.target.wants/kulan-boot-report.service
 if installed cups-browsed; then
 	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"
 else

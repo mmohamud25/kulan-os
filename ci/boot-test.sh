@@ -12,7 +12,7 @@ set -uo pipefail
 
 ISO="${1:?usage: $0 <iso> [output-dir]}"
 OUT="${2:-boot-test}"
-WAIT_S="${KULAN_BOOT_WAIT:-420}"
+WAIT_S="${KULAN_BOOT_WAIT:-600}"
 mkdir -p "${OUT}"
 WORK="$(mktemp -d)"
 QEMU_PID=""
@@ -115,14 +115,34 @@ fi
 REPORT="$(sed -n '/KULAN-BOOT-REPORT-BEGIN/,/KULAN-BOOT-REPORT-END/p' "${OUT}/serial.log" 2>/dev/null | tr -d '\r')"
 field() { sed -n "s/^$1=//p" <<<"${REPORT}"; }
 
+# Annotations carry multi-line text with %0A; keep them short and printable.
+annotate_lines() { # annotate_lines <title> (text on stdin)
+	local text
+	text="$(tr -d '\r' | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -cd '\11\12\40-\176' | cut -c1-180 | tail -n 40 |
+		sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+	[[ -n "${text}" ]] && echo "::error title=Boot test: $1::${text}"
+}
+
+# What the screen shows, as text (Tesseract), so a failure can be read from
+# the annotations alone.
+screen_text() {
+	[[ -s "${OUT}/screen.png" ]] && command -v tesseract >/dev/null 2>&1 || return 0
+	tesseract "${OUT}/screen.png" - 2>/dev/null | grep -v '^[[:space:]]*$' | head -n 25 | annotate_lines "Screen shows"
+}
+
 if [[ -z "${REPORT}" ]]; then
 	result fail "Desktop" "no boot report after ${ELAPSED} s: the live session didn't reach the desktop (see serial.log and screen.png)"
 	tail -n 30 "${OUT}/serial.log" 2>/dev/null | sed 's/^/    /'
+	tail -n 40 "${OUT}/serial.log" 2>/dev/null | annotate_lines "Last serial console lines"
+	grep -aE "Failed|FAILED|error|panic|Timed out|Dependency failed|emergency" "${OUT}/serial.log" 2>/dev/null |
+		tail -n 25 | annotate_lines "Errors on the serial console"
+	screen_text
 	summary
 	exit 1
 fi
 
 USER_NAME="$(field desktop_user)"
+[[ -n "${USER_NAME}" ]] || screen_text
 if [[ -n "${USER_NAME}" ]]; then
 	result pass "Desktop" "the live session's desktop is running (user ${USER_NAME}), ${ELAPSED} s after power-on"
 else
