@@ -52,8 +52,9 @@ class Task:
 
 TASKS = [
     Task("proofread", "Proofread", "tools-check-spelling-symbolic",
-         "Correct the spelling, grammar and punctuation of the text below. Keep the wording, tone and meaning "
-         "as they are; change only what is wrong. Keep the same language."),
+         "Proofread the text below and return it corrected. Fix every spelling, grammar and punctuation mistake, "
+         "including real words used wrongly (their/there/they're, your/you're, its/it's, to/too, by/buy). "
+         "Keep the meaning, tone, language and wording otherwise; don't add or remove ideas."),
     Task("rewrite", "Rewrite", "edit-symbolic",
          "Rewrite the text below so it reads clearly and naturally. Keep the meaning and the language."),
     Task("friendly", "Make friendlier", "face-smile-symbolic",
@@ -75,6 +76,10 @@ TASKS = [
          "Explain the text below in simple words, in {language}: what it says and anything that may be unclear "
          "(terms, numbers, abbreviations).", max_tokens=700, replaces=False),
 ]
+EXAMPLES = {
+    "proofread": [("i has went to the libary yesterday, but its was closed so we goes home to early.",
+                   "I went to the library yesterday, but it was closed, so we went home too early.")],
+}
 WRITING_TASKS = ["proofread", "rewrite", "friendly", "professional", "shorter", "summary", "key-points", "translate"]
 
 LANGUAGES = {"en": "English", "ar": "Arabic", "fr": "French", "es": "Spanish", "de": "German",
@@ -108,8 +113,13 @@ def messages_for(task_id: str, text: str) -> list[dict]:
     t = task(task_id)
     text = fit(text.strip())
     instruction = t.instruction.format(language=target_language())
-    return [{"role": "system", "content": SYSTEM},
-            {"role": "user", "content": f"{instruction}\n\n<text>\n{text}\n</text>"}]
+    messages = [{"role": "system", "content": SYSTEM}]
+    # Small models follow a worked example far better than a description.
+    for example_in, example_out in EXAMPLES.get(task_id, []):
+        messages += [{"role": "user", "content": f"{instruction}\n\n<text>\n{example_in}\n</text>"},
+                     {"role": "assistant", "content": example_out}]
+    messages.append({"role": "user", "content": f"{instruction}\n\n<text>\n{text}\n</text>"})
+    return messages
 
 
 def run(task_id: str, text: str) -> Iterator[str]:

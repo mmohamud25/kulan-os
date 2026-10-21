@@ -315,8 +315,17 @@ check "Assistant search reads files" "the question search provider imports (Loca
 if [[ ${#ENGINE[@]} -eq 1 ]]; then
 	check "Assistant engine" "llama.cpp server starts and picks the CPU code for this processor" bash -c '/usr/lib/kulan-assistant/engine/llama-server --version 2>&1 | grep -q "version:" && timeout 60 /usr/lib/kulan-assistant/engine/llama-server -m /nonexistent.gguf --host 127.0.0.1 --port 29999 -lv 4 2>&1 | tee /tmp/engine-start.log | grep -q "loaded CPU backend from /usr/lib/kulan-assistant/engine/libggml-cpu-"'
 	check "Model download" "Quick model downloaded from Hugging Face and its SHA-256 checked" timeout 1200 /usr/lib/kulan/update-run assistant-model qwen3-1.7b
-	# shellcheck disable=SC2016  # expanded by the inner bash
-	check "Assistant proofreads" "a real answer from the Quick model, on this machine" bash -c 'out="$(timeout 900 kulan-assistant ask proofread "Their going too the shop tomorow to by some bred." 2>&1)"; echo "answer: $out"; echo "$out" | grep -qi "shop" && echo "$out" | grep -qiE "tomorrow|bread"'
+	ANSWER="$(timeout 900 kulan-assistant ask proofread "Their going too the shop tomorow to by some bred." 2>&1)"
+	# A small model may miss a mistake or two; it must fix most of them.
+	FIXED=0
+	for WORD in "They're|They are" "going to" "tomorrow" "buy" "bread"; do
+		grep -qiE "${WORD}" <<<"${ANSWER}" && FIXED=$((FIXED + 1))
+	done
+	if [[ ${FIXED} -ge 3 ]]; then
+		result pass "Assistant proofreads" "Quick model fixed ${FIXED} of 5 mistakes: ${ANSWER:0:150}"
+	else
+		result fail "Assistant proofreads" "Quick model fixed ${FIXED} of 5 mistakes: ${ANSWER:0:200}"
+	fi
 	check "Assistant understands questions" "a search question becomes words, a kind of file and dates" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; q = search.understand("the invoice PDF from last month"); print(q); assert q and q["words"] and q["kind"] in ("pdf", "document", "any")'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
 else
