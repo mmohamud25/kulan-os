@@ -293,7 +293,7 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 	check "Assistant understands questions" "a search question becomes words, a kind of file and dates" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; q = search.understand("the invoice PDF from last month"); print(q); assert q and q["words"] and q["kind"] in ("pdf", "document", "any")'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
 else
-	result skip "Assistant engine" "not built in this run (arm64 only)"
+	result skip "Assistant engine" "no PC engine package in this run (only the Mac (arm64) ISO was chosen, or the engine job failed: see its results)"
 fi
 check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 # shellcheck disable=SC2016  # expanded by the inner bash

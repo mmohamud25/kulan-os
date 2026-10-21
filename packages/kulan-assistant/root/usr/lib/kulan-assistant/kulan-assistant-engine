@@ -2,8 +2,8 @@
 """Run the local assistant engine for this user, and stop it when idle.
 
 Started by kulan-assistant-engine.service (a systemd user service) when an
-assistant feature needs it. Listens on 127.0.0.1 only and needs the user's
-key. Exits after kulan_assistant.engine.IDLE_MINUTES without a request.
+assistant feature needs it. Listens only on a Unix socket in the user's
+private runtime folder, and needs the user's key. Exits after kulan_assistant.engine.IDLE_MINUTES without a request.
 """
 import os
 import signal
@@ -22,7 +22,17 @@ def main() -> int:
         return 1
     model = engine.model_path(model_id)
     threads = max(1, min(8, (os.cpu_count() or 2) - 1))
-    argv = [str(engine.ENGINE), "--model", str(model), "--host", "127.0.0.1", "--port", str(engine.port()),
+    try:
+        engine.prepare_runtime_dir()
+    except engine.EngineError as exc:
+        print(f"kulan-assistant: {exc}", file=sys.stderr)
+        return 1
+    sock = engine.socket_path()
+    try:
+        sock.unlink()  # left behind by an engine that was stopped
+    except FileNotFoundError:
+        pass
+    argv = [str(engine.ENGINE), "--model", str(model), "--host", str(sock),
             "--api-key-file", str(engine.key_file()), "--ctx-size", str(engine.CONTEXT), "--parallel", "1",
             "--threads", str(threads), "--jinja", "--reasoning-budget", "0", "--no-webui", "--log-disable"]
     engine.api_key()  # make sure the key file exists (mode 0600)

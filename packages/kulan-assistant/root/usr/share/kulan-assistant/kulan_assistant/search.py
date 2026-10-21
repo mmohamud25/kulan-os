@@ -31,6 +31,13 @@ OBJECT_PATH = "/org/kulan/Assistant/SearchProvider"
 INDEX_NAMES = ("org.freedesktop.LocalSearch3", "org.freedesktop.Tracker3.Miner.Files")
 DEBOUNCE_MS = 900
 MIN_WORDS = 3
+# GNOME Shell waits 25 s for a search provider; answer well within that.
+ANSWER_TIMEOUT_S = 18
+# Words that make a phrase read like a question rather than a name
+# ("visual studio code" stays an ordinary search).
+QUESTION_WORDS = {"the", "my", "a", "an", "from", "about", "with", "last", "ago", "that", "which", "where",
+                  "when", "what", "for", "of", "in", "on", "to", "yesterday", "today", "week", "month", "year",
+                  "recent", "latest", "sent", "received", "made", "wrote", "written"}
 MAX_RESULTS = 8
 IDLE_EXIT_S = 300
 
@@ -70,6 +77,29 @@ SAFE_WORD = re.compile(r"[^\w\- ]+", re.UNICODE)
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+def looks_like_question(text: str) -> bool:
+    words = text.lower().split()
+    return len(words) >= MIN_WORDS and (text.rstrip().endswith("?") or any(w in QUESTION_WORDS for w in words))
+
+
+_warming = threading.Lock()
+
+
+def warm_up() -> None:
+    """Start the engine for the next question, without making this one wait."""
+    if not _warming.acquire(blocking=False):
+        return  # already starting
+
+    def start() -> None:
+        try:
+            engine.ensure_running(timeout=300)
+        except engine.EngineError:
+            pass
+        finally:
+            _warming.release()
+    threading.Thread(target=start, daemon=True).start()
+
+
 def enabled() -> bool:
     source = Gio.SettingsSchemaSource.get_default()
     if source is None or source.lookup("org.kulan.assistant", True) is None:
@@ -86,14 +116,12 @@ def understand(question: str) -> dict | None:
               "(or 'any'), and the date range it was changed in as YYYY-MM-DD, or null when no date is given.")
     body_messages = [{"role": "system", "content": "You turn file-search requests into JSON. Reply with JSON only."},
                      {"role": "user", "content": prompt}]
-    engine.ensure_running(timeout=60)
-    req = engine._request("/v1/chat/completions", {  # noqa: SLF001 - same module family
-        "messages": body_messages, "temperature": 0, "max_tokens": 200,
+    resp = engine.request("/v1/chat/completions", {
+        "messages": body_messages, "temperature": 0, "max_tokens": 120,
         "chat_template_kwargs": {"enable_thinking": False},
         "response_format": {"type": "json_object", "schema": SCHEMA},
-    })
-    import urllib.request
-    with urllib.request.urlopen(req, timeout=90) as resp:
+    }, timeout=ANSWER_TIMEOUT_S)
+    with resp:
         content = json.loads(resp.read())["choices"][0]["message"]["content"]
     engine.touch_last_use()
     try:
@@ -220,7 +248,13 @@ class Provider:
             GLib.source_remove(self.timer)
             self.timer = 0
         self.generation += 1
-        if len(question.split()) < MIN_WORDS or not enabled() or engine.usable_model() is None:
+        if not looks_like_question(question) or not enabled() or engine.usable_model() is None:
+            invocation.return_value(GLib.Variant("(as)", ([],)))
+            return
+        if not engine.healthy():
+            # Loading a model takes longer than Activities waits: start it now,
+            # and answer once it's ready (the next keystroke searches again).
+            warm_up()
             invocation.return_value(GLib.Variant("(as)", ([],)))
             return
         self.pending = (invocation, question)
@@ -255,8 +289,10 @@ class Provider:
             icon = info.get_icon() or icon
             modified = info.get_modification_date_time()
             parent = file.get_parent()
-            where = GLib.filename_display_name(str(Path(parent.get_path()).relative_to(Path.home()))) \
-                if parent and parent.get_path() and Path(parent.get_path()).is_relative_to(Path.home()) else ""
+            where = ""
+            if parent and parent.get_path() and Path(parent.get_path()).is_relative_to(Path.home()):
+                relative = str(Path(parent.get_path()).relative_to(Path.home()))
+                where = "" if relative == "." else GLib.filename_display_name(relative)
             when = modified.to_local().format("%-d %b %Y") if modified else ""
             description = " · ".join(x for x in (where or "Home", when) if x)
         except GLib.Error:

@@ -24,6 +24,8 @@ const TERMINALS = /^(org\.gnome\.(Console|Terminal|Ptyxis)|kgx|gnome-terminal|pt
 const RESTORE_CLIPBOARD_MS = 1000;
 const FOCUS_WAIT_MS = 150;
 const MAX_TEXT = 100000;
+// Copied files (Files puts these on the clipboard), then pictures.
+const KEEP_TYPES = ['x-special/gnome-copied-files', 'text/uri-list', 'image/png'];
 
 function readText(type) {
     return new Promise(resolve => {
@@ -124,7 +126,7 @@ export class Assistant {
     // from, paste, then give the clipboard back what was on it.
     async _paste(window, result) {
         const clipboard = St.Clipboard.get_default();
-        const previous = await readText(St.ClipboardType.CLIPBOARD);
+        const previous = await this._saveClipboard();
         clipboard.set_text(St.ClipboardType.CLIPBOARD, result);
         if (!window || window.is_override_redirect?.()) {
             Main.notify(TITLE, 'Copied. Paste it where you want it.');
@@ -147,9 +149,35 @@ export class Assistant {
         if (previous) {
             await wait(RESTORE_CLIPBOARD_MS);
             // Only if nothing else was copied meanwhile.
-            if (await readText(St.ClipboardType.CLIPBOARD) === result)
-                clipboard.set_text(St.ClipboardType.CLIPBOARD, previous);
+            if (await readText(St.ClipboardType.CLIPBOARD) === result) {
+                if (previous.text !== null)
+                    clipboard.set_text(St.ClipboardType.CLIPBOARD, previous.text);
+                else
+                    clipboard.set_content(St.ClipboardType.CLIPBOARD, previous.mimetype, previous.bytes);
+            }
         }
+    }
+
+    // What is on the clipboard now: its text, or else its most useful other
+    // kind (a picture, copied files), to put back after pasting.
+    async _saveClipboard() {
+        const clipboard = St.Clipboard.get_default();
+        const types = clipboard.get_mimetypes(St.ClipboardType.CLIPBOARD);
+        if (types.length === 0)
+            return null;
+        if (types.some(t => t.startsWith('text/plain') || t === 'UTF8_STRING' || t === 'STRING')
+            && !types.includes('text/uri-list')) {
+            const text = await readText(St.ClipboardType.CLIPBOARD);
+            return text ? {text} : null;
+        }
+        const mimetype = KEEP_TYPES.find(t => types.includes(t)) ??
+            types.find(t => t.startsWith('image/')) ?? types[0];
+        const bytes = await new Promise(resolve => {
+            // A copy: the clipboard's own bytes are only valid during the callback.
+            clipboard.get_content(St.ClipboardType.CLIPBOARD, mimetype,
+                (_c, b) => resolve(b ? new GLib.Bytes(b.toArray()) : null));
+        });
+        return bytes && bytes.get_size() > 0 ? {text: null, mimetype, bytes} : null;
     }
 
     _pressPaste(withShift) {

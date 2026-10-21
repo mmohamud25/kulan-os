@@ -99,8 +99,7 @@ sort-directories-first=true
 # right with drives first; no Home or Bin icons (they're in the dock and Files).
 [org.gnome.shell.extensions.ding]
 show-home=false
-# The Bin at the end of the dock, as on a Mac.
-show-trash=true
+show-trash=false
 show-volumes=true
 add-volumes-opposite=false
 start-corner='top-right'
@@ -130,7 +129,8 @@ pressure-threshold=80.0
 transparency-mode='FIXED'
 background-opacity=0.35
 running-indicator-style='DOTS'
-show-trash=false
+# The Bin at the end of the dock, as on a Mac.
+show-trash=true
 show-mounts=false
 show-apps-at-top=false
 # Cmd+Shift+3/4/5 are screenshots (see above), not "new window of dock app 3/4/5".

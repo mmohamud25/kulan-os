@@ -13,6 +13,7 @@ Progress goes to stdout as "pmstatus:model:<percent>:<text>" lines.
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -162,10 +163,17 @@ def main(argv: list[str]) -> int:
         fail("usage: model-download install|remove <id>")
     info = lookup(argv[2])
     os.umask(0o022)
-    if argv[1] == "install":
-        download(info)
-    else:
-        remove(info)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    # One download or removal at a time (two Settings windows, two people).
+    with open(MODELS_DIR / ".lock", "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fail("A model is already being downloaded. Wait for it to finish, then try again.")
+        if argv[1] == "install":
+            download(info)
+        else:
+            remove(info)
     return 0
 
 

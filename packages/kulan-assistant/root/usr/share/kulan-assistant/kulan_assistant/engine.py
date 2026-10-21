@@ -1,20 +1,21 @@
 """The local engine: llama.cpp's server, started for one user on demand.
 
-It listens on 127.0.0.1 only, on a port derived from the user's ID, and
-requires a key kept in the user's own config folder (mode 0600), so other
-people on the same computer can't use it. It stops itself after
+It listens on a Unix socket in the user's own runtime folder
+($XDG_RUNTIME_DIR, which only they can open), not on a network port, and
+also requires a key kept in their config folder (mode 0600). Other people
+on the same computer can neither reach it nor pretend to be it. It stops itself after
 IDLE_MINUTES without requests, which frees the model's memory.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import socket
 import re
 import secrets
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -41,9 +42,19 @@ def runtime_dir() -> Path:
     return base / "kulan-assistant"
 
 
-def port() -> int:
-    """One port per user: 21000-40999, from the user ID."""
-    return 21000 + os.getuid() % 20000
+def socket_path() -> Path:
+    return runtime_dir() / "engine.sock"
+
+
+def prepare_runtime_dir() -> Path:
+    """$XDG_RUNTIME_DIR/kulan-assistant, owned by this user and closed to others."""
+    path = runtime_dir()
+    path.mkdir(parents=True, exist_ok=True)
+    os.chmod(path, 0o700)
+    info = path.stat()
+    if info.st_uid != os.getuid():
+        raise EngineError("The assistant's private folder belongs to someone else; not using it.")
+    return path
 
 
 def key_file() -> Path:
@@ -110,50 +121,104 @@ def usable_model() -> str | None:
 
 
 def touch_last_use() -> None:
-    path = runtime_dir() / "last-use"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = prepare_runtime_dir() / "last-use"
     path.touch()
 
 
-def _request(path: str, body: dict | None = None, timeout: float = 5) -> urllib.request.Request:
+class _UnixConnection(http.client.HTTPConnection):
+    def __init__(self, path: Path, timeout: float) -> None:
+        super().__init__("localhost", timeout=timeout)
+        self._path = str(path)
+
+    def connect(self) -> None:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(self.timeout)
+        sock.connect(self._path)
+        self.sock = sock
+
+
+class EngineHTTPError(EngineError):
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def request(path: str, body: dict | None = None, timeout: float = 5) -> http.client.HTTPResponse:
+    """A request to this user's engine; the caller reads and closes the response.
+
+    Raises OSError when the engine isn't there, EngineHTTPError on an error reply."""
+    conn = _UnixConnection(socket_path(), timeout)
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"http://127.0.0.1:{port()}{path}", data=data,
-                                 method="POST" if data is not None else "GET")
-    req.add_header("Authorization", f"Bearer {api_key()}")
+    headers = {"Authorization": f"Bearer {api_key()}"}
     if data is not None:
-        req.add_header("Content-Type", "application/json")
-    return req
+        headers["Content-Type"] = "application/json"
+    try:
+        conn.request("POST" if data is not None else "GET", path, body=data, headers=headers)
+        resp = conn.getresponse()
+    except (OSError, http.client.HTTPException):
+        conn.close()
+        raise
+    if resp.status >= 400:
+        detail = resp.read(2000).decode("utf-8", "replace")
+        conn.close()
+        raise EngineHTTPError(resp.status, f"The assistant couldn't answer (error {resp.status}). {detail[:200]}".strip())
+    return resp
+
+
+def status() -> str:
+    """"ready", "loading" (started, model not loaded yet), "wrong-key" or "stopped"."""
+    try:
+        # /v1/models needs the key, so this also checks the engine is this user's.
+        resp = request("/v1/models", timeout=2)
+        resp.read()
+        resp.close()
+        return "ready"
+    except EngineHTTPError as exc:
+        return "wrong-key" if exc.status == 401 else "loading" if exc.status == 503 else "stopped"
+    except (OSError, http.client.HTTPException, ValueError):
+        return "stopped"
 
 
 def healthy() -> bool:
-    try:
-        with urllib.request.urlopen(_request("/health"), timeout=2) as resp:
-            return resp.status == 200
-    except (urllib.error.URLError, OSError, ValueError):
-        return False
+    return status() == "ready"
+
+
+def _service_failed() -> bool:
+    out = subprocess.run(["systemctl", "--user", "is-failed", UNIT], capture_output=True, text=True, check=False)
+    return out.stdout.strip() == "failed"
 
 
 def ensure_running(timeout: float = 120) -> None:
     """Start the engine (as a systemd user service) and wait until the model is loaded."""
     touch_last_use()
-    if healthy():
+    state = status()
+    if state == "ready":
         return
     if not ENGINE.exists():
         raise EngineError("The assistant engine isn't installed. Reinstall Kulan Assistant from Add-ons.")
     if usable_model() is None:
         raise EngineError("No model yet. Choose one in Kulan Settings > Assistant.")
     api_key()  # create it before the service reads it
+    if state == "wrong-key":
+        # Started with an older key (the key file was replaced): start it again.
+        subprocess.run(["systemctl", "--user", "stop", UNIT], capture_output=True, check=False)
     started = subprocess.run(["systemctl", "--user", "start", UNIT], capture_output=True, text=True, check=False)
-    if started.returncode != 0:
+    under_systemd = started.returncode == 0
+    proc = None
+    if not under_systemd:
         # Not under systemd (for example a test container): run it directly.
-        subprocess.Popen(["/usr/lib/kulan-assistant/kulan-assistant-engine"], start_new_session=True,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(["/usr/lib/kulan-assistant/kulan-assistant-engine"], start_new_session=True,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if healthy():
             return
+        if (proc is not None and proc.poll() is not None) or (under_systemd and _service_failed()):
+            raise EngineError("The assistant stopped while starting. The model may need more free memory than "
+                              "this computer has: try a smaller one in Kulan Settings > Assistant.")
         time.sleep(0.5)
-    raise EngineError("The assistant didn't start. The model may need more free memory than this computer has.")
+    raise EngineError("The assistant didn't start in time. The model may need more free memory than this "
+                      "computer has: try a smaller one in Kulan Settings > Assistant.")
 
 
 def chat(messages: list[dict], max_tokens: int = 1024, temperature: float = 0.3) -> Iterator[str]:
@@ -170,7 +235,8 @@ def chat(messages: list[dict], max_tokens: int = 1024, temperature: float = 0.3)
     buffer = ""
     in_think = False
     try:
-        with urllib.request.urlopen(_request("/v1/chat/completions", body), timeout=600) as resp:
+        resp = request("/v1/chat/completions", body, timeout=600)
+        with resp:
             for raw in resp:
                 touch_last_use()
                 line = raw.decode("utf-8", "replace").strip()
@@ -204,9 +270,9 @@ def chat(messages: list[dict], max_tokens: int = 1024, temperature: float = 0.3)
                         yield buffer[:start]
                     buffer = buffer[start + 7:]
                     in_think = True
-    except urllib.error.HTTPError as exc:
-        raise EngineError(f"The assistant couldn't answer (error {exc.code}).") from exc
-    except (urllib.error.URLError, OSError) as exc:
+    except EngineError:
+        raise
+    except (OSError, http.client.HTTPException) as exc:
         raise EngineError(f"The assistant stopped unexpectedly: {exc}") from exc
     if buffer and not in_think:
         yield buffer

@@ -109,11 +109,10 @@ class AssistantPage(Page):
         self.buttons: list[Gtk.Button] = []
         all_models = models()
         best = recommended(all_models, self.memory)
-        # Until someone picks one, the choice follows what suits this computer.
-        if (best and self.settings.get_user_value("model") is None and not any(downloaded(m) for m in all_models)
-                and self.settings.get_string("model") != best):
-            self.settings.set_string("model", best)
-        chosen = self.settings.get_string("model")
+        # Until someone picks one (or downloads one), the choice shown follows
+        # what suits this computer; nothing is saved until then.
+        picked = self.settings.get_user_value("model")
+        chosen = picked.get_string() if picked is not None else (best or self.settings.get_string("model"))
         first_radio = None
         for model in all_models:
             have = downloaded(model)
@@ -154,7 +153,7 @@ class AssistantPage(Page):
         self.model_rows.append(self.progress)
 
     def on_choose(self, radio: Gtk.CheckButton, model_id: str) -> None:
-        if radio.get_active() and self.settings.get_string("model") != model_id:
+        if radio.get_active() and self.settings.get_user_value("model") != GLib.Variant("s", model_id):
             self.settings.set_string("model", model_id)
 
     def on_download(self, _button: Gtk.Button, model: dict) -> None:

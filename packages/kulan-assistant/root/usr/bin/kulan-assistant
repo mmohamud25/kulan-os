@@ -38,8 +38,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
 
     if args.command == "status":
-        info = {"engine": engine.ENGINE.exists(), "running": engine.healthy(), "chosen": engine.chosen_model(),
-                "installed": [m["id"] for m in engine.installed_models()], "port": engine.port()}
+        info = {"engine": engine.ENGINE.exists(), "state": engine.status(), "chosen": engine.chosen_model(),
+                "installed": [m["id"] for m in engine.installed_models()], "socket": str(engine.socket_path())}
         print(json.dumps(info, indent=2))
         return 0
 

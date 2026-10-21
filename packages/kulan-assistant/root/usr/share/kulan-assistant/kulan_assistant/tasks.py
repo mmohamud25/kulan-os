@@ -1,6 +1,7 @@
 """What the assistant can do with a piece of text, and how it's asked."""
 from __future__ import annotations
 
+import json
 import locale
 import os
 from collections.abc import Iterator
@@ -13,8 +14,30 @@ SYSTEM = ("You are Kulan Assistant, a writing helper built into Kulan OS. You ru
           "you changed, no quotation marks around it, unless the task asks for an explanation.")
 
 # Long documents are cut to fit the model's context window, leaving room for
-# the reply. About 4 characters per token.
-MAX_INPUT_CHARS = (engine.CONTEXT - 1500) * 3
+# the instructions and the reply. Counted in the model's own tokens when the
+# engine is running (Chinese or Amharic use far more tokens per character
+# than English); otherwise a cautious 1.2 characters per token.
+TEXT_TOKENS = engine.CONTEXT - 1500
+MAX_INPUT_CHARS = int(TEXT_TOKENS * 1.2)
+TOO_LONG = "\n[…the rest was too long and was left out]"
+
+
+def fit(text: str) -> str:
+    """The text, cut to TEXT_TOKENS of the model's tokens."""
+    if len(text) <= MAX_INPUT_CHARS:
+        return text  # fits however it is tokenised
+    try:
+        engine.ensure_running()
+        resp = engine.request("/tokenize", {"content": text[:TEXT_TOKENS * 8]}, timeout=60)
+        with resp:
+            tokens = json.loads(resp.read())["tokens"]
+        if len(tokens) <= TEXT_TOKENS and len(text) <= TEXT_TOKENS * 8:
+            return text
+        resp = engine.request("/detokenize", {"tokens": tokens[:TEXT_TOKENS]}, timeout=60)
+        with resp:
+            return json.loads(resp.read())["content"] + TOO_LONG
+    except (engine.EngineHTTPError, OSError, ValueError, KeyError):
+        return text[:MAX_INPUT_CHARS] + TOO_LONG
 
 
 @dataclass(frozen=True)
@@ -83,9 +106,7 @@ def target_language() -> str:
 
 def messages_for(task_id: str, text: str) -> list[dict]:
     t = task(task_id)
-    text = text.strip()
-    if len(text) > MAX_INPUT_CHARS:
-        text = text[:MAX_INPUT_CHARS] + "\n[…the rest was too long and was left out]"
+    text = fit(text.strip())
     instruction = t.instruction.format(language=target_language())
     return [{"role": "system", "content": SYSTEM},
             {"role": "user", "content": f"{instruction}\n\n<text>\n{text}\n</text>"}]

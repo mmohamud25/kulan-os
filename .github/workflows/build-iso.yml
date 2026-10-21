@@ -132,7 +132,9 @@ jobs:
   # has been run.
   publish:
     needs: [test-packages, engine]
-    if: github.ref == 'refs/heads/main'
+    # Only runs that built both architectures publish: the channel is
+    # rebuilt from scratch each time and must keep both engines.
+    if: github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both'
     name: Publish updates
     runs-on: ubuntu-24.04
     permissions:
@@ -163,13 +165,18 @@ jobs:
           name: kulan-debs
           path: dist/debs/
 
-      # Both engines, for systems that add Kulan Assistant from Add-ons.
+      # Both engines, for systems that add Kulan Assistant from Add-ons. By
+      # name, so a missing one stops publishing instead of dropping it.
       - uses: actions/download-artifact@v7
         if: steps.ready.outputs.ready == 'true'
         with:
-          pattern: kulan-engine-*
+          name: kulan-engine-amd64
           path: dist/debs/
-          merge-multiple: true
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-engine-arm64
+          path: dist/debs/
 
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
