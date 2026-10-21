@@ -17,6 +17,9 @@ find "${OUT}" -mindepth 1 ! -name audit.log -delete
 # Logs go with the results, so a failure can be read from the results branch.
 trap 'cp /tmp/audit-*.log "${OUT}/" 2>/dev/null; true' EXIT
 export DEBIAN_FRONTEND=noninteractive
+# The same archive areas as the ISO (Tor Browser's launcher is in contrib,
+# firmware in non-free-firmware).
+sed -i -E 's/^Components: .*/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
 
 # --- Install Kulan OS's desktop as the ISO does ---------------------------------
 apt-get update -q
