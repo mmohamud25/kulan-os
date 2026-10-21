@@ -240,6 +240,7 @@ assert len(sent) == 1, sent
 print(sent[0][1])
 PY
 check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"
+check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
 check "Calm file indexing" "file search indexing runs only when the computer is idle" grep -qx "CPUWeight=idle" /usr/lib/systemd/user/localsearch-3.service.d/50-kulan-idle.conf
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Restore point limits" "newest 2 update-time points kept, own ones never deleted, size recorded" bash -c '

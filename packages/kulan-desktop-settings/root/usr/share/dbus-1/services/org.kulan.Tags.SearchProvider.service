@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.kulan.Tags.SearchProvider
+Exec=/usr/lib/kulan/tags-search-provider

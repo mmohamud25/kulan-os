@@ -234,12 +234,21 @@ def main() -> int:
     (mimes / "inode-directory.svg").write_text(kulan_folder("teal") + "\n")
     for colour in folder_colours:
         (places / f"folder-kulan-{colour}.svg").write_text(kulan_folder(colour) + "\n")
+    # Tag dots for Files (Tags on right-click), shown as emblems on files.
+    emblems = theme / "scalable/emblems"
+    emblems.mkdir(parents=True, exist_ok=True)
+    tag_colours = {"red": "#FF3B30", "orange": "#FF9500", "yellow": "#FFCC00", "green": "#34C759",
+                   "blue": "#007AFF", "purple": "#AF52DE", "grey": "#8E8E93"}
+    for colour, fill in tag_colours.items():
+        (emblems / f"emblem-kulan-tag-{colour}.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
+            f'<circle cx="8" cy="8" r="6.5" fill="{fill}" stroke="#FFFFFF" stroke-width="1.5"/></svg>\n')
     (theme / "index.theme").write_text(
         "[Icon Theme]\n"
         "Name=Kulan\n"
         "Comment=Kulan OS folders, with GNOME's Adwaita icons for everything else\n"
         "Inherits=Adwaita,hicolor\n"
-        "Directories=scalable/places,scalable/mimetypes\n"
+        "Directories=scalable/places,scalable/mimetypes,scalable/emblems\n"
         "\n"
         "[scalable/places]\n"
         "Context=Places\n"
@@ -251,6 +260,13 @@ def main() -> int:
         "[scalable/mimetypes]\n"
         "Context=MimeTypes\n"
         "Size=128\n"
+        "MinSize=8\n"
+        "MaxSize=512\n"
+        "Type=Scalable\n"
+        "\n"
+        "[scalable/emblems]\n"
+        "Context=Emblems\n"
+        "Size=16\n"
         "MinSize=8\n"
         "MaxSize=512\n"
         "Type=Scalable\n"

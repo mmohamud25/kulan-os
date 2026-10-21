@@ -225,6 +225,9 @@ export class Spotlight {
     _sourceName(provider) {
         if (provider.id === 'applications')
             return 'Applications';
+        // Kulan's tag search answers for Files: say what it is.
+        if (provider.proxy?.g_object_path === '/org/kulan/Tags/SearchProvider')
+            return 'Tags';
         return provider.appInfo?.get_name() ?? '';
     }
 
