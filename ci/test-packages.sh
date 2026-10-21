@@ -209,6 +209,19 @@ check "Update status refresh" "refresh runs and stays idle" bash -c '/usr/lib/ku
 check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/kulan/update-run auto-off && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"0\"" && /usr/lib/kulan/update-run auto-on && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"1\""'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
+check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
+check "App updates in the status" "Flatpak updates appear with Debian's" python3 -I - <<'PY'
+import importlib.machinery, importlib.util, os, tempfile
+loader = importlib.machinery.SourceFileLoader("us", "/usr/lib/kulan/update-status")
+spec = importlib.util.spec_from_loader("us", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+    fh.write("app/org.example.App/x86_64/stable\tExample\t2.0\nnot a ref\n")
+m.APP_UPDATES = fh.name
+got = m.app_updates()
+os.unlink(fh.name)
+assert got == [{"name": "Example", "from": "", "to": "2.0", "security": False, "kind": "app",
+                "ref": "app/org.example.App/x86_64/stable"}], got
+PY
 check "Status refresh after start-up" "a timer a minute after start-up, not in the way of the login screen" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-update-status.timer && ! test -e /etc/systemd/system/multi-user.target.wants/kulan-update-status.service'
 check "Memory guard" "systemd-oomd and Kulan's notice enabled; user apps closed under memory pressure" bash -c 'systemctl is-enabled systemd-oomd.service && systemctl is-enabled kulan-oom-notice.service && grep -qx "ManagedOOMMemoryPressure=kill" /usr/lib/systemd/system/user@.service.d/50-kulan-oomd.conf'
 check "Memory notice" "names the app that was closed" python3 -I - <<'PY'

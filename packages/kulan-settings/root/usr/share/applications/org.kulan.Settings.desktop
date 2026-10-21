@@ -13,7 +13,7 @@ DBusActivatable=false
 Actions=updates;appearance;dock;
 
 [Desktop Action updates]
-Name=Updates and recovery
+Name=Software Update
 Exec=kulan-settings updates
 
 [Desktop Action appearance]

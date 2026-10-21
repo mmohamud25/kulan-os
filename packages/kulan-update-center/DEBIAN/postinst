@@ -12,10 +12,14 @@ case "$1" in
 		fi
 		rm -f /etc/systemd/system/multi-user.target.wants/kulan-update-status.service
 		deb-systemd-helper enable kulan-update-status.timer >/dev/null || true
+		# App (Flatpak) updates show in Software Update and, with automatic
+		# updates on, install daily.
+		deb-systemd-helper enable kulan-app-updates.timer >/dev/null || true
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-restore-points.timer >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-update-status.timer >/dev/null 2>&1 || true
+			deb-systemd-invoke start kulan-app-updates.timer >/dev/null 2>&1 || true
 		fi
 		# Both helpers skip the ISO build and the live session by themselves.
 		/usr/lib/kulan/restore-points setup || true

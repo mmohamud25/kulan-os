@@ -1,0 +1,8 @@
+# Kulan OS: updates live in one place, Kulan Settings > Software Update
+# (Debian, Kulan and app updates together). GNOME Software stays the app
+# store: its Updates page, background downloads and update notifications are
+# off, so nothing is updated twice or announced twice.
+[org.gnome.software]
+allow-updates=false
+download-updates=false
+download-updates-notify=false

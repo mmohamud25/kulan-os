@@ -22,6 +22,8 @@ from datetime import datetime
 
 STATUS_FILE = "/var/lib/kulan/updates.json"
 HISTORY_LOG = "/var/log/apt/history.log"
+APP_UPDATES = "/var/lib/kulan/app-updates.tsv"  # written by /usr/lib/kulan/app-updates
+RESTART_FILE = "/run/kulan/restart-required"  # written by update-run after installing
 
 # apt-get -s prints e.g. "Inst openssl [3.5.1-1] (3.5.1-1+deb13u1 Debian-Security:13/stable-security [arm64])"
 INST = re.compile(r"^Inst (\S+) (?:\[([^\]]*)\] )?\((\S+) ([^)]*)\)")
@@ -58,6 +60,39 @@ def available_updates() -> list[dict]:
                 "security": "security" in origin.lower(),
             })
     return updates
+
+
+def app_updates() -> list[dict]:
+    """Flatpak app updates, as last looked up online by app-updates."""
+    updates = []
+    try:
+        with open(APP_UPDATES, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        ref, _sep, rest = line.partition("\t")
+        name, _sep, version = rest.partition("\t")
+        parts = ref.split("/")
+        if len(parts) != 4 or parts[0] not in ("app", "runtime"):
+            continue
+        updates.append({
+            "name": name.strip() or parts[1],
+            "from": "",
+            "to": version.strip(),
+            "security": False,
+            "kind": "app" if parts[0] == "app" else "runtime",
+            "ref": ref,
+        })
+    return updates
+
+
+def restart_required() -> list[str]:
+    try:
+        with open(RESTART_FILE, encoding="utf-8") as fh:
+            return [line.strip() for line in fh if line.strip()][:20]
+    except OSError:
+        return []
 
 
 def last_run() -> dict:
@@ -123,13 +158,14 @@ def main(argv: list[str]) -> int:
         status["state"] = "running"
         status["running_since"] = int(time.time())
     else:
-        updates = available_updates()
+        updates = available_updates() + app_updates()
         status.update({
             "state": "idle",
             "checked": int(time.time()),
             "available": updates,
             "security": sum(1 for u in updates if u["security"]),
             "last_run": last_run(),
+            "restart_required": restart_required(),
         })
         status.pop("running_since", None)
     write_status(status)

@@ -39,5 +39,12 @@ sleep 5 # let the session settle
 	echo "memory=$(free -m | awk '/^Mem:/ {print $3 " MB used of " $2 " MB"}')"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
 	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
+	if command -v flatpak >/dev/null 2>&1; then
+		if timeout 60 flatpak remote-ls --system --updates --columns=ref,name,version >/dev/null 2>/tmp/kulan-flatpak.err; then
+			echo "appupdates=ok"
+		else
+			echo "appupdates=$(tail -n 1 /tmp/kulan-flatpak.err)"
+		fi
+	fi
 	echo "KULAN-BOOT-REPORT-END"
 } > "${OUT}" 2>&1

@@ -1,0 +1,62 @@
+#!/bin/bash
+# App (Flatpak) updates for Kulan OS, so they show and install in Kulan
+# Settings > Software Update with everything else (GNOME Software's own
+# Updates page is turned off). Runs as root.
+#
+#   app-updates list     look up which apps have updates (online) and record
+#                        them for update-status, which lists them offline
+#   app-updates install  install them (progress as apt-style status lines)
+#   app-updates auto     install them if automatic updates are on (daily timer)
+set -euo pipefail
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
+
+LIST="${KULAN_APP_UPDATES_LIST:-/var/lib/kulan/app-updates.tsv}"
+
+have_flatpak() {
+	command -v flatpak >/dev/null 2>&1 && [[ -n "$(flatpak remotes --system --columns=name 2>/dev/null)" ]]
+}
+
+auto_on() {
+	# The same switch as Debian updates (Kulan Settings writes this override).
+	apt-config dump APT::Periodic::Unattended-Upgrade 2>/dev/null | grep -q '"1"'
+}
+
+# "<ref>\t<name>\t<version>" per update; written atomically, readable by all.
+list() {
+	mkdir -p "$(dirname "${LIST}")"
+	local tmp="${LIST}.tmp"
+	if have_flatpak; then
+		timeout 120 flatpak remote-ls --system --updates --columns=ref,name,version 2>/dev/null |
+			awk -F'\t' 'NF >= 1 && $1 ~ /^(app|runtime)\/[^ \/]+\/[^ \/]+\/[^ \/]+$/' > "${tmp}" || true
+	else
+		: > "${tmp}"
+	fi
+	chmod 0644 "${tmp}"
+	mv -f "${tmp}" "${LIST}"
+}
+
+install() {
+	have_flatpak || { list; return 0; }
+	echo "pmstatus:apps:96:Updating apps"
+	flatpak update --system --noninteractive -y >&2
+	flatpak uninstall --system --noninteractive -y --unused >&2 || true
+	list
+}
+
+case "${1:-}" in
+	list) list ;;
+	install) install ;;
+	auto)
+		if auto_on; then
+			install >/dev/null
+		else
+			list
+		fi
+		[[ -x /usr/lib/kulan/update-status ]] && /usr/lib/kulan/update-status refresh || true
+		;;
+	*)
+		echo "usage: app-updates list|install|auto" >&2
+		exit 2
+		;;
+esac

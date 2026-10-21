@@ -1,5 +1,5 @@
 #!/bin/sh
-# Update Center now lives in Kulan Settings ("Updates and recovery").
+# Update Center now lives in Kulan Settings ("Software Update").
 # Kept so existing shortcuts and scripts keep working.
 set -eu
 if [ "${1:-}" = "--check" ]; then

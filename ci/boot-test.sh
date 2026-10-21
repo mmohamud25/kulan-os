@@ -170,6 +170,13 @@ else
 	result fail "Memory guard" "systemd-oomd / notice: ${OOMD:-not reported}"
 fi
 
+APPS="$(field appupdates)"
+if [[ "${APPS}" == ok ]]; then
+	result pass "App updates" "Flatpak lists app updates (as Software Update does)"
+else
+	result info "App updates" "couldn't list app updates: ${APPS:-not reported} (no network in the test machine?)"
+fi
+
 FAILED_UNITS="$(field failed | tr '\n' ' ')"
 if [[ -z "${FAILED_UNITS// /}" ]]; then
 	result pass "Services" "no failed services (system state: $(field state))"

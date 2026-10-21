@@ -216,7 +216,7 @@ class KulanSettings(Adw.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self.add_main_option("check", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                             "Check for updates (opens Updates and recovery)", None)
+                             "Check for updates (opens Software Update)", None)
         self.add_main_option("self-test", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "Open every page, then quit (for automated tests)", None)
         self.set_accels_for_action("win.search", ["<Control>f"])

@@ -10,7 +10,10 @@
       "The dock's settings icon opens Kulan Settings, which now links to every GNOME Settings page (notifications, accounts, sharing, accessibility, language); GNOME Settings itself is in the System folder",
       "Kulan Settings > Desktop and windows: show the Bin, drives and your Home folder on the desktop, and where new items appear, in plain words",
       "Tidy the app grid: sorts apps from A to Z and closes the gaps between pages (done once automatically for grids with gaps)",
-      "The installer in Kulan colours, with rounded fields and buttons"
+      "The installer in Kulan colours, with rounded fields and buttons",
+      "Software Update in Kulan Settings is the one place for every update: Debian, Kulan and your apps (Flatpak) together, installed with one button; the App Store (GNOME Software) no longer shows or downloads updates of its own",
+      "Restart to finish updating: after kernel, desktop or driver updates, Software Update and the top bar offer a restart",
+      "With automatic updates on, apps update daily too"
     ]
   },
   {

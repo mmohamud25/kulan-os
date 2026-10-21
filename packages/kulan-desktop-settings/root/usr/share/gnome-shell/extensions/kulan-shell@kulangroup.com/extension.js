@@ -213,8 +213,8 @@ class KulanMenu extends PanelMenu.Button {
         this.menu.addAction('About Kulan OS', () => openKulanSettings('about'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Kulan Settings…', () => openKulanSettings(null));
-        this.menu.addAction('Software Updates…', () => openKulanSettings('updates'));
-        this.menu.addAction('Software…', () => launchApp('org.gnome.Software.desktop'));
+        this.menu.addAction('Software Update…', () => openKulanSettings('updates'));
+        this.menu.addAction('App Store…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
         this.menu.addAction('Log Out…', () => actions.activateLogout());
@@ -266,7 +266,8 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._title);
         this.menu.addMenuItem(this._detail);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addAction('Open Software Updates', () => this._openUpdateCenter());
+        this._restartItem = this.menu.addAction('Restart…', () => this._restart());
+        this.menu.addAction('Open Software Update', () => this._openUpdateCenter());
 
         this.visible = false;
         this.allowed = true;
@@ -276,19 +277,31 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         openKulanSettings('updates');
     }
 
+    _restart() {
+        // GNOME's own restart dialog, which lets apps save their work first.
+        SystemActions.getDefault().activateRestart();
+    }
+
     update(status) {
         const available = Array.isArray(status?.available) ? status.available.length : 0;
         const security = Number.isInteger(status?.security) ? status.security : 0;
         const since = Number(status?.running_since) || 0;
         const running = status?.state === 'running' && Date.now() / 1000 - since < STALE_RUNNING_S;
 
-        this.visible = this.allowed && (running || available > 0);
+        const restart = Array.isArray(status?.restart_required) && status.restart_required.length > 0;
+
+        this.visible = this.allowed && (running || available > 0 || restart);
         this._count.text = available > 0 && !running ? String(available) : '';
+        this._restartItem.visible = restart && !running;
 
         if (running) {
             this._icon.icon_name = 'view-refresh-symbolic';
             this._title.label.text = 'Installing updates…';
             this._detail.label.text = 'You can keep working while this runs.';
+        } else if (restart && available === 0) {
+            this._icon.icon_name = 'system-reboot-symbolic';
+            this._title.label.text = 'Restart to finish updating';
+            this._detail.label.text = 'Some updates take effect after a restart.';
         } else {
             this._icon.icon_name = security > 0
                 ? 'software-update-urgent-symbolic'
@@ -296,7 +309,7 @@ class KulanUpdateIndicator extends PanelMenu.Button {
             this._title.label.text = `${plural(available, 'update')} available`;
             this._detail.label.text = security > 0
                 ? `${plural(security, 'security fix')} included`
-                : 'Open Software Updates to install them now.';
+                : 'Open Software Update to install them now.';
         }
     }
 });
