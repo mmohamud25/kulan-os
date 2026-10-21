@@ -17,11 +17,12 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
-import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+import {Extension, InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as SystemActions from 'resource:///org/gnome/shell/misc/systemActions.js';
+import {UnlockDialog} from 'resource:///org/gnome/shell/ui/unlockDialog.js';
 
 import {ClipboardHistory} from './clipboard.js';
 import {LiveText} from './livetext.js';
@@ -276,6 +277,15 @@ export default class KulanShellExtension extends Extension {
 
         this._oldSlowDown = St.Settings.get().slow_down_factor;
 
+        // Lock screen, Mac-style: the date above the time.
+        this._injections = new InjectionManager();
+        this._injections.overrideMethod(UnlockDialog.prototype, '_init', original => function (...args) {
+            original.call(this, ...args);
+            const clock = this._clock;
+            if (clock?._date && clock._time && clock._date.get_parent() === clock)
+                clock.set_child_below_sibling(clock._date, clock._time);
+        });
+
         this._menu = new KulanMenu();
         Main.panel.addToStatusArea(`${this.uuid}-menu`, this._menu, 0, 'left');
 
@@ -427,6 +437,8 @@ export default class KulanShellExtension extends Extension {
     }
 
     disable() {
+        this._injections?.clear();
+        this._injections = null;
         for (const key of this._shortcuts ?? [])
             Main.wm.removeKeybinding(key);
         this._shortcuts = [];

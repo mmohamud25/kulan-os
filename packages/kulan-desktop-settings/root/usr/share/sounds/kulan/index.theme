@@ -1,0 +1,8 @@
+[Sound Theme]
+Name=Kulan
+Comment=Soft, short chimes made for Kulan OS
+Inherits=freedesktop
+Directories=stereo
+
+[stereo]
+OutputProfile=stereo

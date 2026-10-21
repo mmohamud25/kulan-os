@@ -41,6 +41,12 @@ show-battery-percentage=true
 button-layout='close,minimize,maximize:appmenu'
 titlebar-font='Inter Semi-Bold 11'
 
+# Kulan's own soft chimes for notifications, alerts, devices and screenshots
+# (scripts/render-sounds.py). Anything it doesn't define comes from the
+# standard freedesktop sounds.
+[org.gnome.desktop.sound]
+theme-name='kulan'
+
 [org.gnome.desktop.peripherals.touchpad]
 tap-to-click=true
 natural-scroll=true

@@ -18,7 +18,9 @@ rm -rf "${KULAN_BRANDING}"
 cp -a "${DEBIAN_BRANDING}" "${KULAN_BRANDING}"
 install -m 0644 "${ASSETS}/logo.png" "${KULAN_BRANDING}/kulan-logo.png"
 install -m 0644 "${ASSETS}/welcome.png" "${KULAN_BRANDING}/welcome.png"
-install -m 0644 "${ASSETS}/slide1.png" "${KULAN_BRANDING}/slide1.png"
+for SLIDE in "${ASSETS}"/slide*.png; do
+	install -m 0644 "${SLIDE}" "${KULAN_BRANDING}/$(basename "${SLIDE}")"
+done
 install -m 0644 "${ASSETS}/show.qml" "${KULAN_BRANDING}/show.qml"
 rm -f "${KULAN_BRANDING}/debian-logo.png"
 

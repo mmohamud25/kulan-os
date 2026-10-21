@@ -58,6 +58,7 @@ FILES=(
 	usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
 	etc/calamares/settings.conf
 	etc/calamares/modules/partition.conf
+	etc/calamares/branding/kulan/show.qml
 	etc/ufw/ufw.conf
 	var/lib/flatpak/repo/config
 	etc/firefox/policies/policies.json
@@ -135,6 +136,8 @@ fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Installer slideshow" "every slide the slideshow shows is in the ISO" bash -c 'Q="$1/etc/calamares/branding/kulan/show.qml"; n=0; for f in $(grep -o "\"slide[^\"]*\.png\"" "$Q" | tr -d "\"" | sort -u); do grep -q "squashfs-root/etc/calamares/branding/kulan/$f\$" "$2" || { echo "missing $f"; exit 1; }; n=$((n+1)); done; [ "$n" -ge 5 ]' _ "${R}" "${WORK}/listing"
 check "Installer encryption" "encryption ticked by default" grep -qE "^preCheckEncryption:[[:space:]]+true" "${R}/etc/calamares/modules/partition.conf"
 check "Installer layout" "separate unencrypted /boot, so the disk is unlocked once" bash -c "grep -q '^partitionLayout:' '${R}/etc/calamares/modules/partition.conf' && grep -q 'noEncrypt: true' '${R}/etc/calamares/modules/partition.conf'"
 check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop

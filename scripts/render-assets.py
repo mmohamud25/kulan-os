@@ -114,31 +114,59 @@ def main() -> int:
         render(logo_svg, CHROOT / f"usr/share/icons/hicolor/{px}x{px}/apps/kulan-logo.png", px, px)
     render(logo_svg, CHROOT / "usr/share/kulan/calamares/logo.png", 256, 256)
 
-    # Kulan Settings app icon: the logo's badge with a white gear.
-    teeth, r_out, r_in, cx, cy = 10, 170, 138, 256, 256
+    # Kulan app icons, in GNOME's Adwaita style: a rounded tile with a darker
+    # edge underneath (the "depth" of Adwaita app icons) and a light symbol.
+    def adwaita_tile(top: str, bottom: str, edge: str, symbol: str) -> str:
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="{top}"/>
+      <stop offset="1" stop-color="{bottom}"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="40" y="64" width="432" height="416" rx="88" fill="{edge}"/>
+  <rect x="40" y="40" width="432" height="416" rx="88" fill="url(#face)"/>
+  <rect x="40" y="40" width="432" height="416" rx="88" fill="url(#shine)"/>
+  {symbol}
+</svg>'''
+
+    def write_icon(package: str, icon: str, svg: str) -> None:
+        icons = CHROOT.parent.parent / package / "root" / "usr/share/icons/hicolor"
+        (icons / "scalable/apps").mkdir(parents=True, exist_ok=True)
+        (icons / f"scalable/apps/{icon}.svg").write_text(svg + "\n")
+        print(f"  wrote {(icons / f'scalable/apps/{icon}.svg').relative_to(ROOT)}")
+        for px in (48, 128, 256):
+            render(svg, icons / f"{px}x{px}/apps/{icon}.png", px, px)
+
+    # Kulan Settings: a light gear on Kulan teal.
+    teeth, r_out, r_in, cx, cy = 10, 150, 122, 256, 248
     points = []
     for i in range(teeth * 2):
         for edge in (-0.32, 0.32):
             angle = (i + 0.5 + edge) * math.pi / teeth
             radius = r_out if i % 2 == 0 else r_in
             points.append(f"{cx + radius * math.cos(angle):.1f},{cy + radius * math.sin(angle):.1f}")
-    settings_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="sb" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0F766E"/>
-      <stop offset="1" stop-color="#0B2A4A"/>
-    </linearGradient>
-  </defs>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#sb)"/>
-  <circle cx="256" cy="256" r="150" fill="#F59E0B" fill-opacity="0.22"/>
-  <path fill-rule="evenodd" fill="#ECFDF5" d="M{" L".join(points)} Z M256 196 a60 60 0 1 0 0.01 0 Z"/>
-</svg>'''
-    icons = CHROOT.parent.parent / "kulan-settings" / "root" / "usr/share/icons/hicolor"
-    (icons / "scalable/apps").mkdir(parents=True, exist_ok=True)
-    (icons / "scalable/apps/kulan-settings.svg").write_text(settings_svg + "\n")
-    print(f"  wrote {(icons / 'scalable/apps/kulan-settings.svg').relative_to(ROOT)}")
-    for px in (48, 128, 256):
-        render(settings_svg, icons / f"{px}x{px}/apps/kulan-settings.png", px, px)
+    gear = (f'<path fill-rule="evenodd" fill="#0B3B4A" fill-opacity="0.25" transform="translate(0 8)" '
+            f'd="M{" L".join(points)} Z M256 196 a52 52 0 1 0 0.01 0 Z"/>'
+            f'<path fill-rule="evenodd" fill="#F2FBF9" d="M{" L".join(points)} Z M256 196 a52 52 0 1 0 0.01 0 Z"/>')
+    write_icon("kulan-settings", "kulan-settings", adwaita_tile("#2BB3A3", "#12807A", "#0B5B5A", gear))
+
+    # Setup Assistant: a large sparkle and two small ones, on Kulan blue.
+    def sparkle(x: float, y: float, r: float) -> str:
+        k = r * 0.22
+        return (f'M{x} {y - r} C{x + k} {y - k} {x + k} {y - k} {x + r} {y} '
+                f'C{x + k} {y + k} {x + k} {y + k} {x} {y + r} '
+                f'C{x - k} {y + k} {x - k} {y + k} {x - r} {y} '
+                f'C{x - k} {y - k} {x - k} {y - k} {x} {y - r} Z')
+    stars = (f'<path fill="#06203A" fill-opacity="0.25" transform="translate(0 8)" '
+             f'd="{sparkle(236, 262, 130)} {sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>'
+             f'<path fill="#FFF7E6" d="{sparkle(236, 262, 130)}"/>'
+             f'<path fill="#FBBF24" d="{sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>')
+    write_icon("kulan-welcome", "kulan-setup-assistant", adwaita_tile("#3A7BD5", "#1E4E9C", "#173A75", stars))
 
     # Wallpapers.
     render((ASSETS / "wallpaper-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-dark.png")
