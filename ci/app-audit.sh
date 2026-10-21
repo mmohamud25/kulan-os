@@ -30,7 +30,7 @@ mapfile -t LIST < <(grep -vE '^[[:space:]]*(#|$)' config/package-lists/kulan-des
 	grep -vxE 'kulan-.*|plymouth.*|spice-vdagent|qemu-guest-agent|linux-image.*')
 DEBS=(dist/debs/kulan-base_*.deb dist/debs/kulan-desktop-settings_*.deb dist/debs/kulan-settings_*.deb
 	dist/debs/kulan-update-center_*.deb dist/debs/kulan-welcome_*.deb dist/debs/kulan-assistant_*.deb)
-apt-get install -y -q "${DEBS[@]/#/./}" "${LIST[@]}" xvfb xauth imagemagick dbus-x11 xwayland sudo \
+apt-get install -y -q "${DEBS[@]/#/./}" "${LIST[@]}" xvfb xauth imagemagick dbus-x11 xwayland sudo python3-dbusmock \
 	>/tmp/audit-install.log 2>&1 || { tail -n 30 /tmp/audit-install.log; echo "::error title=App audit::install failed"; exit 1; }
 
 # A person's account, as after installing (apps such as VLC refuse root).
@@ -38,6 +38,14 @@ adduser --disabled-password --gecos Kulan kulan >/dev/null
 echo 'kulan ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/kulan
 mkdir -p /run/dbus /run/user/1000 && chown kulan:kulan /run/user/1000 && chmod 700 /run/user/1000
 dbus-daemon --system --fork
+# GNOME Shell needs the login service (systemd-logind), which a container
+# doesn't run; GNOME's own tests use this stand-in for it.
+python3 -m dbusmock --system --template logind >/tmp/audit-logind.log 2>&1 &
+for _ in $(seq 1 20); do
+	dbus-send --system --print-reply --dest=org.freedesktop.login1 /org/freedesktop/login1 \
+		org.freedesktop.DBus.Peer.Ping >/dev/null 2>&1 && break
+	sleep 0.5
+done
 
 # --- Which apps a person sees in the app grid -----------------------------------
 python3 - > /tmp/apps.tsv <<'PY'
@@ -136,7 +144,9 @@ ev() { gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shel
 export XDG_RUNTIME_DIR=/run/user/1000 MUTTER_DEBUG_DUMMY_MODE_SPECS=1440x900 NO_AT_BRIDGE=1
 gnome-shell --nested --wayland --unsafe-mode >/tmp/audit-shell.log 2>&1 &
 SHELL_PID=$!
-for _ in $(seq 1 60); do ev "1" | grep -q true && break; sleep 1; done
+UP=0
+for _ in $(seq 1 60); do ev "1" | grep -q true && { UP=1; break; }; sleep 1; done
+if [ "$UP" != 1 ]; then echo "GNOME Shell didn't start" > "$OUT_DIR/SHELL-FAILED"; exit 1; fi
 sleep 8
 ev "Main.overview.hide(); Main.messageTray._bannerBin?.hide(); 'ok'" >/dev/null
 export WAYLAND_DISPLAY
@@ -180,6 +190,11 @@ IN
 chmod 755 /tmp/audit-inner.sh
 chown -R kulan:kulan "${OUT}"
 su kulan -s /bin/bash -c "export OUT_DIR='${OUT}'; cd ~; xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- /tmp/audit-inner.sh" 2>/tmp/audit-run.log
+if [ -e "${OUT}/SHELL-FAILED" ]; then
+	echo "::error title=App audit::GNOME Shell didn't start: $(grep -m 3 -E 'JS ERROR|CRITICAL|Failed' /tmp/audit-shell.log | tr '\n' ' ' | cut -c1-300)"
+	cp /tmp/audit-shell.log "${OUT}/" 2>/dev/null
+	exit 1
+fi
 grep -iE "error|critical" /tmp/audit-shell.log 2>/dev/null | grep -i kulan | head -n 20 > "${OUT}/shell-kulan-errors.txt" || true
 
 # --- Report ------------------------------------------------------------------------
