@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="96" viewBox="0 0 440 96">
+  <g transform="translate(0,8) scale(0.15625)">
+  
+  <defs>
+    <linearGradient id="lgBadge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#0B2A4A"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#lgBadge)"/>
+  <circle cx="256" cy="230" r="112" fill="#F59E0B"/>
+  <path d="M96 196 C132 132 380 132 416 196 C380 220 132 220 96 196 Z" fill="#ECFDF5"/>
+  <path d="M256 350 V280 M256 280 L204 214 M256 280 L308 214" stroke="#ECFDF5" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <g fill="#ECFDF5">
+    <circle cx="140" cy="372" r="24"/>
+    <circle cx="196" cy="403" r="24"/>
+    <circle cx="256" cy="412" r="24"/>
+    <circle cx="316" cy="403" r="24"/>
+    <circle cx="372" cy="372" r="24"/>
+  </g>
+</g>
+  <text x="100" y="64" font-family="Inter, Noto Sans, DejaVu Sans, sans-serif" font-size="46" font-weight="600" fill="#FFFFFF">Kulan OS</text>
+</svg>

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kulan OS live session
+Comment=Keeps the screen on in the live session
+Exec=/usr/lib/kulan/live-session
+NoDisplay=true
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-enabled=true

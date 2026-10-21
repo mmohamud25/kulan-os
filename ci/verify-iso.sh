@@ -62,6 +62,7 @@ FILES=(
 	var/lib/flatpak/repo/config
 	etc/firefox/policies/policies.json
 	etc/NetworkManager/conf.d/80-kulan-privacy.conf
+	etc/alternatives/vendor-logos
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -100,12 +101,25 @@ check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
+	# Debian's console-setup puts the layout in the initramfs as
+	# etc/console-setup/cached_*.kmap, loaded by scripts/init-top/keymap.
+	lsinitramfs "${WORK}/initrd.img" > "${WORK}/initrd.list"
+	if grep -qE '^etc/console-setup/cached_.*\.kmap' "${WORK}/initrd.list" && grep -qx 'scripts/init-top/keymap' "${WORK}/initrd.list"; then
+		result pass "Keyboard layout in initramfs" "disk password typed with the chosen layout ($(grep -oE 'cached_[^/]*\.kmap' "${WORK}/initrd.list" | head -n 1))"
+	else
+		CS="no"; installed console-setup && CS="yes"
+		KM="$(grep -iE 'kmap|keymap|setupcon|console-setup' "${WORK}/initrd.list" | head -n 5 | tr '\n' ' ')"
+		result fail "Keyboard layout in initramfs" "no console-setup keymap; console-setup installed: ${CS}; related files: ${KM:-none}"
+	fi
 else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
 fi
+check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
 check "Installer encryption" "encryption ticked by default" grep -qE "^preCheckEncryption:[[:space:]]+true" "${R}/etc/calamares/modules/partition.conf"
+check "Installer layout" "separate unencrypted /boot, so the disk is unlocked once" bash -c "grep -q '^partitionLayout:' '${R}/etc/calamares/modules/partition.conf' && grep -q 'noEncrypt: true' '${R}/etc/calamares/modules/partition.conf'"
+check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
 check "Backups" "Deja Dup installed" installed deja-dup

@@ -26,8 +26,8 @@ graphical installer. It builds for **ARM64** (Apple Silicon Macs in UTM) and **x
 | Security | Firewall on at boot (blocks incoming, allows outgoing) with a settings app; automatic daily updates; disk encryption ticked by default in the installer; Tor Browser launcher on PCs |
 | Privacy | No telemetry; Wi-Fi hides your device's hardware address; Firefox blocks trackers and sends no usage data; old trash and temporary files are cleared after 30 days |
 | Backups | Deja Dup (back up to a drive or cloud storage) |
-| Updates | The Kulan update channel: your own signed package repository, so installed systems get Kulan fixes and new versions through normal updates. Kulan OS 1.0 upgrades itself to 2.0 |
-| Build number | Each ISO is named with its build, e.g. `kulan-os-2.0-build6-arm64.iso`; Settings > About and Update Center show it too |
+| Updates | The Kulan update channel: your own signed package repository, so installed systems get Kulan fixes and new versions through normal updates. Older installs upgrade themselves to the latest version |
+| Build number | Each ISO is named with its build, e.g. `kulan-os-2.1-build9-arm64.iso`; Settings > About and Update Center show it too |
 | Installer | Calamares, rebranded as "Install Kulan OS" |
 | VMs | Clipboard sharing and display resizing in UTM/QEMU |
 
@@ -91,14 +91,21 @@ To verify the download: `cd ~/Projects/kulan-os-iso && shasum -a 256 -c *.sha256
 
 1. Install UTM from [mac.getutm.app](https://mac.getutm.app) (free).
 2. Click **+ > Virtualize > Linux**.
-3. Under **Boot ISO Image**, click **Browse** and choose the `kulan-os-2.0-build…-arm64.iso` you downloaded.
+3. Under **Boot ISO Image**, click **Browse** and choose the `kulan-os-…-arm64.iso` you downloaded.
 4. Memory: **4096 MB**, CPU cores: **4**. Storage: **32 GB**. Skip shared folders.
 5. Name it **Kulan OS**, click **Save**, then press **Play**.
 6. Choose **Kulan OS Live (arm64)** in the boot menu. The desktop opens automatically.
 7. Click **Install Kulan OS** in the dock and follow the steps. **Encrypt system** is
-   ticked: choose a password you won't forget, because it can't be recovered.
-8. When the installer finishes, shut down the VM. In UTM, select the VM, open the
-   **CD/DVD** drive menu and choose **Clear**, then press **Play** again.
+   ticked: choose a password you won't forget, because it can't be recovered. At every
+   start, the Kulan splash asks for it before the login screen.
+8. When the installer shows **All done**, untick **Restart now**, click **Done** and shut
+   down the VM. Then detach the ISO, or the VM starts the installer again: in UTM, click
+   **Edit**, select the drive under **Drives** that holds the ISO (often **USB Drive**),
+   click **Delete** (your ISO file is kept) and **Save**. Press **Play** again.
+
+If a VM window says **"Display output is not active"**, the screen has gone to sleep or
+the system is waiting for the disk password: click inside the window and press **Shift**,
+or type the disk password and press **Enter**.
 
 In the live session the user is `kulan` and the password is `live`.
 

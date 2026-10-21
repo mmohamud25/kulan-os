@@ -1,29 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Kulan OS logo: a "K" drawn as a small network of connected nodes.
-       "Kulan" means "gathering" in Somali - people and ideas meeting at one point. -->
+  <!-- Kulan OS logo: people gathered under an acacia tree at sunset.
+       "Kulan" means "gathering" in Somali; communities have long met in the
+       shade of the acacia to talk things through. -->
   <defs>
-    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#14B8A6"/>
-      <stop offset="1" stop-color="#2563EB"/>
-    </linearGradient>
-    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
-      <stop offset="0.55" stop-color="#FFFFFF" stop-opacity="0"/>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#0B2A4A"/>
     </linearGradient>
   </defs>
   <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#badge)"/>
-  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#shine)"/>
-  <g stroke="#FFFFFF" stroke-width="34" stroke-linecap="round" fill="none">
-    <line x1="176" y1="136" x2="176" y2="376"/>
-    <line x1="176" y1="256" x2="336" y2="136"/>
-    <line x1="176" y1="256" x2="336" y2="376"/>
+  <circle cx="256" cy="230" r="112" fill="#F59E0B"/>
+  <path d="M96 196 C132 132 380 132 416 196 C380 220 132 220 96 196 Z" fill="#ECFDF5"/>
+  <path d="M256 350 V280 M256 280 L204 214 M256 280 L308 214" stroke="#ECFDF5" stroke-width="26" stroke-linecap="round" fill="none"/>
+  <g fill="#ECFDF5">
+    <circle cx="140" cy="372" r="24"/>
+    <circle cx="196" cy="403" r="24"/>
+    <circle cx="256" cy="412" r="24"/>
+    <circle cx="316" cy="403" r="24"/>
+    <circle cx="372" cy="372" r="24"/>
   </g>
-  <g fill="#FFFFFF">
-    <circle cx="176" cy="136" r="30"/>
-    <circle cx="176" cy="376" r="30"/>
-    <circle cx="336" cy="136" r="30"/>
-    <circle cx="336" cy="376" r="30"/>
-  </g>
-  <circle cx="176" cy="256" r="40" fill="#FFFFFF"/>
-  <circle cx="176" cy="256" r="18" fill="#1D7FD0"/>
 </svg>

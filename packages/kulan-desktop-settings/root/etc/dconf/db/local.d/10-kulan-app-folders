@@ -1,31 +1,11 @@
-# Kulan OS app grid folders. These are defaults: users can rename,
-# rearrange or remove folders, and their changes are kept.
+# Kulan OS app grid folders. Everyday apps (office, internet, media,
+# developer tools) sit loose in the grid; only Utilities and System are
+# folders. These are defaults: users can rename, rearrange or remove folders,
+# and their changes are kept.
 # Compiled by "dconf update" (run by the kulan-desktop-settings package).
 
 [org/gnome/desktop/app-folders]
-folder-children=['Kulan-Office', 'Kulan-Internet', 'Kulan-Media', 'Kulan-Developer', 'Kulan-Utilities', 'Kulan-System']
-
-[org/gnome/desktop/app-folders/folders/Kulan-Office]
-name='Office'
-translate=false
-categories=['Office']
-
-[org/gnome/desktop/app-folders/folders/Kulan-Internet]
-name='Internet'
-translate=false
-categories=['Network', 'WebBrowser', 'Email', 'Chat', 'InstantMessaging']
-excluded-apps=['org.gnome.Software.desktop']
-
-[org/gnome/desktop/app-folders/folders/Kulan-Media]
-name='Media'
-translate=false
-categories=['AudioVideo', 'Audio', 'Video', 'Graphics', 'Photography']
-excluded-apps=['org.gnome.Evince.desktop', 'org.gnome.Papers.desktop']
-
-[org/gnome/desktop/app-folders/folders/Kulan-Developer]
-name='Developer'
-translate=false
-categories=['Development', 'IDE']
+folder-children=['Kulan-Utilities', 'Kulan-System']
 
 [org/gnome/desktop/app-folders/folders/Kulan-Utilities]
 name='Utilities'

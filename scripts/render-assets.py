@@ -48,7 +48,6 @@ def logo_group(x: float, y: float, size: float) -> str:
     body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
     # Make gradient ids unique so several logos can share one document.
     body = body.replace('id="badge"', 'id="lgBadge"').replace("url(#badge)", "url(#lgBadge)")
-    body = body.replace('id="shine"', 'id="lgShine"').replace("url(#shine)", "url(#lgShine)")
     scale = size / 512
     return f'<g transform="translate({x},{y}) scale({scale})">{body}</g>'
 
@@ -126,6 +125,50 @@ def main() -> int:
 </svg>''',
         CHROOT / "usr/share/kulan/login-wordmark.png",
     )
+
+    # Debian's "vendor-logos": the logo Debian's login screen (greeter defaults)
+    # and other Debian software show. kulan-desktop-settings registers this
+    # directory as the vendor-logos alternative, so they show Kulan instead.
+    vendor = CHROOT / "usr/share/kulan/vendor-logos"
+    wordmark_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="440" height="96" viewBox="0 0 440 96">
+  {logo_group(0, 8, 80)}
+  <text x="100" y="64" font-family="{FONT}" font-size="46" font-weight="600" fill="#FFFFFF">{name}</text>
+</svg>'''
+    vendor.mkdir(parents=True, exist_ok=True)
+    (vendor / "logo.svg").write_text(logo_svg)
+    for stem in ("logo-text", "logo-text-version"):
+        (vendor / f"{stem}.svg").write_text(wordmark_svg + "\n")
+    for px in (64, 128, 256):
+        render(logo_svg, vendor / f"logo-{px}.png", px, px)
+        for stem in ("logo-text", "logo-text-version"):
+            render(wordmark_svg, vendor / f"{stem}-{px}.png", height=px)
+    # Emblems (the alternative's slave links): full colour, white, and
+    # symbolic (GNOME recolours #bebebe symbolic icons to match the theme).
+    emblems = CHROOT / "usr/share/kulan/vendor-emblems"
+    emblems.mkdir(parents=True, exist_ok=True)
+    flat = {
+        "white": "#FFFFFF",
+        "symbolic": "#BEBEBE",
+    }
+    variants = {"": logo_svg}
+    for suffix, colour in flat.items():
+        # The tree and the gathered people alone (no badge, no sun), in one colour.
+        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <path d="M60 176 C104 96 408 96 452 176 C408 206 104 206 60 176 Z" fill="{colour}"/>
+  <path d="M256 352 V266 M256 266 L196 190 M256 266 L316 190" stroke="{colour}" stroke-width="40" stroke-linecap="round" fill="none"/>
+  <g fill="{colour}">
+    <circle cx="104" cy="380" r="34"/><circle cx="178" cy="420" r="34"/><circle cx="256" cy="432" r="34"/>
+    <circle cx="334" cy="420" r="34"/><circle cx="408" cy="380" r="34"/>
+  </g>
+</svg>'''
+    # The Kulan menu's top-bar icon (GNOME recolours "-symbolic" icons).
+    symbolic = CHROOT / "usr/share/icons/hicolor/scalable/apps/kulan-logo-symbolic.svg"
+    symbolic.write_text(variants["-symbolic"] + "\n")
+    print(f"  wrote {symbolic.relative_to(ROOT)}")
+    for suffix, svg in variants.items():
+        (emblems / f"emblem-vendor{suffix}.svg").write_text(svg if svg.endswith("\n") else svg + "\n")
+        for px in (64, 128, 256):
+            render(svg, emblems / f"emblem-vendor{suffix}-{px}.png", px, px)
 
     # Boot-menu background (GRUB + ISOLINUX need 640x480). Keep the centre clear
     # for the menu text; branding sits in the bottom-right corner.
