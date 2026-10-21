@@ -50,6 +50,11 @@ INITRD_LINE="$(grep -m1 -E '^[[:space:]]*initrd[[:space:]]+/live/initrd' "${WORK
 KERNEL_PATH="$(awk '{print $2}' <<<"${LINUX_LINE}")"
 INITRD_PATH="$(awk '{print $2}' <<<"${INITRD_LINE}")"
 BOOT_ARGS="$(awk '{ $1 = ""; $2 = ""; sub(/^[[:space:]]+/, ""); print }' <<<"${LINUX_LINE}")"
+# GRUB fills in its own variables (findiso=${iso_path} is empty unless the
+# ISO file itself is loop-mounted from another disk); this test starts the
+# kernel directly, so drop arguments that still hold a GRUB variable.
+# shellcheck disable=SC2016  # a literal ${ to match
+BOOT_ARGS="$(tr ' ' '\n' <<<"${BOOT_ARGS}" | grep -v '\${' | paste -sd ' ' -)"
 if [[ -z "${KERNEL_PATH}" || -z "${INITRD_PATH}" ]]; then
 	result fail "Boot menu" "couldn't find the live entry in /boot/grub/grub.cfg"
 	summary
