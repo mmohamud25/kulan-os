@@ -40,7 +40,11 @@ const STYLE_CHECK_S = 60;
 // still GNOME's untouched defaults; customised folders are left alone.
 //
 // Kulan OS 2.1 keeps everyday apps loose in the grid, with only Utilities and
-// System as folders; a user still on the 2.0 list is moved over the same way.
+// System as folders; a user still on the 2.0 list is moved over the same way,
+// including a 2.0 list GNOME trimmed (it drops a folder once its last app is
+// dragged out). A list with any folder of the user's own is left alone.
+const KULAN_2_0_FOLDERS = ['Kulan-Office', 'Kulan-Internet', 'Kulan-Media', 'Kulan-Developer',
+    'Kulan-Utilities', 'Kulan-System'];
 const OLD_DEFAULT_FOLDERS = [
     ['System', 'Utilities', 'YaST', 'Pardus'],
     ['Utilities', 'YaST', 'Pardus'],
@@ -48,14 +52,18 @@ const OLD_DEFAULT_FOLDERS = [
 ];
 
 function migrateAppFolders() {
-    const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'app-folders-v3']);
+    const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'app-folders-v4']);
     if (GLib.file_test(marker, GLib.FileTest.EXISTS))
         return;
     try {
         const settings = new Gio.Settings({schema_id: 'org.gnome.desktop.app-folders'});
         const userValue = settings.get_user_value('folder-children')?.deepUnpack();
-        if (Array.isArray(userValue) &&
-            OLD_DEFAULT_FOLDERS.some(d => d.length === userValue.length && d.every((v, i) => v === userValue[i])))
+        const isOldDefault = Array.isArray(userValue) &&
+            OLD_DEFAULT_FOLDERS.some(d => d.length === userValue.length && d.every((v, i) => v === userValue[i]));
+        const isTrimmed2_0 = Array.isArray(userValue) && userValue.length > 0 &&
+            userValue.some(v => v !== 'Kulan-Utilities' && v !== 'Kulan-System') &&
+            userValue.every(v => KULAN_2_0_FOLDERS.includes(v));
+        if (isOldDefault || isTrimmed2_0)
             settings.reset('folder-children');
         GLib.mkdir_with_parents(GLib.path_get_dirname(marker), 0o700);
         GLib.file_set_contents(marker, '');
