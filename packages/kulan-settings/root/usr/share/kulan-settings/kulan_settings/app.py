@@ -151,7 +151,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             for name in candidates:
                 if theme.has_icon(name):
                     return name
-        return candidates[-1] if display is None else "emblem-system-symbolic"
+        return candidates[-1] if display is None else "preferences-system-symbolic"
 
     @staticmethod
     def sidebar_row(title: str, icon: str, external: bool = False) -> Gtk.ListBoxRow:

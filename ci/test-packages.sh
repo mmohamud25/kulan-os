@@ -367,7 +367,12 @@ for f in sources:
 have = {q.stem for d in ("/usr/share/icons/Kulan", "/usr/share/icons/Adwaita", "/usr/share/icons/hicolor")
         for q in pathlib.Path(d).rglob("*") if q.suffix in (".svg", ".png")}
 missing = sorted(n for n in names if "{" not in n and n not in have and not n.startswith("adw-"))
-print(f"{len(names)} icon names checked")
+# "a|b|c": icons Kulan Settings tries in turn; at least one must exist.
+choices = set()
+for f in sources:
+    choices |= set(re.findall(r"['\"]([A-Za-z0-9.-]+-symbolic(?:\|[A-Za-z0-9.-]+-symbolic)+)['\"]", f.read_text()))
+missing += sorted(c for c in choices if not any(n in have for n in c.split("|")))
+print(f"{len(names)} icon names and {len(choices)} icon choices checked")
 raise SystemExit(f"missing: {missing}" if missing else 0)
 PY
 check "Assistant compiles" "every Kulan Assistant Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-assistant /usr/lib/kulan-assistant/kulan-assistant-engine /usr/lib/kulan-assistant/model-download /usr/share/kulan-assistant/kulan_assistant/*.py /usr/share/nautilus-python/extensions/kulan-assistant-summarise.py"

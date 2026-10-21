@@ -55,7 +55,7 @@ def load_pages() -> list[dict]:
     for page_id, cls in PAGES:
         title = str(getattr(cls, "title", page_id))
         words = " ".join((title, *getattr(cls, "keywords", ()))).replace("-", " ")
-        pages.append({"id": page_id, "title": title, "icon": str(getattr(cls, "icon", "emblem-system-symbolic")),
+        pages.append({"id": page_id, "title": title, "icon": str(getattr(cls, "icon", "preferences-system-symbolic")),
                       "words": plain(words), "title_plain": plain(title)})
     return pages
 
