@@ -224,6 +224,27 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+      # Boot the PC ISO in a virtual machine (KVM) and check the live desktop
+      # comes up with no failed services. After the upload, so a failing
+      # test still leaves the ISO to look at.
+      - name: Boot test
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get install -y -q qemu-system-x86 python3-pil
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ci/boot-test.sh out/*.iso boot-test
+
+      - name: Upload boot test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: boot-test-amd64
+          path: boot-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v6

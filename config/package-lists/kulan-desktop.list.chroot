@@ -90,6 +90,9 @@ apparmor-profiles-extra
 torbrowser-launcher
 #endif
 
+# Speed: swap in compressed memory (settings in kulan-base)
+systemd-zram-generator
+
 # Useful tools
 sudo
 curl

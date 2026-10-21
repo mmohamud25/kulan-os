@@ -39,6 +39,15 @@ done
 
 [[ -f "${ISO}" ]] || { result fail "ISO file" "${ISO} missing"; exit 1; }
 result pass "ISO file" "$(basename "${ISO}") ($(du -h "${ISO}" | cut -f1))"
+# Size budget: the PC ISO must fit a 2 GB download; ARM stays below 1.8 GB.
+SIZE_MB=$(( $(stat -c %s "${ISO}") / 1048576 ))
+LIMIT_MB=1800
+[[ "${ARCH}" == amd64 ]] && LIMIT_MB=2000
+if (( SIZE_MB <= LIMIT_MB )); then
+	result pass "ISO size" "${SIZE_MB} MB (limit ${LIMIT_MB} MB)"
+else
+	result fail "ISO size" "${SIZE_MB} MB is over the ${LIMIT_MB} MB limit"
+fi
 
 # --- Pull the pieces out of the ISO -------------------------------------------
 xorriso -osirrox on -indev "${ISO}" \
@@ -101,6 +110,15 @@ else
 	result pass "Developer kit" "not in the ISO (one-click add-on in Kulan Settings)"
 fi
 check "Mac-style apps" "Quick Look, Live Text OCR, window snapping, emoji and weather" bash -c "$(declare -f installed); R='${R}'; installed gnome-sushi && installed tesseract-ocr-eng && installed gnome-shell-extension-tiling-assistant && installed gnome-characters && installed gnome-weather"
+if [[ "${ARCH}" == amd64 ]]; then
+	check "Laptop firmware" "Intel and AMD graphics, Wi-Fi, Bluetooth, sound and CPU microcode" bash -c "$(declare -f installed); R='${R}'; for p in firmware-intel-graphics firmware-amd-graphics firmware-iwlwifi firmware-realtek firmware-atheros firmware-mediatek firmware-sof-signed bluez-firmware intel-microcode amd64-microcode; do installed \$p || { echo \$p; exit 1; }; done"
+fi
+check "Compressed memory" "zram swap generator installed" installed systemd-zram-generator
+if installed cups-browsed; then
+	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"
+else
+	result pass "Lean services" "cups-browsed left out"
+fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"

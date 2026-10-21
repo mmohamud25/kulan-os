@@ -204,14 +204,14 @@ check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/s
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "14/14 pages built"'
+check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "14/14 pages built" && ! echo "$out" | grep -q Traceback'
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
 check "Sound theme" "Kulan chimes installed and chosen" bash -c "$(declare -f gs); test -f /usr/share/sounds/kulan/index.theme && test -s /usr/share/sounds/kulan/stereo/message-new-instant.oga && test \"\$(gs org.gnome.desktop.sound theme-name)\" = \"'kulan'\""
 check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Adwaita'\""
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Helper refuses bad input" "computer name, DNS and add-on values are checked before anything runs as root" bash -c 'for args in "set-hostname Bad_Name" "set-hostname -x" "set-hostname a.b" "dns bogus" "dns" "addon-install ../x" "addon-remove nope" "nonsense"; do if /usr/lib/kulan/update-run $args >/dev/null 2>&1; then echo "accepted: $args"; exit 1; fi; done'
+check "Helper refuses bad input" "computer name, DNS and add-on values are checked before anything runs as root" bash -c 'for args in "set-hostname Bad_Name" "set-hostname -x" "set-hostname a.b"; do out="$(/usr/lib/kulan/update-run $args 2>&1)"; echo "$out" | grep -q "letters, numbers and dashes" || { echo "not refused by the check: $args"; exit 1; }; done; for args in "dns bogus" "dns" "addon-install ../x" "addon-remove nope" "nonsense"; do if /usr/lib/kulan/update-run $args >/dev/null 2>&1; then echo "accepted: $args"; exit 1; fi; done'
 check "Dock default" "always visible" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-fixed)\" = true"
 check "Add-on list" "every add-on names its apps; the helper refuses anything else" python3 - <<'PY'
 import json, re, subprocess
@@ -256,7 +256,7 @@ raise SystemExit(f"missing: {missing}" if missing else 0)
 PY
 check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built"'
+check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built" && ! echo "$out" | grep -q Traceback'
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # --- Removal restores Debian -------------------------------------------------------

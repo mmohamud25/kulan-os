@@ -6,7 +6,7 @@ Section: admin
 Priority: optional
 Pre-Depends: dpkg (>= 1.19.1)
 Depends: ufw, unattended-upgrades
-Recommends: apparmor-profiles-extra
+Recommends: apparmor-profiles-extra, systemd-zram-generator
 Homepage: @HOME_URL@
 Description: @NAME@ identity, update channel and security defaults
  Makes the system identify as @NAME@ (Settings > About, os-release), adds

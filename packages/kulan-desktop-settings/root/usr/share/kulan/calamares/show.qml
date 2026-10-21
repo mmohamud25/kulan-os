@@ -18,7 +18,7 @@ Presentation
     component KulanSlide: Slide {
         id: slide
         property alias image: picture.source
-        property alias title: heading.text
+        property alias headline: heading.text
         property alias body: words.text
 
         Column {
@@ -55,32 +55,32 @@ Presentation
 
     KulanSlide {
         image: "slide1.png"
-        title: qsTr("Welcome to Kulan OS")
+        headline: qsTr("Welcome to Kulan OS")
         body: qsTr("The rest of the installation is automatic and takes a few minutes. Here's what's waiting for you.")
     }
     KulanSlide {
         image: "slide-look.png"
-        title: qsTr("Make it yours")
+        headline: qsTr("Make it yours")
         body: qsTr("Light, dark, or automatic at sunset. Choose an accent colour, the dock and the window buttons in Kulan Settings.")
     }
     KulanSlide {
         image: "slide-privacy.png"
-        title: qsTr("Private and protected")
+        headline: qsTr("Private and protected")
         body: qsTr("A firewall, disk encryption, daily security fixes and a security checkup. Block ads and trackers in every app with one switch.")
     }
     KulanSlide {
         image: "slide-shortcuts.png"
-        title: qsTr("Feels like a Mac")
+        headline: qsTr("Feels like a Mac")
         body: qsTr("Super+Space to search, Super+Shift+4 for a screenshot, Live Text, window snapping and Quick Look. In UTM, Command is the Super key.")
     }
     KulanSlide {
         image: "slide-addons.png"
-        title: qsTr("Add more in one click")
+        headline: qsTr("Add more in one click")
         body: qsTr("The Developer Kit, office apps, Phone Link for Android, Nearby Share and a virus scanner, whenever you want them.")
     }
     KulanSlide {
         image: "slide1.png"
-        title: qsTr("Almost there")
+        headline: qsTr("Almost there")
         body: qsTr("After the restart, Setup Assistant helps you bring your files over, set up backups and a password vault, and add your apps.")
     }
 }

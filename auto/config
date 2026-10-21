@@ -36,8 +36,9 @@ case "${ARCH}" in
 		# BIOS (syslinux) + UEFI (grub), writable to USB sticks as-is.
 		BOOTLOADERS="grub-efi syslinux"
 		IMAGE_TYPE="iso-hybrid"
-		# Wi-Fi/GPU firmware for real PCs.
-		FIRMWARE="true"
+		# Firmware for real PCs comes from config/package-lists/kulan-firmware
+		# (a chosen set for laptops and desktops), not live-build's everything.
+		FIRMWARE="false"
 		MEMTEST="memtest86+"
 		;;
 	arm64)

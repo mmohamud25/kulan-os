@@ -177,45 +177,86 @@ def desktop_app(desktop_id: str) -> Gio.DesktopAppInfo | None:
 # --- bringing files over -----------------------------------------------------------
 
 def migration_plan(source: Path) -> list[tuple[Path, Path]]:
-    """(from, to) folder pairs for a folder chosen on another drive.
+    """(from, to) pairs for a folder chosen on another drive.
 
     A home folder from a Mac, Windows or Linux computer is matched by its
-    folder names (Documents, Pictures, Movies...). Anything else is copied as
-    a whole into a folder of its own in Documents."""
-    pairs: list[tuple[Path, Path]] = []
+    folder names (Documents, Pictures, Movies...); everything else in it
+    (loose files, Projects, OneDrive...) goes to Documents/From <name>, so
+    nothing is left behind. Any other folder is copied there as a whole."""
+    documents = Path(GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS) or Path.home())
+    extra = documents / f"From {source.name or 'another computer'}"
     try:
-        children = [c for c in source.iterdir() if c.is_dir() and not c.is_symlink()]
+        children = sorted(source.iterdir())
     except OSError:
         children = []
+    pairs: list[tuple[Path, Path]] = []
+    leftovers: list[Path] = []
     for child in children:
-        special = MIGRATE_FOLDERS.get(child.name.lower())
-        if special is None:
+        if child.name.lower() in MIGRATE_SKIP or child.name.startswith(".") or child.is_symlink():
             continue
-        target = GLib.get_user_special_dir(special)
+        special = MIGRATE_FOLDERS.get(child.name.lower()) if child.is_dir() else None
+        target = GLib.get_user_special_dir(special) if special is not None else None
         if target:
             pairs.append((child, Path(target)))
+        else:
+            leftovers.append(child)
     if not pairs:
-        documents = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS) or str(Path.home())
-        pairs.append((source, Path(documents) / f"From {source.name or 'another computer'}"))
+        return [(source, extra)]
+    pairs += [(child, extra / child.name) for child in leftovers]
     return pairs
 
 
-def migration_files(pairs: list[tuple[Path, Path]]) -> list[tuple[Path, Path]]:
-    """Every (file, destination) to copy; files already there are left alone."""
-    files: list[tuple[Path, Path]] = []
+def migration_files(pairs: list[tuple[Path, Path]]) -> tuple[list[tuple[Path, Path, int]], int]:
+    """Every (file, destination, size) to copy, and how many folders or files
+    couldn't be read. Files already there are left alone."""
+    files: list[tuple[Path, Path, int]] = []
+    unreadable = 0
+
+    def note_error(_error: OSError) -> None:
+        nonlocal unreadable
+        unreadable += 1
+
+    def add(src: Path, dst: Path) -> None:
+        nonlocal unreadable
+        try:
+            if src.is_symlink() or not src.is_file() or dst.exists():
+                return
+            files.append((src, dst, src.stat().st_size))
+        except OSError:
+            unreadable += 1
+
     for source, target in pairs:
-        for root, dirs, names in os.walk(source, followlinks=False):
+        if source.is_file():
+            add(source, target)
+            continue
+        for root, dirs, names in os.walk(source, onerror=note_error, followlinks=False):
             dirs[:] = [d for d in dirs if d.lower() not in MIGRATE_SKIP and not d.startswith(".")]
             for name in names:
                 if name.lower() in MIGRATE_SKIP or name.startswith("._"):
                     continue
                 src = Path(root) / name
-                if src.is_symlink() or not src.is_file():
-                    continue
-                dst = target / src.relative_to(source)
-                if not dst.exists():
-                    files.append((src, dst))
-    return files
+                add(src, target / src.relative_to(source))
+    return files, unreadable
+
+
+def copy_file(src: Path, dst: Path) -> None:
+    """Copy one file safely: into a temporary name first (so a full disk or a
+    pulled drive never leaves a half file that looks complete), with normal
+    file permissions (drives from Windows mark everything executable), and
+    the original modification time."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    part = dst.with_name(f".{dst.name}.kulan-part")
+    try:
+        shutil.copyfile(src, part)
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(part, 0o666 & ~umask)
+        stat = src.stat()
+        os.utime(part, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        os.replace(part, dst)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
 
 
 class WelcomeWindow(Adw.ApplicationWindow):
@@ -520,8 +561,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
         group.add(self.name_row)
 
         self.dns_row = Adw.ActionRow(title="Block ads and trackers everywhere",
-                                     subtitle="Encrypted name lookups that block ads in every app and browser "
-                                              "(Mullvad's free DNS)")
+                                     subtitle="Name lookups that block ads in every app and browser, encrypted "
+                                              "whenever the network allows (Mullvad's free DNS)")
         dns = Gtk.Button(label="Turn on", valign=Gtk.Align.CENTER)
         dns.connect("clicked", self.on_adblock_dns)
         dns.set_sensitive(not self.live and Path(UPDATE_HELPER).exists())
@@ -577,8 +618,9 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                 "computer: plug in a drive with them, or a backup, then choose the folder.",
                                 "folder-download-symbolic"))
         group = Adw.PreferencesGroup(description="Mac, Windows and Linux folders are recognised: Documents go to "
-                                     "Documents, Movies to Videos, and so on. Nothing on the drive is changed, "
-                                     "and files you already have here are kept.")
+                                     "Documents, Movies to Videos, and so on; anything else goes to a folder in "
+                                     "Documents. Nothing on the drive is changed, and files you already have here "
+                                     "are kept.")
         self.migrate_row = Adw.ActionRow(title="Choose a folder", subtitle="Your old home folder, or any folder")
         self.migrate_button = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         self.migrate_button.connect("clicked", self.on_choose_migration)
@@ -610,8 +652,14 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def start_migration(self, source: Path) -> None:
         home = Path.home().resolve()
-        if source.resolve() == home or home in source.resolve().parents:
-            self.toast("That folder is already on this computer. Choose one on the drive or backup.")
+        chosen = source.resolve()
+        # Never this computer's own files: home itself, a folder inside it,
+        # or a folder that contains it (such as /home or /).
+        if chosen == home or home in chosen.parents or chosen in home.parents:
+            self.toast("That folder holds this computer's own files. Choose a folder on the drive or backup.")
+            return
+        if chosen == Path("/media") / GLib.get_user_name() or chosen.parent == Path("/media"):
+            self.toast("Open the drive first, then choose the folder on it.")
             return
         self.migrating = True
         self.migrate_button.set_sensitive(False)
@@ -622,42 +670,60 @@ class WelcomeWindow(Adw.ApplicationWindow):
         threading.Thread(target=self.migrate_worker, args=(source,), daemon=True).start()
 
     def migrate_worker(self, source: Path) -> None:
-        pairs = migration_plan(source)
-        files = migration_files(pairs)
-        total = sum(src.stat().st_size for src, _ in files if src.exists()) or 1
-        done_bytes = copied = failed = 0
-        for src, dst in files:
-            try:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dst)
-                copied += 1
-            except OSError:
-                failed += 1
-            try:
-                done_bytes += src.stat().st_size
-            except OSError:
-                pass
-            if (copied + failed) % 25 == 0:
-                GLib.idle_add(self.migrate_tick, done_bytes / total, copied, len(files))
-        GLib.idle_add(self.migrate_done, copied, failed, [t.name for _, t in pairs])
+        copied = failed = 0
+        targets: list[str] = []
+        problem = ""
+        try:
+            pairs = migration_plan(source)
+            home = Path.home()
+            targets = sorted({t.relative_to(home).parts[0] for _, t in pairs if t.is_relative_to(home)})
+            files, failed = migration_files(pairs)
+            total = sum(size for _, _, size in files)
+            free = shutil.disk_usage(Path.home()).free
+            if total > free - 512 * 1024 ** 2:  # keep half a gigabyte spare
+                problem = (f"There isn't enough space: it needs {GLib.format_size(total)}, "
+                           f"and {GLib.format_size(max(free, 0))} is free here.")
+                return
+            done_bytes = 0
+            last = 0.0
+            for src, dst, size in files:
+                try:
+                    copy_file(src, dst)
+                    copied += 1
+                except OSError:
+                    failed += 1
+                done_bytes += size
+                now = GLib.get_monotonic_time() / 1e6
+                if now - last > 0.2:
+                    last = now
+                    GLib.idle_add(self.migrate_tick, done_bytes / (total or 1), copied, len(files))
+        except Exception as exc:  # noqa: BLE001 - report it, never leave the window stuck
+            problem = f"Copying stopped: {exc}"
+        finally:
+            GLib.idle_add(self.migrate_done, copied, failed, targets, problem)
 
     def migrate_tick(self, fraction: float, copied: int, count: int) -> bool:
         self.migrate_progress.set_fraction(min(fraction, 1.0))
         self.migrate_progress.set_text(f"Copied {copied} of {count} files")
         return False
 
-    def migrate_done(self, copied: int, failed: int, targets: list[str]) -> bool:
+    def migrate_done(self, copied: int, failed: int, targets: list[str], problem: str) -> bool:
         self.migrating = False
         self.migrate_button.set_sensitive(True)
         self.migrate_button.set_label("Choose another…")
+        if problem:
+            self.migrate_progress.set_visible(False)
+            self.migrate_row.set_subtitle(GLib.markup_escape_text(problem))
+            return False
         self.migrate_progress.set_fraction(1.0)
-        where = ", ".join(sorted(set(targets))) or "your folders"
-        if copied == 0 and failed == 0:
+        where = ", ".join(targets) or "your folders"
+        note = f"; {failed} couldn't be read" if failed else ""
+        if copied == 0:
             self.migrate_progress.set_text("Nothing new to copy")
-            self.migrate_row.set_subtitle("Everything in that folder is already here")
+            self.migrate_row.set_subtitle(GLib.markup_escape_text(
+                f"Everything there is already on this computer{note}"))
         else:
             self.migrate_progress.set_text(f"Copied {copied} file{'s' if copied != 1 else ''}")
-            note = f"; {failed} couldn't be read" if failed else ""
             self.migrate_row.set_subtitle(GLib.markup_escape_text(f"Copied into {where}{note}"))
         return False
 
@@ -929,7 +995,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         )
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         group = Adw.PreferencesGroup()
-        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=False)
+        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=not DONE_FILE.exists())
         group.add(self.startup_switch)
         inner.append(group)
         url = self.conf.get("KULAN_HOME_URL", "")
@@ -992,6 +1058,13 @@ def main(argv: list[str]) -> int:
 
     if args.autostart and (DONE_FILE.exists() or is_live_session()):
         return 0
+    if args.autostart:
+        # Shown once: even if the session ends with the window still open.
+        try:
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            DONE_FILE.write_text("1\n")
+        except OSError:
+            pass
     app = WelcomeApp(args.page, args.self_test)
     code = app.run([argv[0]])
     return app.result or code

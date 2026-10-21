@@ -1,0 +1,26 @@
+# Firmware for common laptops and desktops (PC ISO only). Chosen by hand
+# instead of live-build's "all firmware" (which also pulls in server and
+# datacentre hardware), so the PC ISO stays under 2 GB. Package names
+# verified against Debian 13 (trixie); the ISO check confirms they're in.
+#if ARCHITECTURES amd64
+firmware-linux-free
+# Graphics: Intel (GuC/HuC/DMC), AMD Radeon
+firmware-intel-graphics
+firmware-amd-graphics
+# Wi-Fi and Bluetooth: Intel, Realtek, Qualcomm Atheros, Broadcom, MediaTek
+firmware-iwlwifi
+firmware-realtek
+firmware-atheros
+firmware-brcm80211
+firmware-mediatek
+bluez-firmware
+# Sound on modern Intel and AMD laptops (Sound Open Firmware)
+firmware-sof-signed
+firmware-intel-sound
+# Cameras, card readers, Thunderbolt docks and other Intel parts
+firmware-intel-misc
+firmware-misc-nonfree
+# CPU security and stability fixes
+intel-microcode
+amd64-microcode
+#endif

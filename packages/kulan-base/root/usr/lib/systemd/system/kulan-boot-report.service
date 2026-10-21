@@ -1,0 +1,13 @@
+[Unit]
+Description=Kulan OS boot report (automatic boot test only)
+Documentation=https://github.com/mmohamud25/kulan-os
+# Only in the CI virtual machine; does nothing on a normal computer.
+ConditionKernelCommandLine=kulan.boot-report
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/kulan/boot-report
+
+[Install]
+WantedBy=multi-user.target

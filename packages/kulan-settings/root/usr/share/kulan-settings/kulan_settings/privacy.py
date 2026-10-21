@@ -85,8 +85,9 @@ class PrivacyPage(Page):
         self.name_row.add_suffix(edit)
         network.add(self.name_row)
         self.dns_row = choice_row("Name lookups (DNS)",
-                                  "Encrypted hides the sites you visit from the network. The ad-blocking choice "
-                                  "works in every app and browser",
+                                  "Encrypted hides the sites you visit from the network whenever the network "
+                                  "allows it (some hotel and office Wi-Fi doesn't). The ad-blocking choice works "
+                                  "in every app and browser",
                                   DNS_CHOICES, dns_mode, self.set_dns)
         network.add(self.dns_row)
 

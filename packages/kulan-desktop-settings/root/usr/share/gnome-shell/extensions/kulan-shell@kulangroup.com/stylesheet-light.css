@@ -146,11 +146,10 @@
 }
 
 /* ---- Lock screen, Mac-style (the wallpaper shows blurred behind it) ----
-   Kulan Shell puts the date above the time; the clock sits in the upper
-   part of the screen. Always on a dark, blurred wallpaper. */
+   Kulan Shell puts the date above the time; GNOME places the clock in the
+   upper third. Always on a dark, blurred wallpaper. */
 .unlock-dialog-clock {
   spacing: 0;
-  padding-bottom: 300px;
 }
 .unlock-dialog-clock-date {
   font-size: 20pt;
