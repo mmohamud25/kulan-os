@@ -62,10 +62,9 @@ center-new-windows=true
 experimental-features=['scale-monitor-framebuffer', 'xwayland-native-scaling']
 
 # --- Mac-style shortcuts (in UTM on a Mac, Command is the Super key) ---------
-# Cmd+Space: search apps, files and settings. Input sources move to
-# Ctrl+Alt+Space so Cmd+Space is free.
+# Cmd+Space: Spotlight search (Kulan Shell, org.kulan.desktop
+# search-shortcut). Input sources move to Ctrl+Alt+Space so Cmd+Space is free.
 [org.gnome.shell.keybindings]
-toggle-overview=['<Super>space']
 # Cmd+Shift+3: whole screen. Cmd+Shift+4: pick an area or window.
 # Cmd+Shift+5: record the screen. The Print key keeps working too.
 screenshot=['<Shift>Print', '<Shift><Super>3']

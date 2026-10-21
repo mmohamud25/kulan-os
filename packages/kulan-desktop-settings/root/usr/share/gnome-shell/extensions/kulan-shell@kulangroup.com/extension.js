@@ -29,6 +29,7 @@ import {ClipboardHistory} from './clipboard.js';
 import {Dictation} from './dictation.js';
 import {LiveText} from './livetext.js';
 import {PrayerTimes} from './prayer.js';
+import {Spotlight} from './spotlight.js';
 
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
@@ -353,6 +354,7 @@ export default class KulanShellExtension extends Extension {
             if (Main.sessionMode.isLocked) {
                 this._clipboard?.clear(); // nothing copied survives a lock
                 this._dictation?.destroy(); // and nothing is recorded while locked
+                this._spotlight?.close();
             }
         });
 
@@ -383,6 +385,7 @@ export default class KulanShellExtension extends Extension {
         this._liveText = new LiveText(this._assistant);
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
+        this._spotlight = new Spotlight();
         this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
         this._syncClipboard();
         this._addShortcuts();
@@ -432,6 +435,18 @@ export default class KulanShellExtension extends Extension {
                     action(this);
                 });
             this._shortcuts.push(key);
+        }
+        // Cmd+Space: Spotlight search, or Activities if chosen in Kulan
+        // Settings > Keyboard.
+        if (this._settings.settings_schema.has_key('search-shortcut')) {
+            Main.wm.addKeybinding('search-shortcut', this._settings, Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW, () => {
+                    if (this._settings?.get_string('search-style') === 'activities')
+                        Main.overview.toggle();
+                    else
+                        this._spotlight?.toggle();
+                });
+            this._shortcuts.push('search-shortcut');
         }
     }
 
@@ -526,6 +541,8 @@ export default class KulanShellExtension extends Extension {
         this._dictation = null;
         this._prayer?.destroy();
         this._prayer = null;
+        this._spotlight?.destroy();
+        this._spotlight = null;
         this._assistant?.destroy();
         this._assistant = null;
         this._notifications = null;

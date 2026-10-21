@@ -22,7 +22,7 @@ CAPS_OPTIONS = {"caps:none": "Does nothing", "caps:escape": "Escape", "ctrl:noca
 # (title, schema, key) of the shortcuts worth knowing; the label shows the
 # key's current first binding, so changes made in GNOME Settings show here.
 SHORTCUTS = [
-    ("Search apps, files and settings", "org.gnome.shell.keybindings", "toggle-overview"),
+    ("Search apps, files and settings", KULAN_SCHEMA, "search-shortcut"),
     ("Screenshot of the whole screen", "org.gnome.shell.keybindings", "screenshot"),
     ("Screenshot of an area or a window", "org.gnome.shell.keybindings", "show-screenshot-ui"),
     ("Record the screen", "org.gnome.shell.keybindings", "show-screen-recording-ui"),
@@ -32,7 +32,7 @@ SHORTCUTS = [
     ("Dictation: start and stop (Kulan Assistant)", KULAN_SCHEMA, "dictation-shortcut"),
     ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
 ]
-KULAN_SHORTCUT_KEYS = ["live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
+KULAN_SHORTCUT_KEYS = ["search-shortcut", "search-style", "live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
                        "dictation-shortcut", "clipboard-history"]
 ASSISTANT = Path("/usr/bin/kulan-assistant")
 
@@ -89,6 +89,12 @@ class KeyboardPage(Page):
         quick_look = Adw.ActionRow(title="Quick Look", subtitle="Select a file in Files and press Space")
         quick_look.add_suffix(Gtk.ShortcutLabel(accelerator="space", valign=Gtk.Align.CENTER))
         self.add_rows(shortcuts, emoji, quick_look)
+        if has_key(self.kulan, "search-style"):
+            shortcuts.add(choice_row("The search shortcut opens", None,
+                                     [("spotlight", "A search bar over your windows"),
+                                      ("activities", "Activities, with all windows")],
+                                     lambda: self.kulan.get_string("search-style"),
+                                     lambda v: self.kulan.set_string("search-style", v)))
 
         clipboard = self.add_group("Clipboard")
         self.add_rows(clipboard,

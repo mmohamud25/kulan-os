@@ -52,6 +52,17 @@
       <summary>Shortcut for Dictation</summary>
       <description>Start and stop Dictation: what you say is typed where the cursor is (needs Kulan Assistant).</description>
     </key>
+    <key name="search-shortcut" type="as">
+      <default>['&lt;Super&gt;space']</default>
+      <summary>Shortcut for search</summary>
+      <description>Opens the search bar (or Activities, depending on search-style).</description>
+    </key>
+    <key name="search-style" type="s">
+      <choices><choice value='spotlight'/><choice value='activities'/></choices>
+      <default>'spotlight'</default>
+      <summary>What the search shortcut opens</summary>
+      <description>spotlight: a search bar in the middle of the screen, over your windows. activities: GNOME's Activities overview with its search.</description>
+    </key>
     <key name="focus-schedule" type="b">
       <default>false</default>
       <summary>Focus schedule</summary>

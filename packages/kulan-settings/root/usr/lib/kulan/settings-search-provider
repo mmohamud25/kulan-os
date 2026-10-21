@@ -1,0 +1,141 @@
+#!/usr/bin/python3
+"""Kulan Settings pages in search (Spotlight and Activities).
+
+A GNOME Shell search provider (org.gnome.Shell.SearchProvider2), started by
+D-Bus when someone searches and gone after a few idle minutes. Typing
+"restore points", "dark mode" or "prayer" finds the Kulan Settings page.
+GNOME Settings' own pages (Wi-Fi, printers...) come from its own provider.
+"""
+from __future__ import annotations
+
+import sys
+import unicodedata
+
+sys.path.insert(0, "/usr/share/kulan-settings")
+
+import gi  # noqa: E402
+
+gi.require_version("Gio", "2.0")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gio, GLib  # noqa: E402
+
+BUS_NAME = "org.kulan.Settings.SearchProvider"
+OBJECT_PATH = "/org/kulan/Settings/SearchProvider"
+IDLE_EXIT_S = 300
+MAX_RESULTS = 5
+
+INTERFACE = """
+<node>
+  <interface name="org.gnome.Shell.SearchProvider2">
+    <method name="GetInitialResultSet"><arg type="as" name="terms" direction="in"/>
+      <arg type="as" name="results" direction="out"/></method>
+    <method name="GetSubsearchResultSet"><arg type="as" name="previous_results" direction="in"/>
+      <arg type="as" name="terms" direction="in"/><arg type="as" name="results" direction="out"/></method>
+    <method name="GetResultMetas"><arg type="as" name="identifiers" direction="in"/>
+      <arg type="aa{sv}" name="metas" direction="out"/></method>
+    <method name="ActivateResult"><arg type="s" name="identifier" direction="in"/>
+      <arg type="as" name="terms" direction="in"/><arg type="u" name="timestamp" direction="in"/></method>
+    <method name="LaunchSearch"><arg type="as" name="terms" direction="in"/>
+      <arg type="u" name="timestamp" direction="in"/></method>
+  </interface>
+</node>
+"""
+
+
+def plain(text: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+
+
+def load_pages() -> list[dict]:
+    """[{id, title, icon, words}] for every Kulan Settings page."""
+    from kulan_settings.app import PAGES  # imports GTK; done once per start
+
+    pages = []
+    for page_id, cls in PAGES:
+        title = str(getattr(cls, "title", page_id))
+        words = " ".join((title, *getattr(cls, "keywords", ()))).replace("-", " ")
+        pages.append({"id": page_id, "title": title, "icon": str(getattr(cls, "icon", "emblem-system-symbolic")),
+                      "words": plain(words), "title_plain": plain(title)})
+    return pages
+
+
+def search(pages: list[dict], terms: list[str]) -> list[str]:
+    words = [plain(t) for t in terms if t.strip()]
+    if not words or sum(len(w) for w in words) < 2:
+        return []
+    scored = []
+    for page in pages:
+        if not all(w in page["words"] for w in words):
+            continue
+        # Pages whose name starts with what was typed come first.
+        score = 0 if page["title_plain"].startswith(words[0]) else 1 if words[0] in page["title_plain"] else 2
+        scored.append((score, page["title"], page["id"]))
+    return [page_id for _s, _t, page_id in sorted(scored)][:MAX_RESULTS]
+
+
+class Provider:
+    def __init__(self, loop: GLib.MainLoop) -> None:
+        self.loop = loop
+        self.pages = load_pages()
+        self.by_id = {p["id"]: p for p in self.pages}
+        self.idle_timer = GLib.timeout_add_seconds(IDLE_EXIT_S, self.idle_exit)
+
+    def idle_exit(self) -> bool:
+        self.loop.quit()
+        return GLib.SOURCE_REMOVE
+
+    def keep_alive(self) -> None:
+        GLib.source_remove(self.idle_timer)
+        self.idle_timer = GLib.timeout_add_seconds(IDLE_EXIT_S, self.idle_exit)
+
+    def on_call(self, _conn, _sender, _path, _iface, method, params, invocation) -> None:
+        self.keep_alive()
+        args = params.unpack()
+        if method in ("GetInitialResultSet", "GetSubsearchResultSet"):
+            invocation.return_value(GLib.Variant("(as)", (search(self.pages, list(args[-1])),)))
+        elif method == "GetResultMetas":
+            metas = []
+            for identifier in args[0]:
+                page = self.by_id.get(identifier)
+                if page is None:
+                    continue
+                metas.append({
+                    "id": GLib.Variant("s", identifier),
+                    "name": GLib.Variant("s", page["title"]),
+                    "description": GLib.Variant("s", "Kulan Settings"),
+                    "gicon": GLib.Variant("s", page["icon"]),
+                })
+            invocation.return_value(GLib.Variant("(aa{sv})", (metas,)))
+        elif method == "ActivateResult":
+            if args[0] in self.by_id:
+                self.launch(["kulan-settings", args[0]])
+            invocation.return_value(None)
+        elif method == "LaunchSearch":
+            self.launch(["kulan-settings"])
+            invocation.return_value(None)
+
+    @staticmethod
+    def launch(argv: list[str]) -> None:
+        try:
+            Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE)
+        except GLib.Error as exc:
+            print(f"kulan settings search: {exc.message}", file=sys.stderr)
+
+
+def main() -> int:
+    loop = GLib.MainLoop()
+    provider = Provider(loop)
+    node = Gio.DBusNodeInfo.new_for_xml(INTERFACE)
+
+    def on_bus(connection, _name) -> None:
+        connection.register_object(OBJECT_PATH, node.interfaces[0], provider.on_call, None, None)
+
+    Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE, on_bus, None,
+                     lambda *_a: loop.quit())
+    loop.run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

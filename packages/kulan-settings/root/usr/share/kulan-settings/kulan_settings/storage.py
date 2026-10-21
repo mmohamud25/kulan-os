@@ -67,7 +67,8 @@ def disk_usage(path: str = "/") -> tuple[int, int]:
 class StoragePage(Page):
     title = "Storage"
     icon = "drive-harddisk-symbolic"
-    keywords = ("storage", "disk", "space", "free up", "clean", "bin", "trash", "cache", "full")
+    keywords = ("storage", "disk", "space", "free up", "clean", "bin", "trash", "cache", "full", "restore points",
+                "timeshift", "snapshots")
 
     def __init__(self, window) -> None:
         super().__init__(window)
