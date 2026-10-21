@@ -16,7 +16,8 @@
       "With automatic updates on, apps update daily too",
       "Spotlight search: Cmd+Space opens a search bar over your windows for apps, files, sums, characters, Kulan Settings and GNOME Settings pages, and Kulan Assistant answers; arrow keys and Enter, Escape to close (Kulan Settings > Keyboard can open Activities instead)",
       "Kulan Settings pages appear in search, in Spotlight and Activities",
-      "The live session no longer shows a broken installer icon on the desktop; Install Kulan OS is the first icon in the dock"
+      "The live session no longer shows a broken installer icon on the desktop; Install Kulan OS is the first icon in the dock",
+      "Works well in VMware Fusion and Workstation: shared clipboard, drag and drop, automatic screen size, and the start-up screen shows properly"
     ]
   },
   {

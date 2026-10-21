@@ -121,3 +121,6 @@ htop
 # Harmless on real hardware: the services only start inside a VM.
 spice-vdagent
 qemu-guest-agent
+# VMware Fusion / Workstation: shared clipboard, drag and drop, automatic
+# screen size and time sync (its services only start inside VMware).
+open-vm-tools-desktop

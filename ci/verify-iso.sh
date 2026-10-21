@@ -115,6 +115,7 @@ if installed kulan-devkit; then
 else
 	result pass "Developer kit" "not in the ISO (one-click add-on in Kulan Settings)"
 fi
+check "VM tools" "UTM/QEMU and VMware guest tools (clipboard, screen size)" bash -c "$(declare -f installed); R='${R}'; installed spice-vdagent && installed qemu-guest-agent && installed open-vm-tools-desktop"
 check "Mac-style apps" "Quick Look, Live Text OCR, window snapping, emoji, weather, desktop icons and Folder Colour" bash -c "$(declare -f installed); R='${R}'; installed gnome-sushi && installed python3-nautilus && installed tesseract-ocr-eng && installed gnome-shell-extension-tiling-assistant && installed gnome-characters && installed gnome-weather && installed gnome-shell-extension-desktop-icons-ng"
 if [[ "${ARCH}" == amd64 ]]; then
 	check "Laptop firmware" "Intel and AMD graphics, Wi-Fi, Bluetooth, sound and CPU microcode" bash -c "$(declare -f installed); R='${R}'; for p in firmware-intel-graphics firmware-amd-graphics firmware-iwlwifi firmware-realtek firmware-atheros firmware-mediatek firmware-sof-signed bluez-firmware intel-microcode amd64-microcode; do installed \$p || { echo \$p; exit 1; }; done"
