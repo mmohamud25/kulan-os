@@ -17,7 +17,7 @@ ARCH="${KULAN_ARCH:-$(dpkg --print-architecture)}"
 # serial port the firmware announces. See kulan-desktop-settings' grub.d file.
 CONSOLE_ARGS=""
 if [ "${ARCH}" = arm64 ]; then
-	CONSOLE_ARGS="console=ttyAMA0 console=tty0 "
+	CONSOLE_ARGS="console=ttyAMA0 console=tty0 plymouth.ignore-serial-consoles "
 fi
 
 # Build number, shown in the ISO file name (GitHub's run number in CI).

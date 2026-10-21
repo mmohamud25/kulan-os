@@ -79,7 +79,7 @@ has_path() { grep -q "squashfs-root/$1\$" "${WORK}/listing"; }
 # --- Checks -------------------------------------------------------------------
 check "Boot menu" "\"Kulan OS Live\" entries in GRUB" grep -q "Kulan OS Live" "${WORK}/grub.cfg"
 if [[ "${ARCH}" == arm64 ]]; then
-	check "Console on screen" "boot messages and prompts shown on the screen, not only the serial port" grep -q "console=tty0" "${WORK}/grub.cfg"
+	check "Console on screen" "boot messages, splash and prompts on the screen, not only the serial port" bash -c "grep -q 'console=tty0' '${WORK}/grub.cfg' && grep -q 'plymouth.ignore-serial-consoles' '${WORK}/grub.cfg'"
 fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
@@ -117,6 +117,7 @@ if [[ -f "${WORK}/initrd.img" ]]; then
 	else
 		result fail "Splash logo" "could not unpack the initramfs or the watermark"
 	fi
+	check "VM graphics early" "virtio_gpu driver inside the initramfs, so VMs show the splash" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q '/virtio-gpu.ko\\|/virtio_gpu.ko'"
 	# Debian's console-setup puts the layout in the initramfs as
 	# etc/console-setup/cached_*.kmap, loaded by scripts/init-top/keymap.
 	lsinitramfs "${WORK}/initrd.img" > "${WORK}/initrd.list"
