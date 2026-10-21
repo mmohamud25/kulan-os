@@ -218,7 +218,7 @@ class KulanMenu extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Kulan Settings…', () => openKulanSettings(null));
         this.menu.addAction('Software Update…', () => openKulanSettings('updates'));
-        this.menu.addAction('App Store…', () => launchApp('org.gnome.Software.desktop'));
+        this.menu.addAction('Kulan Store…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
         this.menu.addAction('Log Out…', () => actions.activateLogout());

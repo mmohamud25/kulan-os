@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kulan OS: Kulan picks in the Kulan Store. Well-known, open-source (or
+     widely trusted) apps, shown in the store's recommended section. Only
+     marks apps that are already in the catalogue; adds nothing new. -->
+<components version="0.16" origin="kulan-picks">
+  <!-- office -->
+  <component merge="append">
+    <id>org.libreoffice.LibreOffice</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- email -->
+  <component merge="append">
+    <id>org.mozilla.Thunderbird</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- photo editing -->
+  <component merge="append">
+    <id>org.gimp.GIMP</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- drawing -->
+  <component merge="append">
+    <id>org.inkscape.Inkscape</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- painting -->
+  <component merge="append">
+    <id>org.kde.krita</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- video -->
+  <component merge="append">
+    <id>org.videolan.VLC</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- passwords -->
+  <component merge="append">
+    <id>org.keepassxc.KeePassXC</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- screen recording -->
+  <component merge="append">
+    <id>com.obsproject.Studio</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- audio -->
+  <component merge="append">
+    <id>org.audacityteam.Audacity</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- 3D -->
+  <component merge="append">
+    <id>org.blender.Blender</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- private messages -->
+  <component merge="append">
+    <id>org.signal.Signal</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- app permissions -->
+  <component merge="append">
+    <id>com.github.tchx84.Flatseal</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+  <!-- virtual machines -->
+  <component merge="append">
+    <id>org.gnome.Boxes</id>
+    <kudos><kudo>GnomeSoftware::popular</kudo></kudos>
+  </component>
+</components>

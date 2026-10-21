@@ -168,6 +168,18 @@ def main() -> int:
              f'<path fill="#FBBF24" d="{sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>')
     write_icon("kulan-welcome", "kulan-setup-assistant", adwaita_tile("#3A7BD5", "#1E4E9C", "#173A75", stars))
 
+    # Kulan Store: a shopping bag with the Kulan gathering dots, on orange.
+    bag_body = "M150 214 H362 L346 398 Q344 416 326 416 H186 Q168 416 166 398 Z"
+    bag = (f'<path fill="#5A2A05" fill-opacity="0.25" transform="translate(0 8)" d="{bag_body}"/>'
+           f'<path d="M206 214 V184 Q206 134 256 134 Q306 134 306 184 V214" fill="none" stroke="#FFF7E6" '
+           f'stroke-width="22" stroke-linecap="round"/>'
+           f'<path fill="#FFF7E6" d="{bag_body}"/>'
+           + "".join(f'<circle cx="{256 + 46 * math.cos(math.radians(a)):.1f}" cy="{316 + 46 * math.sin(math.radians(a)):.1f}" '
+                     f'r="13" fill="{"#F59E0B" if i % 2 == 0 else "#0F766E"}"/>'
+                     for i, a in enumerate(range(-90, 270, 60)))
+           + '<circle cx="256" cy="316" r="17" fill="#0F766E"/>')
+    write_icon("kulan-desktop-settings", "kulan-store", adwaita_tile("#F59E0B", "#D9770A", "#A85A06", bag))
+
     # Kulan folders: an icon theme with just the folder icons, inheriting
     # Adwaita for everything else. Teal folders, a white symbol on the special
     # ones, and colour versions for the Folder Colour menu in Files.
