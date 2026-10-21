@@ -194,7 +194,7 @@ check "Boot splash" "Plymouth theme kulan built and selected" bash -c 'test -f /
 check "Boot speed" "network-wait startup step switched off once" test -e /var/lib/kulan/network-wait-disabled
 check "Firewall" "ufw enabled on first install" grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf
 check "Auto updates" "Debian security + Kulan origins allowed" bash -c 'apt-config dump | grep -q "origin=Kulan OS" && apt-config dump | grep -q "label=Debian-Security"'
-check "Firefox privacy" "policies.json valid; Firefox uses the system window buttons" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["Preferences"]["widget.gtk.non-native-titlebar-buttons.enabled"]["Value"] is False'
+check "Firefox privacy" "policies.json valid; Firefox uses the system window buttons and the system (encrypted) DNS" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["Preferences"]["widget.gtk.non-native-titlebar-buttons.enabled"]["Value"] is False; assert p["DNSOverHTTPS"] == {"Enabled": False, "Locked": True}'
 if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
 fi
@@ -350,7 +350,7 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 	fi
 	check "Assistant understands questions" "a search question becomes words, a kind of file and dates" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; q = search.understand("the invoice PDF from last month"); print(q); assert q and q["words"] and q["kind"] in ("pdf", "document", "any")'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
-	check "Dictation engine" "whisper.cpp starts and picks the CPU code for this processor" bash -c '/usr/lib/kulan-assistant/whisper/whisper-cli --help >/dev/null 2>&1; test -x /usr/lib/kulan-assistant/whisper/whisper-cli && ls /usr/lib/kulan-assistant/whisper/libggml-cpu-*.so >/dev/null'
+	check "Dictation engine" "whisper.cpp starts and has its CPU code" bash -c '/usr/lib/kulan-assistant/whisper/whisper-cli --help 2>&1 | grep -q "supported audio formats" && ls /usr/lib/kulan-assistant/whisper/libggml-cpu-*.so >/dev/null'
 	check "Dictation model download" "Quick speech model downloaded and its SHA-256 checked" timeout 600 /usr/lib/kulan/update-run assistant-model whisper-base
 	# Speech made by espeak-ng, then turned back into text.
 	apt-get install -y -q espeak-ng >/dev/null 2>&1

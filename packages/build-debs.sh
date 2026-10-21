@@ -164,6 +164,10 @@ License: All-rights-reserved
  All rights reserved. ${KULAN_NAME} is built on Debian; Debian's own packages
  keep their own licenses, listed in /usr/share/doc/<package>/copyright.
 EOF
+	# Third-party content shipped in this package, with its own license.
+	if [[ -f "${SRC}/DEBIAN/copyright.extra" ]]; then
+		{ echo; cat "${SRC}/DEBIAN/copyright.extra"; } >> "${DOC}/copyright"
+	fi
 	COMMIT="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 	{
 		echo "${NAME} (${KULAN_PKG_VERSION}) ${KULAN_DEBIAN_SUITE}; urgency=medium"

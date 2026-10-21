@@ -1,0 +1,9 @@
+Files: usr/share/kulan/cities.tsv.gz
+Copyright: GeoNames (https://www.geonames.org)
+ 2016-2026 Zeke Sikelianos and contributors (all-the-cities)
+License: CC-BY-4.0
+ City names, countries, populations and coordinates from GeoNames,
+ licensed under the Creative Commons Attribution 4.0 International License
+ (https://creativecommons.org/licenses/by/4.0/), as packaged by the
+ all-the-cities npm package (MIT). Reduced to cities of 15,000 people or
+ more by scripts/render-cities.mjs in the Kulan OS sources.

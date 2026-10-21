@@ -21,19 +21,36 @@ const KEYS = ['prayer-times', 'prayer-method', 'prayer-asr', 'prayer-city', 'pra
     'prayer-latitude', 'prayer-longitude', 'prayer-notify'];
 const TICK_S = 20;
 
-function dayTimes(settings, dateTime) {
+// A day's prayers as moments (GLib.DateTime), in order. Worked out with the
+// day's own UTC offset (taken at noon), so the days the clocks change are
+// right too. A prayer the sun doesn't allow that day (midnight sun far
+// north) is left out.
+export function dayMoments(settings, day) {
+    const y = day.get_year(), m = day.get_month(), d = day.get_day_of_month();
+    const noon = GLib.DateTime.new_local(y, m, d, 12, 0, 0);
     const method = settings.get_string('prayer-method') || methodForCountry(settings.get_string('prayer-country'));
-    const offset = dateTime.get_utc_offset() / 3.6e9; // microseconds to hours
-    return times({year: dateTime.get_year(), month: dateTime.get_month(), day: dateTime.get_day_of_month()},
-        settings.get_double('prayer-latitude'), settings.get_double('prayer-longitude'), offset,
+    const hours = times({year: y, month: m, day: d}, settings.get_double('prayer-latitude'),
+        settings.get_double('prayer-longitude'), noon.get_utc_offset() / 3.6e9,
         {method, asr: settings.get_string('prayer-asr')});
-}
-
-// The moment (GLib.DateTime) a prayer falls on, given its hour of the day.
-function at(day, hours) {
-    const minutes = Math.round(hours * 60);
-    return GLib.DateTime.new_local(day.get_year(), day.get_month(), day.get_day_of_month(), 0, 0, 0)
-        .add_minutes(minutes);
+    const moments = [];
+    let previous = -1;
+    for (const name of PRAYERS) {
+        const h = hours[name];
+        if (!Number.isFinite(h))
+            continue;
+        // In summer far north, isha can fall after midnight: it belongs to the next day.
+        const date = h < previous ? noon.add_days(1) : noon;
+        previous = Math.max(previous, h);
+        let minutes = Math.round(h * 60);
+        let when = date;
+        if (minutes >= 24 * 60) {
+            minutes -= 24 * 60;
+            when = date.add_days(1);
+        }
+        moments.push({name, day: d, when: GLib.DateTime.new_local(when.get_year(), when.get_month(),
+            when.get_day_of_month(), Math.floor(minutes / 60), minutes % 60, 0)});
+    }
+    return moments;
 }
 
 export class PrayerTimes {
@@ -114,31 +131,24 @@ export class PrayerTimes {
         if (!this._indicator)
             return;
         const now = GLib.DateTime.new_now_local();
-        const today = dayTimes(this._settings, now);
-        const tomorrowDay = now.add_days(1);
-        // In summer far north, isha can fall after midnight: keep the order.
-        let previous = -1;
-        const moments = PRAYERS.map(name => {
-            const day = today[name] < previous ? tomorrowDay : now;
-            previous = Math.max(previous, today[name]);
-            return {name, when: at(day, today[name])};
-        });
-        let next = moments.find(m => m.when.compare(now) > 0 && m.name !== 'sunrise');
-        if (!next) {
-            const t = dayTimes(this._settings, tomorrowDay);
-            next = {name: 'fajr', when: at(tomorrowDay, t.fajr)};
-        }
-        this._label.set_text(`${NAMES[next.name]} ${this._format(next.when)}`);
+        // Yesterday's too: its isha can come after midnight.
+        const yesterday = dayMoments(this._settings, now.add_days(-1));
+        const today = dayMoments(this._settings, now);
+        const tomorrow = dayMoments(this._settings, now.add_days(1));
+        const all = [...yesterday, ...today, ...tomorrow];
+        const next = all.find(m => m.when.compare(now) > 0 && m.name !== 'sunrise');
+        this._label.set_text(next ? `${NAMES[next.name]} ${this._format(next.when)}` : 'Prayer times');
         this._place.label.set_text(`${this._settings.get_string('prayer-city')} · today`);
-        for (const {name, when} of moments) {
+        for (const name of PRAYERS) {
             const row = this._rows[name];
-            row.time.set_text(this._format(when));
-            if (name === next.name && next.when.get_day_of_month() === now.get_day_of_month())
+            const moment = today.find(m => m.name === name);
+            row.time.set_text(moment ? this._format(moment.when) : '—');
+            if (moment && next && moment.when.equal(next.when))
                 row.item.add_style_class_name('kulan-prayer-next');
             else
                 row.item.remove_style_class_name('kulan-prayer-next');
         }
-        this._maybeNotify(now, moments);
+        this._maybeNotify(now, all);
     }
 
     // When a prayer's time arrives (within the last two ticks), once.
@@ -149,15 +159,19 @@ export class PrayerTimes {
             if (!NOTIFY.includes(name))
                 continue;
             const since = now.difference(when) / 1e6; // seconds since the prayer time
-            const key = `${when.format('%F')}-${name}`;
+            const key = `${when.format('%F %R')}-${name}`;
             if (since >= 0 && since < TICK_S * 2 + 5 && !this._notified.has(key)) {
                 this._notified.add(key);
                 Main.notify(`${NAMES[name]}`, `It’s time for ${NAMES[name]} (${this._format(when)}).`);
                 global.display.get_sound_player().play_from_theme('complete', `${NAMES[name]} prayer time`, null);
             }
         }
-        if (this._notified.size > 20)
-            this._notified.clear();
+        // Forget only what is long past.
+        const cutoff = now.add_days(-2).format('%F');
+        for (const key of this._notified) {
+            if (key.slice(0, 10) < cutoff)
+                this._notified.delete(key);
+        }
     }
 
     destroy() {

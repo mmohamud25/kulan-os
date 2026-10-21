@@ -52,6 +52,10 @@
       }
     },
     "HttpsOnlyMode": "enabled",
+    "DNSOverHTTPS": {
+      "Enabled": false,
+      "Locked": true
+    },
     "ExtensionSettings": {
       "uBlock0@raymondhill.net": {
         "installation_mode": "normal_installed",

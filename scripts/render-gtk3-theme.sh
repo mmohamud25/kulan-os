@@ -57,6 +57,10 @@ for ACCENT in "${!ACCENTS[@]}"; do
 				"${BASE}" "${ACCENT}" "${BASE}" "${GTK}" "${ACCENTS[${ACCENT}]}" \
 				"$([[ "${VARIANT}" == dark ]] && echo white || echo black)" > "${D}/${GTK}/gtk.css"
 		done
+		# GTK 4 reads the accent from CSS variables, which adw-gtk3 sets to blue.
+		printf ':root {\n  --accent-bg-color: #%s;\n  --accent-color: color-mix(in srgb, #%s 83%%, %s);\n}\n' \
+			"${ACCENTS[${ACCENT}]}" "${ACCENTS[${ACCENT}]}" \
+			"$([[ "${VARIANT}" == dark ]] && echo white || echo black)" >> "${D}/gtk-4.0/gtk.css"
 		printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=%s\nComment=adw-gtk3 with the %s accent, for Kulan OS\nEncoding=UTF-8\n\n[X-GNOME-Metatheme]\nGtkTheme=%s\n' \
 			"${NAME}" "${ACCENT}" "${NAME}" > "${D}/index.theme"
 	done

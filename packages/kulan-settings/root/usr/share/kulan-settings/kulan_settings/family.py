@@ -46,8 +46,9 @@ class FamilyPage(Page):
 
         web = self.add_group(
             "Family-safe web",
-            "Blocks adult and harmful websites for everyone on this computer, using Cloudflare for Families "
-            "(encrypted DNS). Children can’t turn it off without an administrator password. Also in "
+            "Blocks adult and harmful websites in every browser and app on this computer, using Cloudflare "
+            "for Families (encrypted DNS). Children can’t turn it off without an administrator password. "
+            "Tor Browser and VPN apps go around it: don’t allow them in a child’s apps. Also in "
             "Privacy > DNS.")
         self.web_row = Adw.SwitchRow(title="Family-safe web filter",
                                      subtitle="Adult content, malware and phishing sites are blocked")

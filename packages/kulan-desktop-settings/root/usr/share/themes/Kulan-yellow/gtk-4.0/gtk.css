@@ -2,3 +2,7 @@
 @import url("../../adw-gtk3/gtk-4.0/gtk.css");
 @define-color accent_bg_color #c88800;
 @define-color accent_color mix(@accent_bg_color, black, 0.17);
+:root {
+  --accent-bg-color: #c88800;
+  --accent-color: color-mix(in srgb, #c88800 83%, black);
+}

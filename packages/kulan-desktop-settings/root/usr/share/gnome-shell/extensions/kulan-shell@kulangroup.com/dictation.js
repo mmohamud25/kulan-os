@@ -27,6 +27,8 @@ export class Dictation {
         this._indicator = null;
         this._timer = 0;
         this._busy = false;
+        this._transcriber = null;
+        this._cancelled = false;
     }
 
     async toggle() {
@@ -76,11 +78,26 @@ export class Dictation {
         });
     }
 
+    // The shortcut as set in Kulan Settings > Keyboard, written the way people read it.
+    _shortcut() {
+        try {
+            const accel = new Gio.Settings({schema_id: 'org.kulan.desktop'}).get_strv('dictation-shortcut')[0];
+            if (accel) {
+                return accel.replace(/<Super>/g, 'Super+').replace(/<Shift>/g, 'Shift+')
+                    .replace(/<(Control|Primary)>/g, 'Ctrl+').replace(/<Alt>/g, 'Alt+')
+                    .replace(/\+([a-z])$/, (_m, c) => `+${c.toUpperCase()}`);
+            }
+        } catch {
+            // older settings without the key
+        }
+        return 'the Dictation shortcut';
+    }
+
     _showIndicator() {
         this._indicator = new PanelMenu.Button(0.0, 'Dictation', true);
         const box = new St.BoxLayout({style_class: 'kulan-dictation'});
         box.add_child(new St.Icon({icon_name: 'audio-input-microphone-symbolic', style_class: 'system-status-icon'}));
-        this._label = new St.Label({text: 'Listening… press Shift+Super+D to finish',
+        this._label = new St.Label({text: `Listening… press ${this._shortcut()} to finish`,
             y_align: Clutter.ActorAlign.CENTER});
         box.add_child(this._label);
         this._indicator.add_child(box);
@@ -140,9 +157,15 @@ export class Dictation {
                 return;
             }
             this._label?.set_text('Writing what you said…');
+            this._cancelled = false;
             const proc = Gio.Subprocess.new(['kulan-assistant', 'dictate', file],
                 Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            this._transcriber = proc;
             const [out, err] = await proc.communicate_utf8_async(null, null);
+            this._transcriber = null;
+            // Locked or turned off meanwhile: the words go nowhere.
+            if (this._cancelled || Main.sessionMode.isLocked)
+                return;
             const text = (out ?? '').trim();
             if (!proc.get_successful()) {
                 Main.notify(TITLE, (err ?? '').replace(/^kulan-assistant: /, '').trim() ||
@@ -169,6 +192,10 @@ export class Dictation {
     destroy() {
         if (this._recorder)
             this._stop(false);
+        if (this._transcriber) {
+            this._cancelled = true;
+            this._transcriber.force_exit();
+        }
         this._hideIndicator();
     }
 }

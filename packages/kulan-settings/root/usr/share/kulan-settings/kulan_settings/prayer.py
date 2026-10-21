@@ -158,12 +158,12 @@ class PrayerPage(Page):
 
     def on_pick(self, _list: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
         name, code, country, lat, lon = row.city
-        self.settings.delay()
-        self.settings.set_string("prayer-city", f"{name}, {country}")
+        # The city name last: Kulan Shell shows prayer times once it is set,
+        # so the coordinates must already be there.
         self.settings.set_string("prayer-country", code)
         self.settings.set_double("prayer-latitude", lat)
         self.settings.set_double("prayer-longitude", lon)
-        self.settings.apply()
+        self.settings.set_string("prayer-city", f"{name}, {country}")
         self.search_row.set_text("")
         self.results.set_visible(False)
-        self.toast(f"Prayer times for {name}")
+        self.toast(f"Prayer times for {name}")  # the window escapes toast text
