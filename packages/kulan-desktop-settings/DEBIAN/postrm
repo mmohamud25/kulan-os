@@ -3,6 +3,15 @@ set -e
 
 case "$1" in
 	remove|purge)
+		# Give Debian's splash logo back.
+		SPLASH_LOGO=/usr/share/plymouth/debian-logo.png
+		if [ -L "${SPLASH_LOGO}" ] && [ "$(readlink "${SPLASH_LOGO}")" = /usr/share/kulan/vendor-logos/logo-text-version-64.png ]; then
+			rm -f "${SPLASH_LOGO}"
+		fi
+		if dpkg-divert --list "${SPLASH_LOGO}" | grep -q 'by kulan-desktop-settings$'; then
+			dpkg-divert --package kulan-desktop-settings --remove --rename \
+				--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
+		fi
 		rm -f /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
 		if command -v glib-compile-schemas >/dev/null 2>&1; then
 			glib-compile-schemas /usr/share/glib-2.0/schemas || true
