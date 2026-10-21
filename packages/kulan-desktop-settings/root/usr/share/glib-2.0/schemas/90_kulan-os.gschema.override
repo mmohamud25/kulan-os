@@ -95,6 +95,16 @@ sort-directories-first=true
 [org.gtk.Settings.FileChooser]
 sort-directories-first=true
 
+# Terminal (Ptyxis): Kulan colours (light and dark follow the system), the
+# system monospace font (JetBrains Mono), a roomier default size.
+[org.gnome.Ptyxis]
+default-columns=100
+default-rows=28
+toast-on-copy-clipboard=true
+
+[org.gnome.Ptyxis.Profile]
+palette='Kulan'
+
 # Files on the desktop (Desktop Icons NG), Mac-style: they start at the top
 # right with drives first; no Home or Bin icons (they're in the dock and Files).
 [org.gnome.shell.extensions.ding]

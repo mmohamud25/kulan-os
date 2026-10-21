@@ -53,6 +53,11 @@ baobab
 tesseract-ocr
 tesseract-ocr-eng
 python3-nautilus
+# Terminal: Ptyxis with Kulan colours, zsh with suggestions and highlighting
+ptyxis
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
 
 # Office and media (native builds; run on ARM and PCs)
 libreoffice-writer

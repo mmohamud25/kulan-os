@@ -60,6 +60,30 @@ if [ -f "${USERS}" ]; then
 		printf '\ndoAutologin:     false\n' >> "${USERS}"
 	fi
 	grep -qE '^doAutologin:[[:space:]]+false$' "${USERS}" || { echo "E: failed to set doAutologin" >&2; exit 1; }
+
+	# New accounts use zsh, as on a Mac (Kulan's prompt and suggestions come
+	# from /etc/skel/.zshrc). Calamares 3.3 reads user: shell:, older
+	# settings used userShell:.
+	if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
+		if grep -qE '^[[:space:]]+shell:' "${USERS}"; then
+			sed -i -E 's|^([[:space:]]+shell:).*|\1 /bin/zsh|' "${USERS}"
+		elif grep -qE '^userShell:' "${USERS}"; then
+			sed -i -E 's|^userShell:.*|userShell:       /bin/zsh|' "${USERS}"
+		elif grep -qE '^user:[[:space:]]*$' "${USERS}"; then
+			sed -i -E 's|^user:[[:space:]]*$|user:\n  shell: /bin/zsh|' "${USERS}"
+		else
+			printf '\nuser:\n  shell: /bin/zsh\n' >> "${USERS}"
+		fi
+		grep -qE '(^[[:space:]]+shell:|^userShell:)[[:space:]]+/bin/zsh$' "${USERS}" ||
+			{ echo "E: failed to set the installer's shell" >&2; exit 1; }
+	fi
+fi
+
+# The live session's account (made by adduser) and any made later with
+# adduser or useradd on the installed system use zsh too.
+if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
+	[ -f /etc/adduser.conf ] && sed -i -E 's|^#?DSHELL=.*|DSHELL=/bin/zsh|' /etc/adduser.conf
+	[ -f /etc/default/useradd ] && sed -i -E 's|^#?[[:space:]]*SHELL=.*|SHELL=/bin/zsh|' /etc/default/useradd
 fi
 
 # Launcher in the app grid / dock.

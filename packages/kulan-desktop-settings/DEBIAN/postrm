@@ -13,6 +13,7 @@ case "$1" in
 				--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
 		fi
 		rm -f /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
+		rm -f /usr/share/kulan/xdg/applications/org.gnome.Console.desktop
 		if command -v glib-compile-schemas >/dev/null 2>&1; then
 			glib-compile-schemas /usr/share/glib-2.0/schemas || true
 		fi

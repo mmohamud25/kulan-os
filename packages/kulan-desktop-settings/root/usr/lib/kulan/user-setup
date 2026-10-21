@@ -4,11 +4,17 @@
 #   - a Projects folder, pinned in the Files sidebar
 #   - "New Document" templates (Text File, Markdown Note, Document,
 #     Spreadsheet, Presentation) in their Templates folder
+#   (2.2, version 2) the terminal:
+#   - the Kulan colours in Ptyxis (a link to the system's palette, so
+#     updates reach it)
+#   - Kulan's prompt and typing helpers: one line added to ~/.bashrc, and a
+#     ~/.zshrc for people using zsh who don't have one
+#   - Ptyxis in place of Console in the dock, if Console was there
 # Nothing that already exists is changed or replaced, and anything removed
 # afterwards stays removed: the work is only done once per VERSION.
 set -u
 
-VERSION=1
+VERSION=2
 STATE="${XDG_STATE_HOME:-${HOME}/.local/state}/kulan"
 MARKER="${STATE}/user-setup"
 TEMPLATES_SRC=/usr/share/kulan/templates
@@ -45,6 +51,45 @@ if [ "${DONE}" -lt 1 ]; then
 			DEST="${TEMPLATES}/$(basename "${SRC}")"
 			[ -e "${DEST}" ] || cp "${SRC}" "${DEST}" 2>/dev/null || true
 		done
+	fi
+fi
+
+if [ "${DONE}" -lt 2 ]; then
+	# Kulan colours for Ptyxis (it reads palettes from the user's data folder).
+	PALETTES="${XDG_DATA_HOME:-${HOME}/.local/share}/org.gnome.Ptyxis/palettes"
+	if [ -r /usr/share/kulan/ptyxis/Kulan.palette ] && [ ! -e "${PALETTES}/Kulan.palette" ]; then
+		if mkdir -p "${PALETTES}"; then
+			ln -s /usr/share/kulan/ptyxis/Kulan.palette "${PALETTES}/Kulan.palette" 2>/dev/null || true
+		fi
+	fi
+
+	# The prompt and typing helpers in bash (new and existing accounts).
+	LINE='[ -r /usr/share/kulan/shell/kulan.bash ] && . /usr/share/kulan/shell/kulan.bash  # Kulan OS prompt and typing helpers'
+	if [ -f "${HOME}/.bashrc" ] && ! grep -qF '/usr/share/kulan/shell/kulan.bash' "${HOME}/.bashrc"; then
+		printf '\n%s\n' "${LINE}" >> "${HOME}/.bashrc"
+	fi
+	# zsh users without a ~/.zshrc would otherwise get zsh's set-up questions.
+	LOGIN_SHELL="$(getent passwd "$(id -un)" | cut -d: -f7)"
+	case "${LOGIN_SHELL}" in
+		*/zsh)
+			if [ ! -e "${HOME}/.zshrc" ] && [ -r /etc/skel/.zshrc ]; then
+				cp /etc/skel/.zshrc "${HOME}/.zshrc" 2>/dev/null || true
+			fi
+			;;
+	esac
+
+	# Ptyxis in the dock where Console was.
+	if [ -e /usr/share/applications/org.gnome.Ptyxis.desktop ] && command -v gsettings >/dev/null 2>&1; then
+		FAVS="$(gsettings get org.gnome.shell favorite-apps 2>/dev/null || true)"
+		case "${FAVS}" in
+			*"'org.gnome.Console.desktop'"*)
+				case "${FAVS}" in
+					*"'org.gnome.Ptyxis.desktop'"*) NEW="$(printf '%s' "${FAVS}" | sed "s/'org.gnome.Console.desktop', //; s/, 'org.gnome.Console.desktop'//; s/'org.gnome.Console.desktop'//")" ;;
+					*) NEW="$(printf '%s' "${FAVS}" | sed "s/'org.gnome.Console.desktop'/'org.gnome.Ptyxis.desktop'/")" ;;
+				esac
+				gsettings set org.gnome.shell favorite-apps "${NEW}" 2>/dev/null || true
+				;;
+		esac
 	fi
 fi
 

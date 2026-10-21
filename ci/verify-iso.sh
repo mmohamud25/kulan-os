@@ -68,6 +68,8 @@ FILES=(
 	etc/calamares/settings.conf
 	etc/calamares/modules/partition.conf
 	etc/calamares/modules/users.conf
+	etc/adduser.conf
+	etc/skel/.zshrc
 	etc/calamares/branding/kulan/show.qml
 	etc/ufw/ufw.conf
 	var/lib/flatpak/repo/config
@@ -115,6 +117,7 @@ if [[ "${ARCH}" == amd64 ]]; then
 	check "Laptop firmware" "Intel and AMD graphics, Wi-Fi, Bluetooth, sound and CPU microcode" bash -c "$(declare -f installed); R='${R}'; for p in firmware-intel-graphics firmware-amd-graphics firmware-iwlwifi firmware-realtek firmware-atheros firmware-mediatek firmware-sof-signed bluez-firmware intel-microcode amd64-microcode; do installed \$p || { echo \$p; exit 1; }; done"
 fi
 check "Compressed memory" "zram swap generator installed" installed systemd-zram-generator
+check "Terminal" "Ptyxis with zsh, suggestions and highlighting; new accounts use zsh" bash -c "$(declare -f installed); R='${R}'; installed ptyxis && installed zsh && installed zsh-autosuggestions && installed zsh-syntax-highlighting && grep -qx 'DSHELL=/bin/zsh' \"\${R}/etc/adduser.conf\" && grep -qE '(shell:|userShell:)[[:space:]]+/bin/zsh' \"\${R}/etc/calamares/modules/users.conf\" && grep -q kulan.zsh \"\${R}/etc/skel/.zshrc\""
 check "Boot report" "kulan-boot-report.service enabled, for the boot test" has_path etc/systemd/system/multi-user.target.wants/kulan-boot-report.service
 if installed cups-browsed; then
 	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"

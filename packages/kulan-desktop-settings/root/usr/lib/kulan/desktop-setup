@@ -68,7 +68,21 @@ done
 # --- Dock (favorite apps) -----------------------------------------------------
 # calamares-settings-debian ships its own list at priority 96, so ours sorts
 # after it. The installer launcher is only listed while it exists (live session).
-FAVORITES="'firefox-esr.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Console.desktop', 'org.gnome.TextEditor.desktop', 'org.gnome.Software.desktop', 'org.gnome.Settings.desktop'"
+# Ptyxis is the terminal when installed; GNOME's Console is hidden then (it
+# stays installed: GNOME needs it) and comes back if Ptyxis is removed.
+TERMINAL=org.gnome.Console.desktop
+HIDDEN_CONSOLE=/usr/share/kulan/xdg/applications/org.gnome.Console.desktop
+if [ -f /usr/share/applications/org.gnome.Ptyxis.desktop ]; then
+	TERMINAL=org.gnome.Ptyxis.desktop
+	if [ -f /usr/share/applications/org.gnome.Console.desktop ]; then
+		mkdir -p "$(dirname "${HIDDEN_CONSOLE}")"
+		printf '%s\n' '[Desktop Entry]' '# Kulan OS hides this launcher: Ptyxis is the terminal.' \
+			'Type=Application' 'Name=Console' 'Hidden=true' > "${HIDDEN_CONSOLE}"
+	fi
+else
+	rm -f "${HIDDEN_CONSOLE}"
+fi
+FAVORITES="'firefox-esr.desktop', 'org.gnome.Nautilus.desktop', '${TERMINAL}', 'org.gnome.TextEditor.desktop', 'org.gnome.Software.desktop', 'org.gnome.Settings.desktop'"
 if [ -f "/usr/share/applications/${INSTALLER_DESKTOP}" ]; then
 	FAVORITES="'${INSTALLER_DESKTOP}', ${FAVORITES}"
 fi

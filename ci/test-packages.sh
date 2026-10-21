@@ -235,8 +235,35 @@ for p, kind in ((d / "Document.odt", "text"), (d / "Spreadsheet.ods", "spreadshe
         for member in ("content.xml", "styles.xml", "META-INF/manifest.xml"):
             __import__("xml.etree.ElementTree").etree.ElementTree.fromstring(z.read(member))
 PY
+check "Terminal colours" "Kulan palette for Ptyxis (light and dark, 16 colours each) chosen by default" python3 - <<'PY'
+import configparser, re, subprocess
+c = configparser.ConfigParser(); c.optionxform = str
+c.read("/usr/share/kulan/ptyxis/Kulan.palette")
+assert c["Palette"]["Name"] == "Kulan"
+for mode in ("Light", "Dark"):
+    keys = ["Foreground", "Background", "Cursor"] + [f"Color{i}" for i in range(16)]
+    for k in keys:
+        assert re.fullmatch(r"#[0-9a-f]{6}", c[mode][k]), (mode, k)
+out = subprocess.run(["gsettings", "get", "org.gnome.Ptyxis.Profile:/org/gnome/Ptyxis/Profiles/test/", "palette"],
+                     capture_output=True, text=True, env={"GSETTINGS_BACKEND": "memory", "PATH": "/usr/bin:/bin"})
+assert out.stdout.strip() == "'Kulan'", out.stdout + out.stderr
+PY
+check "Shell defaults" "zsh and bash load Kulan's prompt and helpers without errors; bash gets them once" bash <<'SH'
+set -u
+h=$(mktemp -d); export HOME=$h TERM=xterm-256color XDG_CONFIG_HOME= XDG_STATE_HOME= XDG_DATA_HOME=
+cp /etc/skel/.zshrc "$h/"
+err="$(zsh -i -c 'print -P -- "$PROMPT"; whence -w _zsh_autosuggest_start _zsh_highlight; [[ -o autocd ]] || exit 3' 2>&1 >"$h/zsh.out")" || { echo "zsh failed: $err"; exit 1; }
+[ -z "$err" ] || { echo "zsh printed: $err"; exit 1; }
+grep -q "_zsh_highlight: function" "$h/zsh.out" || { cat "$h/zsh.out"; exit 1; }
+cp /etc/skel/.bashrc "$h/.bashrc"
+sh /usr/lib/kulan/user-setup && rm -f "$h/.local/state/kulan/user-setup" && sh /usr/lib/kulan/user-setup
+[ "$(grep -c /usr/share/kulan/shell/kulan.bash "$h/.bashrc")" -eq 1 ] || { echo "bashrc line count wrong"; exit 1; }
+out="$(bash -i -c '__kulan_prompt; printf "%s" "$PS1"' 2>"$h/bash.err")"
+grep -v -e "job control" -e "terminal process group" "$h/bash.err" | grep . && exit 1
+case "$out" in *'\u@\h'*) ;; *) echo "bash prompt: $out"; exit 1 ;; esac
+SH
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Projects and templates" "first sign-in makes Projects (in the sidebar) and the templates, once" bash -c 'h=$(mktemp -d) && desktop-file-validate /etc/xdg/autostart/org.kulan.UserSetup.desktop && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test -d $h/Projects && grep -qx "file://$h/Projects" $h/.config/gtk-3.0/bookmarks && t=$(HOME=$h xdg-user-dir TEMPLATES) && test -f "$t/Document.odt" && rm "$t/Document.odt" && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test ! -e "$t/Document.odt" && test "$(wc -l < $h/.config/gtk-3.0/bookmarks)" -eq 1'
+check "Projects and templates" "first sign-in makes Projects (in the sidebar) and the templates, once" bash -c 'h=$(mktemp -d) && desktop-file-validate /etc/xdg/autostart/org.kulan.UserSetup.desktop && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test -d $h/Projects && grep -qx "file://$h/Projects" $h/.config/gtk-3.0/bookmarks && t=$(HOME=$h xdg-user-dir TEMPLATES) && test -f "$t/Document.odt" && rm "$t/Document.odt" && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test ! -e "$t/Document.odt" && test "$(wc -l < $h/.config/gtk-3.0/bookmarks)" -eq 1 && test "$(readlink $h/.local/share/org.gnome.Ptyxis/palettes/Kulan.palette)" = /usr/share/kulan/ptyxis/Kulan.palette'
 check "Add-on list" "every add-on names its apps; the helper refuses anything else" python3 - <<'PY'
 import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
@@ -254,7 +281,7 @@ PY
 # Every Debian package an add-on installs, and the security and privacy apps
 # the ISO adds in 2.2, must exist in Debian 13 (main).
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
+check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
