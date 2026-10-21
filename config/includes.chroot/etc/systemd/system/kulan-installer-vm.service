@@ -1,0 +1,18 @@
+[Unit]
+Description=Kulan OS installer: no disk encryption by default in a virtual machine
+Documentation=https://github.com/mmohamud25/kulan-os
+# Live session only, and only in a virtual machine: the VM's files already
+# live on the host computer's disk (encrypted there by FileVault, BitLocker
+# and the like), so a second disk password inside adds a prompt at every
+# start and no protection. "Encrypt system" is still there to tick.
+ConditionKernelCommandLine=boot=live
+ConditionVirtualization=vm
+ConditionPathExists=/etc/calamares/modules/partition.conf
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sed -i -E "s/^preCheckEncryption:[[:space:]]+true/preCheckEncryption:    false/" /etc/calamares/modules/partition.conf
+
+[Install]
+WantedBy=multi-user.target

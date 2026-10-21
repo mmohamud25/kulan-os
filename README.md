@@ -95,9 +95,10 @@ To verify the download: `cd ~/Projects/kulan-os-iso && shasum -a 256 -c *.sha256
 4. Memory: **4096 MB**, CPU cores: **4**. Storage: **32 GB**. Skip shared folders.
 5. Name it **Kulan OS**, click **Save**, then press **Play**.
 6. Choose **Kulan OS Live (arm64)** in the boot menu. The desktop opens automatically.
-7. Click **Install Kulan OS** in the dock and follow the steps. **Encrypt system** is
-   ticked: choose a password you won't forget, because it can't be recovered. At every
-   start, the Kulan splash asks for it before the login screen.
+7. Click **Install Kulan OS** in the dock and follow the steps. In a virtual machine,
+   **Encrypt system** starts unticked: the VM's files are already protected by your Mac's
+   own disk encryption (FileVault). On a real computer it's ticked: choose a password you
+   won't forget, because it can't be recovered. The Kulan splash asks for it at every start.
 8. When the installer shows **All done**, untick **Restart now**, click **Done** and shut
    down the VM. Then detach the ISO, or the VM starts the installer again: in UTM, click
    **Edit**, select the drive under **Drives** that holds the ISO (often **USB Drive**),
