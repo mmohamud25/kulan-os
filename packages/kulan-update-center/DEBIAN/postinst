@@ -3,15 +3,27 @@ set -e
 
 case "$1" in
 	configure)
-		# Daily restore points and a status refresh at every boot.
+		# Daily restore points, and a status refresh a minute after every
+		# start-up. Before 2.3 the refresh ran during start-up itself and held
+		# up the login screen; its old boot link is removed.
 		deb-systemd-helper enable kulan-restore-points.timer >/dev/null || true
-		deb-systemd-helper enable kulan-update-status.service >/dev/null || true
+		if deb-systemd-helper --quiet was-enabled kulan-update-status.service 2>/dev/null; then
+			deb-systemd-helper disable kulan-update-status.service >/dev/null 2>&1 || true
+		fi
+		rm -f /etc/systemd/system/multi-user.target.wants/kulan-update-status.service
+		deb-systemd-helper enable kulan-update-status.timer >/dev/null || true
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-restore-points.timer >/dev/null 2>&1 || true
+			deb-systemd-invoke start kulan-update-status.timer >/dev/null 2>&1 || true
 		fi
 		# Both helpers skip the ISO build and the live session by themselves.
 		/usr/lib/kulan/restore-points setup || true
+		# Apply the restore-point limits now (before 2.3, the ones taken before
+		# each update were never deleted) and measure them for Settings.
+		if [ -d /run/systemd/system ]; then
+			systemctl start --no-block kulan-restore-points-tidy.service >/dev/null 2>&1 || true
+		fi
 		/usr/lib/kulan/update-status refresh || true
 		;;
 	abort-upgrade|abort-remove|abort-deconfigure)

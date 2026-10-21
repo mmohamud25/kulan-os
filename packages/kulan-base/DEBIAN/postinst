@@ -13,6 +13,14 @@ case "$1" in
 		# with kulan.boot-report).
 		deb-systemd-helper enable kulan-boot-report.service >/dev/null || true
 
+		# When memory runs out, systemd-oomd closes the app causing it; this
+		# says which one, so it doesn't just disappear.
+		deb-systemd-helper enable kulan-oom-notice.service >/dev/null || true
+		if [ -d /run/systemd/system ]; then
+			systemctl --system daemon-reload >/dev/null 2>&1 || true
+			deb-systemd-invoke restart kulan-oom-notice.service >/dev/null 2>&1 || true
+		fi
+
 		# Console login banner (base-files' conffiles, so set here).
 		printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue
 		printf '%s %s\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue.net

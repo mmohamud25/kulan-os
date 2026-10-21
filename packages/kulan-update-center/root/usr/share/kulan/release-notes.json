@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.3",
+    "title": "Kulan OS 2.3",
+    "items": [
+      "No more freezing when memory runs out: Kulan OS closes the one app using too much and tells you which",
+      "Starts up faster: the update check waits until after you're signed in, and file search indexing only runs when the computer is idle",
+      "Restore points stay small: only the newest two taken before updates are kept, all of them stay within a quarter of the disk, and Kulan Settings > Storage shows their size with Delete All",
+      "New installs swap to compressed memory only, with no swap file on the disk"
+    ]
+  },
+  {
     "version": "2.2",
     "title": "Kulan OS 2.2",
     "items": [

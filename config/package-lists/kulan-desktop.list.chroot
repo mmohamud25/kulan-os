@@ -107,6 +107,7 @@ torbrowser-launcher
 
 # Speed: swap in compressed memory (settings in kulan-base)
 systemd-zram-generator
+systemd-oomd
 
 # Useful tools
 sudo

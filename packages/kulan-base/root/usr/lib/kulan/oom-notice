@@ -1,0 +1,165 @@
+#!/usr/bin/python3
+"""Tell people which app Kulan OS closed when memory ran out.
+
+  oom-notice watch                    (root, kulan-oom-notice.service) follow
+                                      systemd-oomd's log and notify the owner
+  oom-notice notify <title> <body>    (as the user) show one notification
+
+systemd-oomd closes the app under the most memory pressure so the computer
+doesn't freeze, but it does so silently: without this notice an app just
+disappears. The notice names the app and says why.
+"""
+from __future__ import annotations
+
+import configparser
+import json
+import os
+import pwd
+import re
+import subprocess
+import sys
+import time
+
+KILLED = re.compile(r"Killed (/\S+) due to")
+USER_UNIT = re.compile(r"/user@(\d+)\.service/")
+# app-<launcher>-<id>-<random>.scope (or .service); '-' inside the id is
+# escaped as \x2d, so the last '-' separates the random part.
+APP_UNIT = re.compile(r"^app-[^-]+-(.+)-[^-]+\.(?:scope|service)$")
+TERMINAL_UNIT = re.compile(r"^vte-spawn-")
+MIN_GAP_S = 10  # one notice per app, even if oomd logs it twice
+
+
+def unescape(name: str) -> str:
+    return re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), name)
+
+
+def desktop_name(app_id: str, home: str) -> str | None:
+    dirs = [
+        os.path.join(home, ".local/share/applications"),
+        os.path.join(home, ".local/share/flatpak/exports/share/applications"),
+        "/var/lib/flatpak/exports/share/applications",
+        "/usr/local/share/applications",
+        "/usr/share/applications",
+    ]
+    for directory in dirs:
+        path = os.path.join(directory, f"{app_id}.desktop")
+        parser = configparser.RawConfigParser(strict=False, interpolation=None)
+        parser.optionxform = str
+        try:
+            with open(path, encoding="utf-8") as fh:
+                parser.read_file(fh)
+            name = parser.get("Desktop Entry", "Name", fallback="").strip()
+        except (OSError, configparser.Error, UnicodeDecodeError):
+            continue
+        if name:
+            return name
+    return None
+
+
+def app_label(cgroup: str, home: str) -> str:
+    """A human name for the closed app's cgroup."""
+    leaf = cgroup.rstrip("/").rsplit("/", 1)[-1]
+    if TERMINAL_UNIT.match(leaf):
+        return "A program started in Terminal"
+    match = APP_UNIT.match(leaf)
+    if match:
+        app_id = unescape(match.group(1))
+        return desktop_name(app_id, home) or app_id
+    return "An app"
+
+
+def notify_user(uid: int, title: str, body: str) -> None:
+    try:
+        user = pwd.getpwuid(uid)
+    except KeyError:
+        return
+    bus = f"/run/user/{uid}/bus"
+    if not os.path.exists(bus):
+        return
+    subprocess.run(
+        ["runuser", "-u", user.pw_name, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
+         f"XDG_RUNTIME_DIR=/run/user/{uid}", sys.argv[0], "notify", title, body],
+        check=False, timeout=20, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def handle(message: str, recent: dict[str, float]) -> None:
+    match = KILLED.search(message)
+    if not match:
+        return
+    cgroup = match.group(1)
+    owner = USER_UNIT.search(cgroup + "/")
+    if not owner:
+        return  # not someone's app (system services are never chosen anyway)
+    now = time.monotonic()
+    if now - recent.get(cgroup, -MIN_GAP_S) < MIN_GAP_S:
+        return
+    recent[cgroup] = now
+    uid = int(owner.group(1))
+    try:
+        home = pwd.getpwuid(uid).pw_dir
+    except KeyError:
+        return
+    label = app_label(cgroup, home)
+    named = not label.startswith(("A program", "An app"))
+    title = f"{label} was closed" if named else "An app was closed"
+    body = (f"{label} was using too much memory, so Kulan OS closed it to keep your computer working. "
+            "Anything not saved in it may be lost. Closing apps you aren’t using helps prevent this.")
+    notify_user(uid, title, body)
+
+
+def watch() -> int:
+    recent: dict[str, float] = {}
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ["journalctl", "--follow", "--lines=0", "--output=json", "--unit=systemd-oomd.service"],
+                stdout=subprocess.PIPE, text=True,
+            )
+        except OSError as exc:
+            print(f"oom-notice: {exc}", file=sys.stderr)
+            return 1
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            try:
+                message = json.loads(line).get("MESSAGE", "")
+            except ValueError:
+                continue
+            if isinstance(message, str):
+                try:
+                    handle(message, recent)
+                except (OSError, subprocess.SubprocessError) as exc:
+                    print(f"oom-notice: {exc}", file=sys.stderr)
+            if len(recent) > 200:
+                recent.clear()
+        proc.wait()
+        time.sleep(5)  # journalctl ended (journald restarted): follow again
+
+
+def notify(title: str, body: str) -> int:
+    import gi
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Gio, GLib
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    bus.call_sync(
+        "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications",
+        "Notify",
+        GLib.Variant("(susssasa{sv}i)", ("Kulan OS", 0, "dialog-warning-symbolic", title, body, [],
+                                        {"urgency": GLib.Variant("y", 2)}, -1)),
+        None, Gio.DBusCallFlags.NONE, 10000, None,
+    )
+    return 0
+
+
+def main() -> int:
+    if len(sys.argv) == 2 and sys.argv[1] == "watch":
+        return watch()
+    if len(sys.argv) == 4 and sys.argv[1] == "notify":
+        return notify(sys.argv[2], sys.argv[3])
+    print("usage: oom-notice watch | notify <title> <body>", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

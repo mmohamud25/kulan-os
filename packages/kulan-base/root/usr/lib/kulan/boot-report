@@ -38,5 +38,6 @@ sleep 5 # let the session settle
 	systemd-analyze blame --no-pager 2>/dev/null | head -n 8 | sed 's/^ */blame=/'
 	echo "memory=$(free -m | awk '/^Mem:/ {print $3 " MB used of " $2 " MB"}')"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
+	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
 	echo "KULAN-BOOT-REPORT-END"
 } > "${OUT}" 2>&1

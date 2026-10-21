@@ -1,6 +1,7 @@
 """Storage: how full the disk is, and one-click ways to free up space."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -12,6 +13,18 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from .common import Page, launch
 
 APT_ARCHIVES = Path("/var/cache/apt/archives")
+# Written by /usr/lib/kulan/restore-points (Settings can't read /timeshift).
+RESTORE_USAGE = Path("/var/lib/kulan/restore-points.json")
+RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
+RESTORE_WARN_SHARE = 0.15  # of the disk
+
+
+def restore_usage() -> dict | None:
+    try:
+        data = json.loads(RESTORE_USAGE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def folder_size(path: Path) -> int:
@@ -84,7 +97,21 @@ class StoragePage(Page):
                                        "Remove", lambda: self.helper(["cleanup"], "Old system files removed"))
         self.logs_row = self.action_row("System logs", "Keep only the last two weeks", "Trim",
                                         lambda: self.helper(["clean-logs"], "System logs trimmed"))
-        self.buttons = [row.button for row in (self.apt_row, self.old_row, self.logs_row)]
+
+        self.restore = self.add_group(
+            "Restore points",
+            "Copies of the system Kulan OS takes each day and before updates, so a change that goes wrong "
+            "can be undone. Your own files aren’t in them.")
+        self.restore_row = Adw.ActionRow(title="Restore points")
+        self.restore_row.size_label = Gtk.Label(css_classes=["dim-label", "numeric"], valign=Gtk.Align.CENTER)
+        self.restore_row.button = Gtk.Button(label="Delete All…", valign=Gtk.Align.CENTER,
+                                             css_classes=["destructive-action"])
+        self.restore_row.button.update_property([Gtk.AccessibleProperty.LABEL], ["Delete all restore points"])
+        self.restore_row.button.connect("clicked", lambda _b: self.delete_restore_points())
+        self.restore_row.add_suffix(self.restore_row.size_label)
+        self.restore_row.add_suffix(self.restore_row.button)
+        self.restore.add(self.restore_row)
+        self.buttons = [row.button for row in (self.apt_row, self.old_row, self.logs_row, self.restore_row)]
 
         more = self.add_group()
         row = Adw.ActionRow(title="See what uses space", subtitle="Disk Usage Analyzer shows folders by size",
@@ -117,7 +144,49 @@ class StoragePage(Page):
         self.detail.set_label(f"{GLib.format_size(used)} used of {GLib.format_size(total)}")
         for row in (self.bin_row, self.thumbs_row, self.apt_row, self.old_row):
             row.size_label.set_label("…")
+        self.show_restore_points()
         threading.Thread(target=self.measure, daemon=True).start()
+
+    def show_restore_points(self) -> None:
+        usage = restore_usage()
+        self.restore.set_visible(usage is not None or RESTORE_CONFIG.exists())
+        row = self.restore_row
+        row.remove_css_class("warning")
+        if usage is None:
+            row.set_subtitle("Measured once a day; check back later")
+            row.size_label.set_label("…")
+            row.button.set_sensitive(False)
+            return
+        count = int(usage.get("count", 0))
+        size = int(usage.get("bytes", 0))
+        disk = int(usage.get("disk_bytes", 0))
+        if not count:
+            row.set_subtitle("None yet: the first is taken within a day")
+            row.size_label.set_label("Nothing")
+            row.button.set_sensitive(False)
+            return
+        row.size_label.set_label(GLib.format_size(size))
+        what = f"{count} restore point{'s' if count != 1 else ''}"
+        if disk and size > disk * RESTORE_WARN_SHARE:
+            row.set_subtitle(f"{what}, using more than {round(RESTORE_WARN_SHARE * 100)}% of the disk. "
+                             "Deleting them frees the space; new ones are taken as usual.")
+            row.add_css_class("warning")
+        else:
+            row.set_subtitle(f"{what}, kept within a quarter of the disk")
+        row.button.set_sensitive(not self.window.helper.busy)
+
+    def delete_restore_points(self) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Delete all restore points?",
+            body="Until new ones are taken (each day, and before updates), changes to the system can’t be undone. "
+                 "Your own files aren’t affected.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete All")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", lambda _d, r: r == "delete" and self.helper(
+            ["restore-points-delete-all"], "Restore points deleted"))
+        dialog.present(self.window)
 
     def measure(self) -> None:
         sizes = {
@@ -176,3 +245,5 @@ class StoragePage(Page):
     def on_busy(self, busy: bool) -> None:
         for button in self.buttons:
             button.set_sensitive(not busy)
+        if not busy:
+            self.show_restore_points()  # only enabled when there are some

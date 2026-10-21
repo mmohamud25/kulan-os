@@ -163,6 +163,13 @@ else
 	result fail "Compressed memory" "no zram swap (${SWAP:-none})"
 fi
 
+OOMD="$(field oomd)"
+if [[ "${OOMD}" == "active active" ]]; then
+	result pass "Memory guard" "systemd-oomd and Kulan's notice running"
+else
+	result fail "Memory guard" "systemd-oomd / notice: ${OOMD:-not reported}"
+fi
+
 FAILED_UNITS="$(field failed | tr '\n' ' ')"
 if [[ -z "${FAILED_UNITS// /}" ]]; then
 	result pass "Services" "no failed services (system state: $(field state))"

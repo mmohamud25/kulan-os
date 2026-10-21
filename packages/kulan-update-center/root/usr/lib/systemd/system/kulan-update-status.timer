@@ -1,0 +1,8 @@
+[Unit]
+Description=Refresh the Kulan Update Center status after start-up
+
+[Timer]
+OnBootSec=1min
+
+[Install]
+WantedBy=timers.target

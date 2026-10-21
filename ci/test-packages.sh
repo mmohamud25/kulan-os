@@ -208,6 +208,34 @@ check "Update status refresh" "refresh runs and stays idle" bash -c '/usr/lib/ku
 check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/kulan/update-run auto-off && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"0\"" && /usr/lib/kulan/update-run auto-on && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"1\""'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
+check "Status refresh after start-up" "a timer a minute after start-up, not in the way of the login screen" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-update-status.timer && ! test -e /etc/systemd/system/multi-user.target.wants/kulan-update-status.service'
+check "Memory guard" "systemd-oomd and Kulan's notice enabled; user apps closed under memory pressure" bash -c 'systemctl is-enabled systemd-oomd.service && systemctl is-enabled kulan-oom-notice.service && grep -qx "ManagedOOMMemoryPressure=kill" /usr/lib/systemd/system/user@.service.d/50-kulan-oomd.conf'
+check "Memory notice" "names the app that was closed" python3 -I - <<'PY'
+import importlib.machinery, importlib.util
+loader = importlib.machinery.SourceFileLoader("oom", "/usr/lib/kulan/oom-notice")
+spec = importlib.util.spec_from_loader("oom", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+sent = []
+m.notify_user = lambda uid, title, body: sent.append((uid, title))
+m.pwd.getpwuid = lambda uid: type("P", (), {"pw_dir": "/nonexistent", "pw_name": "x"})()
+base = "/user.slice/user-1000.slice/user@1000.service/app.slice/"
+m.handle("Killed " + base + "app-gnome-org.gnome.Nautilus-17.scope due to memory pressure for x", {})
+m.handle("Killed /system.slice/foo.service due to memory pressure", {})
+assert sent and sent[0][0] == 1000 and ("Files" in sent[0][1] or "Nautilus" in sent[0][1]), sent
+assert len(sent) == 1, sent
+print(sent[0][1])
+PY
+check "Calm file indexing" "file search indexing runs only when the computer is idle" grep -qx "CPUWeight=idle" /usr/lib/systemd/user/localsearch-3.service.d/50-kulan-idle.conf
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Restore point limits" "newest 2 update-time points kept, own ones never deleted, size recorded" bash -c '
+	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps"
+	printf "#!/bin/sh\ncase \"\$1\" in --delete) rm -rf \"\$KULAN_RESTORE_SNAPSHOTS/\$3\";; esac\n" > "$D/bin/timeshift"; chmod +x "$D/bin/timeshift"
+	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" /usr/lib/kulan/restore-points > "$D/rp"; echo "{}" > "$D/ts.json"
+	mk() { mkdir -p "$D/snaps/$1"; printf "{\"tags\":\"%s\",\"comments\":\"%s\"}" "$2" "$3" > "$D/snaps/$1/info.json"; }
+	mk 2026-01-01_00-00-00 O "Before installing updates"; mk 2026-01-02_00-00-00 O "Created in Update Center"
+	mk 2026-01-03_00-00-00 O "Before installing updates"; mk 2026-01-04_00-00-00 "D" ""; mk 2026-01-05_00-00-00 O "Before installing updates"
+	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/usage.json" bash "$D/rp" tidy
+	test "$(ls "$D/snaps" | tr "\n" " ")" = "2026-01-02_00-00-00 2026-01-03_00-00-00 2026-01-04_00-00-00 2026-01-05_00-00-00 " || { ls "$D/snaps"; exit 1; }
+	python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d[\"count\"]==4 and d[\"own\"]==1 and d[\"bytes\"]>0, d" "$D/usage.json"'
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash

@@ -5,9 +5,17 @@
 #   restore-points scheduled         daily timer: take scheduled snapshots
 #   restore-points create "<note>"   take a snapshot now
 #   restore-points status            print whether restore points are on
+#   restore-points tidy              apply the limits below, then record usage
+#   restore-points usage             record how many there are and the space
+#                                    they use (for Kulan Settings > Storage)
+#   restore-points delete-all        delete every restore point
 #
 # Snapshots are skipped when the disk is low on space, so restore points can
-# never fill the disk. Schedule: daily (keep 2) and weekly (keep 1). Home
+# never fill the disk. Schedule: daily (keep 2) and weekly (keep 1); of the
+# ones taken before installing updates, the newest 2 are kept (Timeshift keeps
+# on-demand snapshots forever, so before 2.3 they piled up). Ones you make
+# yourself are never deleted automatically. If all of them together use more
+# than a quarter of the disk, the oldest automatic ones go first. Home
 # folders are not included (Timeshift's default): restore points roll back
 # the system, not personal files - Deja Dup backs those up.
 set -euo pipefail
@@ -18,6 +26,11 @@ CONFIG=/etc/timeshift/timeshift.json
 DEFAULTS=/etc/timeshift/default.json
 MIN_FREE_PERCENT=15
 MIN_FREE_GIB=6
+SNAPSHOTS="${KULAN_RESTORE_SNAPSHOTS:-/timeshift/snapshots}" # Timeshift, rsync mode on /
+USAGE_FILE="${KULAN_RESTORE_USAGE:-/var/lib/kulan/restore-points.json}"
+UPDATE_NOTE="Before installing updates" # update-run's note
+KEEP_UPDATE_POINTS=2
+MAX_PERCENT=25 # of the disk, for all restore points together
 
 log() { echo "kulan restore-points: $*" >&2; }
 
@@ -76,6 +89,103 @@ PY
 	log "set up: daily and weekly restore points on the system disk"
 }
 
+# Snapshots as "<name> <kind>" lines, oldest first (names are dates). kind is
+# "update" (taken before installing updates), "own" (made by hand) or "auto"
+# (the daily and weekly schedule).
+list_snapshots() {
+	python3 -I - "${SNAPSHOTS}" "${UPDATE_NOTE}" <<'PY'
+import json, os, sys
+root, update_note = sys.argv[1:3]
+rows = []
+try:
+    names = os.listdir(root)
+except OSError:
+    names = []
+for name in names:
+    try:
+        with open(os.path.join(root, name, "info.json"), encoding="utf-8") as fh:
+            info = json.load(fh)
+    except (OSError, ValueError):
+        continue
+    tags = str(info.get("tags", ""))
+    comment = str(info.get("comments", ""))
+    if comment == update_note:
+        kind = "update"
+    elif "O" in tags.split():
+        kind = "own"
+    else:
+        kind = "auto"
+    rows.append((name, kind))
+for name, kind in sorted(rows):
+    if name and not any(c.isspace() for c in name):
+        print(name, kind)
+PY
+}
+
+delete_snapshot() {
+	log "deleting restore point $1"
+	timeshift --delete --snapshot "$1" --scripted >&2 || log "couldn't delete $1"
+}
+
+# Bytes used by all restore points (files shared between them counted once).
+used_bytes() {
+	if [[ -d "${SNAPSHOTS}" ]]; then
+		du -sx -B1 "${SNAPSHOTS}" 2>/dev/null | cut -f1
+	else
+		echo 0
+	fi
+}
+
+# Keep only the newest update-time restore points (quick).
+prune_updates() {
+	local name kind
+	local -a updates=()
+	while read -r name kind; do
+		[[ "${kind}" == update ]] && updates+=("${name}")
+	done < <(list_snapshots)
+	local extra=$(( ${#updates[@]} - KEEP_UPDATE_POINTS ))
+	local i
+	for (( i = 0; i < extra; i++ )); do
+		delete_snapshot "${updates[i]}"
+	done
+}
+
+# Over the cap (measuring takes a while, so it runs in the background service).
+enforce_cap() {
+	local name kind
+	# Over the cap: the oldest automatic ones go, never the newest one, and
+	# never one made by hand.
+	local size total
+	total="$(df --output=size -B1 / | tail -n 1)"
+	while true; do
+		size="$(used_bytes)"
+		(( size * 100 > total * MAX_PERCENT )) || break
+		local -a auto=()
+		while read -r name kind; do
+			[[ "${kind}" != own ]] && auto+=("${name}")
+		done < <(list_snapshots)
+		(( ${#auto[@]} > 1 )) || break
+		delete_snapshot "${auto[0]}"
+	done
+}
+
+# Writes the usage file Kulan Settings reads (it can't read /timeshift itself).
+record_usage() {
+	local count=0 own=0 name kind size total
+	while read -r name kind; do
+		count=$((count + 1))
+		[[ "${kind}" == own ]] && own=$((own + 1))
+	done < <(list_snapshots)
+	size="$(used_bytes)"
+	total="$(df --output=size -B1 / | tail -n 1)"
+	mkdir -p "$(dirname "${USAGE_FILE}")"
+	local tmp="${USAGE_FILE}.tmp"
+	printf '{"count": %d, "own": %d, "bytes": %d, "disk_bytes": %d, "updated": %d}\n' \
+		"${count}" "${own}" "${size:-0}" "${total:-0}" "$(date +%s)" > "${tmp}"
+	chmod 0644 "${tmp}"
+	mv -f "${tmp}" "${USAGE_FILE}"
+}
+
 case "${1:-}" in
 	setup)
 		setup
@@ -83,8 +193,30 @@ case "${1:-}" in
 	scheduled)
 		is_live_or_build && exit 0
 		setup
-		have_space || exit 0
-		timeshift --check --scripted
+		if have_space; then
+			timeshift --check --scripted
+		fi
+		prune_updates
+		enforce_cap
+		record_usage
+		;;
+	tidy)
+		is_live_or_build && exit 0
+		prune_updates
+		enforce_cap
+		record_usage
+		;;
+	usage)
+		is_live_or_build && exit 0
+		record_usage
+		;;
+	delete-all)
+		[[ $# -eq 1 ]] || { echo 'usage: restore-points delete-all' >&2; exit 2; }
+		is_live_or_build && exit 0
+		if [[ -n "$(list_snapshots)" ]]; then
+			timeshift --delete-all --scripted >&2
+		fi
+		record_usage
 		;;
 	create)
 		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
@@ -92,6 +224,9 @@ case "${1:-}" in
 		setup
 		have_space || exit 1
 		timeshift --create --scripted --comments "$2" --tags O
+		prune_updates
+		# Measuring can take a minute: done afterwards, at idle priority.
+		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || { enforce_cap; record_usage; }
 		;;
 	status)
 		if [[ -f "${CONFIG}" ]] && command -v timeshift >/dev/null 2>&1; then
@@ -101,7 +236,7 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		echo 'usage: restore-points setup|scheduled|create "<note>"|status' >&2
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all' >&2
 		exit 2
 		;;
 esac

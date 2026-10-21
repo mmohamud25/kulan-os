@@ -6,6 +6,7 @@
 #   update-run install [--restore-point]  install available updates
 #   update-run auto-on | auto-off         automatic updates on or off
 #   update-run restore-point              create a restore point now
+#   update-run restore-points-delete-all  delete every restore point
 #   update-run install-devkit             install the Kulan developer kit
 #   update-run install-apps               install LibreOffice, VLC and GIMP
 #   update-run addon-install <id>         install an add-on listed in addons.json
@@ -146,6 +147,11 @@ case "${1:-}" in
 		[[ $# -eq 1 ]] || die "usage: update-run restore-point"
 		[[ -x /usr/lib/kulan/restore-points ]] || die "Restore points aren't installed."
 		/usr/lib/kulan/restore-points create "Created in Update Center"
+		;;
+	restore-points-delete-all)
+		[[ $# -eq 1 ]] || die "usage: update-run restore-points-delete-all"
+		[[ -x /usr/lib/kulan/restore-points ]] || die "Restore points aren't installed."
+		/usr/lib/kulan/restore-points delete-all
 		;;
 	install-devkit)
 		[[ $# -eq 1 ]] || die "usage: update-run install-devkit"

@@ -165,6 +165,7 @@ check "Installer in a VM" "encryption starts unticked in virtual machines (rule 
 check "Installer login" "\"Log in automatically\" starts unticked" bash -c "! grep -qE '^doAutologin:[[:space:]]+true' '${R}/etc/calamares/modules/users.conf'"
 check "Installer encryption" "encryption ticked by default" grep -qE "^preCheckEncryption:[[:space:]]+true" "${R}/etc/calamares/modules/partition.conf"
 check "Installer layout" "separate unencrypted /boot, so the disk is unlocked once" bash -c "grep -q '^partitionLayout:' '${R}/etc/calamares/modules/partition.conf' && grep -q 'noEncrypt: true' '${R}/etc/calamares/modules/partition.conf'"
+check "Installer swap" "no swap partition or file (compressed memory instead)" bash -c "test \"\$(sed -n '/^userSwapChoices:/,/^[^ #]/p' '${R}/etc/calamares/modules/partition.conf' | grep -cE '^[[:space:]]+- ')\" = 1 && grep -qE '^[[:space:]]+- none' '${R}/etc/calamares/modules/partition.conf' && grep -qE '^initialSwapChoice:[[:space:]]+none' '${R}/etc/calamares/modules/partition.conf'"
 check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
