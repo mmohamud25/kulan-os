@@ -6,11 +6,21 @@ case "$1" in
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 		fi
+		# Encrypted DNS chosen in Kulan Settings goes with it: no setting
+		# should stay that can no longer be changed from Kulan Settings.
+		if [ -e /etc/systemd/resolved.conf.d/60-kulan-dns.conf ]; then
+			rm -f /etc/systemd/resolved.conf.d/60-kulan-dns.conf
+			if [ -d /run/systemd/system ]; then
+				deb-systemd-invoke try-restart systemd-resolved.service >/dev/null 2>&1 || true
+				nmcli general reload dns-rc >/dev/null 2>&1 || true
+			fi
+		fi
 		;;
 	purge)
 		deb-systemd-helper purge kulan-restore-points.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-update-status.service >/dev/null 2>&1 || true
-		rm -f /var/lib/kulan/updates.json /etc/apt/apt.conf.d/53kulan-auto-upgrades-user
+		rm -f /var/lib/kulan/updates.json /var/lib/kulan/security-checkup.json \
+			/etc/apt/apt.conf.d/53kulan-auto-upgrades-user /etc/systemd/resolved.conf.d/60-kulan-dns.conf
 		;;
 esac
 

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Update Center
+GenericName=Software updates
+Comment=See, install and schedule Kulan OS updates
+Exec=kulan-settings updates
+Icon=software-update-available-symbolic
+Terminal=false
+NoDisplay=true
+Categories=GNOME;GTK;System;
+Keywords=update;upgrade;security;restore;timeshift;kulan;
+StartupNotify=true

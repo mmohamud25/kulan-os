@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.kulan.Welcome</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Setup Assistant</name>
+  <summary>Set up Kulan OS the way you like it</summary>
+  <description>
+    <p>Shown once at your first sign-in, like a Mac's Setup Assistant: choose light, dark or automatic mode and an accent colour, turn on accessibility options, make your computer more private, bring files over from another computer, set up backups and a password vault, install popular apps in one go, and see which protections are on.</p>
+  </description>
+  <launchable type="desktop-id">org.kulan.Welcome.desktop</launchable>
+  <developer id="com.kulangroup">
+    <name>Kulan Group</name>
+  </developer>
+  <url type="homepage">https://kulangroup.com</url>
+  <provides>
+    <binary>kulan-welcome</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.2" date="2026-10-21"/>
+  </releases>
+</component>

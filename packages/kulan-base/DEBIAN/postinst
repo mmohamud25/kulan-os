@@ -9,6 +9,10 @@ case "$1" in
 		# /etc/os-release must stay a relative symlink to the packaged file.
 		ln -sfn ../usr/lib/os-release /etc/os-release
 
+		# CI boot test report (does nothing unless the kernel is started
+		# with kulan.boot-report).
+		deb-systemd-helper enable kulan-boot-report.service >/dev/null || true
+
 		# Console login banner (base-files' conffiles, so set here).
 		printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue
 		printf '%s %s\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue.net
@@ -22,6 +26,21 @@ case "$1" in
 			for UNIT in NetworkManager-wait-online.service systemd-networkd-wait-online.service; do
 				deb-systemd-helper disable "${UNIT}" >/dev/null 2>&1 || true
 			done
+			mkdir -p /var/lib/kulan
+			touch "${MARK}"
+		fi
+
+		# cups-browsed listens on the network and isn't needed (CUPS finds
+		# modern printers itself); new ISOs leave it out, and systems
+		# upgrading have it switched off once. Re-enabling it is respected.
+		MARK=/var/lib/kulan/cups-browsed-disabled
+		if [ ! -e "${MARK}" ]; then
+			if [ -e /lib/systemd/system/cups-browsed.service ] || [ -e /usr/lib/systemd/system/cups-browsed.service ]; then
+				deb-systemd-helper disable cups-browsed.service >/dev/null 2>&1 || true
+				if [ -d /run/systemd/system ]; then
+					deb-systemd-invoke stop cups-browsed.service >/dev/null 2>&1 || true
+				fi
+			fi
 			mkdir -p /var/lib/kulan
 			touch "${MARK}"
 		fi

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kulan OS folders and templates
+Comment=Creates the Projects folder and the New Document templates, once
+Exec=/usr/lib/kulan/user-setup
+NoDisplay=true
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-enabled=true

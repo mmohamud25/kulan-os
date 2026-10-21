@@ -1,0 +1,25 @@
+[Desktop Entry]
+Type=Application
+Name=Kulan Settings
+GenericName=System settings
+Comment=Appearance, dock, updates, add-ons and more for Kulan OS
+Exec=kulan-settings %U
+Icon=kulan-settings
+Terminal=false
+Categories=GNOME;GTK;Settings;DesktopSettings;
+Keywords=settings;preferences;appearance;dark;wallpaper;dock;top bar;updates;upgrade;restore;add-ons;login items;startup;night light;keyboard;about;kulan;
+StartupNotify=true
+DBusActivatable=false
+Actions=updates;appearance;dock;
+
+[Desktop Action updates]
+Name=Updates and recovery
+Exec=kulan-settings updates
+
+[Desktop Action appearance]
+Name=Appearance
+Exec=kulan-settings appearance
+
+[Desktop Action dock]
+Name=Dock
+Exec=kulan-settings dock

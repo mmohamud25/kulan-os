@@ -8,6 +8,17 @@
 #   update-run restore-point              create a restore point now
 #   update-run install-devkit             install the Kulan developer kit
 #   update-run install-apps               install LibreOffice, VLC and GIMP
+#   update-run addon-install <id>         install an add-on listed in addons.json
+#   update-run addon-remove <id>          remove an add-on listed in addons.json
+#   update-run security-checkup           run Lynis; summary in /var/lib/kulan/security-checkup.json
+#   update-run firewall-on                turn the firewall on (block incoming)
+#   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
+#   update-run set-hostname <name>        change the computer's name
+#   update-run clean-cache                remove downloaded update files
+#   update-run cleanup                    remove old kernels and unneeded packages
+#   update-run clean-logs                 keep only the last two weeks of system logs
+#   update-run assistant-model <id>       download a Kulan Assistant model (checked by SHA-256)
+#   update-run assistant-model-remove <id>  delete a downloaded Kulan Assistant model
 #
 # Install progress goes to stdout as apt status lines (pmstatus/dlstatus);
 # apt's own messages go to stderr.
@@ -17,6 +28,9 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C.UTF-8 DEBIAN_FRONTEND=noninteractive
 
 AUTO_OVERRIDE=/etc/apt/apt.conf.d/53kulan-auto-upgrades-user
+ADDONS=/usr/share/kulan/addons.json
+CHECKUP=/var/lib/kulan/security-checkup.json
+DNS_CONF=/etc/systemd/resolved.conf.d/60-kulan-dns.conf
 APT_OPTS=(-q -y
 	-o Dpkg::Options::=--force-confdef
 	-o Dpkg::Options::=--force-confold
@@ -33,6 +47,72 @@ die() {
 run_apt() {
 	apt-get "${APT_OPTS[@]}" "$@" 3>&1 1>&2
 }
+
+# Packages apt would remove as no longer needed, sorted, one per line.
+autoremovable() {
+	apt-get -s autoremove 2>/dev/null | awk '/^Remv /{print $2}' | sort -u
+}
+
+# Metapackages whose apps the ISO also installs directly (so apt marks those
+# apps as installed by hand). Only for these are the apps marked automatic
+# before removal; for other add-ons, apps you installed yourself are kept.
+IMAGE_METAPACKAGES=(kulan-apps)
+
+# The installed packages that the image metapackages among $@ depend on
+# (never Kulan's own packages).
+metapackage_depends() {
+	local pkg dep
+	for pkg in "$@"; do
+		[[ " ${IMAGE_METAPACKAGES[*]} " == *" ${pkg} "* ]] || continue
+		dpkg-query -W -f '${Depends}\n' "${pkg}" 2>/dev/null | tr ',' '\n' |
+			sed -E 's/\|.*//; s/\(.*\)//; s/:.*//; s/[[:space:]]//g'
+	done | sort -u | while read -r dep; do
+		[[ "${dep}" =~ ^[a-z0-9][a-z0-9+.-]+$ && "${dep}" != kulan-* ]] || continue
+		if dpkg-query -W -f '${db:Status-Status}' "${dep}" 2>/dev/null | grep -qx installed; then
+			echo "${dep}"
+		fi
+	done
+}
+
+# What add-on <id> is made of, from the root-owned registry, one item per
+# line: "apt <package>", "flatpak <app id>" or "port <port>/<tcp|udp>" (a
+# firewall opening it needs, such as phone pairing). Only add-ons listed there
+# can be installed or removed through this helper, and every item is checked.
+addon_items() {
+	[[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "Unknown add-on."
+	python3 -I -c '
+import json, re, sys
+addon_id, registry = sys.argv[1], sys.argv[2]
+RULES = {
+    "packages": ("apt", r"[a-z0-9][a-z0-9+.-]+"),
+    "flatpak": ("flatpak", r"[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}"),
+    "firewall": ("port", r"[0-9]{1,5}(:[0-9]{1,5})?/(tcp|udp)"),
+}
+import platform
+machine = {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine(), platform.machine())
+for addon in json.load(open(registry, encoding="utf-8")):
+    if addon.get("id") != addon_id:
+        continue
+    if addon.get("arch") and machine not in addon["arch"]:
+        sys.exit(1)  # not for this kind of computer (Steam is for PCs only)
+    lines = []
+    for field, (kind, pattern) in RULES.items():
+        values = addon.get(field) or []
+        if not isinstance(values, list) or not all(isinstance(v, str) and re.fullmatch(pattern, v) for v in values):
+            sys.exit(1)
+        lines += [f"{kind} {v}" for v in values]
+    if not any(line.startswith(("apt ", "flatpak ")) for line in lines):
+        sys.exit(1)
+    print("\n".join(lines))
+    sys.exit(0)
+sys.exit(1)
+' "$1" "${ADDONS}" || die "Unknown add-on."
+}
+
+FLATHUB_URL=https://dl.flathub.org/repo/flathub.flatpakrepo
+# Add-on ports (phone pairing, nearby sharing) open only to home and office
+# networks, never to the whole internet.
+PRIVATE_NETS=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fe80::/10 fd00::/8)
 
 case "${1:-}" in
 	check)
@@ -77,7 +157,200 @@ case "${1:-}" in
 		apt-get -q update 1>&2
 		run_apt install kulan-apps
 		;;
+	addon-install | addon-remove)
+		[[ $# -eq 2 ]] || die "usage: update-run $1 <add-on>"
+		mapfile -t ITEMS < <(addon_items "$2")
+		[[ ${#ITEMS[@]} -gt 0 ]] || die "Unknown add-on."
+		PACKAGES=() FLATPAKS=() PORTS=()
+		for ITEM in "${ITEMS[@]}"; do
+			case "${ITEM%% *}" in
+				apt) PACKAGES+=("${ITEM#* }") ;;
+				flatpak) FLATPAKS+=("${ITEM#* }") ;;
+				port) PORTS+=("${ITEM#* }") ;;
+			esac
+		done
+		if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+			command -v flatpak >/dev/null 2>&1 || die "Flatpak isn't installed."
+		fi
+		if [[ "$1" == addon-install ]]; then
+			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
+				apt-get -q update 1>&2
+				run_apt install "${PACKAGES[@]}"
+			fi
+			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+				flatpak remote-add --system --if-not-exists flathub "${FLATHUB_URL}" 1>&2
+				flatpak install --system --noninteractive -y flathub "${FLATPAKS[@]}" 1>&2
+			fi
+			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
+				for PORT in "${PORTS[@]}"; do
+					for NET in "${PRIVATE_NETS[@]}"; do
+						# The app is installed either way; a firewall hiccup only warns.
+						ufw allow from "${NET}" to any port "${PORT%/*}" proto "${PORT#*/}" \
+							comment "Kulan add-on: $2" 1>&2 ||
+							echo "W: couldn't open ${PORT} for ${NET} in the firewall" >&2
+					done
+				done
+			fi
+		else
+			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
+				for PORT in "${PORTS[@]}"; do
+					for NET in "${PRIVATE_NETS[@]}"; do
+						ufw --force delete allow from "${NET}" to any port "${PORT%/*}" proto "${PORT#*/}" 1>&2 || true
+					done
+				done
+			fi
+			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+				for APP in "${FLATPAKS[@]}"; do
+					if flatpak info --system "${APP}" >/dev/null 2>&1; then
+						flatpak uninstall --system --noninteractive -y "${APP}" 1>&2
+					fi
+				done
+				# Runtimes no app needs any more (like apt's autoremove).
+				flatpak uninstall --system --noninteractive -y --unused 1>&2 || true
+			fi
+			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
+				# Leave alone anything apt could already clean up before this.
+				mapfile -t BEFORE < <(autoremovable)
+				# On an ISO install the apps of a Kulan metapackage (kulan-apps)
+				# were installed directly too, so mark what it depends on as
+				# automatic: then they go with it unless something else needs them.
+				mapfile -t DEPS < <(metapackage_depends "${PACKAGES[@]}")
+				if [[ ${#DEPS[@]} -gt 0 ]]; then
+					apt-mark auto "${DEPS[@]}" 1>&2
+				fi
+				# remove, not purge: settings files stay, as with any app removal.
+				run_apt remove "${PACKAGES[@]}"
+				mapfile -t FREED < <(comm -13 <(printf '%s\n' "${BEFORE[@]}") <(autoremovable))
+				if [[ ${#FREED[@]} -gt 0 ]]; then
+					run_apt remove "${FREED[@]}"
+				fi
+			fi
+		fi
+		;;
+	clean-cache)
+		[[ $# -eq 1 ]] || die "usage: update-run clean-cache"
+		apt-get clean 1>&2
+		;;
+	cleanup)
+		[[ $# -eq 1 ]] || die "usage: update-run cleanup"
+		# Old kernels and packages nothing needs any more (settings files stay).
+		run_apt autoremove
+		if command -v flatpak >/dev/null 2>&1; then
+			flatpak uninstall --system --noninteractive -y --unused 1>&2 || true
+		fi
+		;;
+	clean-logs)
+		[[ $# -eq 1 ]] || die "usage: update-run clean-logs"
+		journalctl --vacuum-time=2weeks 1>&2
+		;;
+	security-checkup)
+		[[ $# -eq 1 ]] || die "usage: update-run security-checkup"
+		command -v lynis >/dev/null 2>&1 || die "The security checkup tool (lynis) isn't installed."
+		REPORT="$(mktemp)"
+		PROFILE="$(mktemp --suffix=.prf)"
+		trap 'rm -f "${REPORT}" "${PROFILE}"' EXIT
+		# Stay offline: no check for a newer Lynis version.
+		echo "skip-upgrade-test=yes" > "${PROFILE}"
+		# --quick: no pauses; results go to our own report file.
+		lynis audit system --quick --no-colors --profile "${PROFILE}" --report-file "${REPORT}" \
+			--logfile /dev/null 1>&2 || true
+		install -d -m 0755 /var/lib/kulan
+		python3 -I - "${REPORT}" "${CHECKUP}" <<'PY'
+import json, os, sys, tempfile, time
+report, out = sys.argv[1], sys.argv[2]
+result = {"time": time.time(), "score": None, "warnings": [], "suggestions": []}
+with open(report, encoding="utf-8", errors="replace") as f:
+    for line in f:
+        key, sep, value = line.rstrip("\n").partition("=")
+        if not sep:
+            continue
+        if key == "hardening_index":
+            result["score"] = int(value) if value.isdigit() else None
+        elif key in ("warning[]", "suggestion[]"):
+            parts = value.split("|")
+            item = {"id": parts[0], "text": parts[1] if len(parts) > 1 else "",
+                    "details": parts[2] if len(parts) > 2 and parts[2] != "-" else ""}
+            result["warnings" if key == "warning[]" else "suggestions"].append(item)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out))
+with os.fdopen(fd, "w") as f:
+    json.dump(result, f)
+# Readable by administrators (who run the checkup), not by every user.
+try:
+    import grp
+    os.chown(tmp, 0, grp.getgrnam("sudo").gr_gid)
+    os.chmod(tmp, 0o640)
+except (KeyError, OSError):
+    os.chmod(tmp, 0o600)
+os.replace(tmp, out)
+PY
+		;;
+	firewall-on)
+		[[ $# -eq 1 ]] || die "usage: update-run firewall-on"
+		ufw default deny incoming 1>&2
+		ufw default allow outgoing 1>&2
+		ufw --force enable 1>&2
+		;;
+	dns)
+		[[ $# -eq 2 ]] || die "usage: update-run dns off|quad9|adblock|family"
+		case "$2" in
+			off)
+				rm -f "${DNS_CONF}"
+				;;
+			quad9 | adblock | family)
+				if ! command -v resolvectl >/dev/null 2>&1; then
+					apt-get -q update 1>&2
+					run_apt install systemd-resolved
+				fi
+				if [[ "$2" == quad9 ]]; then
+					SERVERS="9.9.9.9#dns.quad9.net 149.112.112.112#dns.quad9.net 2620:fe::fe#dns.quad9.net"
+				elif [[ "$2" == family ]]; then
+					# Cloudflare for Families: blocks malware and adult content.
+					SERVERS="1.1.1.3#family.cloudflare-dns.com 1.0.0.3#family.cloudflare-dns.com 2606:4700:4700::1113#family.cloudflare-dns.com 2606:4700:4700::1003#family.cloudflare-dns.com"
+				else
+					# Mullvad's ad- and tracker-blocking resolver, encrypted.
+					SERVERS="194.242.2.3#adblock.dns.mullvad.net 2a07:e340::3#adblock.dns.mullvad.net"
+				fi
+				install -d -m 0755 "$(dirname "${DNS_CONF}")"
+				# opportunistic: encrypted whenever the network allows it, so Wi-Fi
+				# sign-in pages (hotels, airports) that block encrypted DNS still load.
+				printf '# Set by Kulan Settings > Privacy (encrypted DNS: %s).\n[Resolve]\nDNS=%s\nDNSOverTLS=opportunistic\nDomains=~.\n' \
+					"$2" "${SERVERS}" > "${DNS_CONF}"
+				chmod 0644 "${DNS_CONF}"
+				;;
+			*) die "usage: update-run dns off|quad9|adblock|family" ;;
+		esac
+		if command -v resolvectl >/dev/null 2>&1; then
+			systemctl restart systemd-resolved 1>&2 || true
+			# NetworkManager hands the network's own DNS servers to
+			# systemd-resolved only once it knows resolved is in use.
+			systemctl try-reload-or-restart NetworkManager 1>&2 || true
+		fi
+		;;
+	set-hostname)
+		[[ $# -eq 2 ]] || die "usage: update-run set-hostname <name>"
+		[[ "$2" =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || die "Use letters, numbers and dashes only (up to 63)."
+		OLD="$(hostname)"
+		hostnamectl set-hostname "$2" 1>&2
+		# Keep the name resolving locally (Debian's 127.0.1.1 line).
+		if grep -qE "^127\.0\.1\.1[[:space:]]" /etc/hosts; then
+			sed -i -E "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t$2/" /etc/hosts
+		else
+			printf '127.0.1.1\t%s\n' "$2" >> /etc/hosts
+		fi
+		echo "Renamed ${OLD} to $2" >&2
+		;;
+	assistant-model | assistant-model-remove)
+		[[ $# -eq 2 ]] || die "usage: update-run $1 <model>"
+		[[ "$2" =~ ^[a-z0-9][a-z0-9.-]{0,40}$ ]] || die "Unknown model."
+		MODEL_TOOL=/usr/lib/kulan-assistant/model-download
+		[[ -x "${MODEL_TOOL}" ]] || die "Kulan Assistant isn't installed."
+		if [[ "$1" = assistant-model ]]; then
+			"${MODEL_TOOL}" install "$2"
+		else
+			"${MODEL_TOOL}" remove "$2"
+		fi
+		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
 		;;
 esac

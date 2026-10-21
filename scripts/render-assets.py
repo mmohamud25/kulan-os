@@ -12,6 +12,7 @@ Pillow (pip install pillow) and a sans font (Inter or Noto Sans recommended).
 """
 from __future__ import annotations
 
+import math
 import re
 import shlex
 import shutil
@@ -113,9 +114,155 @@ def main() -> int:
         render(logo_svg, CHROOT / f"usr/share/icons/hicolor/{px}x{px}/apps/kulan-logo.png", px, px)
     render(logo_svg, CHROOT / "usr/share/kulan/calamares/logo.png", 256, 256)
 
+    # Kulan app icons, in GNOME's Adwaita style: a rounded tile with a darker
+    # edge underneath (the "depth" of Adwaita app icons) and a light symbol.
+    def adwaita_tile(top: str, bottom: str, edge: str, symbol: str) -> str:
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="{top}"/>
+      <stop offset="1" stop-color="{bottom}"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="40" y="64" width="432" height="416" rx="88" fill="{edge}"/>
+  <rect x="40" y="40" width="432" height="416" rx="88" fill="url(#face)"/>
+  <rect x="40" y="40" width="432" height="416" rx="88" fill="url(#shine)"/>
+  {symbol}
+</svg>'''
+
+    def write_icon(package: str, icon: str, svg: str) -> None:
+        icons = CHROOT.parent.parent / package / "root" / "usr/share/icons/hicolor"
+        (icons / "scalable/apps").mkdir(parents=True, exist_ok=True)
+        (icons / f"scalable/apps/{icon}.svg").write_text(svg + "\n")
+        print(f"  wrote {(icons / f'scalable/apps/{icon}.svg').relative_to(ROOT)}")
+        for px in (48, 128, 256):
+            render(svg, icons / f"{px}x{px}/apps/{icon}.png", px, px)
+
+    # Kulan Settings: a light gear on Kulan teal.
+    teeth, r_out, r_in, cx, cy = 10, 150, 122, 256, 248
+    points = []
+    for i in range(teeth * 2):
+        for edge in (-0.32, 0.32):
+            angle = (i + 0.5 + edge) * math.pi / teeth
+            radius = r_out if i % 2 == 0 else r_in
+            points.append(f"{cx + radius * math.cos(angle):.1f},{cy + radius * math.sin(angle):.1f}")
+    gear = (f'<path fill-rule="evenodd" fill="#0B3B4A" fill-opacity="0.25" transform="translate(0 8)" '
+            f'd="M{" L".join(points)} Z M256 196 a52 52 0 1 0 0.01 0 Z"/>'
+            f'<path fill-rule="evenodd" fill="#F2FBF9" d="M{" L".join(points)} Z M256 196 a52 52 0 1 0 0.01 0 Z"/>')
+    write_icon("kulan-settings", "kulan-settings", adwaita_tile("#2BB3A3", "#12807A", "#0B5B5A", gear))
+
+    # Setup Assistant: a large sparkle and two small ones, on Kulan blue.
+    def sparkle(x: float, y: float, r: float) -> str:
+        k = r * 0.22
+        return (f'M{x} {y - r} C{x + k} {y - k} {x + k} {y - k} {x + r} {y} '
+                f'C{x + k} {y + k} {x + k} {y + k} {x} {y + r} '
+                f'C{x - k} {y + k} {x - k} {y + k} {x - r} {y} '
+                f'C{x - k} {y - k} {x - k} {y - k} {x} {y - r} Z')
+    stars = (f'<path fill="#06203A" fill-opacity="0.25" transform="translate(0 8)" '
+             f'd="{sparkle(236, 262, 130)} {sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>'
+             f'<path fill="#FFF7E6" d="{sparkle(236, 262, 130)}"/>'
+             f'<path fill="#FBBF24" d="{sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>')
+    write_icon("kulan-welcome", "kulan-setup-assistant", adwaita_tile("#3A7BD5", "#1E4E9C", "#173A75", stars))
+
+    # Kulan folders: an icon theme with just the folder icons, inheriting
+    # Adwaita for everything else. Teal folders, a white symbol on the special
+    # ones, and colour versions for the Folder Colour menu in Files.
+    folder_colours = {
+        # name: (back, front top, front bottom, edge)
+        "teal": ("#13857C", "#3CC3B2", "#1A9C8F", "#0E6F67"),
+        "blue": ("#2F6FC4", "#6AA6EE", "#4A8BE0", "#285FA8"),
+        "purple": ("#6E3FA8", "#A97BDE", "#8A57C8", "#5C3490"),
+        "red": ("#B7343F", "#EE7680", "#DC4C58", "#9C2B35"),
+        "orange": ("#C65A12", "#F7A15A", "#EC7D2C", "#A84B0E"),
+        "yellow": ("#B88A06", "#F6D364", "#E8B71E", "#9B7405"),
+        "green": ("#2F8A3E", "#6FCB7E", "#45AE55", "#277334"),
+        "grey": ("#6F7A86", "#B9C2CC", "#949FAB", "#5F6974"),
+    }
+    stroke = 'stroke="#FFFFFF" stroke-opacity="0.92" fill="none" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"'
+    fill = 'fill="#FFFFFF" fill-opacity="0.92"'
+    folder_symbols = {
+        "folder": "",
+        "folder-documents": (f'<path {fill} d="M206 228 h76 l42 42 v112 q0 10 -10 10 h-108 q-10 0 -10 -10 v-144 q0 -10 10 -10 Z"/>'
+                             '<path fill="#000000" fill-opacity="0.12" d="M282 228 v32 q0 10 10 10 h32 Z"/>'),
+        "folder-pictures": (f'<rect {stroke} x="188" y="236" width="136" height="150" rx="16"/>'
+                            f'<path {fill} d="M200 372 l40 -52 l30 34 l18 -20 l32 38 Z"/><circle {fill} cx="292" cy="276" r="14"/>'),
+        "folder-download": f'<path {stroke} d="M256 228 v116 M210 300 l46 46 l46 -46 M196 388 h120"/>',
+        "folder-music": (f'<path {stroke} d="M236 360 v-118 l84 -18 v118"/><circle {fill} cx="216" cy="362" r="26"/>'
+                         f'<circle {fill} cx="300" cy="342" r="26"/>'),
+        "folder-videos": (f'<rect {stroke} x="180" y="248" width="152" height="124" rx="18"/>'
+                          f'<path {fill} d="M240 284 v52 l46 -26 Z"/>'),
+        "folder-templates": (f'<path {stroke} stroke-dasharray="30 24" d="M206 236 h100 q12 0 12 12 v124 q0 12 -12 12 h-100 q-12 0 -12 -12 v-124 q0 -12 12 -12 Z"/>'
+                             f'<path {stroke} d="M228 290 h56 M228 330 h40"/>'),
+        "folder-publicshare": (f'<circle {fill} cx="256" cy="262" r="30"/>'
+                               f'<path {fill} d="M196 382 q0 -64 60 -64 q60 0 60 64 Z"/>'),
+        "folder-remote": (f'<circle {stroke} cx="256" cy="310" r="66"/>'
+                          f'<path {stroke} d="M190 310 h132 M256 244 q-34 66 0 132 M256 244 q34 66 0 132"/>'),
+        "user-desktop": (f'<rect {stroke} x="182" y="240" width="148" height="100" rx="14"/>'
+                         f'<path {stroke} d="M226 382 h60 M256 342 v38"/>'),
+        "user-home": f'<path {stroke} d="M188 306 l68 -62 l68 62 M206 292 v86 h100 v-86 M240 378 v-46 h32 v46"/>',
+    }
+
+    def kulan_folder(colour: str, symbol: str = "", open_: bool = False) -> str:
+        back, top, bottom, edge = folder_colours[colour]
+        front_y = 186 if open_ else 168  # drag-and-drop target: the front tips down a little
+        return f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="{top}"/>
+      <stop offset="1" stop-color="{bottom}"/>
+    </linearGradient>
+  </defs>
+  <path fill="{back}" d="M56 128 q0 -28 28 -28 h118 q14 0 24 10 l26 26 h176 q28 0 28 28 v244 q0 28 -28 28 H84 q-28 0 -28 -28 Z"/>
+  <rect x="56" y="{front_y + 8}" width="400" height="{428 - front_y}" rx="30" fill="{edge}"/>
+  <rect x="56" y="{front_y}" width="400" height="{428 - front_y}" rx="30" fill="url(#front)"/>
+  <rect x="56" y="{front_y}" width="400" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.35"/>
+  <g transform="translate(0 12)">{symbol}</g>
+</svg>'''
+
+    theme = CHROOT / "usr/share/icons/Kulan"
+    places = theme / "scalable/places"
+    mimes = theme / "scalable/mimetypes"
+    places.mkdir(parents=True, exist_ok=True)
+    mimes.mkdir(parents=True, exist_ok=True)
+    for icon_name, symbol in folder_symbols.items():
+        (places / f"{icon_name}.svg").write_text(kulan_folder("teal", symbol) + "\n")
+    (places / "folder-drag-accept.svg").write_text(kulan_folder("teal", open_=True) + "\n")
+    (mimes / "inode-directory.svg").write_text(kulan_folder("teal") + "\n")
+    for colour in folder_colours:
+        (places / f"folder-kulan-{colour}.svg").write_text(kulan_folder(colour) + "\n")
+    (theme / "index.theme").write_text(
+        "[Icon Theme]\n"
+        "Name=Kulan\n"
+        "Comment=Kulan OS folders, with GNOME's Adwaita icons for everything else\n"
+        "Inherits=Adwaita,hicolor\n"
+        "Directories=scalable/places,scalable/mimetypes\n"
+        "\n"
+        "[scalable/places]\n"
+        "Context=Places\n"
+        "Size=128\n"
+        "MinSize=8\n"
+        "MaxSize=512\n"
+        "Type=Scalable\n"
+        "\n"
+        "[scalable/mimetypes]\n"
+        "Context=MimeTypes\n"
+        "Size=128\n"
+        "MinSize=8\n"
+        "MaxSize=512\n"
+        "Type=Scalable\n"
+    )
+    print(f"  wrote {theme.relative_to(ROOT)} ({len(list(places.iterdir())) + 1} icons)")
+
     # Wallpapers.
     render((ASSETS / "wallpaper-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-dark.png")
     render((ASSETS / "wallpaper-light.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-light.png")
+    # The 1.0 waves, kept as a second choice in Settings > Appearance.
+    render((ASSETS / "wallpaper-waves-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-waves-dark.png")
+    render((ASSETS / "wallpaper-waves-light.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-waves-light.png")
 
     # Login-screen wordmark (GDM shows it under the user list; light text on dark).
     render(
@@ -152,13 +299,13 @@ def main() -> int:
     }
     variants = {"": logo_svg}
     for suffix, colour in flat.items():
-        # The tree and the gathered people alone (no badge, no sun), in one colour.
-        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <path d="M60 176 C104 96 408 96 452 176 C408 206 104 206 60 176 Z" fill="{colour}"/>
-  <path d="M256 352 V266 M256 266 L196 190 M256 266 L316 190" stroke="{colour}" stroke-width="40" stroke-linecap="round" fill="none"/>
+        # The gathering alone (no badge), in one colour: six people around
+        # one centre. Cropped close, so it still reads at top-bar size.
+        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="56 56 400 400">
   <g fill="{colour}">
-    <circle cx="104" cy="380" r="34"/><circle cx="178" cy="420" r="34"/><circle cx="256" cy="432" r="34"/>
-    <circle cx="334" cy="420" r="34"/><circle cx="408" cy="380" r="34"/>
+    <circle cx="256" cy="106" r="46"/><circle cx="386" cy="181" r="46"/><circle cx="386" cy="331" r="46"/>
+    <circle cx="256" cy="406" r="46"/><circle cx="126" cy="331" r="46"/><circle cx="126" cy="181" r="46"/>
+    <circle cx="256" cy="256" r="58"/>
   </g>
 </svg>'''
     # The Kulan menu's top-bar icon (GNOME recolours "-symbolic" icons).

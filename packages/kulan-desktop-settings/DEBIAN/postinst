@@ -29,9 +29,28 @@ vendor_logos() {
 	update-alternatives --quiet "$@"
 }
 
+# Debian's boot splash also draws /usr/share/plymouth/debian-logo.png
+# (owned by the plymouth package). Divert it, so plymouth updates keep their
+# copy as debian-logo.png.debian, and point it at Kulan's wordmark.
+SPLASH_LOGO=/usr/share/plymouth/debian-logo.png
+splash_logo() {
+	DIVERTED_BY="$(dpkg-divert --listpackage "${SPLASH_LOGO}")"
+	if [ -n "${DIVERTED_BY}" ] && [ "${DIVERTED_BY}" != kulan-desktop-settings ]; then
+		echo "kulan-desktop-settings: ${SPLASH_LOGO} is diverted by ${DIVERTED_BY}; leaving the splash logo alone" >&2
+		return 0
+	fi
+	if [ -z "${DIVERTED_BY}" ]; then
+		dpkg-divert --package kulan-desktop-settings --add --rename \
+			--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
+	fi
+	mkdir -p /usr/share/plymouth
+	ln -sfn /usr/share/kulan/vendor-logos/logo-text-version-64.png "${SPLASH_LOGO}"
+}
+
 case "$1" in
 	configure)
 		vendor_logos
+		splash_logo
 		apply
 		/usr/lib/kulan/boot-splash-setup
 		# Rebuild the initramfs so the boot splash change takes effect.

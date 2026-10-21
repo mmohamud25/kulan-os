@@ -1,0 +1,12 @@
+# Kulan OS keyboard shortcuts that open an app. Listed in
+# org.gnome.settings-daemon.plugins.media-keys custom-keybindings (see
+# 90_kulan-os.gschema.override); change or remove them in Settings > Keyboard
+# > Keyboard Shortcuts > Custom Shortcuts. (Live Text and clipboard history
+# are part of Kulan Shell; their shortcuts are in Kulan Settings > Keyboard.)
+# Compiled by "dconf update" (run by the kulan-desktop-settings package).
+
+# Ctrl+Cmd+Space, as on a Mac: emoji and symbols. Pick one to copy it, then paste.
+[org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kulan-emoji]
+name='Emoji and symbols'
+command='gnome-characters'
+binding='<Control><Super>space'

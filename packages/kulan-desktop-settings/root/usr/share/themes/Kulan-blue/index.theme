@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=X-GNOME-Metatheme
+Name=Kulan-blue
+Comment=adw-gtk3 with the blue accent, for Kulan OS
+Encoding=UTF-8
+
+[X-GNOME-Metatheme]
+GtkTheme=Kulan-blue

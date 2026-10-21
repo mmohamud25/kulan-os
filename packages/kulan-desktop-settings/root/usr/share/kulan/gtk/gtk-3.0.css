@@ -1,31 +1,30 @@
-/* Kulan OS window buttons for GTK 3 apps (and browsers using the GTK title
-   bar): small round close, minimise and maximise buttons, symbols on hover.
-   Imported from each user's ~/.config/gtk-3.0/gtk.css by Kulan Shell. */
+/* Kulan OS window buttons, default style ("coloured with symbols"), for GTK 3
+   apps and browsers using the GTK title bar: the theme's round buttons with
+   their symbols, coloured red, yellow and green. Each user's
+   ~/.config/gtk-3.0/gtk.css imports this file. */
+
+headerbar button.titlebutton.close,
+.titlebar button.titlebutton.close { background-color: #ff5f57; color: rgba(0, 0, 0, 0.72); }
+headerbar button.titlebutton.minimize,
+.titlebar button.titlebutton.minimize { background-color: #febc2e; color: rgba(0, 0, 0, 0.72); }
+headerbar button.titlebutton.maximize,
+.titlebar button.titlebutton.maximize { background-color: #28c840; color: rgba(0, 0, 0, 0.72); }
 
 headerbar button.titlebutton,
 .titlebar button.titlebutton {
-  min-width: 14px;
-  min-height: 14px;
-  margin: 0 4px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
   background-image: none;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
-  color: transparent;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
   -gtk-icon-shadow: none;
-  transition: color 120ms ease-out;
 }
 
-headerbar button.titlebutton.close, .titlebar button.titlebutton.close { background-color: #ff5f57; }
-headerbar button.titlebutton.minimize, .titlebar button.titlebutton.minimize { background-color: #febc2e; }
-headerbar button.titlebutton.maximize, .titlebar button.titlebutton.maximize { background-color: #28c840; }
-
-headerbar:hover button.titlebutton,
-.titlebar:hover button.titlebutton { color: rgba(0, 0, 0, 0.6); }
+headerbar button.titlebutton.close:hover, .titlebar button.titlebutton.close:hover { background-color: #ff7a73; }
+headerbar button.titlebutton.minimize:hover, .titlebar button.titlebutton.minimize:hover { background-color: #ffc94f; }
+headerbar button.titlebutton.maximize:hover, .titlebar button.titlebutton.maximize:hover { background-color: #46d65a; }
 
 headerbar:backdrop button.titlebutton,
 .titlebar:backdrop button.titlebutton {
-  background-color: rgba(128, 128, 128, 0.35);
+  background-color: rgba(128, 128, 128, 0.25);
+  color: rgba(128, 128, 128, 0.9);
   box-shadow: none;
 }

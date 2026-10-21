@@ -17,4 +17,4 @@ excluded-apps=['org.gnome.TextEditor.desktop', 'org.gnome.Calculator.desktop']
 name='System'
 translate=false
 categories=['System', 'Settings', 'Security', 'PackageManager', 'Monitor']
-excluded-apps=['org.gnome.Settings.desktop', 'org.gnome.Console.desktop', 'org.kulan.Welcome.desktop']
+excluded-apps=['org.gnome.Settings.desktop', 'org.gnome.Console.desktop', 'org.gnome.Ptyxis.desktop', 'org.kulan.Welcome.desktop']

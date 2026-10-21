@@ -1,0 +1,19 @@
+Files: usr/share/themes/adw-gtk3/* usr/share/themes/adw-gtk3-dark/*
+Copyright: 2021-2026 lassekongo83 and the adw-gtk3 contributors
+License: LGPL-2.1+
+ adw-gtk3 v6.5 (https://github.com/lassekongo83/adw-gtk3), compiled by
+ scripts/render-gtk3-theme.sh in the Kulan OS sources.
+ .
+ This library is free software; you can redistribute it and/or modify it
+ under the terms of the GNU Lesser General Public License as published by
+ the Free Software Foundation; either version 2.1 of the License, or (at
+ your option) any later version.
+ .
+ On Debian systems, the full text of the GNU Lesser General Public License
+ version 2.1 can be found in /usr/share/common-licenses/LGPL-2.1.
+
+Files: usr/share/themes/Kulan-*
+Copyright: Kulan Group Ltd
+License: LGPL-2.1+
+ Small themes on top of adw-gtk3 that set the accent colour; same license
+ as adw-gtk3.

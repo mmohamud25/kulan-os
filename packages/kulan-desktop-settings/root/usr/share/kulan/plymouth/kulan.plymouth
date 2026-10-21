@@ -1,6 +1,6 @@
 [Plymouth Theme]
 Name=Kulan OS
-Description=Kulan OS boot splash: logo with a spinner.
+Description=Kulan OS boot splash: the logo with a thin progress bar while starting, a spinner while shutting down.
 ModuleName=two-step
 
 [two-step]
@@ -19,18 +19,30 @@ Transition=none
 TransitionDuration=0.0
 BackgroundStartColor=0x040b16
 BackgroundEndColor=0x081a33
-ProgressBarBackgroundColor=0x1e3a5f
-ProgressBarForegroundColor=0x2dd4bf
+# Mac-style: a thin, light bar under the logo while the computer starts.
+ProgressBarBackgroundColor=0x22344d
+ProgressBarForegroundColor=0xdbe7f5
+ProgressBarWidth=200
+ProgressBarHeight=4
+ProgressBarHorizontalAlignment=.5
+ProgressBarVerticalAlignment=.66
 MessageBelowAnimation=true
 
+# Status lines such as "cryptsetup: … set up successfully" stay off the
+# splash; the disk password prompt still shows. Press Esc to see them.
 [boot-up]
 UseEndAnimation=false
+SuppressMessages=true
+# The bar replaces the spinner while starting up.
+UseProgressBar=true
 
 [shutdown]
 UseEndAnimation=false
+SuppressMessages=true
 
 [reboot]
 UseEndAnimation=false
+SuppressMessages=true
 
 [updates]
 SuppressMessages=true

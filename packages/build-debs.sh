@@ -120,6 +120,9 @@ for SRC in "${ROOT}"/packages/*/; do
 	if [[ -d "${SRC}/root" ]]; then
 		cp -a "${SRC}/root/." "${STAGE}/"
 	fi
+	# Tool caches from local development never belong in a package.
+	find "${STAGE}" \( -name __pycache__ -o -name .ruff_cache -o -name .mypy_cache -o -name '*.pyc' \) \
+		-prune -exec rm -rf {} +
 	if [[ "${NAME}" == kulan-base ]]; then
 		generate_kulan_base "${STAGE}"
 	fi
@@ -142,7 +145,7 @@ for SRC in "${ROOT}"/packages/*/; do
 	# Normalise permissions so the package never depends on the build machine.
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type d -exec chmod 0755 {} +
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type f -exec chmod 0644 {} +
-	for EXEC in usr/bin usr/lib/kulan; do
+	for EXEC in usr/bin usr/lib/kulan usr/lib/kulan-assistant usr/lib/systemd/user-environment-generators usr/share/initramfs-tools/hooks; do
 		[[ -d "${STAGE}/${EXEC}" ]] && find "${STAGE}/${EXEC}" -type f -exec chmod 0755 {} +
 	done
 
@@ -161,6 +164,10 @@ License: All-rights-reserved
  All rights reserved. ${KULAN_NAME} is built on Debian; Debian's own packages
  keep their own licenses, listed in /usr/share/doc/<package>/copyright.
 EOF
+	# Third-party content shipped in this package, with its own license.
+	if [[ -f "${SRC}/DEBIAN/copyright.extra" ]]; then
+		{ echo; cat "${SRC}/DEBIAN/copyright.extra"; } >> "${DOC}/copyright"
+	fi
 	COMMIT="$(git -C "${ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 	{
 		echo "${NAME} (${KULAN_PKG_VERSION}) ${KULAN_DEBIAN_SUITE}; urgency=medium"

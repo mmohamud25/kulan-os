@@ -1,0 +1,8 @@
+/* Kulan OS: adw-gtk3 with the red accent. */
+@import url("../../adw-gtk3/gtk-4.0/gtk.css");
+@define-color accent_bg_color #e62d42;
+@define-color accent_color mix(@accent_bg_color, black, 0.17);
+:root {
+  --accent-bg-color: #e62d42;
+  --accent-color: color-mix(in srgb, #e62d42 83%, black);
+}

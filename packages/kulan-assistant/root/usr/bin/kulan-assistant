@@ -1,0 +1,123 @@
+#!/usr/bin/python3
+"""Kulan Assistant: writing help, summaries and search that run on this computer.
+
+  kulan-assistant run TASK [--replace] [--source TEXT]   text on stdin, result in a window
+  kulan-assistant summarise FILE                          summarise a document in a window
+  kulan-assistant ask TASK [TEXT]                         print the result (no window)
+  kulan-assistant dictate AUDIO                           print the words spoken in a recording
+  kulan-assistant status                                  engine, model and memory
+  kulan-assistant search-provider                         the Activities search service (D-Bus)
+
+TASK is one of: proofread, rewrite, friendly, professional, shorter, summary,
+key-points, translate, explain.
+"""
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/usr/share/kulan-assistant")
+from kulan_assistant import engine, tasks  # noqa: E402
+
+TASK_IDS = [t.id for t in tasks.TASKS]
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="kulan-assistant", description="Kulan Assistant")
+    sub = parser.add_subparsers(dest="command", required=True)
+    run = sub.add_parser("run", help="run a task on text from stdin, in a window")
+    run.add_argument("task", choices=TASK_IDS)
+    run.add_argument("--replace", action="store_true", help="offer Replace (prints the result on stdout)")
+    run.add_argument("--source", default="", help="a short description of where the text came from")
+    summ = sub.add_parser("summarise", help="summarise a document, in a window")
+    summ.add_argument("file", type=Path)
+    ask = sub.add_parser("ask", help="run a task and print the result")
+    ask.add_argument("task", choices=TASK_IDS)
+    ask.add_argument("text", nargs="?", help="the text (default: stdin)")
+    dictate = sub.add_parser("dictate", help="print the words spoken in a recording")
+    dictate.add_argument("audio", type=Path)
+    sub.add_parser("status", help="engine, model and memory, as JSON")
+    sub.add_parser("search-provider", help="run the Activities search provider (D-Bus activated)")
+    args = parser.parse_args(argv[1:])
+
+    if args.command == "status":
+        info = {"engine": engine.ENGINE.exists(), "state": engine.status(), "chosen": engine.chosen_model(),
+                "installed": [m["id"] for m in engine.installed_models()],
+                "dictation": [m["id"] for m in engine.installed_models("dictation")], "socket": str(engine.socket_path())}
+        print(json.dumps(info, indent=2))
+        return 0
+
+    if args.command == "dictate":
+        from kulan_assistant import dictation
+        try:
+            print(dictation.transcribe(args.audio))
+        except (engine.EngineError, OSError) as exc:
+            print(f"kulan-assistant: {exc}", file=sys.stderr)
+            return 1
+        except Exception as exc:  # noqa: BLE001 - e.g. a timeout on a very long recording
+            print(f"kulan-assistant: dictation failed: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "ask":
+        text = args.text if args.text is not None else sys.stdin.read()
+        if not text.strip():
+            print("kulan-assistant: no text", file=sys.stderr)
+            return 2
+        try:
+            for piece in tasks.run(args.task, text):
+                sys.stdout.write(piece)
+                sys.stdout.flush()
+            sys.stdout.write("\n")
+        except engine.EngineError as exc:
+            print(f"kulan-assistant: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "search-provider":
+        from kulan_assistant import search
+        return search.serve()
+
+    from kulan_assistant import window
+    if args.command == "summarise":
+        from kulan_assistant import extract
+        try:
+            text = extract.text_of(args.file)
+        except (extract.ExtractError, OSError) as exc:
+            text, error = "", str(exc)
+        else:
+            error = ""
+        if error or not text.strip():
+            return _message(error or "This document has no text to summarise.")
+        return window.show("summary", text, args.file.name)
+
+    text = sys.stdin.read()
+    if not text.strip():
+        return _message("Select some text first, then try again.")
+    preview = args.source or " ".join(text.split())[:160]
+    return window.show(args.task, text, preview, replace=args.replace)
+
+
+def _message(text: str) -> int:
+    import gi
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gio
+
+    app = Adw.Application(application_id="org.kulan.Assistant", flags=Gio.ApplicationFlags.NON_UNIQUE)
+
+    def activate(a: Adw.Application) -> None:
+        # A dialog of its own (no parent window); the app stays open until it closes.
+        a.hold()
+        dialog = Adw.AlertDialog(heading="Kulan Assistant", body=text)
+        dialog.add_response("ok", "OK")
+        dialog.connect("closed", lambda *_c: a.release())
+        dialog.present(None)
+
+    app.connect("activate", activate)
+    app.run([sys.argv[0]])
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

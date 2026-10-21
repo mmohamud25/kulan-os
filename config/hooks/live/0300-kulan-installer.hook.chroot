@@ -18,7 +18,9 @@ rm -rf "${KULAN_BRANDING}"
 cp -a "${DEBIAN_BRANDING}" "${KULAN_BRANDING}"
 install -m 0644 "${ASSETS}/logo.png" "${KULAN_BRANDING}/kulan-logo.png"
 install -m 0644 "${ASSETS}/welcome.png" "${KULAN_BRANDING}/welcome.png"
-install -m 0644 "${ASSETS}/slide1.png" "${KULAN_BRANDING}/slide1.png"
+for SLIDE in "${ASSETS}"/slide*.png; do
+	install -m 0644 "${SLIDE}" "${KULAN_BRANDING}/$(basename "${SLIDE}")"
+done
 install -m 0644 "${ASSETS}/show.qml" "${KULAN_BRANDING}/show.qml"
 rm -f "${KULAN_BRANDING}/debian-logo.png"
 
@@ -46,6 +48,43 @@ grep -q "^componentName:   kulan" "${DESC}" || { echo "E: failed to rebrand ${DE
 
 sed -i -E 's|^branding:.*|branding: kulan|' "${CAL}/settings.conf"
 grep -q '^branding: kulan$' "${CAL}/settings.conf" || { echo "E: failed to switch Calamares branding" >&2; exit 1; }
+
+# "Log in automatically" starts unticked: with it on, the password store
+# (keyring) stays locked, so apps keep asking for a password, and it adds
+# a wait at every start. People can still tick it in the installer.
+USERS="${CAL}/modules/users.conf"
+if [ -f "${USERS}" ]; then
+	if grep -qE '^doAutologin:' "${USERS}"; then
+		sed -i -E 's|^doAutologin:.*|doAutologin:     false|' "${USERS}"
+	else
+		printf '\ndoAutologin:     false\n' >> "${USERS}"
+	fi
+	grep -qE '^doAutologin:[[:space:]]+false$' "${USERS}" || { echo "E: failed to set doAutologin" >&2; exit 1; }
+
+	# New accounts use zsh, as on a Mac (Kulan's prompt and suggestions come
+	# from /etc/skel/.zshrc). Calamares 3.3 reads user: shell:, older
+	# settings used userShell:.
+	if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
+		if grep -qE '^[[:space:]]+shell:' "${USERS}"; then
+			sed -i -E 's|^([[:space:]]+shell:).*|\1 /bin/zsh|' "${USERS}"
+		elif grep -qE '^userShell:' "${USERS}"; then
+			sed -i -E 's|^userShell:.*|userShell:       /bin/zsh|' "${USERS}"
+		elif grep -qE '^user:[[:space:]]*$' "${USERS}"; then
+			sed -i -E 's|^user:[[:space:]]*$|user:\n  shell: /bin/zsh|' "${USERS}"
+		else
+			printf '\nuser:\n  shell: /bin/zsh\n' >> "${USERS}"
+		fi
+		grep -qE '(^[[:space:]]+shell:|^userShell:)[[:space:]]+/bin/zsh$' "${USERS}" ||
+			{ echo "E: failed to set the installer's shell" >&2; exit 1; }
+	fi
+fi
+
+# The live session's account (made by adduser) and any made later with
+# adduser or useradd on the installed system use zsh too.
+if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
+	[ -f /etc/adduser.conf ] && sed -i -E 's|^#?DSHELL=.*|DSHELL=/bin/zsh|' /etc/adduser.conf
+	[ -f /etc/default/useradd ] && sed -i -E 's|^#?[[:space:]]*SHELL=.*|SHELL=/bin/zsh|' /etc/default/useradd
+fi
 
 # Launcher in the app grid / dock.
 if [ -f "${LAUNCHER}" ]; then

@@ -4,7 +4,10 @@
 # Kulan OS's own packages (built by packages/build-debs.sh)
 kulan-base
 kulan-desktop-settings
+kulan-settings
 kulan-welcome
+kulan-assistant
+kulan-assistant-engine
 
 # Desktop
 gnome-core
@@ -13,9 +16,17 @@ gnome-shell-extension-dashtodock
 gnome-shell-extension-blur-my-shell
 gnome-shell-extension-appindicator
 gnome-shell-extension-prefs
+# Files and folders on the desktop, like a Mac
+gnome-shell-extension-desktop-icons-ng
+# App menus when right-clicking an app in the dock (Discord, Slack, Spotify...)
+gir1.2-dbusmenu-glib-0.4
+# Window snapping into halves and quarters, like macOS
+gnome-shell-extension-tiling-assistant
+# Battery modes (Power Saver, Balanced, Performance) in Quick Settings
+power-profiles-daemon
 
 # Look and feel
-papirus-icon-theme
+adwaita-icon-theme
 bibata-cursor-theme
 fonts-inter
 fonts-jetbrains-mono
@@ -31,6 +42,25 @@ evince
 file-roller
 gnome-disk-utility
 gnome-system-monitor
+# Mac-style extras: Quick Look (select a file in Files, press Space),
+# emoji and symbols, weather and world clocks in the date menu, disk usage
+gnome-sushi
+gnome-characters
+gnome-weather
+gnome-clocks
+baobab
+# Live Text: copy text out of anything on screen (Super+Shift+T)
+tesseract-ocr
+tesseract-ocr-eng
+python3-nautilus
+# Terminal: Ptyxis with Kulan colours, zsh with suggestions and highlighting
+ptyxis
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+# Qt apps follow the GTK theme (QT_QPA_PLATFORMTHEME=gtk3)
+qt5-gtk-platformtheme
+qt6-gtk-platformtheme
 
 # Office and media (native builds; run on ARM and PCs)
 libreoffice-writer
@@ -61,11 +91,22 @@ ufw
 gufw
 unattended-upgrades
 deja-dup
+# Password manager (offline, encrypted vault, browser autofill)
+keepassxc
+# Removes hidden location and device details from photos and documents
+metadata-cleaner
+# VPN: OpenVPN files import in Settings (WireGuard is built into NetworkManager)
+network-manager-openvpn-gnome
+# Extra AppArmor profiles that fence in common apps
+apparmor-profiles-extra
 
 # Tor Browser launcher: Tor Browser is only built for PCs (x86-64).
 #if ARCHITECTURES amd64
 torbrowser-launcher
 #endif
+
+# Speed: swap in compressed memory (settings in kulan-base)
+systemd-zram-generator
 
 # Useful tools
 sudo

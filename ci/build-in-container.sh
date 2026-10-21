@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -y -q --no-install-recommends \
-	live-build debootstrap ca-certificates dpkg-dev apt-utils
+	live-build debootstrap ca-certificates dpkg-dev apt-utils squashfs-tools xz-utils
 
 # The Kulan packages are built by the "packages" job and downloaded here.
 shopt -s nullglob

@@ -1,0 +1,19 @@
+Package: kulan-assistant
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: gnome
+Priority: optional
+Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), systemd, pipewire-bin
+Recommends: kulan-assistant-engine, kulan-settings (= @VERSION@), poppler-utils, python3-nautilus, gir1.2-tsparql-3.0, tracker-miner-fs
+Homepage: @HOME_URL@
+Description: @NAME@ Assistant: private writing help, summaries and search
+ Dictation (speak and your words are typed where the cursor is), writing
+ tools for the text you select in any app (proofread, rewrite,
+ friendlier, professional, shorter, summary, key points, translate),
+ "Summarise" for documents in Files, Translate and Explain after Live Text,
+ and file search with questions in Activities.
+ .
+ Everything runs on this computer with an open model (Qwen3, Apache-2.0)
+ that is downloaded once from Kulan Settings > Assistant. Nothing you
+ select, summarise or search for is sent anywhere.

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kulan Assistant options, set in Kulan Settings > Assistant. -->
+<schemalist gettext-domain="kulan-assistant">
+  <schema id="org.kulan.assistant" path="/org/kulan/assistant/">
+    <key name="model" type="s">
+      <default>'qwen3-4b'</default>
+      <summary>Model</summary>
+      <description>The id of the model to use, from /usr/share/kulan-assistant/models.json.</description>
+    </key>
+    <key name="writing-tools" type="b">
+      <default>true</default>
+      <summary>Writing tools</summary>
+      <description>Proofread, rewrite or shorten the text you selected in any app (Shift+Super+W).</description>
+    </key>
+    <key name="file-summaries" type="b">
+      <default>true</default>
+      <summary>Summaries in Files</summary>
+      <description>"Summarise" when you right-click a document in Files.</description>
+    </key>
+    <key name="live-text-actions" type="b">
+      <default>true</default>
+      <summary>Translate and explain after Live Text</summary>
+      <description>Buttons on the Live Text notification to translate or explain the text that was copied.</description>
+    </key>
+    <key name="question-search" type="b">
+      <default>true</default>
+      <summary>Search with questions</summary>
+      <description>Find files from a question typed in Activities, such as "the invoice from last month".</description>
+    </key>
+    <key name="translate-to" type="s">
+      <default>''</default>
+      <summary>Translate to</summary>
+      <description>Language name for translations; empty means the computer's language.</description>
+    </key>
+    <key name="dictation" type="b">
+      <default>true</default>
+      <summary>Dictation</summary>
+      <description>Press Shift+Super+D, speak, press it again: the words are typed where the cursor is.</description>
+    </key>
+    <key name="dictation-model" type="s">
+      <default>'whisper-base'</default>
+      <summary>Dictation model</summary>
+      <description>The id of the speech model, from /usr/share/kulan-assistant/models.json.</description>
+    </key>
+    <key name="dictation-language" type="s">
+      <default>''</default>
+      <summary>Dictation language</summary>
+      <description>Two-letter code of the language you speak; empty means detect it each time.</description>
+    </key>
+  </schema>
+</schemalist>

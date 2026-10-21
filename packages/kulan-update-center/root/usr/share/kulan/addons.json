@@ -1,0 +1,114 @@
+[
+  {
+    "id": "assistant",
+    "title": "Kulan Assistant",
+    "description": "Private writing help for selected text, summaries in Files, Translate and Explain after Live Text, and search with questions. Runs on this computer",
+    "icon": "kulan-assistant-symbolic",
+    "size": "about 40 MB, plus a model of 1.8 to 5 GB",
+    "note": "Choose and download a model in Kulan Settings > Assistant.",
+    "packages": [
+      "kulan-assistant",
+      "kulan-assistant-engine"
+    ],
+    "settings-page": "assistant"
+  },
+  {
+    "id": "apps",
+    "title": "Office and media apps",
+    "description": "LibreOffice Writer, Calc and Impress, VLC and GIMP",
+    "icon": "x-office-document-symbolic",
+    "size": "about 500 MB",
+    "packages": [
+      "kulan-apps"
+    ]
+  },
+  {
+    "id": "devkit",
+    "title": "Developer Kit",
+    "description": "Git, Python with pip and virtual environments, build tools, Docker and Docker Compose, curl",
+    "icon": "utilities-terminal-symbolic",
+    "size": "about 600 MB",
+    "note": "To use Docker without sudo, run: sudo usermod -aG docker $USER, then sign out and in again.",
+    "packages": [
+      "kulan-devkit"
+    ]
+  },
+  {
+    "id": "virus-scan",
+    "title": "Virus scanner",
+    "description": "ClamAV with a simple app (ClamTk) to scan files, folders and USB drives on demand, useful for files from Windows computers",
+    "icon": "security-high-symbolic",
+    "size": "about 300 MB with virus definitions",
+    "packages": [
+      "clamtk",
+      "clamav",
+      "clamav-freshclam"
+    ]
+  },
+  {
+    "id": "phone-link",
+    "title": "Phone Link",
+    "description": "Connect your Android phone: notifications, texts, shared clipboard, files and media controls (GSConnect, works with the KDE Connect app)",
+    "icon": "phone-symbolic",
+    "size": "about 5 MB",
+    "note": "Install KDE Connect on your phone. After you log out and back in, pair it from Phone Link in the top bar.",
+    "packages": [
+      "gnome-shell-extension-gsconnect"
+    ],
+    "extension": "gsconnect@andyholmes.github.io",
+    "firewall": [
+      "1714:1764/tcp",
+      "1714:1764/udp"
+    ]
+  },
+  {
+    "id": "nearby-share",
+    "title": "Nearby Share",
+    "description": "Send files to nearby phones and computers on the same Wi-Fi, like AirDrop (LocalSend: iPhone, Android, Mac and Windows)",
+    "icon": "send-to-symbolic",
+    "size": "about 60 MB from Flathub",
+    "note": "Install LocalSend on your other devices too, then open it on both.",
+    "flatpak": [
+      "org.localsend.localsend_app"
+    ],
+    "firewall": [
+      "53317/tcp",
+      "53317/udp"
+    ]
+  },
+  {
+    "id": "learning-pack",
+    "title": "Learning Pack",
+    "description": "Tools for learning network and system defence: Wireshark and tcpdump to see network traffic, Nmap to check your own network, YARA and The Sleuth Kit for malware and forensics practice, TestDisk to recover files, a hex editor, and DNS, traceroute and whois tools",
+    "icon": "system-search-symbolic",
+    "size": "about 250 MB",
+    "note": "To capture network traffic without sudo, run: sudo dpkg-reconfigure wireshark-common (choose Yes), then sudo usermod -aG wireshark $USER, then sign out and in again. Only scan networks you own or have permission to test.",
+    "packages": [
+      "wireshark",
+      "tshark",
+      "tcpdump",
+      "nmap",
+      "yara",
+      "sleuthkit",
+      "testdisk",
+      "ghex",
+      "bind9-dnsutils",
+      "traceroute",
+      "whois"
+    ]
+  },
+  {
+    "id": "steam",
+    "title": "Steam",
+    "description": "Valve's game store and launcher, with Proton to play many Windows games, from Flathub",
+    "icon": "input-gaming-symbolic",
+    "size": "about 1 GB from Flathub, plus your games",
+    "note": "Open Steam from the app grid and sign in. In Steam > Settings > Compatibility, turn on Steam Play to run Windows games.",
+    "arch": [
+      "amd64"
+    ],
+    "flatpak": [
+      "com.valvesoftware.Steam"
+    ]
+  }
+]

@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Kulan OS logo: people gathered under an acacia tree at sunset.
-       "Kulan" means "gathering" in Somali; communities have long met in the
-       shade of the acacia to talk things through. -->
+  <!-- Kulan OS logo: the gathering. "Kulan" means "gathering" in Somali:
+       six people in a circle around one centre, the place where they meet. -->
   <defs>
     <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#0F766E"/>
@@ -9,14 +8,15 @@
     </linearGradient>
   </defs>
   <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#badge)"/>
-  <circle cx="256" cy="230" r="112" fill="#F59E0B"/>
-  <path d="M96 196 C132 132 380 132 416 196 C380 220 132 220 96 196 Z" fill="#ECFDF5"/>
-  <path d="M256 350 V280 M256 280 L204 214 M256 280 L308 214" stroke="#ECFDF5" stroke-width="26" stroke-linecap="round" fill="none"/>
-  <g fill="#ECFDF5">
-    <circle cx="140" cy="372" r="24"/>
-    <circle cx="196" cy="403" r="24"/>
-    <circle cx="256" cy="412" r="24"/>
-    <circle cx="316" cy="403" r="24"/>
-    <circle cx="372" cy="372" r="24"/>
+  <g fill="#F59E0B">
+    <circle cx="256" cy="126" r="34"/>
+    <circle cx="143.4" cy="321" r="34"/>
+    <circle cx="368.6" cy="321" r="34"/>
   </g>
+  <g fill="#ECFDF5">
+    <circle cx="368.6" cy="191" r="34"/>
+    <circle cx="256" cy="386" r="34"/>
+    <circle cx="143.4" cy="191" r="34"/>
+  </g>
+  <circle cx="256" cy="256" r="44" fill="#ECFDF5" fill-opacity="0.95"/>
 </svg>

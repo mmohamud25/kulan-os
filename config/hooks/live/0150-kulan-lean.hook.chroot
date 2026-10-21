@@ -1,0 +1,10 @@
+#!/bin/sh
+# Kulan OS: leave out services a desktop doesn't need.
+set -eu
+
+# cups-browsed: auto-adds network printers. CUPS 2.4 already finds modern
+# (IPP Everywhere / AirPrint) printers by itself, and cups-browsed listens on
+# the network (CVE-2024-47176). Printing keeps working without it.
+if dpkg-query -W -f '${Status}' cups-browsed 2>/dev/null | grep -q "ok installed"; then
+	apt-get purge -y -q cups-browsed
+fi

@@ -145,21 +145,75 @@
   background-color: #0d9488;
 }
 
-/* ---- Lock screen (the Kulan wallpaper shows blurred behind it) --------- */
-.unlock-dialog-clock-time {
-  font-weight: 300;
-  font-size: 84pt;
-  color: #ffffff;
+/* ---- Lock screen, Mac-style (the wallpaper shows blurred behind it) ----
+   Kulan Shell puts the date above the time; GNOME places the clock in the
+   upper third. Always on a dark, blurred wallpaper. */
+.unlock-dialog-clock {
+  spacing: 0;
 }
 .unlock-dialog-clock-date {
+  font-size: 20pt;
   font-weight: 600;
-  color: #99f6e4;
+  color: rgba(255, 255, 255, 0.92);
+}
+.unlock-dialog-clock-time {
+  font-size: 108pt;
+  font-weight: 700;
+  letter-spacing: -2px;
+  color: rgba(255, 255, 255, 0.94);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.25);
 }
 .unlock-dialog-clock-hint {
-  color: rgba(226, 236, 248, 0.7);
+  margin-top: 36px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 10.5pt;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.unlock-dialog .user-widget.vertical {
+  spacing: 10px;
+}
+.unlock-dialog .user-widget.vertical .user-icon {
+  icon-size: 88px;
+}
+.unlock-dialog .user-widget.vertical .user-icon StIcon {
+  padding: 18px;
+}
+.unlock-dialog .user-widget.vertical .user-widget-label {
+  font-size: 15pt;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 4px;
 }
 .unlock-dialog .login-dialog-prompt-entry {
   border-radius: 999px;
+  padding: 8px 16px;
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.14);
+  border: none;
+  box-shadow: none;
+}
+.unlock-dialog .login-dialog-prompt-entry:focus {
+  background-color: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+.unlock-dialog .login-dialog-prompt-entry StLabel.hint-text {
+  color: rgba(255, 255, 255, 0.6);
+}
+.unlock-dialog .button,
+.unlock-dialog .icon-button {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+.unlock-dialog .button:hover,
+.unlock-dialog .icon-button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+.unlock-dialog-notifications-container .unlock-dialog-notification-source {
+  border-radius: 14px;
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* ---- Kulan update indicator -------------------------------------------- */
@@ -189,8 +243,42 @@
   -minimum-hpadding: 8px;
 }
 .kulan-menu-icon {
-  icon-size: 18px;
+  icon-size: 22px;
 }
 .kulan-menu .popup-menu-content {
   min-width: 15em;
 }
+
+/* Clipboard history (Shift+Super+V) */
+.kulan-clipboard-title {
+  font-weight: bold;
+  font-size: 1.2em;
+  padding-bottom: 8px;
+  text-align: center;
+}
+.kulan-clipboard-scroll {
+  min-width: 440px;
+  max-height: 360px;
+}
+.kulan-clipboard-list {
+  spacing: 2px;
+}
+.kulan-clipboard-item {
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.kulan-clipboard-item:hover,
+.kulan-clipboard-item:focus {
+  background-color: rgba(0, 0, 0, 0.07);
+}
+.kulan-clipboard-empty {
+  color: rgba(0, 0, 0, 0.55);
+  padding: 12px;
+}
+
+/* Dictation: listening, in the top bar */
+.kulan-dictation { spacing: 6px; color: #ff6b6b; font-weight: bold; }
+
+/* Prayer times: next prayer in the top bar, highlighted in its menu */
+.kulan-prayer-label { font-feature-settings: "tnum"; }
+.kulan-prayer-next { font-weight: bold; color: #2bb3a3; }

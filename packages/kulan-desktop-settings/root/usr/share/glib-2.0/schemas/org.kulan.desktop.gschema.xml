@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kulan OS desktop options, set in Kulan Settings and applied by Kulan Shell. -->
+<schemalist gettext-domain="kulan-settings">
+  <enum id="org.kulan.desktop.AnimationSpeed">
+    <value nick="calm" value="0"/>
+    <value nick="normal" value="1"/>
+    <value nick="fast" value="2"/>
+  </enum>
+  <schema id="org.kulan.desktop" path="/org/kulan/desktop/">
+    <key name="kulan-menu" type="b">
+      <default>true</default>
+      <summary>Show the Kulan menu</summary>
+      <description>The Kulan logo at the left of the top bar, with About, Settings, Lock, Restart and Shut Down.</description>
+    </key>
+    <key name="update-indicator" type="b">
+      <default>true</default>
+      <summary>Show the update icon</summary>
+      <description>An icon in the top bar while updates are waiting or installing.</description>
+    </key>
+    <key name="animation-speed" enum="org.kulan.desktop.AnimationSpeed">
+      <default>'normal'</default>
+      <summary>Animation speed</summary>
+      <description>calm = GNOME's own speed, normal = a little quicker (Kulan's default), fast = quicker still.</description>
+    </key>
+    <key name="automatic-style" type="b">
+      <default>false</default>
+      <summary>Switch between light and dark automatically</summary>
+      <description>Dark from sunset to sunrise (Night Light's schedule when it knows your location, otherwise 19:00 to 07:00).</description>
+    </key>
+    <key name="clipboard-history" type="b">
+      <default>false</default>
+      <summary>Clipboard history</summary>
+      <description>Remember the last 25 things you copied (text only), in memory only, until the screen locks or you log out. Passwords copied from KeePassXC are skipped; passwords copied from a browser are not, which is why this is off by default.</description>
+    </key>
+    <key name="clipboard-history-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;v']</default>
+      <summary>Shortcut for clipboard history</summary>
+      <description>Shows what you copied recently; pick one to copy it again.</description>
+    </key>
+    <key name="live-text-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;t']</default>
+      <summary>Shortcut for Live Text</summary>
+      <description>Drag over part of the screen to copy the text in it (recognised on this computer).</description>
+    </key>
+    <key name="writing-tools-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;w']</default>
+      <summary>Shortcut for Kulan Assistant's writing tools</summary>
+      <description>Proofread, rewrite, shorten or translate the selected text (needs Kulan Assistant).</description>
+    </key>
+    <key name="dictation-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;d']</default>
+      <summary>Shortcut for Dictation</summary>
+      <description>Start and stop Dictation: what you say is typed where the cursor is (needs Kulan Assistant).</description>
+    </key>
+    <key name="focus-schedule" type="b">
+      <default>false</default>
+      <summary>Focus schedule</summary>
+      <description>Turn on Do Not Disturb automatically between focus-from and focus-to.</description>
+    </key>
+    <key name="focus-from" type="d">
+      <range min="0" max="23.99"/>
+      <default>22.0</default>
+      <summary>Focus starts</summary>
+      <description>Hour of the day, such as 22.5 for 22:30.</description>
+    </key>
+    <key name="focus-active" type="b">
+      <default>false</default>
+      <summary>Focus is on because of the schedule</summary>
+      <description>Set by Kulan Shell while the Focus schedule has Do Not Disturb on, so it is turned off again at the end even after a restart.</description>
+    </key>
+    <key name="focus-to" type="d">
+      <range min="0" max="23.99"/>
+      <default>7.0</default>
+      <summary>Focus ends</summary>
+      <description>Hour of the day, such as 7.0 for 07:00.</description>
+    </key>
+    <key name="prayer-times" type="b">
+      <default>false</default>
+      <summary>Prayer times</summary>
+      <description>Show the next prayer in the top bar and a notification at each prayer time.</description>
+    </key>
+    <key name="prayer-city" type="s">
+      <default>''</default>
+      <summary>City for prayer times</summary>
+      <description>Shown in the menu; the times come from prayer-latitude and prayer-longitude.</description>
+    </key>
+    <key name="prayer-country" type="s">
+      <default>''</default>
+      <summary>Country code for prayer times</summary>
+      <description>Two-letter code, used to suggest the local calculation method.</description>
+    </key>
+    <key name="prayer-latitude" type="d">
+      <range min="-90" max="90"/>
+      <default>0</default>
+      <summary>Latitude for prayer times</summary>
+      <description>Degrees north (negative for south).</description>
+    </key>
+    <key name="prayer-longitude" type="d">
+      <range min="-180" max="180"/>
+      <default>0</default>
+      <summary>Longitude for prayer times</summary>
+      <description>Degrees east (negative for west).</description>
+    </key>
+    <key name="prayer-method" type="s">
+      <choices>
+        <choice value=''/><choice value='MWL'/><choice value='ISNA'/><choice value='Egypt'/>
+        <choice value='Makkah'/><choice value='Karachi'/><choice value='Tehran'/><choice value='Jafari'/>
+        <choice value='Gulf'/><choice value='Kuwait'/><choice value='Qatar'/><choice value='Singapore'/>
+        <choice value='Turkey'/>
+      </choices>
+      <default>''</default>
+      <summary>Calculation method</summary>
+      <description>Empty: the one used in the chosen city's country.</description>
+    </key>
+    <key name="prayer-asr" type="s">
+      <choices><choice value='standard'/><choice value='hanafi'/></choices>
+      <default>'standard'</default>
+      <summary>Asr time</summary>
+      <description>standard (Shafi'i, Maliki, Hanbali) or hanafi.</description>
+    </key>
+    <key name="prayer-notify" type="b">
+      <default>true</default>
+      <summary>Notify at prayer times</summary>
+      <description>A notification and a soft sound when each prayer time comes.</description>
+    </key>
+  </schema>
+</schemalist>

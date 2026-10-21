@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+case "$1" in
+	remove | purge)
+		# Downloaded models (several GB) are only of use to Kulan Assistant.
+		rm -rf /var/lib/kulan-assistant
+		;;
+esac
+exit 0

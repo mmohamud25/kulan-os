@@ -1,0 +1,42 @@
+#!/bin/sh
+# Kulan OS boot report, for the automatic boot test in CI. Runs only when the
+# kernel command line has "kulan.boot-report" (see kulan-boot-report.service):
+# waits for the desktop, then writes a short report to the first serial port.
+set -u
+OUT=/dev/ttyS0
+[ -w "${OUT}" ] || OUT=/dev/console
+
+desktop_user() {
+	# The person's session (a regular account, ID 1000 or above), not the
+	# login screen's own GNOME Shell.
+	for PID in $(pgrep -x gnome-shell); do
+		ID="$(stat -c %u "/proc/${PID}" 2>/dev/null)" || continue
+		if [ "${ID}" -ge 1000 ] && [ "${ID}" -lt 60000 ]; then
+			getent passwd "${ID}" | cut -d: -f1
+			return
+		fi
+	done
+}
+
+i=0
+while [ "${i}" -lt 300 ]; do
+	STATE="$(systemctl is-system-running 2>/dev/null)"
+	if [ -n "$(desktop_user)" ] && [ "${STATE}" != starting ] && [ "${STATE}" != initializing ]; then
+		break
+	fi
+	sleep 1
+	i=$((i + 1))
+done
+sleep 5 # let the session settle
+
+{
+	echo "KULAN-BOOT-REPORT-BEGIN"
+	echo "state=$(systemctl is-system-running 2>/dev/null)"
+	echo "desktop_user=$(desktop_user)"
+	echo "time=$(systemd-analyze 2>/dev/null | head -n 1)"
+	systemctl --failed --no-legend --plain 2>/dev/null | awk '{print "failed=" $1}'
+	systemd-analyze blame --no-pager 2>/dev/null | head -n 8 | sed 's/^ */blame=/'
+	echo "memory=$(free -m | awk '/^Mem:/ {print $3 " MB used of " $2 " MB"}')"
+	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
+	echo "KULAN-BOOT-REPORT-END"
+} > "${OUT}" 2>&1

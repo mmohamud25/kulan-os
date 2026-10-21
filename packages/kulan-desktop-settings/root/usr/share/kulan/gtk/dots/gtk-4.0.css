@@ -1,0 +1,54 @@
+/* Kulan OS window buttons, "Mac dots" style, for GTK 4 / libadwaita apps: small round close,
+   minimise and maximise buttons (red, yellow, green), symbols on hover.
+   Chosen in Kulan Settings > Appearance > Window buttons. */
+
+windowcontrols {
+  border-spacing: 8px;
+}
+
+windowcontrols > button {
+  min-width: 14px;
+  min-height: 14px;
+  margin: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+windowcontrols > button > image {
+  min-width: 14px;
+  min-height: 14px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background-image: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  color: transparent;
+  -gtk-icon-size: 10px;
+  transition: color 120ms ease-out, background-color 120ms ease-out;
+}
+
+windowcontrols > button.close > image { background-color: #ff5f57; }
+windowcontrols > button.minimize > image { background-color: #febc2e; }
+windowcontrols > button.maximize > image { background-color: #28c840; }
+
+windowcontrols:hover > button > image { color: rgba(0, 0, 0, 0.6); }
+windowcontrols > button:active > image { filter: brightness(0.85); }
+windowcontrols > button:focus-visible > image { outline: 2px solid alpha(@accent_color, 0.6); outline-offset: 1px; }
+
+/* Inactive windows: grey buttons, like macOS. */
+window:backdrop windowcontrols > button > image {
+  background-color: alpha(currentColor, 0.18);
+  box-shadow: none;
+}
+window:backdrop windowcontrols:hover > button.close > image { background-color: #ff5f57; }
+window:backdrop windowcontrols:hover > button.minimize > image { background-color: #febc2e; }
+window:backdrop windowcontrols:hover > button.maximize > image { background-color: #28c840; }
+
+/* Softer window shadows. */
+window.csd:not(.maximized):not(.fullscreen):not(.tiled):not(.tiled-left):not(.tiled-right):not(.tiled-top):not(.tiled-bottom) {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.26), 0 0 0 1px rgba(0, 0, 0, 0.10);
+}
+window.csd:backdrop:not(.maximized):not(.fullscreen):not(.tiled):not(.tiled-left):not(.tiled-right):not(.tiled-top):not(.tiled-bottom) {
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16), 0 0 0 1px rgba(0, 0, 0, 0.08);
+}

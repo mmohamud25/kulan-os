@@ -66,10 +66,46 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # llama.cpp's server for Kulan Assistant, one package per architecture.
+  # Rebuilt only when ci/build-engine.sh changes (it pins the llama.cpp
+  # release); otherwise the cached package is reused.
+  engine:
+    needs: plan
+    name: Assistant engine (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: dist/engine
+          key: kulan-engine-${{ matrix.arch }}-${{ hashFiles('ci/build-engine.sh', 'kulan.conf') }}
+      - name: Build kulan-assistant-engine in Debian 13
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-engine.sh
+          sudo chown -R "$(id -u):$(id -g)" dist
+      - name: Check the package
+        run: |
+          ls -l dist/engine/
+          dpkg-deb --info dist/engine/kulan-assistant-engine_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kulan-engine-${{ matrix.arch }}
+          path: dist/engine/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
   # Installs the packages into a clean Debian 13 system with their real
   # dependencies, checks them, removes them. Gates publishing and ISOs.
   test-packages:
-    needs: packages
+    needs: [packages, engine]
+    # The engine for PCs is tested with a real model when it was built.
+    if: ${{ !cancelled() && needs.packages.result == 'success' }}
     name: Test packages on Debian 13
     runs-on: ubuntu-24.04
     steps:
@@ -78,6 +114,11 @@ jobs:
         with:
           name: kulan-debs
           path: dist/debs/
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kulan-engine-amd64
+          path: dist/engine/
+          merge-multiple: true
       - name: Install, check and remove in Debian 13
         run: |
           docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
@@ -90,8 +131,10 @@ jobs:
   # must already be online. Skipped until scripts/setup-update-channel.sh
   # has been run.
   publish:
-    needs: test-packages
-    if: github.ref == 'refs/heads/main'
+    needs: [test-packages, engine]
+    # Only runs that built both architectures publish: the channel is
+    # rebuilt from scratch each time and must keep both engines.
+    if: github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both'
     name: Publish updates
     runs-on: ubuntu-24.04
     permissions:
@@ -120,6 +163,19 @@ jobs:
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-debs
+          path: dist/debs/
+
+      # Both engines, for systems that add Kulan Assistant from Add-ons. By
+      # name, so a missing one stops publishing instead of dropping it.
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-engine-amd64
+          path: dist/debs/
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-engine-arm64
           path: dist/debs/
 
       - name: Build signed package repository
@@ -157,11 +213,12 @@ jobs:
           exit 1
 
   build:
-    needs: [plan, packages, test-packages, publish]
+    needs: [plan, packages, engine, test-packages, publish]
     # Runs when publishing succeeded or was skipped (tags, channel not set up).
     if: >-
       !cancelled() &&
       needs.test-packages.result == 'success' &&
+      needs.engine.result == 'success' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -177,6 +234,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: kulan-debs
+          path: config/packages.chroot/
+
+      - name: Get the assistant engine
+        uses: actions/download-artifact@v7
+        with:
+          name: kulan-engine-${{ matrix.arch }}
           path: config/packages.chroot/
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships
@@ -205,6 +268,8 @@ jobs:
           grep -nE '^(E|W): |[Ee]rror|Failed to fetch|returned error' build.log | tail -n 15 | while IFS= read -r line; do
             echo "::error title=ISO ${{ matrix.arch }} build::${line:0:400}"
           done
+          # The last lines usually say what actually stopped the build.
+          echo "::error title=ISO ${{ matrix.arch }} build ended with::$(tail -n 12 build.log | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
           { echo '### Last 60 lines of build.log'; echo '```'; tail -n 60 build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inspect ISO
@@ -223,6 +288,27 @@ jobs:
           compression-level: 0
           retention-days: 14
           if-no-files-found: error
+
+      # Boot the PC ISO in a virtual machine (KVM) and check the live desktop
+      # comes up with no failed services. After the upload, so a failing
+      # test still leaves the ISO to look at.
+      - name: Boot test
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get install -y -q qemu-system-x86 python3-pil tesseract-ocr
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ci/boot-test.sh out/*.iso boot-test
+
+      - name: Upload boot test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: boot-test-amd64
+          path: boot-test/
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Upload build log
         if: always()

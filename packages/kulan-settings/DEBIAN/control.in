@@ -1,0 +1,21 @@
+Package: kulan-settings
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: gnome
+Priority: optional
+Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5)
+Recommends: gnome-control-center, kulan-desktop-settings (= @VERSION@)
+Breaks: kulan-update-center (<< 2.2~)
+Replaces: kulan-update-center (<< 2.2~)
+Homepage: @HOME_URL@
+Description: @NAME@ Settings
+ One place for @NAME@ options: appearance (light, dark or automatic, accent
+ colour, wallpaper, window buttons), the dock, the top bar, animations and
+ app folders, Night Light and text size, keyboard, login items, add-ons and
+ About @NAME@.
+ .
+ Updates and recovery (formerly Update Center) is part of it: available
+ updates, what's new, update history, automatic updates and restore points.
+ Pages that belong to GNOME Settings (Wi-Fi, Bluetooth, sound, displays,
+ users) are listed too and open there.

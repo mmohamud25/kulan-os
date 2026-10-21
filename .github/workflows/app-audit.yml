@@ -1,0 +1,43 @@
+name: App audit
+
+# Pushing a branch named audit/<anything> opens every app in GNOME Shell
+# (Debian 13 + the Kulan packages from that commit), screenshots each in
+# light and dark, and puts the pictures and a report on the branch
+# audit-results/<anything>. Nothing is published or released.
+on:
+  push:
+    branches: ["audit/**"]
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    name: Screenshot every app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/share/boost
+          df -h /
+      - name: Open and screenshot every app in Debian 13
+        run: |
+          mkdir -p audit-out
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/app-audit.sh 2>&1 | tee audit-out/audit.log
+          exit "${PIPESTATUS[0]}"
+      # Also when something failed, so the logs can be read from the branch.
+      - name: Put the results on a branch
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" audit-out
+          RESULTS="audit-results/${GITHUB_REF_NAME#audit/}"
+          cd audit-out
+          git init -q -b "${RESULTS}"
+          git config user.name "Kulan OS app audit"
+          git config user.email "noreply@github.com"
+          git add -A
+          git commit -q -m "App audit of ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${RESULTS}"
+          echo "::notice title=App audit::$(ls *.jpg | wc -l) screenshots on branch ${RESULTS}"

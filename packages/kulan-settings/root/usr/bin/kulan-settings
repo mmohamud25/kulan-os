@@ -1,0 +1,19 @@
+#!/usr/bin/python3
+"""Kulan Settings: one place for Kulan OS options.
+
+Usage: kulan-settings [page] [--check]
+Pages: appearance, dock, top-bar, desktop, display, keyboard, login-items,
+updates, add-ons, about.
+"""
+import sys
+
+sys.path.insert(0, "/usr/share/kulan-settings")
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+
+from kulan_settings.app import main  # noqa: E402
+
+sys.exit(main(sys.argv))
