@@ -12,13 +12,17 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 OUT="${PWD}/audit-out"
-rm -rf "${OUT}" && mkdir -p "${OUT}"
+mkdir -p "${OUT}"
+find "${OUT}" -mindepth 1 ! -name audit.log -delete
+# Logs go with the results, so a failure can be read from the results branch.
+trap 'cp /tmp/audit-*.log "${OUT}/" 2>/dev/null; true' EXIT
 export DEBIAN_FRONTEND=noninteractive
 
 # --- Install Kulan OS's desktop as the ISO does ---------------------------------
 apt-get update -q
-apt-get install -y -q --no-install-recommends ca-certificates dpkg-dev >/dev/null
-packages/build-debs.sh >/dev/null
+apt-get install -y -q --no-install-recommends ca-certificates dpkg-dev git >/tmp/audit-tools.log 2>&1 ||
+	{ echo "::error title=App audit::couldn't install the build tools"; exit 1; }
+bash packages/build-debs.sh >/tmp/audit-debs.log 2>&1 || { tail -n 20 /tmp/audit-debs.log; echo "::error title=App audit::package build failed"; exit 1; }
 mapfile -t LIST < <(grep -vE '^[[:space:]]*(#|$)' config/package-lists/kulan-desktop.list.chroot |
 	grep -vxE 'kulan-.*|plymouth.*|spice-vdagent|qemu-guest-agent|linux-image.*')
 DEBS=(dist/debs/kulan-base_*.deb dist/debs/kulan-desktop-settings_*.deb dist/debs/kulan-settings_*.deb

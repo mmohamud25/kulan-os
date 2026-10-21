@@ -24,10 +24,14 @@ jobs:
           df -h /
       - name: Open and screenshot every app in Debian 13
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/app-audit.sh
-          sudo chown -R "$(id -u):$(id -g)" audit-out
+          mkdir -p audit-out
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/app-audit.sh 2>&1 | tee audit-out/audit.log
+          exit "${PIPESTATUS[0]}"
+      # Also when something failed, so the logs can be read from the branch.
       - name: Put the results on a branch
+        if: always()
         run: |
+          sudo chown -R "$(id -u):$(id -g)" audit-out
           RESULTS="audit-results/${GITHUB_REF_NAME#audit/}"
           cd audit-out
           git init -q -b "${RESULTS}"
