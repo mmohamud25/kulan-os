@@ -349,7 +349,7 @@ import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
 ids = [a["id"] for a in addons]
 assert len(ids) == len(set(ids)), ids
-assert {"apps", "devkit", "assistant", "learning-pack", "steam"} <= set(ids), ids
+assert {"apps", "chromium", "devkit", "assistant", "learning-pack", "steam"} <= set(ids), ids
 assert next(a for a in addons if a["id"] == "steam").get("arch") == ["amd64"]
 for a in addons:
     assert a.get("title") and a.get("description") and (a.get("packages") or a.get("flatpak")), a
