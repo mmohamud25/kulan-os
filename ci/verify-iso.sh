@@ -101,12 +101,15 @@ check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
-	if lsinitramfs "${WORK}/initrd.img" | grep -q 'etc/boottime.kmap.gz'; then
-		result pass "Keyboard layout in initramfs" "disk password typed with the chosen layout"
+	# Debian's console-setup puts the layout in the initramfs as
+	# etc/console-setup/cached_*.kmap, loaded by scripts/init-top/keymap.
+	lsinitramfs "${WORK}/initrd.img" > "${WORK}/initrd.list"
+	if grep -qE '^etc/console-setup/cached_.*\.kmap' "${WORK}/initrd.list" && grep -qx 'scripts/init-top/keymap' "${WORK}/initrd.list"; then
+		result pass "Keyboard layout in initramfs" "disk password typed with the chosen layout ($(grep -oE 'cached_[^/]*\.kmap' "${WORK}/initrd.list" | head -n 1))"
 	else
 		CS="no"; installed console-setup && CS="yes"
-		KM="$(lsinitramfs "${WORK}/initrd.img" | grep -iE 'kmap|keymap|setupcon|console-setup' | head -n 5 | tr '\n' ' ')"
-		result fail "Keyboard layout in initramfs" "no etc/boottime.kmap.gz; console-setup installed: ${CS}; related files: ${KM:-none}"
+		KM="$(grep -iE 'kmap|keymap|setupcon|console-setup' "${WORK}/initrd.list" | head -n 5 | tr '\n' ' ')"
+		result fail "Keyboard layout in initramfs" "no console-setup keymap; console-setup installed: ${CS}; related files: ${KM:-none}"
 	fi
 else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
