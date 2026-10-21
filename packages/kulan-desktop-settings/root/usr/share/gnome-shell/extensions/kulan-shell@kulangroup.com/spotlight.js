@@ -274,7 +274,9 @@ export class Spotlight {
         name.clutter_text.ellipsize = Pango.EllipsizeMode.END;
         labels.add_child(name);
         const description = String(meta.description ?? '').split('\n')[0];
-        if (description) {
+        // "Kulan Settings" under every Kulan Settings result says nothing the
+        // heading above doesn't.
+        if (description && description !== this._sourceName(provider)) {
             const detail = new St.Label({text: description, style_class: 'kulan-spotlight-description'});
             detail.clutter_text.ellipsize = Pango.EllipsizeMode.END;
             labels.add_child(detail);

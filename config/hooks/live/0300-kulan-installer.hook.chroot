@@ -103,4 +103,13 @@ if [ -f /usr/bin/add-calamares-desktop-icon ]; then
 		/usr/bin/add-calamares-desktop-icon
 fi
 
+# No installer icon on the live desktop: Debian's script copies the launcher
+# there and marks it trusted, but GNOME's desktop icons still showed it as
+# "calamares-install-debian.desktop" with a "not allowed to launch" badge.
+# "Install Kulan OS" is the first icon in the dock and in the Welcome app.
+ICON_AUTOSTART=/etc/xdg/autostart/calamares-desktop-icon.desktop
+if [ -f "${ICON_AUTOSTART}" ]; then
+	grep -qx 'Hidden=true' "${ICON_AUTOSTART}" || printf 'Hidden=true\n' >> "${ICON_AUTOSTART}"
+fi
+
 echo "I: Kulan OS installer branding installed"

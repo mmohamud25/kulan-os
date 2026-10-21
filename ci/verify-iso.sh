@@ -73,6 +73,7 @@ FILES=(
 	etc/calamares/branding/kulan/show.qml
 	etc/calamares/branding/kulan/branding.desc
 	etc/calamares/branding/kulan/stylesheet.qss
+	etc/xdg/autostart/calamares-desktop-icon.desktop
 	etc/ufw/ufw.conf
 	var/lib/flatpak/repo/config
 	etc/firefox/policies/policies.json
@@ -162,6 +163,7 @@ check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readl
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
 check "Installer look" "Kulan stylesheet and sidebar colours" bash -c "grep -q '#0D9488' '${R}/etc/calamares/branding/kulan/stylesheet.qss' && grep -qE 'SidebarBackground:[[:space:]]+\"#0A2240\"' '${R}/etc/calamares/branding/kulan/branding.desc' && grep -qE 'SidebarTextCurrent:[[:space:]]+\"#FFFFFF\"' '${R}/etc/calamares/branding/kulan/branding.desc'"
+check "Installer desktop icon" "none on the live desktop (the dock has Install Kulan OS)" bash -c "! test -f '${R}/etc/xdg/autostart/calamares-desktop-icon.desktop' || grep -qx 'Hidden=true' '${R}/etc/xdg/autostart/calamares-desktop-icon.desktop'"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Installer slideshow" "every slide the slideshow shows is in the ISO" bash -c 'Q="$1/etc/calamares/branding/kulan/show.qml"; n=0; for f in $(grep -o "\"slide[^\"]*\.png\"" "$Q" | tr -d "\"" | sort -u); do grep -q "squashfs-root/etc/calamares/branding/kulan/$f\$" "$2" || { echo "missing $f"; exit 1; }; n=$((n+1)); done; [ "$n" -ge 5 ]' _ "${R}" "${WORK}/listing"
 check "Installer in a VM" "encryption starts unticked in virtual machines (rule enabled)" has_path etc/systemd/system/multi-user.target.wants/kulan-installer-vm.service

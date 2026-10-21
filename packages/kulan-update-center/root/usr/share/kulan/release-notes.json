@@ -13,7 +13,10 @@
       "The installer in Kulan colours, with rounded fields and buttons",
       "Software Update in Kulan Settings is the one place for every update: Debian, Kulan and your apps (Flatpak) together, installed with one button; the App Store (GNOME Software) no longer shows or downloads updates of its own",
       "Restart to finish updating: after kernel, desktop or driver updates, Software Update and the top bar offer a restart",
-      "With automatic updates on, apps update daily too"
+      "With automatic updates on, apps update daily too",
+      "Spotlight search: Cmd+Space opens a search bar over your windows for apps, files, sums, characters, Kulan Settings and GNOME Settings pages, and Kulan Assistant answers; arrow keys and Enter, Escape to close (Kulan Settings > Keyboard can open Activities instead)",
+      "Kulan Settings pages appear in search, in Spotlight and Activities",
+      "The live session no longer shows a broken installer icon on the desktop; Install Kulan OS is the first icon in the dock"
     ]
   },
   {
