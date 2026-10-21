@@ -22,6 +22,7 @@ STATUS_FILE = Path("/var/lib/kulan/updates.json")
 HISTORY_LOG = Path("/var/log/apt/history.log")
 RELEASE_NOTES = Path("/usr/share/kulan/release-notes.json")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
+RESTORE_USAGE = Path("/var/lib/kulan/restore-points.json")  # written by /usr/lib/kulan/restore-points
 PREFS_FILE = Path(GLib.get_user_config_dir()) / "kulan" / "updates.ini"
 STALE_RUNNING_S = 3 * 3600
 # What a restart finishes, in plain words (package name prefix -> words).
@@ -198,6 +199,7 @@ class UpdatesPage(Page):
         self.render_status()
         self.render_available()
         self.render_history()
+        self.render_undo()
         return False
 
     def running(self) -> bool:
@@ -354,7 +356,61 @@ class UpdatesPage(Page):
             manage.connect("clicked", lambda _b: launch("timeshift-gtk.desktop", self.toast))
             restore_row.add_suffix(manage)
         group.add(restore_row)
+
+        # Undo: back to the restore point taken before the last update.
+        self.undo_row = Adw.ActionRow(title="Undo the last update")
+        self.undo_button = Gtk.Button(label="Undo…", valign=Gtk.Align.CENTER)
+        self.undo_button.update_property([Gtk.AccessibleProperty.LABEL], ["Undo the last update"])
+        self.undo_button.connect("clicked", lambda _b: self.confirm_undo())
+        self.undo_row.add_suffix(self.undo_button)
+        group.add(self.undo_row)
+        self.pause_row = Adw.ActionRow(title="Automatic updates are paused",
+                                       css_classes=["warning"])
+        resume = Gtk.Button(label="Resume Now", valign=Gtk.Align.CENTER)
+        resume.connect("clicked", lambda _b: self.window.helper.run(
+            ["auto-on"], "Automatic updates on", on_done=lambda _ok: self.reload()))
+        self.pause_row.add_suffix(resume)
+        group.add(self.pause_row)
         return group
+
+    def last_update_point(self) -> datetime | None:
+        try:
+            name = str(read_json(RESTORE_USAGE, {}).get("last_update") or "")
+            return datetime.strptime(name, "%Y-%m-%d_%H-%M-%S") if name else None
+        except (ValueError, AttributeError):
+            return None
+
+    def render_undo(self) -> None:
+        when = self.last_update_point()
+        self.undo_row.set_visible(when is not None and self.restore_on)
+        if when is not None:
+            self.undo_row.set_subtitle(
+                f"Puts the system back to how it was before the update of {when.strftime('%-d %b, %H:%M')}. "
+                "Your own files aren’t touched. Kulan OS restarts to finish.")
+        until = self.status.get("paused_until") or 0
+        paused = isinstance(until, (int, float)) and until > time.time()
+        self.pause_row.set_visible(paused)
+        if paused:
+            self.pause_row.set_subtitle(
+                f"After undoing an update, until {datetime.fromtimestamp(until).strftime('%-d %b, %H:%M')}, "
+                "so the same updates don’t install again straight away")
+
+    def confirm_undo(self) -> None:
+        when = self.last_update_point()
+        if when is None:
+            return
+        dialog = Adw.AlertDialog(
+            heading="Undo the last update?",
+            body=f"Kulan OS goes back to how it was before the update of {when.strftime('%-d %B at %H:%M')} and "
+                 "restarts. Save your work first. Your documents, photos and other files aren’t touched, and "
+                 "a restore point of how things are now is made first, so this can be undone too.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("undo", "Undo and Restart")
+        dialog.set_response_appearance("undo", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", lambda _d, r: r == "undo" and self.run(
+            ["undo-update"], "Undoing the last update…", None))
+        dialog.present(self.window)
 
     def on_auto_toggled(self, row: Adw.SwitchRow, _pspec) -> None:
         wanted = row.get_active()

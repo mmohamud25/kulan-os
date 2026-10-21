@@ -87,6 +87,28 @@ def app_updates() -> list[dict]:
     return updates
 
 
+PAUSE_FILE = "/etc/apt/apt.conf.d/54kulan-paused-after-undo"  # written by restore-points undo-update
+
+
+def paused_until() -> int:
+    """When automatic updates resume after an undo (0: not paused). An
+    expired pause is lifted here (this runs at start-up and after apt)."""
+    try:
+        with open(PAUSE_FILE, encoding="utf-8") as fh:
+            first = fh.readline()
+    except OSError:
+        return 0
+    match = re.search(r"Until: (\d+)", first)
+    until = int(match.group(1)) if match else 0
+    if until <= time.time():
+        try:
+            os.unlink(PAUSE_FILE)
+        except OSError:
+            pass
+        return 0
+    return until
+
+
 def restart_required() -> list[str]:
     try:
         with open(RESTART_FILE, encoding="utf-8") as fh:
@@ -166,6 +188,7 @@ def main(argv: list[str]) -> int:
             "security": sum(1 for u in updates if u["security"]),
             "last_run": last_run(),
             "restart_required": restart_required(),
+            "paused_until": paused_until(),
         })
         status.pop("running_since", None)
     write_status(status)
