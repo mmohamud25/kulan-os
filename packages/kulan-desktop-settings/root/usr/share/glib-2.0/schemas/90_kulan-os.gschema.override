@@ -51,7 +51,6 @@ animation-time=0.125
 show-delay=0.125
 hide-delay=0.25
 pressure-threshold=80.0
-animate-show-apps=false
 transparency-mode='FIXED'
 background-opacity=0.35
 running-indicator-style='DOTS'
