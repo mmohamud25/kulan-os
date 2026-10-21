@@ -27,5 +27,37 @@
       <summary>Switch between light and dark automatically</summary>
       <description>Dark from sunset to sunrise (Night Light's schedule when it knows your location, otherwise 19:00 to 07:00).</description>
     </key>
+    <key name="clipboard-history" type="b">
+      <default>true</default>
+      <summary>Clipboard history</summary>
+      <description>Remember the last 25 things you copied (text only), in memory only. Cleared when the screen locks or you log out; passwords from password managers are skipped.</description>
+    </key>
+    <key name="clipboard-history-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;v']</default>
+      <summary>Shortcut for clipboard history</summary>
+      <description>Shows what you copied recently; pick one to copy it again.</description>
+    </key>
+    <key name="live-text-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;t']</default>
+      <summary>Shortcut for Live Text</summary>
+      <description>Drag over part of the screen to copy the text in it (recognised on this computer).</description>
+    </key>
+    <key name="focus-schedule" type="b">
+      <default>false</default>
+      <summary>Focus schedule</summary>
+      <description>Turn on Do Not Disturb automatically between focus-from and focus-to.</description>
+    </key>
+    <key name="focus-from" type="d">
+      <range min="0" max="23.99"/>
+      <default>22.0</default>
+      <summary>Focus starts</summary>
+      <description>Hour of the day, such as 22.5 for 22:30.</description>
+    </key>
+    <key name="focus-to" type="d">
+      <range min="0" max="23.99"/>
+      <default>7.0</default>
+      <summary>Focus ends</summary>
+      <description>Hour of the day, such as 7.0 for 07:00.</description>
+    </key>
   </schema>
 </schemalist>

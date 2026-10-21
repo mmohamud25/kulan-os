@@ -118,6 +118,42 @@ def enum_row(gsettings: Gio.Settings | None, key: str, title: str, subtitle: str
                       lambda v: gsettings.set_string(key, v))
 
 
+def time_row(title: str, subtitle: str | None, get: Callable[[], float],
+             set_: Callable[[float], None]) -> Adw.ActionRow:
+    """A row with an HH:MM picker for a time of day stored as hours (22.5 = 22:30)."""
+    row = Adw.ActionRow(title=title, subtitle=subtitle or "")
+    value = max(0.0, min(get(), 23.99))
+    hour, minute = int(value), round((value - int(value)) * 60 / 5) * 5
+    if minute == 60:
+        hour, minute = (hour + 1) % 24, 0
+
+    def spin(upper: int, step: int, current: int, label: str) -> Gtk.SpinButton:
+        button = Gtk.SpinButton.new_with_range(0, upper, step)
+        button.set_value(current)
+        button.set_wrap(True)
+        button.set_numeric(True)
+        button.set_width_chars(2)
+        button.update_property([Gtk.AccessibleProperty.LABEL], [f"{title}: {label}"])
+
+        def show(b: Gtk.SpinButton) -> bool:
+            b.set_text(f"{b.get_value_as_int():02d}")
+            return True
+
+        button.connect("output", show)
+        return button
+
+    hours = spin(23, 1, hour, "hour")
+    minutes = spin(55, 5, minute, "minutes")
+    for button in (hours, minutes):
+        button.connect("value-changed", lambda _b: set_(hours.get_value_as_int() + minutes.get_value_as_int() / 60))
+    box = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
+    box.append(hours)
+    box.append(Gtk.Label(label=":", css_classes=["title-3"]))
+    box.append(minutes)
+    row.add_suffix(box)
+    return row
+
+
 def reset_button(on_reset: Callable[[], None]) -> Gtk.Button:
     button = Gtk.Button(label="Reset to Kulan defaults", halign=Gtk.Align.CENTER,
                         margin_top=12, css_classes=["pill"])

@@ -66,6 +66,9 @@ VERSION="$(cat dist/debs/VERSION)"
 # The published packages go in first, so the install below is a real upgrade:
 # files moving between packages, Breaks/Replaces and maintainer scripts.
 CHANNEL="$(sed -n 's/^KULAN_APT_URL="\(.*\)"$/\1/p' kulan.conf)"
+# The bare debian:trixie image has no CA certificates, so apt can't use
+# HTTPS sources yet (installed systems have them).
+apt-get install -y -q ca-certificates >/dev/null 2>&1
 UPGRADE_FROM=""
 install -m 0644 packages/kulan-archive-keyring.gpg /usr/share/keyrings/kulan-ci-released.gpg
 printf 'Types: deb\nURIs: %s\nSuites: ./\nSigned-By: /usr/share/keyrings/kulan-ci-released.gpg\n' "${CHANNEL}" \
@@ -206,14 +209,16 @@ check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hi
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
 check "Dock default" "always visible" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-fixed)\" = true"
-check "Add-on list" "every add-on names packages; the helper refuses anything else" python3 - <<'PY'
-import json, subprocess
+check "Add-on list" "every add-on names its apps; the helper refuses anything else" python3 - <<'PY'
+import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
 ids = [a["id"] for a in addons]
 assert len(ids) == len(set(ids)), ids
 assert {"apps", "devkit"} <= set(ids), ids
 for a in addons:
-    assert a.get("title") and a.get("description") and a.get("packages"), a
+    assert a.get("title") and a.get("description") and (a.get("packages") or a.get("flatpak")), a
+    for port in a.get("firewall", []):
+        assert re.fullmatch(r"[0-9]{1,5}(:[0-9]{1,5})?/(tcp|udp)", port), port
 for bad in ("nope", "x;y", "../etc", ""):
     r = subprocess.run(["/usr/lib/kulan/update-run", "addon-install", bad], capture_output=True, text=True)
     assert r.returncode != 0, bad
@@ -221,7 +226,7 @@ PY
 # Every Debian package an add-on installs, and the security and privacy apps
 # the ISO adds in 2.2, must exist in Debian 13 (main).
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a[\"packages\"] if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
+check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields

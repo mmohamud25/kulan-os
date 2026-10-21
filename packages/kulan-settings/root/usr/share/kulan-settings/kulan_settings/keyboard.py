@@ -1,12 +1,42 @@
-"""Keyboard: typing repeat, Caps Lock behaviour, layouts and shortcuts."""
+"""Keyboard: typing repeat, Caps Lock, Mac-style shortcuts, clipboard history."""
 from __future__ import annotations
 
 from gi.repository import Adw, Gio, Gtk
 
-from .common import Page, choice_row, open_gnome_panel, reset_keys, settings, switch_row
+from .common import (
+    KULAN_SCHEMA,
+    Page,
+    choice_row,
+    has_key,
+    open_gnome_panel,
+    reset_keys,
+    settings,
+    switch_row,
+)
 
 CAPS_OPTIONS = {"caps:none": "Does nothing", "caps:escape": "Escape", "ctrl:nocaps": "Ctrl",
                 "caps:backspace": "Backspace"}
+
+# (title, schema, key) of the shortcuts worth knowing; the label shows the
+# key's current first binding, so changes made in GNOME Settings show here.
+SHORTCUTS = [
+    ("Search apps, files and settings", "org.gnome.shell.keybindings", "toggle-overview"),
+    ("Screenshot of the whole screen", "org.gnome.shell.keybindings", "screenshot"),
+    ("Screenshot of an area or a window", "org.gnome.shell.keybindings", "show-screenshot-ui"),
+    ("Record the screen", "org.gnome.shell.keybindings", "show-screen-recording-ui"),
+    ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
+    ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
+    ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
+]
+KULAN_SHORTCUT_KEYS = ["live-text-shortcut", "clipboard-history-shortcut", "clipboard-history"]
+
+
+def first_binding(gsettings, key: str) -> str:
+    """The first real key combination (skips keys like XF86Keyboard and Print,
+    so the Mac-style one is shown)."""
+    values = gsettings.get_strv(key) if has_key(gsettings, key) else []
+    mac = [v for v in values if "<Super>" in v]
+    return (mac or values or [""])[0]
 
 
 class KeyboardPage(Page):
@@ -38,6 +68,28 @@ class KeyboardPage(Page):
                                   [("", "Caps Lock"), *CAPS_OPTIONS.items()],
                                   self.get_caps, self.set_caps))
 
+        self.kulan = settings(KULAN_SCHEMA)
+        shortcuts = self.add_group("Shortcuts", "In UTM on a Mac, the Command key is the Super key.")
+        for title, schema, key in SHORTCUTS:
+            gsettings = self.kulan if schema == KULAN_SCHEMA else settings(schema)
+            accel = first_binding(gsettings, key)
+            if not accel:
+                continue
+            row = Adw.ActionRow(title=title)
+            row.add_suffix(Gtk.ShortcutLabel(accelerator=accel, valign=Gtk.Align.CENTER))
+            shortcuts.add(row)
+        emoji = Adw.ActionRow(title="Emoji and symbols")
+        emoji.add_suffix(Gtk.ShortcutLabel(accelerator="<Control><Super>space", valign=Gtk.Align.CENTER))
+        quick_look = Adw.ActionRow(title="Quick Look", subtitle="Select a file in Files and press Space")
+        quick_look.add_suffix(Gtk.ShortcutLabel(accelerator="space", valign=Gtk.Align.CENTER))
+        self.add_rows(shortcuts, emoji, quick_look)
+
+        clipboard = self.add_group("Clipboard")
+        self.add_rows(clipboard,
+                      switch_row(self.kulan, "clipboard-history", "Clipboard history",
+                                 "Remembers the last 25 things you copied, until you lock the screen. Kept in "
+                                 "memory only; passwords from password managers are skipped"))
+
         more = self.add_group("More")
         for title, subtitle, panel in (("Keyboard layouts", "Add or switch typing languages", "keyboard"),
                                        ("Keyboard shortcuts", "View and change every shortcut", "keyboard")):
@@ -59,6 +111,7 @@ class KeyboardPage(Page):
 
     def reset(self) -> None:
         reset_keys(self.keyboard, ["repeat", "delay", "repeat-interval"])
+        reset_keys(self.kulan, KULAN_SHORTCUT_KEYS)
         self.set_caps("")
         self.window.reload_page(self)
         self.toast("Keyboard reset to Kulan defaults")

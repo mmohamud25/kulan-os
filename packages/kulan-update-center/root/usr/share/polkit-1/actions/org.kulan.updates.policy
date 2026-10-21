@@ -2,15 +2,16 @@
 <!DOCTYPE policyconfig PUBLIC
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
-<!-- Kulan Update Center: one administrator password unlocks updates,
-     restore points and the developer kit for a few minutes. -->
+<!-- Kulan Settings: one administrator password unlocks system changes
+     (updates, restore points, add-ons, security and privacy fixes, storage
+     clean-up) for a few minutes. -->
 <policyconfig>
   <vendor>Kulan OS</vendor>
   <vendor_url>https://github.com/mmohamud25/kulan-os</vendor_url>
   <icon_name>kulan-logo</icon_name>
   <action id="org.kulan.updates.manage">
-    <description>Manage Kulan OS updates</description>
-    <message>Authentication is required to install updates or change update settings</message>
+    <description>Change Kulan OS system settings</description>
+    <message>Kulan Settings needs your password to change this for the whole computer</message>
     <defaults>
       <allow_any>auth_admin</allow_any>
       <allow_inactive>auth_admin</allow_inactive>

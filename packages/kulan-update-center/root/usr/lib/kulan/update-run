@@ -14,6 +14,9 @@
 #   update-run firewall-on                turn the firewall on (block incoming)
 #   update-run dns off|quad9|adblock  encrypted DNS for the whole computer
 #   update-run set-hostname <name>        change the computer's name
+#   update-run clean-cache                remove downloaded update files
+#   update-run cleanup                    remove old kernels and unneeded packages
+#   update-run clean-logs                 keep only the last two weeks of system logs
 #
 # Install progress goes to stdout as apt status lines (pmstatus/dlstatus);
 # apt's own messages go to stderr.
@@ -63,23 +66,38 @@ metapackage_depends() {
 	done
 }
 
-# The packages of add-on <id>, one per line, from the root-owned registry.
-# Only add-ons listed there can be installed or removed through this helper.
-addon_packages() {
+# What add-on <id> is made of, from the root-owned registry, one item per
+# line: "apt <package>", "flatpak <app id>" or "port <port>/<tcp|udp>" (a
+# firewall opening it needs, such as phone pairing). Only add-ons listed there
+# can be installed or removed through this helper, and every item is checked.
+addon_items() {
 	[[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "Unknown add-on."
 	python3 -I -c '
 import json, re, sys
 addon_id, registry = sys.argv[1], sys.argv[2]
+RULES = {
+    "packages": ("apt", r"[a-z0-9][a-z0-9+.-]+"),
+    "flatpak": ("flatpak", r"[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}"),
+    "firewall": ("port", r"[0-9]{1,5}(:[0-9]{1,5})?/(tcp|udp)"),
+}
 for addon in json.load(open(registry, encoding="utf-8")):
-    if addon.get("id") == addon_id:
-        packages = addon.get("packages") or []
-        if not packages or not all(isinstance(p, str) and re.fullmatch(r"[a-z0-9][a-z0-9+.-]+", p) for p in packages):
+    if addon.get("id") != addon_id:
+        continue
+    lines = []
+    for field, (kind, pattern) in RULES.items():
+        values = addon.get(field) or []
+        if not isinstance(values, list) or not all(isinstance(v, str) and re.fullmatch(pattern, v) for v in values):
             sys.exit(1)
-        print("\n".join(packages))
-        sys.exit(0)
+        lines += [f"{kind} {v}" for v in values]
+    if not any(line.startswith(("apt ", "flatpak ")) for line in lines):
+        sys.exit(1)
+    print("\n".join(lines))
+    sys.exit(0)
 sys.exit(1)
 ' "$1" "${ADDONS}" || die "Unknown add-on."
 }
+
+FLATHUB_URL=https://dl.flathub.org/repo/flathub.flatpakrepo
 
 case "${1:-}" in
 	check)
@@ -126,28 +144,82 @@ case "${1:-}" in
 		;;
 	addon-install | addon-remove)
 		[[ $# -eq 2 ]] || die "usage: update-run $1 <add-on>"
-		mapfile -t PACKAGES < <(addon_packages "$2")
-		[[ ${#PACKAGES[@]} -gt 0 ]] || die "Unknown add-on."
+		mapfile -t ITEMS < <(addon_items "$2")
+		[[ ${#ITEMS[@]} -gt 0 ]] || die "Unknown add-on."
+		PACKAGES=() FLATPAKS=() PORTS=()
+		for ITEM in "${ITEMS[@]}"; do
+			case "${ITEM%% *}" in
+				apt) PACKAGES+=("${ITEM#* }") ;;
+				flatpak) FLATPAKS+=("${ITEM#* }") ;;
+				port) PORTS+=("${ITEM#* }") ;;
+			esac
+		done
+		if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+			command -v flatpak >/dev/null 2>&1 || die "Flatpak isn't installed."
+		fi
 		if [[ "$1" == addon-install ]]; then
-			apt-get -q update 1>&2
-			run_apt install "${PACKAGES[@]}"
-		else
-			# Leave alone anything apt could already clean up before this.
-			mapfile -t BEFORE < <(autoremovable)
-			# On an ISO install the apps of a Kulan metapackage (kulan-apps)
-			# were installed directly too, so mark what it depends on as
-			# automatic: then they go with it unless something else needs them.
-			mapfile -t DEPS < <(metapackage_depends "${PACKAGES[@]}")
-			if [[ ${#DEPS[@]} -gt 0 ]]; then
-				apt-mark auto "${DEPS[@]}" 1>&2
+			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
+				apt-get -q update 1>&2
+				run_apt install "${PACKAGES[@]}"
 			fi
-			# remove, not purge: settings files stay, as with any app removal.
-			run_apt remove "${PACKAGES[@]}"
-			mapfile -t FREED < <(comm -13 <(printf '%s\n' "${BEFORE[@]}") <(autoremovable))
-			if [[ ${#FREED[@]} -gt 0 ]]; then
-				run_apt remove "${FREED[@]}"
+			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+				flatpak remote-add --system --if-not-exists flathub "${FLATHUB_URL}" 1>&2
+				flatpak install --system --noninteractive -y flathub "${FLATPAKS[@]}" 1>&2
+			fi
+			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
+				for PORT in "${PORTS[@]}"; do
+					ufw allow "${PORT}" comment "Kulan add-on: $2" 1>&2
+				done
+			fi
+		else
+			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
+				for PORT in "${PORTS[@]}"; do
+					ufw --force delete allow "${PORT}" 1>&2 || true
+				done
+			fi
+			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+				for APP in "${FLATPAKS[@]}"; do
+					if flatpak info --system "${APP}" >/dev/null 2>&1; then
+						flatpak uninstall --system --noninteractive -y "${APP}" 1>&2
+					fi
+				done
+				# Runtimes no app needs any more (like apt's autoremove).
+				flatpak uninstall --system --noninteractive -y --unused 1>&2 || true
+			fi
+			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
+				# Leave alone anything apt could already clean up before this.
+				mapfile -t BEFORE < <(autoremovable)
+				# On an ISO install the apps of a Kulan metapackage (kulan-apps)
+				# were installed directly too, so mark what it depends on as
+				# automatic: then they go with it unless something else needs them.
+				mapfile -t DEPS < <(metapackage_depends "${PACKAGES[@]}")
+				if [[ ${#DEPS[@]} -gt 0 ]]; then
+					apt-mark auto "${DEPS[@]}" 1>&2
+				fi
+				# remove, not purge: settings files stay, as with any app removal.
+				run_apt remove "${PACKAGES[@]}"
+				mapfile -t FREED < <(comm -13 <(printf '%s\n' "${BEFORE[@]}") <(autoremovable))
+				if [[ ${#FREED[@]} -gt 0 ]]; then
+					run_apt remove "${FREED[@]}"
+				fi
 			fi
 		fi
+		;;
+	clean-cache)
+		[[ $# -eq 1 ]] || die "usage: update-run clean-cache"
+		apt-get clean 1>&2
+		;;
+	cleanup)
+		[[ $# -eq 1 ]] || die "usage: update-run cleanup"
+		# Old kernels and packages nothing needs any more (settings files stay).
+		run_apt autoremove
+		if command -v flatpak >/dev/null 2>&1; then
+			flatpak uninstall --system --noninteractive -y --unused 1>&2 || true
+		fi
+		;;
+	clean-logs)
+		[[ $# -eq 1 ]] || die "usage: update-run clean-logs"
+		journalctl --vacuum-time=2weeks 1>&2
 		;;
 	security-checkup)
 		[[ $# -eq 1 ]] || die "usage: update-run security-checkup"
@@ -228,6 +300,6 @@ PY
 		echo "Renamed ${OLD} to $2" >&2
 		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|dns <mode>|set-hostname <name>"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs"
 		;;
 esac

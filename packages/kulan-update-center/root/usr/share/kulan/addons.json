@@ -31,5 +31,36 @@
       "clamav",
       "clamav-freshclam"
     ]
+  },
+  {
+    "id": "phone-link",
+    "title": "Phone Link",
+    "description": "Connect your Android phone: notifications, texts, shared clipboard, files and media controls (GSConnect, works with the KDE Connect app)",
+    "icon": "phone-symbolic",
+    "size": "about 5 MB",
+    "note": "Install KDE Connect on your phone, then open Phone Link from the top-bar menu to pair.",
+    "packages": [
+      "gnome-shell-extension-gsconnect"
+    ],
+    "extension": "gsconnect@andyholmes.github.io",
+    "firewall": [
+      "1714:1764/tcp",
+      "1714:1764/udp"
+    ]
+  },
+  {
+    "id": "nearby-share",
+    "title": "Nearby Share",
+    "description": "Send files to nearby phones and computers on the same Wi-Fi, like AirDrop (LocalSend: iPhone, Android, Mac and Windows)",
+    "icon": "send-to-symbolic",
+    "size": "about 60 MB from Flathub",
+    "note": "Install LocalSend on your other devices too, then open it on both.",
+    "flatpak": [
+      "org.localsend.localsend_app"
+    ],
+    "firewall": [
+      "53317/tcp",
+      "53317/udp"
+    ]
   }
 ]

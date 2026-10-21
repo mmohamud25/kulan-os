@@ -2,17 +2,45 @@
 from __future__ import annotations
 
 import platform
+import shutil
+import subprocess
 from pathlib import Path
 
 from gi.repository import Adw, GLib, Gtk
 
-from .common import Page, package_installed, read_json
+from .common import Page, package_installed, read_json, settings
 
 REGISTRY = Path("/usr/share/kulan/addons.json")
 
 
 def machine_arch() -> str:
     return {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine(), platform.machine())
+
+
+def flatpak_installed(app_id: str) -> bool:
+    if shutil.which("flatpak") is None:
+        return False
+    try:
+        return subprocess.run(["flatpak", "info", "--system", app_id], capture_output=True,
+                              timeout=10, check=False).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def addon_installed(addon: dict) -> bool:
+    return (all(package_installed(p) for p in addon.get("packages") or [])
+            and all(flatpak_installed(a) for a in addon.get("flatpak") or []))
+
+
+def set_extension(uuid: str, on: bool) -> None:
+    """Turn a GNOME extension on or off for this user (an add-on's own)."""
+    shell = settings("org.gnome.shell")
+    if shell is None or not uuid:
+        return
+    enabled = [u for u in shell.get_strv("enabled-extensions") if u != uuid]
+    disabled = [u for u in shell.get_strv("disabled-extensions") if u != uuid]
+    shell.set_strv("enabled-extensions", [*enabled, uuid] if on else enabled)
+    shell.set_strv("disabled-extensions", disabled)
 
 
 class AddonsPage(Page):
@@ -32,7 +60,8 @@ class AddonsPage(Page):
     def addons(self) -> list[dict]:
         arch = machine_arch()
         entries = read_json(REGISTRY, [])
-        return [a for a in entries if isinstance(a, dict) and a.get("id") and a.get("packages")
+        return [a for a in entries if isinstance(a, dict) and a.get("id")
+                and (a.get("packages") or a.get("flatpak"))
                 and (not a.get("arch") or arch in a["arch"])]
 
     def shown(self) -> None:
@@ -47,7 +76,7 @@ class AddonsPage(Page):
             self.rows.append(row)
             return
         for addon in addons:
-            installed = all(package_installed(p) for p in addon["packages"])
+            installed = addon_installed(addon)
             subtitle = addon.get("description", "")
             if addon.get("size") and not installed:
                 subtitle += f" · {addon['size']}"
@@ -86,6 +115,8 @@ class AddonsPage(Page):
         button.set_label("Installing…" if action == "addon-install" else "Removing…")
 
         def done(ok: bool) -> None:
+            if ok and addon.get("extension"):
+                set_extension(addon["extension"], action == "addon-install")
             if ok and action == "addon-install" and addon.get("note"):
                 self.toast(addon["note"])
             self.shown()

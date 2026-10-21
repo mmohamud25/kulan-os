@@ -194,3 +194,30 @@
 .kulan-menu .popup-menu-content {
   min-width: 15em;
 }
+
+/* Clipboard history (Shift+Super+V) */
+.kulan-clipboard-title {
+  font-weight: bold;
+  font-size: 1.2em;
+  padding-bottom: 8px;
+  text-align: center;
+}
+.kulan-clipboard-scroll {
+  min-width: 440px;
+  max-height: 360px;
+}
+.kulan-clipboard-list {
+  spacing: 2px;
+}
+.kulan-clipboard-item {
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.kulan-clipboard-item:hover,
+.kulan-clipboard-item:focus {
+  background-color: rgba(255, 255, 255, 0.10);
+}
+.kulan-clipboard-empty {
+  color: rgba(255, 255, 255, 0.6);
+  padding: 12px;
+}

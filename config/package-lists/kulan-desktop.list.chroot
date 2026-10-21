@@ -14,6 +14,10 @@ gnome-shell-extension-dashtodock
 gnome-shell-extension-blur-my-shell
 gnome-shell-extension-appindicator
 gnome-shell-extension-prefs
+# Window snapping into halves and quarters, like macOS
+gnome-shell-extension-tiling-assistant
+# Battery modes (Power Saver, Balanced, Performance) in Quick Settings
+power-profiles-daemon
 
 # Look and feel
 papirus-icon-theme
@@ -32,6 +36,16 @@ evince
 file-roller
 gnome-disk-utility
 gnome-system-monitor
+# Mac-style extras: Quick Look (select a file in Files, press Space),
+# emoji and symbols, weather and world clocks in the date menu, disk usage
+gnome-sushi
+gnome-characters
+gnome-weather
+gnome-clocks
+baobab
+# Live Text: copy text out of anything on screen (Super+Shift+T)
+tesseract-ocr
+tesseract-ocr-eng
 
 # Office and media (native builds; run on ARM and PCs)
 libreoffice-writer

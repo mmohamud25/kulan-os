@@ -47,6 +47,37 @@ natural-scroll=true
 
 [org.gnome.mutter]
 center-new-windows=true
+# Fractional scaling (125%, 150%, 175%) in Settings > Displays, sharp in
+# older X11 apps too.
+experimental-features=['scale-monitor-framebuffer', 'xwayland-native-scaling']
+
+# --- Mac-style shortcuts (in UTM on a Mac, Command is the Super key) ---------
+# Cmd+Space: search apps, files and settings. Input sources move to
+# Ctrl+Alt+Space so Cmd+Space is free.
+[org.gnome.shell.keybindings]
+toggle-overview=['<Super>space']
+# Cmd+Shift+3: whole screen. Cmd+Shift+4: pick an area or window.
+# Cmd+Shift+5: record the screen. The Print key keeps working too.
+screenshot=['<Shift>Print', '<Shift><Super>3']
+show-screenshot-ui=['Print', '<Shift><Super>4']
+show-screen-recording-ui=['<Ctrl><Shift><Alt>R', '<Shift><Super>5']
+
+[org.gnome.desktop.wm.keybindings]
+switch-input-source=['XF86Keyboard', '<Control><Alt>space']
+switch-input-source-backward=['<Shift>XF86Keyboard', '<Shift><Control><Alt>space']
+
+# Emoji and symbols (Ctrl+Cmd+Space); defined in
+# /etc/dconf/db/local.d/20-kulan-shortcuts.
+[org.gnome.settings-daemon.plugins.media-keys]
+custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kulan-emoji/']
+
+# Window snapping: drag a window to an edge or corner for halves and quarters,
+# with a small gap, like macOS. No popup offering other windows.
+[org.gnome.shell.extensions.tiling-assistant]
+enable-tiling-popup=false
+window-gap=8
+single-screen-gap=8
+maximize-with-gap=false
 
 # Floating, translucent dock with running-app dots.
 [org.gnome.shell.extensions.dash-to-dock]
@@ -67,6 +98,10 @@ running-indicator-style='DOTS'
 show-trash=false
 show-mounts=false
 show-apps-at-top=false
+# Cmd+Shift+3/4/5 are screenshots (see above), not "new window of dock app 3/4/5".
+app-shift-hotkey-3=@as []
+app-shift-hotkey-4=@as []
+app-shift-hotkey-5=@as []
 
 # Privacy: clear old trash and temporary files after 30 days; never send
 # usage or crash reports.

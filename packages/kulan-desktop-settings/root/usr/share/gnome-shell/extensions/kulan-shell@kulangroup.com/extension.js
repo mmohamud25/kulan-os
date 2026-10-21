@@ -1,7 +1,8 @@
 // Kulan Shell: the Kulan OS look (stylesheet-dark.css / stylesheet-light.css,
 // loaded by GNOME Shell on top of its own theme), the Kulan menu at the top
 // left, the update indicator in the top bar, slightly quicker animations,
-// automatic light/dark at sunset, and (once per user) the Kulan window
+// automatic light/dark at sunset, a Focus schedule (Do Not Disturb at set
+// hours), Live Text, clipboard history, and (once per user) the Kulan window
 // buttons for apps. Its options (org.kulan.desktop) are set in Kulan Settings.
 //
 // The indicator reads /var/lib/kulan/updates.json, which the
@@ -12,6 +13,8 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Meta from 'gi://Meta';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -19,6 +22,9 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as SystemActions from 'resource:///org/gnome/shell/misc/systemActions.js';
+
+import {ClipboardHistory} from './clipboard.js';
+import {LiveText} from './livetext.js';
 
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
@@ -33,6 +39,11 @@ const ANIMATION_SPEEDS = {calm: 1.0, normal: 0.8, fast: 0.6};
 const FALLBACK_SUNSET = 19;
 const FALLBACK_SUNRISE = 7;
 const STYLE_CHECK_S = 60;
+// Kulan shortcuts (org.kulan.desktop keys) and what they do.
+const SHORTCUTS = {
+    'live-text-shortcut': ext => ext._liveText?.start(),
+    'clipboard-history-shortcut': ext => ext._clipboard?.show(),
+};
 
 // GNOME writes its own folder list into a user's settings at first login,
 // which hides the Kulan folders (system defaults) for users who existed
@@ -277,6 +288,8 @@ export default class KulanShellExtension extends Extension {
         this._sessionId = Main.sessionMode.connect('updated', () => {
             this._syncSession();
             this._syncStyle(); // the time may have passed sunset while locked
+            if (Main.sessionMode.isLocked)
+                this._clipboard?.clear(); // nothing copied survives a lock
         });
 
         this._settings = kulanSettings();
@@ -294,8 +307,15 @@ export default class KulanShellExtension extends Extension {
         });
         this._styleTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, STYLE_CHECK_S, () => {
             this._syncStyle();
+            this._syncFocus();
             return GLib.SOURCE_CONTINUE;
         });
+        this._notifications = new Gio.Settings({schema_id: 'org.gnome.desktop.notifications'});
+        this._focusOn = null;
+        this._liveText = new LiveText();
+        this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
+        this._syncClipboard();
+        this._addShortcuts();
         this._colorCancel = new Gio.Cancellable();
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, null,
             'org.gnome.SettingsDaemon.Color', '/org/gnome/SettingsDaemon/Color',
@@ -323,6 +343,61 @@ export default class KulanShellExtension extends Extension {
         }
         this._syncSession();
         this._syncStyle();
+        this._syncFocus();
+    }
+
+    // Kulan's own shortcuts, read from org.kulan.desktop (an older schema
+    // without a key simply leaves that shortcut out).
+    _addShortcuts() {
+        this._shortcuts = [];
+        if (!this._settings)
+            return;
+        for (const [key, action] of Object.entries(SHORTCUTS)) {
+            if (!this._settings.settings_schema.has_key(key))
+                continue;
+            Main.wm.addKeybinding(key, this._settings, Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW, () => {
+                    if (Main.overview.visible)
+                        Main.overview.hide();
+                    action(this);
+                });
+            this._shortcuts.push(key);
+        }
+    }
+
+    _syncClipboard() {
+        const on = this._settings?.get_boolean('clipboard-history') ?? false;
+        if (on && !this._clipboard) {
+            this._clipboard = new ClipboardHistory();
+        } else if (!on && this._clipboard) {
+            this._clipboard.destroy();
+            this._clipboard = null;
+        }
+    }
+
+    // Focus: Do Not Disturb between two times of day. Only the switch-over
+    // moments change it, so turning Do Not Disturb on or off by hand in
+    // between is kept.
+    _syncFocus() {
+        if (!this._settings?.get_boolean('focus-schedule') || !this._notifications) {
+            // Schedule turned off during Focus: end it.
+            if (this._focusOn && this._notifications)
+                this._notifications.set_boolean('show-banners', true);
+            this._focusOn = null;
+            return;
+        }
+        const from = this._settings.get_double('focus-from');
+        const to = this._settings.get_double('focus-to');
+        const now = GLib.DateTime.new_now_local();
+        const hour = now.get_hour() + now.get_minute() / 60;
+        const inside = from > to ? hour >= from || hour < to : hour >= from && hour < to;
+        if (inside === this._focusOn)
+            return;
+        // At login or when the schedule is first turned on, only start Focus;
+        // never switch notifications back on that someone turned off.
+        if (inside || this._focusOn !== null)
+            this._notifications.set_boolean('show-banners', !inside);
+        this._focusOn = inside;
     }
 
     // "Automatic" appearance: dark from sunset to sunrise. GNOME's colour
@@ -347,6 +422,18 @@ export default class KulanShellExtension extends Extension {
     }
 
     disable() {
+        for (const key of this._shortcuts ?? [])
+            Main.wm.removeKeybinding(key);
+        this._shortcuts = [];
+        if (this._clipboardId) {
+            this._settings.disconnect(this._clipboardId);
+            this._clipboardId = 0;
+        }
+        this._clipboard?.destroy();
+        this._clipboard = null;
+        this._liveText?.destroy();
+        this._liveText = null;
+        this._notifications = null;
         if (this._settingsId) {
             this._settings.disconnect(this._settingsId);
             this._settingsId = 0;

@@ -31,7 +31,9 @@ for SPEC in \
 	"dock:dash-to-dock@*:required" \
 	"blur:blur-my-shell@*:required" \
 	"kulan:kulan-shell@*:required" \
-	"tray:*appindicator*@*:optional"; do
+	"tray:*appindicator*@*:optional" \
+	"tiling:tiling-assistant@*:optional" \
+	"phone:gsconnect@*:optional"; do
 	LABEL="${SPEC%%:*}"
 	REST="${SPEC#*:}"
 	PATTERN="${REST%%:*}"
