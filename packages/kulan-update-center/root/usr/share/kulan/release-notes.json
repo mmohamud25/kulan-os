@@ -18,7 +18,9 @@
       "Kulan Settings pages appear in search, in Spotlight and Activities",
       "The live session no longer shows a broken installer icon on the desktop; Install Kulan OS is the first icon in the dock",
       "Works well in VMware Fusion and Workstation: shared clipboard, drag and drop, automatic screen size, and the start-up screen shows properly",
-      "Firefox's window buttons are round and red, yellow and green, like every other app"
+      "Firefox's window buttons are round and red, yellow and green, like every other app",
+      "Desktop widgets: Calendar (today and what's next), Weather, Prayer Times (the next prayer, while it's on) and your note, at the top left of the desktop; choose them in Kulan Settings > Desktop and windows",
+      "Quick Note: Cmd+Shift+N opens a note over whatever you're doing, saved as you type and shown in the Note widget"
     ]
   },
   {

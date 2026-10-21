@@ -41,6 +41,14 @@ def set_desktop_icons(shell, on: bool) -> None:
 # is never shown, so this one stands for "folders off".
 NO_FOLDERS = ["Kulan-NoFolders"]
 
+# Desktop widgets, in the order they're shown: (id, title, subtitle).
+WIDGETS = [
+    ("calendar", "Calendar", "Today’s date and what’s next in Calendar"),
+    ("weather", "Weather", "For the place chosen in the Weather app"),
+    ("prayer", "Prayer Times", "The next prayer, while Prayer Times is on"),
+    ("notes", "Note", "Your Quick Note (Cmd+Shift+N)"),
+]
+
 
 def folders_on(folders) -> bool:
     children = folders.get_strv("folder-children")
@@ -94,6 +102,16 @@ class DesktopPage(Page):
                 if row is not None:
                     icons.bind_property("active", row, "sensitive", GObject.BindingFlags.SYNC_CREATE)
                     desktop.add(row)
+
+        if has_key(self.kulan, "desktop-widgets"):
+            widgets = self.add_group("Widgets", "Small cards at the top left of the desktop. Click one to open its app.")
+            self.widget_rows = {}
+            for widget_id, title, subtitle in WIDGETS:
+                row = Adw.SwitchRow(title=title, subtitle=subtitle,
+                                    active=widget_id in self.kulan.get_strv("desktop-widgets"))
+                row.connect("notify::active", lambda r, _p, w=widget_id: self.set_widget(w, r.get_active()))
+                widgets.add(row)
+                self.widget_rows[widget_id] = row
 
         motion = self.add_group("Motion")
         motion.add(choice_row("Animations", "Kulan’s default is a little quicker than GNOME’s",
@@ -152,6 +170,12 @@ class DesktopPage(Page):
         else:
             self.folders.set_strv("folder-children", NO_FOLDERS)
 
+    def set_widget(self, widget_id: str, on: bool) -> None:
+        current = self.kulan.get_strv("desktop-widgets")
+        wanted = [w for w, _t, _s in WIDGETS if (w == widget_id and on) or (w != widget_id and w in current)]
+        if wanted != current:
+            self.kulan.set_strv("desktop-widgets", wanted)
+
     def tidy_grid(self) -> None:
         # GNOME keeps each app where it was dropped; with no saved layout it
         # sorts alphabetically and fills every page.
@@ -159,7 +183,7 @@ class DesktopPage(Page):
         self.toast("App grid sorted from A to Z")
 
     def reset(self) -> None:
-        reset_keys(self.kulan, ["animation-speed"])
+        reset_keys(self.kulan, ["animation-speed", "desktop-widgets"])
         reset_keys(self.interface, ["enable-animations", "enable-hot-corners"])
         reset_keys(self.folders, ["folder-children"])
         reset_keys(self.mutter, ["center-new-windows", "dynamic-workspaces"])

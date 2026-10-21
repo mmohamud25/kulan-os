@@ -321,3 +321,61 @@
 .kulan-spotlight-row-box { spacing: 12px; }
 .kulan-spotlight-name { font-weight: 600; }
 .kulan-spotlight-description { font-size: 0.85em; color: rgba(255, 255, 255, 0.6); }
+
+/* Desktop widgets (top left of the desktop) */
+.kulan-widgets { spacing: 14px; }
+.kulan-widget {
+  width: 188px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background-color: rgba(13, 27, 48, 0.86);
+  border: 1px solid rgba(147, 197, 253, 0.12);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+  color: #eef4fb;
+  text-align: left;
+}
+.kulan-widget:hover { background-color: rgba(18, 36, 62, 0.95); }
+.kulan-widget-box { spacing: 4px; }
+.kulan-widget-head { spacing: 6px; }
+.kulan-widget-icon { icon-size: 14px; color: #0d9488; }
+.kulan-widget-title { font-size: 0.8em; font-weight: bold; color: #0d9488; }
+.kulan-widget-body { spacing: 3px; }
+.kulan-widget-big { font-size: 2.6em; font-weight: 300; }
+.kulan-widget-big-text { font-size: 1.6em; font-weight: 600; }
+.kulan-widget-detail { font-size: 0.85em; }
+.kulan-widget-muted { font-size: 0.82em; color: rgba(255, 255, 255, 0.6); }
+.kulan-widget-line { font-size: 0.88em; font-weight: 600; }
+.kulan-widget-event { padding-top: 4px; border-top: 1px solid rgba(147, 197, 253, 0.12); }
+.kulan-widget-weather { spacing: 8px; }
+.kulan-widget-weather-icon { icon-size: 34px; }
+.kulan-widget-note { font-size: 0.88em; }
+.kulan-widget-list { padding-top: 6px; spacing: 1px; }
+.kulan-widget-list-row { spacing: 8px; }
+.kulan-widget-next .kulan-widget-muted { color: #0d9488; font-weight: bold; }
+
+/* Quick Note (Cmd+Shift+N) */
+.kulan-quicknote {
+  background-color: rgba(13, 27, 48, 0.98);
+  border: 1px solid rgba(147, 197, 253, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  padding: 12px;
+  spacing: 8px;
+}
+.kulan-quicknote-head { spacing: 8px; padding: 2px 4px; }
+.kulan-quicknote-title { font-weight: bold; color: #eef4fb; }
+.kulan-quicknote-done { padding: 4px 14px; border-radius: 10px; background-color: #0d9488; color: #ffffff; font-weight: 600; }
+.kulan-quicknote-done:hover { background-color: #0f766e; }
+.kulan-quicknote-scroll { border-radius: 10px; }
+.kulan-quicknote-field { background-color: rgba(255, 255, 255, 0.05); border-radius: 10px; }
+.kulan-quicknote-entry {
+  font-size: 1.05em;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background-color: transparent;
+  color: #eef4fb;
+  caret-color: #0d9488;
+  box-shadow: none;
+}
+.kulan-quicknote-entry:focus { box-shadow: none; border: none; }

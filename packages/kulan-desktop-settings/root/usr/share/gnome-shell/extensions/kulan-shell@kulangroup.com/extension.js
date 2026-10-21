@@ -30,6 +30,8 @@ import {Dictation} from './dictation.js';
 import {LiveText} from './livetext.js';
 import {PrayerTimes} from './prayer.js';
 import {Spotlight} from './spotlight.js';
+import {QuickNote} from './quicknote.js';
+import {DesktopWidgets} from './widgets.js';
 
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
@@ -49,6 +51,7 @@ const SHORTCUTS = {
     'live-text-shortcut': ext => ext._liveText?.start(),
     'writing-tools-shortcut': ext => ext._assistant?.writingTools(),
     'dictation-shortcut': ext => ext._dictation?.toggle(),
+    'quick-note-shortcut': ext => ext._quickNote?.toggle(),
     'clipboard-history-shortcut': ext => {
         if (ext._clipboard)
             ext._clipboard.show();
@@ -349,12 +352,14 @@ export default class KulanShellExtension extends Extension {
             return GLib.SOURCE_CONTINUE;
         });
         this._sessionId = Main.sessionMode.connect('updated', () => {
+            this._widgets?.sync(); // no widgets on the lock screen
             this._syncSession();
             this._syncStyle(); // the time may have passed sunset while locked
             if (Main.sessionMode.isLocked) {
                 this._clipboard?.clear(); // nothing copied survives a lock
                 this._dictation?.destroy(); // and nothing is recorded while locked
                 this._spotlight?.close();
+                this._quickNote?.close();
             }
         });
 
@@ -386,6 +391,9 @@ export default class KulanShellExtension extends Extension {
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
         this._spotlight = new Spotlight();
+        this._quickNote = new QuickNote();
+        this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
+            ? new DesktopWidgets(this._settings, () => this._quickNote?.open()) : null;
         this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
         this._syncClipboard();
         this._addShortcuts();
@@ -543,6 +551,10 @@ export default class KulanShellExtension extends Extension {
         this._prayer = null;
         this._spotlight?.destroy();
         this._spotlight = null;
+        this._widgets?.destroy();
+        this._widgets = null;
+        this._quickNote?.destroy();
+        this._quickNote = null;
         this._assistant?.destroy();
         this._assistant = null;
         this._notifications = null;

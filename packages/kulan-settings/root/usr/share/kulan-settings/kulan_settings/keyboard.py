@@ -28,11 +28,12 @@ SHORTCUTS = [
     ("Record the screen", "org.gnome.shell.keybindings", "show-screen-recording-ui"),
     ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
     ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
+    ("Quick Note", KULAN_SCHEMA, "quick-note-shortcut"),
     ("Writing tools for the selected text (Kulan Assistant)", KULAN_SCHEMA, "writing-tools-shortcut"),
     ("Dictation: start and stop (Kulan Assistant)", KULAN_SCHEMA, "dictation-shortcut"),
     ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
 ]
-KULAN_SHORTCUT_KEYS = ["search-shortcut", "search-style", "live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
+KULAN_SHORTCUT_KEYS = ["search-shortcut", "search-style", "quick-note-shortcut", "live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
                        "dictation-shortcut", "clipboard-history"]
 ASSISTANT = Path("/usr/bin/kulan-assistant")
 

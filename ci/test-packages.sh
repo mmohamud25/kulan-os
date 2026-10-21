@@ -239,6 +239,7 @@ assert sent and sent[0][0] == 1000 and ("Files" in sent[0][1] or "Nautilus" in s
 assert len(sent) == 1, sent
 print(sent[0][1])
 PY
+check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"
 check "Calm file indexing" "file search indexing runs only when the computer is idle" grep -qx "CPUWeight=idle" /usr/lib/systemd/user/localsearch-3.service.d/50-kulan-idle.conf
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Restore point limits" "newest 2 update-time points kept, own ones never deleted, size recorded" bash -c '
