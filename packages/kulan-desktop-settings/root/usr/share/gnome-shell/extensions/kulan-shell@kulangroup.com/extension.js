@@ -247,7 +247,7 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         this._count.text = available > 0 && !running ? String(available) : '';
 
         if (running) {
-            this._icon.icon_name = 'emblem-synchronizing-symbolic';
+            this._icon.icon_name = 'view-refresh-symbolic';
             this._title.label.text = 'Installing updates…';
             this._detail.label.text = 'You can keep working while this runs.';
         } else {

@@ -46,13 +46,14 @@ class HistoryDialog extends ModalDialog.ModalDialog {
             }));
         }
         for (const text of items) {
-            const label = new St.Label({text: preview(text), x_align: Clutter.ActorAlign.START});
+            const label = new St.Label({text: preview(text), x_align: Clutter.ActorAlign.START, x_expand: true});
             label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
             const button = new St.Button({
                 child: label,
                 style_class: 'kulan-clipboard-item',
                 can_focus: true,
                 x_expand: true,
+                x_align: Clutter.ActorAlign.FILL,
                 accessible_name: preview(text),
             });
             button.connect('clicked', () => {

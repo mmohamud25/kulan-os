@@ -3,14 +3,21 @@
     "version": "2.2",
     "title": "Kulan OS 2.2",
     "items": [
-      "Kulan Settings: appearance, dock, top bar, animations, Night Light, keyboard, login items, add-ons and About in one app",
-      "Window buttons: GNOME's round buttons with symbols, now in red, yellow and green, in Firefox too; Mac dots and GNOME standard are a click away in Kulan Settings",
-      "Update Center is now Updates and recovery in Kulan Settings",
-      "Automatic light and dark mode, following the sunset",
-      "Dock: always visible by default, or show on hover, or hide when a window covers it",
-      "Add-ons: install or remove the Developer Kit and office and media apps in one click",
-      "Kulan apps have store pages in Software",
-      "Apple silicon and other ARM computers: the boot splash and disk password prompt now appear on the screen"
+      "Kulan Settings: one app for appearance, dock, top bar, windows, Night Light, keyboard, Focus, login items, storage, security, privacy, updates, add-ons and About",
+      "Security: see at a glance if the firewall, disk encryption, updates, restore points, screen lock and backups are on, with one-click fixes, plus a security checkup",
+      "Privacy: a private computer name, encrypted DNS that can block ads and trackers in every app, camera, microphone and location switches, and a list of what Kulan OS connects to",
+      "Browsers: Firefox blocks ads and trackers (uBlock Origin), cookie banners and insecure pages; Chromium and Chrome turn ad tracking off",
+      "KeePassXC password manager and Metadata Cleaner are built in",
+      "Mac-style shortcuts: Cmd+Space to search, Cmd+Shift+3/4/5 for screenshots and screen recording, Ctrl+Cmd+Space for emoji",
+      "Live Text: Cmd+Shift+T copies the text from anything on screen, read on your computer",
+      "Clipboard history: Cmd+Shift+V shows what you copied recently (kept until the screen locks)",
+      "Window snapping into halves and quarters, Quick Look (press Space in Files), Weather and Clocks, and display scaling such as 125% and 150%",
+      "Focus: Do Not Disturb on a daily schedule",
+      "Storage: see how full the disk is and free up space in one click",
+      "Add-ons: Phone Link for Android phones, Nearby Share (like AirDrop), a virus scanner, the Developer Kit, and office and media apps",
+      "A calmer look: GNOME's own icons, and window buttons in red, yellow and green with symbols (Mac dots and GNOME standard are a click away)",
+      "Automatic light and dark mode, following the sunset; the dock is always visible by default, or shows on hover",
+      "Apple silicon and other ARM computers: the boot splash and disk password prompt now appear on the screen, without technical messages"
     ]
   },
   {

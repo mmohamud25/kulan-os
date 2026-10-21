@@ -168,7 +168,9 @@ case "${1:-}" in
 			fi
 			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
 				for PORT in "${PORTS[@]}"; do
-					ufw allow "${PORT}" comment "Kulan add-on: $2" 1>&2
+					# The app is installed either way; a firewall hiccup only warns.
+					ufw allow "${PORT}" comment "Kulan add-on: $2" 1>&2 ||
+						echo "W: couldn't open ${PORT} in the firewall; open it in Firewall Configuration" >&2
 				done
 			fi
 		else

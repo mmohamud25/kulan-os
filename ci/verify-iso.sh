@@ -99,7 +99,7 @@ if installed kulan-devkit; then
 else
 	result pass "Developer kit" "not in the ISO (one-click install from the Welcome app)"
 fi
-check "Icons" "Papirus icon theme installed" installed papirus-icon-theme
+check "Icons" "Adwaita icon theme installed" installed adwaita-icon-theme
 check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then

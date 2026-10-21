@@ -190,7 +190,7 @@ class UpdatesPage(Page):
         name = self.release.get("NAME", "Kulan OS")
         checked = when_text(self.status.get("checked") or 0)
         if self.running():
-            self.status_icon.set_from_icon_name("emblem-synchronizing-symbolic")
+            self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
             self.status_detail.set_label("Updates are being installed in the background. You can keep working.")
             self.install_button.set_visible(False)
@@ -326,7 +326,7 @@ class UpdatesPage(Page):
         self.progress.set_fraction(0)
         self.progress.set_text(label)
         self.progress.set_visible(True)
-        self.status_icon.set_from_icon_name("emblem-synchronizing-symbolic")
+        self.status_icon.set_from_icon_name("view-refresh-symbolic")
         self.status_title.set_label(label)
         self.status_detail.set_label("You can keep working while this runs.")
 

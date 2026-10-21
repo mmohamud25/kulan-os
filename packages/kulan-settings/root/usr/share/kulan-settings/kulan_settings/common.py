@@ -268,7 +268,7 @@ class Page(Adw.Bin):
     """Base class: a titled preferences page with access to the window."""
 
     title = ""
-    icon = "emblem-system-symbolic"
+    icon = "preferences-system-symbolic"
     keywords: tuple[str, ...] = ()
 
     def __init__(self, window) -> None:

@@ -96,7 +96,7 @@ class SecurityPage(Page):
     # --- status cards ---------------------------------------------------------
     def card(self, title: str, subtitle: str, state: str, fix_label: str | None = None, fix=None) -> Adw.ActionRow:
         row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(subtitle))
-        icon, css = {GOOD: ("emblem-ok-symbolic", "success"), WARN: ("dialog-warning-symbolic", "warning"),
+        icon, css = {GOOD: ("object-select-symbolic", "success"), WARN: ("dialog-warning-symbolic", "warning"),
                      INFO: ("dialog-information-symbolic", "dim-label")}[state]
         image = Gtk.Image(icon_name=icon, css_classes=[css])
         image.update_property([Gtk.AccessibleProperty.LABEL],

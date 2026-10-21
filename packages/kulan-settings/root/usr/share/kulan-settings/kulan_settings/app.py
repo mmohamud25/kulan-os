@@ -12,10 +12,12 @@ from .common import Helper, open_gnome_panel
 from .desktop import DesktopPage
 from .display import DisplayPage
 from .dock import DockPage
+from .focus import FocusPage
 from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
 from .privacy import PrivacyPage
 from .security import SecurityPage
+from .storage import StoragePage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
 
@@ -29,7 +31,9 @@ PAGES = [
     ("desktop", DesktopPage),
     ("display", DisplayPage),
     ("keyboard", KeyboardPage),
+    ("focus", FocusPage),
     ("login-items", LoginItemsPage),
+    ("storage", StoragePage),
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
     ("updates", UpdatesPage),

@@ -59,7 +59,7 @@ APPS = [
     AppChoice("md.obsidian.Obsidian", "Obsidian", "Notes and knowledge base", "Work", "document-edit-symbolic"),
     AppChoice("com.bitwarden.desktop", "Bitwarden", "Password manager", "Work", "dialog-password-symbolic"),
     AppChoice("com.google.Chrome", "Google Chrome", "Web browser", "Internet and media", "web-browser-symbolic"),
-    AppChoice("com.spotify.Client", "Spotify", "Music", "Internet and media", "emblem-music-symbolic"),
+    AppChoice("com.spotify.Client", "Spotify", "Music", "Internet and media", "audio-x-generic-symbolic"),
     AppChoice(
         "com.obsproject.Studio",
         "OBS Studio",
@@ -580,7 +580,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
     ) -> Adw.ActionRow:
         row = Adw.ActionRow(title=title, subtitle=subtitle)
         if state is True:
-            row.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic", css_classes=["success"]))
+            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["success"]))
             row.add_suffix(Gtk.Label(label="On", css_classes=["success"]))
         elif state is False:
             row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
@@ -625,7 +625,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- page 5: done ---------------------------------------------------------
     def build_done(self) -> Gtk.Widget:
         status = Adw.StatusPage(
-            icon_name="emblem-ok-symbolic",
+            icon_name="object-select-symbolic",
             title="You're all set",
             description="Open this tour again any time from your apps.",
             vexpand=True,

@@ -14,7 +14,7 @@ graphical installer. It builds for **ARM64** (Apple Silicon Macs in UTM) and **x
 | Desktop | GNOME 48 with a macOS-style look: frosted-glass top bar and overview (Blur my Shell), floating translucent dock with running-app dots, window buttons on the left, tray icons for apps like Slack and Zoom |
 | Kulan Shell | Kulan's own GNOME extension: rounded navy menus and quick settings with teal highlights, an update icon in the top bar with a count of waiting updates, and a notice after each update |
 | App grid | Apps sorted into folders: Office, Internet, Media, Developer, Utilities, System |
-| Look | Inter font, JetBrains Mono for code, Papirus icons, Bibata cursor, dark style with teal accent, layered wave wallpaper (light and dark) |
+| Look | Inter font, JetBrains Mono for code, Adwaita icons (each app’s own icon), Bibata cursor, dark style with teal accent, layered wave wallpaper (light and dark) |
 | Welcome app | Replaces GNOME's own tour. Shown once at first login: light or dark mode, accent color, one-click installs of popular apps (only those that run on this computer), the developer kit, and a security overview |
 | Update Center | Shows waiting updates (security ones marked), installs them with a progress bar, What's new for each release, recent update history, automatic updates on or off, and restore points |
 | Restore points | Timeshift snapshots of the system (not your files): daily and weekly, plus one before updates if you choose. Skipped when the disk is low on space |

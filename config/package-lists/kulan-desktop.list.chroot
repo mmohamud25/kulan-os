@@ -20,7 +20,7 @@ gnome-shell-extension-tiling-assistant
 power-profiles-daemon
 
 # Look and feel
-papirus-icon-theme
+adwaita-icon-theme
 bibata-cursor-theme
 fonts-inter
 fonts-jetbrains-mono
