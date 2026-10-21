@@ -10,11 +10,15 @@
 #   - Kulan's prompt and typing helpers: one line added to ~/.bashrc, and a
 #     ~/.zshrc for people using zsh who don't have one
 #   - Ptyxis in place of Console in the dock, if Console was there
+#   (2.3, version 3)
+#   - the alert sound set up the way GNOME's Sound page knows (Click), so it
+#     no longer shows "Unknown"; Kulan's other sounds stay
+#   - Kulan Settings in place of GNOME Settings in the dock, if it was there
 # Nothing that already exists is changed or replaced, and anything removed
 # afterwards stays removed: the work is only done once per VERSION.
 set -u
 
-VERSION=2
+VERSION=3
 STATE="${XDG_STATE_HOME:-${HOME}/.local/state}/kulan"
 MARKER="${STATE}/user-setup"
 TEMPLATES_SRC=/usr/share/kulan/templates
@@ -87,6 +91,37 @@ if [ "${DONE}" -lt 2 ]; then
 					*"'org.gnome.Ptyxis.desktop'"*) NEW="$(printf '%s' "${FAVS}" | sed "s/'org.gnome.Console.desktop', //; s/, 'org.gnome.Console.desktop'//; s/'org.gnome.Console.desktop'//")" ;;
 					*) NEW="$(printf '%s' "${FAVS}" | sed "s/'org.gnome.Console.desktop'/'org.gnome.Ptyxis.desktop'/")" ;;
 				esac
+				gsettings set org.gnome.shell favorite-apps "${NEW}" 2>/dev/null || true
+				;;
+		esac
+	fi
+fi
+
+if [ "${DONE}" -lt 3 ]; then
+	# GNOME's Sound page only knows its own four alert sounds, read from a
+	# "__custom" sound theme; anything else shows as "Unknown" (and opening
+	# the chooser switches to Click). Set that up, inheriting Kulan's theme
+	# for every other sound. Only for people still on Kulan's sounds.
+	CUSTOM="${XDG_DATA_HOME:-${HOME}/.local/share}/sounds/__custom"
+	CLICK=/usr/share/sounds/gnome/default/alerts/click.ogg
+	if [ -r "${CLICK}" ] && [ ! -e "${CUSTOM}" ] && command -v gsettings >/dev/null 2>&1 &&
+		[ "$(gsettings get org.gnome.desktop.sound theme-name 2>/dev/null)" = "'kulan'" ]; then
+		if mkdir -p "${CUSTOM}"; then
+			printf '[Sound Theme]\nName=Custom\nInherits=kulan\nDirectories=.\n' > "${CUSTOM}/index.theme"
+			ln -sf "${CLICK}" "${CUSTOM}/bell-terminal.ogg"
+			ln -sf "${CLICK}" "${CUSTOM}/bell-window-system.ogg"
+			gsettings set org.gnome.desktop.sound theme-name '__custom' 2>/dev/null || true
+		fi
+	fi
+
+	# Kulan Settings is the dock's settings icon from 2.3; people with their
+	# own dock list still had GNOME Settings there.
+	if [ -e /usr/share/applications/org.kulan.Settings.desktop ] && command -v gsettings >/dev/null 2>&1; then
+		FAVS="$(gsettings get org.gnome.shell favorite-apps 2>/dev/null || true)"
+		case "${FAVS}" in
+			*"'org.kulan.Settings.desktop'"*) ;;
+			*"'org.gnome.Settings.desktop'"*)
+				NEW="$(printf '%s' "${FAVS}" | sed "s/'org.gnome.Settings.desktop'/'org.kulan.Settings.desktop'/")"
 				gsettings set org.gnome.shell favorite-apps "${NEW}" 2>/dev/null || true
 				;;
 		esac

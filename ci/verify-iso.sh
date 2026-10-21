@@ -116,6 +116,7 @@ else
 	result pass "Developer kit" "not in the ISO (one-click add-on in Kulan Settings)"
 fi
 check "Sound" "PipeWire with PulseAudio and ALSA support and WirePlumber" bash -c "$(declare -f installed); R='${R}'; installed pipewire && installed pipewire-pulse && installed pipewire-alsa && installed wireplumber"
+check "Alert sound" "GNOME's Click alert is where Kulan's first sign-in links it" grep -q "squashfs-root/usr/share/sounds/gnome/default/alerts/click.ogg$" "${WORK}/listing"
 check "VM tools" "UTM/QEMU and VMware guest tools (clipboard, screen size)" bash -c "$(declare -f installed); R='${R}'; installed spice-vdagent && installed qemu-guest-agent && installed open-vm-tools-desktop"
 check "Mac-style apps" "Quick Look, Live Text OCR, window snapping, emoji, weather, desktop icons and Folder Colour" bash -c "$(declare -f installed); R='${R}'; installed gnome-sushi && installed python3-nautilus && installed tesseract-ocr-eng && installed gnome-shell-extension-tiling-assistant && installed gnome-characters && installed gnome-weather && installed gnome-shell-extension-desktop-icons-ng"
 if [[ "${ARCH}" == amd64 ]]; then
