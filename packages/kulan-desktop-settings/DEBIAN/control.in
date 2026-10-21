@@ -5,7 +5,7 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: x11
 Priority: optional
 Depends: kulan-base (= @VERSION@), libglib2.0-bin, dconf-cli, plymouth, plymouth-themes, adwaita-icon-theme, bibata-cursor-theme, fonts-inter, fonts-jetbrains-mono, gnome-shell-extension-dashtodock, gnome-shell-extension-blur-my-shell, kulan-update-center (= @VERSION@), kulan-settings (= @VERSION@)
-Recommends: gnome-shell-extension-appindicator, gtk-update-icon-cache, initramfs-tools, console-setup, gnome-shell-extension-tiling-assistant, power-profiles-daemon, gnome-sushi, gnome-characters, gnome-weather, gnome-clocks, baobab, tesseract-ocr, tesseract-ocr-eng
+Recommends: gnome-shell-extension-appindicator, gir1.2-dbusmenu-glib-0.4, gtk-update-icon-cache, initramfs-tools, console-setup, gnome-shell-extension-tiling-assistant, power-profiles-daemon, gnome-sushi, gnome-characters, gnome-weather, gnome-clocks, baobab, tesseract-ocr, tesseract-ocr-eng
 Homepage: @HOME_URL@
 Description: @NAME@ desktop look and defaults
  Wallpapers, logo, fonts and icon choices, the frosted-glass dock and top

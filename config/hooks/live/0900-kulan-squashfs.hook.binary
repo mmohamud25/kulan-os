@@ -1,0 +1,36 @@
+#!/bin/sh
+# Kulan OS: re-pack the live file system smaller before the ISO is made.
+#
+# live-build compresses it with xz in 128 KB blocks. 1 MB blocks, plus xz's
+# machine-code filter on PCs, make the same files about a tenth smaller with
+# nothing left out (the PC ISO has to fit a 2 GB download). Installed systems
+# are unaffected: the installer copies the files out once.
+set -eu
+
+if [ -d binary ]; then
+	MEDIUM=binary
+else
+	MEDIUM=.
+fi
+SQUASHFS="${MEDIUM}/live/filesystem.squashfs"
+[ -f "${SQUASHFS}" ] || { echo "E: ${SQUASHFS} not found" >&2; exit 1; }
+command -v mksquashfs >/dev/null 2>&1 || { echo "E: mksquashfs not found" >&2; exit 1; }
+
+OPTIONS="-comp xz -b 1M -noappend -no-progress"
+case "$(dpkg --print-architecture)" in
+	amd64) OPTIONS="${OPTIONS} -Xbcj x86" ;;
+esac
+
+WORK="$(mktemp -d "${MEDIUM}/../squashfs-repack.XXXXXX")"
+trap 'rm -rf "${WORK}"' EXIT
+BEFORE="$(stat -c %s "${SQUASHFS}")"
+unsquashfs -no-progress -d "${WORK}/root" "${SQUASHFS}" >/dev/null
+# shellcheck disable=SC2086  # OPTIONS is a list of mksquashfs flags
+mksquashfs "${WORK}/root" "${WORK}/filesystem.squashfs" ${OPTIONS} >/dev/null
+# Sanity: the new image must list the same number of files.
+OLD_COUNT="$(unsquashfs -l "${SQUASHFS}" | wc -l)"
+NEW_COUNT="$(unsquashfs -l "${WORK}/filesystem.squashfs" | wc -l)"
+[ "${OLD_COUNT}" -eq "${NEW_COUNT}" ] || { echo "E: re-packed image lists ${NEW_COUNT} entries, not ${OLD_COUNT}" >&2; exit 1; }
+mv -f "${WORK}/filesystem.squashfs" "${SQUASHFS}"
+AFTER="$(stat -c %s "${SQUASHFS}")"
+echo "I: live file system re-packed: $((BEFORE / 1048576)) MB -> $((AFTER / 1048576)) MB"
