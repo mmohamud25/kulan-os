@@ -27,7 +27,7 @@ windowcontrols > button:focus-visible > image { outline: 2px solid alpha(@accent
 
 /* Inactive windows: GNOME's quiet grey, coloured again on hover. */
 window:backdrop windowcontrols > button > image {
-  background-color: alpha(currentColor, 0.12);
+  background-color: alpha(currentColor, 0.22);
   color: alpha(currentColor, 0.55);
   box-shadow: none;
 }

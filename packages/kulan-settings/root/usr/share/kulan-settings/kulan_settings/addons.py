@@ -128,12 +128,24 @@ class AddonsPage(Page):
             if ok and addon.get("extension"):
                 set_extension(addon["extension"], action == "addon-install")
             if ok and action == "addon-install" and addon.get("note"):
-                self.toast(addon["note"])
+                self.next_steps(title, addon["note"])
             self.shown()
 
         self.window.helper.run([action, addon["id"]],
                                f"{title} installed" if action == "addon-install" else f"{title} removed",
                                on_done=done)
+
+    def next_steps(self, title: str, note: str) -> None:
+        """What to do next, in full (a toast cuts long text off). The text can be
+        selected, so commands in it can be copied."""
+        dialog = Adw.AlertDialog(heading=f"{title} is installed")
+        # Not focusable: a focused selectable label selects all its text.
+        text = Gtk.Label(label=note, wrap=True, selectable=True, can_focus=False, xalign=0,
+                         max_width_chars=48, css_classes=["body"])
+        dialog.set_extra_child(text)
+        dialog.add_response("ok", "OK")
+        dialog.set_default_response("ok")
+        dialog.present(self.window)
 
     def on_busy(self, busy: bool) -> None:
         for button in getattr(self, "buttons", []):
