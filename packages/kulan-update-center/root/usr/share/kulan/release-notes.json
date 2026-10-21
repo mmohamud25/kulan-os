@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.1",
+    "title": "Kulan OS 2.1",
+    "items": [
+      "New installs unlock an encrypted disk once, in the Kulan splash, with your own keyboard layout",
+      "Kulan logo on the login screen",
+      "The installer labels the new partitions Kulan OS",
+      "The screen stays on in the live session and while installing"
+    ]
+  },
+  {
     "version": "2.0",
     "title": "Kulan OS 2.0",
     "items": [

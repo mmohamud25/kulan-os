@@ -1,0 +1,15 @@
+#!/bin/sh
+# Kulan OS live session only: keep the screen on. In the live session the
+# screen going to sleep looks like a crash in a VM ("Display output is not
+# active"), and it interrupts people watching the installer. Installed systems
+# keep GNOME's normal power settings; this exits straight away there.
+set -u
+
+grep -qw 'boot=live' /proc/cmdline || exit 0
+
+# Each setting on its own: one missing schema must not stop the others.
+gsettings set org.gnome.desktop.session idle-delay 'uint32 0' || true
+gsettings set org.gnome.desktop.screensaver lock-enabled false || true
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing' || true
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing' || true
+gsettings set org.gnome.settings-daemon.plugins.power idle-dim false || true

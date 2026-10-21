@@ -58,8 +58,8 @@ VERSION="$(cat dist/debs/VERSION)"
 
 # --- Install, as the ISO build does (recommends included) -----------------------
 # htop and gnome-tour are installed too, so the "Clutter hidden" check has
-# real launchers to hide.
-if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour >/tmp/install.log 2>&1; then
+# real launchers to hide; gdm3 so the login screen's settings can be checked.
+if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour gdm3 >/tmp/install.log 2>&1; then
 	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-welcome, kulan-update-center ${VERSION} with Debian dependencies"
 else
 	result fail "Install" "apt failed: $(grep -E '^E:|error' /tmp/install.log | tail -n 3 | tr '\n' ' ')"
@@ -104,6 +104,25 @@ leaked = [h for h in hidden if f"'{h}'" in shown]
 assert open("/usr/lib/environment.d/60-kulan-os.conf").read().count("/usr/share/kulan/xdg") == 1
 raise SystemExit(f"still shown: {leaked}" if leaked else 0)
 PY
+# Prints, on one line, what GDM would read when the logo is wrong.
+# shellcheck disable=SC2317,SC2012  # called through check()
+login_logo_ok() {
+	local v f info
+	v="$(DCONF_PROFILE=gdm dconf read /org/gnome/login-screen/logo)"
+	[[ "${v}" == "'/usr/share/kulan/login-wordmark.png'" ]] && return 0
+	info="logo=${v:-unset};"
+	for f in /etc/dconf/profile/gdm /usr/share/dconf/profile/gdm; do
+		[[ -f "${f}" ]] && info+=" ${f}: $(tr '\n' ' ' < "${f}");"
+	done
+	echo "${info} dbs: $(ls /etc/dconf/db | tr '\n' ' ') gdm: $(ls /usr/share/gdm | tr '\n' ' ')"
+	return 1
+}
+check "Login screen logo" "GDM shows the Kulan logo" login_logo_ok
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Live session" "does nothing on installed systems; autostart entry valid" bash -c 'desktop-file-validate /etc/xdg/autostart/org.kulan.LiveSession.desktop && test -z "$(GSETTINGS_BACKEND=memory /usr/lib/kulan/live-session 2>&1)"'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Live session settings" "every screen-sleep key exists in GNOME 48" bash -c 'out="$(sed "s/^grep -qw .boot=live.*/:/" /usr/lib/kulan/live-session | GSETTINGS_BACKEND=memory sh 2>&1)"; [ -z "$out" ] || { echo "$out"; exit 1; }'
+check "Disk password layout" "initramfs loads the chosen keyboard layout" grep -qx "KEYMAP=y" /etc/initramfs-tools/conf.d/kulan-keymap.conf
 check "Boot splash" "Plymouth theme kulan built and selected" bash -c 'test -f /usr/share/plymouth/themes/kulan/kulan.plymouth && grep -qx "Theme=kulan" /etc/plymouth/plymouthd.conf'
 
 # --- Security and updates ---------------------------------------------------------
