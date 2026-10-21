@@ -1,0 +1,14 @@
+#!/bin/sh
+# Kulan OS: in a virtual machine, GNOME draws the mouse pointer itself.
+#
+# GNOME normally hands the pointer to the graphics card ("hardware
+# cursor"). Virtual graphics cards (UTM, QEMU virtio-gpu, VirtualBox,
+# VMware) draw it badly: garbled, the wrong size on Retina screens, lagging
+# or doubled. On real computers nothing changes.
+#
+# A systemd user environment generator: it runs for every session,
+# including the login screen's, and prints variables for it.
+if command -v systemd-detect-virt >/dev/null 2>&1 && systemd-detect-virt --vm --quiet; then
+	echo MUTTER_DEBUG_DISABLE_HW_CURSORS=1
+fi
+exit 0
