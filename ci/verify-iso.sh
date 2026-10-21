@@ -71,6 +71,8 @@ FILES=(
 	etc/adduser.conf
 	etc/skel/.zshrc
 	etc/calamares/branding/kulan/show.qml
+	etc/calamares/branding/kulan/branding.desc
+	etc/calamares/branding/kulan/stylesheet.qss
 	etc/ufw/ufw.conf
 	var/lib/flatpak/repo/config
 	etc/firefox/policies/policies.json
@@ -159,6 +161,7 @@ fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
+check "Installer look" "Kulan stylesheet and sidebar colours" bash -c "grep -q '#0D9488' '${R}/etc/calamares/branding/kulan/stylesheet.qss' && grep -qE 'SidebarBackground:[[:space:]]+\"#0A2240\"' '${R}/etc/calamares/branding/kulan/branding.desc' && grep -qE 'SidebarTextCurrent:[[:space:]]+\"#FFFFFF\"' '${R}/etc/calamares/branding/kulan/branding.desc'"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Installer slideshow" "every slide the slideshow shows is in the ISO" bash -c 'Q="$1/etc/calamares/branding/kulan/show.qml"; n=0; for f in $(grep -o "\"slide[^\"]*\.png\"" "$Q" | tr -d "\"" | sort -u); do grep -q "squashfs-root/etc/calamares/branding/kulan/$f\$" "$2" || { echo "missing $f"; exit 1; }; n=$((n+1)); done; [ "$n" -ge 5 ]' _ "${R}" "${WORK}/listing"
 check "Installer in a VM" "encryption starts unticked in virtual machines (rule enabled)" has_path etc/systemd/system/multi-user.target.wants/kulan-installer-vm.service

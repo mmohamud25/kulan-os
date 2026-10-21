@@ -1,0 +1,59 @@
+/* Kulan OS installer look (Calamares loads stylesheet.qss from its branding
+   folder). Kulan teal for the main button, progress and focus; rounded
+   fields and buttons like the rest of Kulan OS. The sidebar colours are set
+   in branding.desc. */
+
+QWidget {
+    font-family: "Inter", "Noto Sans", sans-serif;
+    font-size: 11pt;
+}
+
+QPushButton {
+    background: #FFFFFF;
+    color: #1C2430;
+    border: 1px solid #CDD5DC;
+    border-radius: 8px;
+    padding: 6px 18px;
+    min-height: 22px;
+}
+QPushButton:hover { background: #F1F4F6; }
+QPushButton:pressed { background: #E3E8EC; }
+QPushButton:disabled { color: #9AA4AD; background: #F6F8F9; }
+
+QPushButton#view-button-next,
+QPushButton:default {
+    background: #0D9488;
+    color: #FFFFFF;
+    border: 1px solid #0B7F75;
+    font-weight: 600;
+}
+QPushButton#view-button-next:hover,
+QPushButton:default:hover { background: #0F766E; }
+QPushButton#view-button-next:disabled { background: #9FD3CE; border-color: #9FD3CE; color: #FFFFFF; }
+
+QLineEdit, QComboBox, QSpinBox {
+    background: #FFFFFF;
+    border: 1px solid #CDD5DC;
+    border-radius: 8px;
+    padding: 5px 8px;
+    selection-background-color: #0D9488;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 2px solid #0D9488; padding: 4px 7px; }
+
+QListView, QTreeView {
+    border: 1px solid #DDE3E8;
+    border-radius: 8px;
+    selection-background-color: #0D9488;
+    selection-color: #FFFFFF;
+}
+
+QProgressBar {
+    border: none;
+    border-radius: 5px;
+    background: #E3E8EC;
+    min-height: 10px;
+    max-height: 10px;
+    text-align: center;
+    color: transparent;
+}
+QProgressBar::chunk { background: #0D9488; border-radius: 5px; }

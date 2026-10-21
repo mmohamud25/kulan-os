@@ -32,6 +32,9 @@ DEBS=(dist/debs/kulan-base_*.deb dist/debs/kulan-desktop-settings_*.deb dist/deb
 	dist/debs/kulan-update-center_*.deb dist/debs/kulan-welcome_*.deb dist/debs/kulan-assistant_*.deb)
 apt-get install -y -q "${DEBS[@]/#/./}" "${LIST[@]}" xvfb xauth imagemagick dbus-x11 xwayland sudo python3-dbusmock \
 	>/tmp/audit-install.log 2>&1 || { tail -n 30 /tmp/audit-install.log; echo "::error title=App audit::install failed"; exit 1; }
+# The installer as the ISO has it (Kulan branding, stylesheet and settings).
+sh config/hooks/live/0300-kulan-installer.hook.chroot >/tmp/audit-installer.log 2>&1 ||
+	echo "::warning title=App audit::installer branding failed: $(tail -n 2 /tmp/audit-installer.log | tr '\n' ' ')"
 
 # A person's account, as after installing (apps such as VLC refuse root).
 adduser --disabled-password --gecos Kulan kulan >/dev/null

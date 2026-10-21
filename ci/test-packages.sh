@@ -127,6 +127,7 @@ check "Symlink" "/etc/os-release points at the Kulan file" test "$(readlink /etc
 
 # --- Desktop (real Debian extensions and GNOME 48 schemas) ---------------------------
 check "Extensions (strict)" "dock and blur found under their real Debian IDs" env KULAN_STRICT=1 /usr/lib/kulan/desktop-setup
+check "Dock settings icon" "the dock opens Kulan Settings; GNOME Settings is in the System folder" bash -c "grep -q \"org.kulan.Settings.desktop'\]\" /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && grep -q \"excluded-apps=\['org.kulan.Settings.desktop'\" /etc/dconf/db/local.d/10-kulan-app-folders"
 check "Extensions enabled" "dash-to-dock and blur-my-shell in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q dash-to-dock && gs org.gnome.shell enabled-extensions | grep -q blur-my-shell"
 check "Dock defaults applied" "dash-to-dock reads Kulan's settings (bottom, translucent)" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-position)\" = \"'BOTTOM'\" && test \"\$(gs org.gnome.shell.extensions.dash-to-dock transparency-mode)\" = \"'FIXED'\""
 check "Kulan Shell enabled" "kulan-shell@kulangroup.com in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q kulan-shell@kulangroup.com"

@@ -102,7 +102,7 @@ class StoragePage(Page):
             "Restore points",
             "Copies of the system Kulan OS takes each day and before updates, so a change that goes wrong "
             "can be undone. Your own files aren’t in them.")
-        self.restore_row = Adw.ActionRow(title="Restore points")
+        self.restore_row = Adw.ActionRow(title="Space used")
         self.restore_row.size_label = Gtk.Label(css_classes=["dim-label", "numeric"], valign=Gtk.Align.CENTER)
         self.restore_row.button = Gtk.Button(label="Delete All…", valign=Gtk.Align.CENTER,
                                              css_classes=["destructive-action"])

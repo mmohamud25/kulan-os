@@ -82,7 +82,13 @@ if [ -f /usr/share/applications/org.gnome.Ptyxis.desktop ]; then
 else
 	rm -f "${HIDDEN_CONSOLE}"
 fi
-FAVORITES="'firefox-esr.desktop', 'org.gnome.Nautilus.desktop', '${TERMINAL}', 'org.gnome.TextEditor.desktop', 'org.gnome.Software.desktop', 'org.gnome.Settings.desktop'"
+# The dock's settings icon opens Kulan Settings (which links to GNOME
+# Settings for Wi-Fi, printers and the rest); GNOME's own if it's missing.
+SETTINGS=org.gnome.Settings.desktop
+if [ -f /usr/share/applications/org.kulan.Settings.desktop ]; then
+	SETTINGS=org.kulan.Settings.desktop
+fi
+FAVORITES="'firefox-esr.desktop', 'org.gnome.Nautilus.desktop', '${TERMINAL}', 'org.gnome.TextEditor.desktop', 'org.gnome.Software.desktop', '${SETTINGS}'"
 if [ -f "/usr/share/applications/${INSTALLER_DESKTOP}" ]; then
 	FAVORITES="'${INSTALLER_DESKTOP}', ${FAVORITES}"
 fi

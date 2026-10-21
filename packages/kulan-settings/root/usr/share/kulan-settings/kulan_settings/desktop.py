@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gi.repository import Adw, Gio, GLib, GObject
+from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 from .common import (
     KULAN_SCHEMA,
@@ -65,7 +65,7 @@ class DesktopPage(Page):
         if self.shell is not None and DESKTOP_ICONS_DIR.is_dir():
             desktop = self.add_group("Desktop")
             icons = Adw.SwitchRow(title="Show files on the desktop",
-                                  subtitle="Folders and files in your Desktop folder, and drives you plug in",
+                                  subtitle="Folders and files in your Desktop folder",
                                   active=desktop_icons_on(self.shell))
             icons.connect("notify::active", lambda r, _p: set_desktop_icons(self.shell, r.get_active()))
             desktop.add(icons)
@@ -76,6 +76,24 @@ class DesktopPage(Page):
                                   lambda v: self.ding.set_string("icon-size", v))
                 icons.bind_property("active", size, "sensitive", GObject.BindingFlags.SYNC_CREATE)
                 desktop.add(size)
+            # The desktop icons' own settings window uses technical names;
+            # these are the choices people need, in plain words.
+            extra = [
+                switch_row(self.ding, "show-trash", "Show the Bin"),
+                switch_row(self.ding, "show-volumes", "Show drives you plug in",
+                           "USB sticks, memory cards and external disks"),
+                switch_row(self.ding, "show-home", "Show your Home folder"),
+            ]
+            if has_key(self.ding, "start-corner"):
+                extra.append(choice_row("New items appear", None,
+                                        [("top-left", "Top left"), ("top-right", "Top right"),
+                                         ("bottom-left", "Bottom left"), ("bottom-right", "Bottom right")],
+                                        lambda: self.ding.get_string("start-corner"),
+                                        lambda v: self.ding.set_string("start-corner", v)))
+            for row in extra:
+                if row is not None:
+                    icons.bind_property("active", row, "sensitive", GObject.BindingFlags.SYNC_CREATE)
+                    desktop.add(row)
 
         motion = self.add_group("Motion")
         motion.add(choice_row("Animations", "Kulan’s default is a little quicker than GNOME’s",
@@ -89,6 +107,14 @@ class DesktopPage(Page):
                                 active=folders_on(self.folders))
             row.connect("notify::active", lambda r, _p: self.set_folders(r.get_active()))
             grid.add(row)
+        if has_key(self.shell, "app-picker-layout"):
+            tidy = Adw.ActionRow(title="Tidy the app grid",
+                                 subtitle="Sort apps from A to Z and close the gaps between pages")
+            button = Gtk.Button(label="Tidy", valign=Gtk.Align.CENTER)
+            button.update_property([Gtk.AccessibleProperty.LABEL], ["Tidy the app grid"])
+            button.connect("clicked", lambda _b: self.tidy_grid())
+            tidy.add_suffix(button)
+            grid.add(tidy)
 
         windows = self.add_group("Windows and workspaces")
         self.add_rows(windows,
@@ -126,13 +152,19 @@ class DesktopPage(Page):
         else:
             self.folders.set_strv("folder-children", NO_FOLDERS)
 
+    def tidy_grid(self) -> None:
+        # GNOME keeps each app where it was dropped; with no saved layout it
+        # sorts alphabetically and fills every page.
+        self.shell.reset("app-picker-layout")
+        self.toast("App grid sorted from A to Z")
+
     def reset(self) -> None:
         reset_keys(self.kulan, ["animation-speed"])
         reset_keys(self.interface, ["enable-animations", "enable-hot-corners"])
         reset_keys(self.folders, ["folder-children"])
         reset_keys(self.mutter, ["center-new-windows", "dynamic-workspaces"])
         reset_keys(self.wm, ["num-workspaces"])
-        reset_keys(self.ding, ["icon-size"])
+        reset_keys(self.ding, ["icon-size", "show-trash", "show-volumes", "show-home", "start-corner"])
         if self.shell is not None and DESKTOP_ICONS_DIR.is_dir():
             set_desktop_icons(self.shell, True)
         GLib.idle_add(lambda: self.window.reload_page(self) and False)

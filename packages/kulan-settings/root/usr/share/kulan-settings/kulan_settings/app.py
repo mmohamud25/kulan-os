@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .about import AboutPage
 from .addons import AddonsPage
@@ -57,8 +57,16 @@ GNOME_PANELS = [
     ("Power", "battery-full-symbolic", ("power",)),
     ("Mouse and touchpad", "input-mouse-symbolic", ("mouse",)),
     ("Printers", "printer-symbolic", ("printers",)),
+    ("Notifications", "org.gnome.Settings-notifications-symbolic|preferences-system-notifications-symbolic",
+     ("notifications",)),
+    ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
+    ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
+    ("Accessibility", "org.gnome.Settings-accessibility-symbolic|preferences-desktop-accessibility-symbolic",
+     ("universal-access",)),
     ("Apps", "view-app-grid-symbolic", ("applications",)),
     ("Users", "system-users-symbolic", ("system", "users")),
+    ("Language and region", "org.gnome.Settings-region-symbolic|preferences-desktop-locale-symbolic",
+     ("system", "region")),
     ("Date and time", "preferences-system-time-symbolic", ("system", "datetime")),
 ]
 
@@ -134,9 +142,21 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.add_action(search_action)
 
     @staticmethod
+    def pick_icon(names: str) -> str:
+        """The first of "a|b|c" the icon theme has (GNOME renames panel icons)."""
+        candidates = names.split("|")
+        display = Gdk.Display.get_default()
+        if display is not None:
+            theme = Gtk.IconTheme.get_for_display(display)
+            for name in candidates:
+                if theme.has_icon(name):
+                    return name
+        return candidates[-1] if display is None else "emblem-system-symbolic"
+
+    @staticmethod
     def sidebar_row(title: str, icon: str, external: bool = False) -> Gtk.ListBoxRow:
         box = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6, margin_end=6)
-        box.append(Gtk.Image(icon_name=icon))
+        box.append(Gtk.Image(icon_name=SettingsWindow.pick_icon(icon)))
         box.append(Gtk.Label(label=title, xalign=0, hexpand=True))
         if external:
             box.append(Gtk.Image(icon_name="adw-external-link-symbolic", css_classes=["dim-label"]))

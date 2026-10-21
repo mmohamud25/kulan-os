@@ -94,6 +94,34 @@ function migrateAppFolders() {
     }
 }
 
+// GNOME keeps every app where it was last placed, so apps that are removed or
+// hidden leave holes, and a grid can end up with a half-empty first page and
+// apps spread over three pages. Once (Kulan OS 2.3), a grid with such gaps is
+// sorted A to Z again, which fills every page; a tidy grid is left alone.
+// Kulan Settings > Desktop and windows has "Tidy" to do it any time.
+function isGappy(layout) {
+    if (!Array.isArray(layout) || layout.length < 2)
+        return false;
+    const counts = layout.map(page => Object.keys(page ?? {}).length);
+    const fullest = Math.max(...counts);
+    return counts.slice(0, -1).some(n => n < fullest / 2);
+}
+
+function tidyAppGrid() {
+    const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'app-grid-tidy-v1']);
+    if (GLib.file_test(marker, GLib.FileTest.EXISTS))
+        return;
+    try {
+        const settings = new Gio.Settings({schema_id: 'org.gnome.shell'});
+        if (isGappy(settings.get_value('app-picker-layout').recursiveUnpack()))
+            settings.reset('app-picker-layout');
+        GLib.mkdir_with_parents(GLib.path_get_dirname(marker), 0o700);
+        GLib.file_set_contents(marker, '');
+    } catch (e) {
+        logError(e, 'Kulan Shell: could not tidy the app grid');
+    }
+}
+
 // Kulan window buttons (round, macOS-style) for GTK 4 and GTK 3 apps. GTK has
 // no system-wide stylesheet, so each user's gtk.css imports Kulan's. Added
 // once: a user who removes the line keeps it removed.
@@ -277,6 +305,7 @@ export default class KulanShellExtension extends Extension {
     enable() {
         if (!Main.sessionMode.isLocked) {
             migrateAppFolders();
+            tidyAppGrid();
             installGtkStyle();
         }
 

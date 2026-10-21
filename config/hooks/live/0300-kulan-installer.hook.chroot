@@ -22,6 +22,7 @@ for SLIDE in "${ASSETS}"/slide*.png; do
 	install -m 0644 "${SLIDE}" "${KULAN_BRANDING}/$(basename "${SLIDE}")"
 done
 install -m 0644 "${ASSETS}/show.qml" "${KULAN_BRANDING}/show.qml"
+install -m 0644 "${ASSETS}/stylesheet.qss" "${KULAN_BRANDING}/stylesheet.qss"
 rm -f "${KULAN_BRANDING}/debian-logo.png"
 
 # Rewrite the strings. bootloaderEntryName stays "Debian" on purpose: Debian's
@@ -42,6 +43,8 @@ sed -i -E \
 	-e "s|^([[:space:]]+productIcon:[[:space:]]+).*|\1\"kulan-logo.png\"|" \
 	-e "s|^([[:space:]]+SidebarBackground:[[:space:]]+).*|\1\"#0A2240\"|" \
 	-e "s|^([[:space:]]+SidebarBackgroundCurrent:[[:space:]]+).*|\1\"#0D9488\"|" \
+	-e "s|^([[:space:]]+SidebarText:[[:space:]]+).*|\1\"#DCE7F0\"|" \
+	-e "s|^([[:space:]]+SidebarTextCurrent:[[:space:]]+).*|\1\"#FFFFFF\"|" \
 	"${DESC}"
 
 grep -q "^componentName:   kulan" "${DESC}" || { echo "E: failed to rebrand ${DESC}" >&2; exit 1; }
