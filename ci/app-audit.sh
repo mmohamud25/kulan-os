@@ -170,7 +170,11 @@ for name in ("folder", "folder-download", "inode-directory"):
 PYI
 	ls -la /usr/share/icons/Kulan/
 } > "$OUT_DIR/icons.txt" 2>&1
-XWAYLAND="$(ev "global.context.get_wayland_compositor().get_xwayland_display_name()" | sed -n 's/.*"\(:[0-9]*\)".*/\1/p')"
+XWAYLAND="$(sed -n 's/.*Using public X11 display \(:[0-9]*\).*/\1/p' /tmp/audit-shell.log | tail -n 1)"
+# Apps started by D-Bus (Files, Settings, Maps...) get the session bus's
+# environment: point it at this shell too, not at the virtual screen.
+dbus-update-activation-environment WAYLAND_DISPLAY="${WAYLAND_DISPLAY}" DISPLAY="${XWAYLAND:-$SCREEN}" \
+	XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR}" 2>/dev/null
 echo "wayland=${WAYLAND_DISPLAY} xwayland=${XWAYLAND:-none} screen=${SCREEN}" > "$OUT_DIR/displays.txt"
 for scheme in light dark; do
 	if [ "$scheme" = dark ]; then gsettings set org.gnome.desktop.interface color-scheme prefer-dark; else gsettings set org.gnome.desktop.interface color-scheme default; fi
