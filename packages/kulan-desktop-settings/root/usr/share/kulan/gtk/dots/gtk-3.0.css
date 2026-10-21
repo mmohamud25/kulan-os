@@ -1,0 +1,31 @@
+/* Kulan OS window buttons, "Mac dots" style, for GTK 3 apps (and browsers using the GTK title
+   bar): small round close, minimise and maximise buttons, symbols on hover.
+   Chosen in Kulan Settings > Appearance > Window buttons. */
+
+headerbar button.titlebutton,
+.titlebar button.titlebutton {
+  min-width: 14px;
+  min-height: 14px;
+  margin: 0 4px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background-image: none;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
+  color: transparent;
+  -gtk-icon-shadow: none;
+  transition: color 120ms ease-out;
+}
+
+headerbar button.titlebutton.close, .titlebar button.titlebutton.close { background-color: #ff5f57; }
+headerbar button.titlebutton.minimize, .titlebar button.titlebutton.minimize { background-color: #febc2e; }
+headerbar button.titlebutton.maximize, .titlebar button.titlebutton.maximize { background-color: #28c840; }
+
+headerbar:hover button.titlebutton,
+.titlebar:hover button.titlebutton { color: rgba(0, 0, 0, 0.6); }
+
+headerbar:backdrop button.titlebutton,
+.titlebar:backdrop button.titlebutton {
+  background-color: rgba(128, 128, 128, 0.35);
+  box-shadow: none;
+}

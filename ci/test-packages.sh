@@ -94,7 +94,8 @@ js = open(f"{d}/extension.js").read()
 for needle in ("KulanMenu", "kulan-logo-symbolic", "installGtkStyle", "activateRestart", "activatePowerOff"):
     assert needle in js, needle
 for f in ("/usr/share/icons/hicolor/scalable/apps/kulan-logo-symbolic.svg",
-          "/usr/share/kulan/gtk/gtk-4.0.css", "/usr/share/kulan/gtk/gtk-3.0.css"):
+          "/usr/share/kulan/gtk/gtk-4.0.css", "/usr/share/kulan/gtk/gtk-3.0.css",
+          "/usr/share/kulan/gtk/dots/gtk-4.0.css", "/usr/share/kulan/gtk/dots/gtk-3.0.css"):
     assert os.path.getsize(f) > 0, f
 PY
 check "Cursor" "Bibata-Modern-Classic set and installed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface cursor-theme)\" = \"'Bibata-Modern-Classic'\" && test -d /usr/share/icons/Bibata-Modern-Classic"
@@ -145,7 +146,7 @@ check "Boot splash" "Plymouth theme kulan built and selected" bash -c 'test -f /
 check "Boot speed" "network-wait startup step switched off once" test -e /var/lib/kulan/network-wait-disabled
 check "Firewall" "ufw enabled on first install" grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf
 check "Auto updates" "Debian security + Kulan origins allowed" bash -c 'apt-config dump | grep -q "origin=Kulan OS" && apt-config dump | grep -q "label=Debian-Security"'
-check "Firefox privacy" "policies.json valid" python3 -c 'import json; json.load(open("/etc/firefox/policies/policies.json"))'
+check "Firefox privacy" "policies.json valid; Firefox uses the system window buttons" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["Preferences"]["widget.gtk.non-native-titlebar-buttons.enabled"]["Value"] is False'
 if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
 fi

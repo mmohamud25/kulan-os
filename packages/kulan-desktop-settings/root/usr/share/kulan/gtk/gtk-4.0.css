@@ -1,49 +1,39 @@
-/* Kulan OS window buttons for GTK 4 / libadwaita apps: small round close,
-   minimise and maximise buttons (red, yellow, green), symbols on hover.
-   Imported from each user's ~/.config/gtk-4.0/gtk.css by Kulan Shell. */
-
-windowcontrols {
-  border-spacing: 8px;
-}
-
-windowcontrols > button {
-  min-width: 14px;
-  min-height: 14px;
-  margin: 0;
-  padding: 0;
-  background: none;
-  box-shadow: none;
-}
+/* Kulan OS window buttons, default style ("coloured with symbols"), for GTK 4
+   / libadwaita apps: GNOME's round close, minimise and maximise buttons with
+   their symbols, coloured red, yellow and green. Each user's
+   ~/.config/gtk-4.0/gtk.css imports this file (Kulan Shell adds the line once;
+   Kulan Settings > Appearance > Window buttons switches styles). */
 
 windowcontrols > button > image {
-  min-width: 14px;
-  min-height: 14px;
-  margin: 0;
-  padding: 0;
-  border-radius: 50%;
   background-image: none;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.14);
-  color: transparent;
-  -gtk-icon-size: 10px;
-  transition: color 120ms ease-out, background-color 120ms ease-out;
+  color: rgba(0, 0, 0, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 
 windowcontrols > button.close > image { background-color: #ff5f57; }
 windowcontrols > button.minimize > image { background-color: #febc2e; }
 windowcontrols > button.maximize > image { background-color: #28c840; }
 
-windowcontrols:hover > button > image { color: rgba(0, 0, 0, 0.6); }
-windowcontrols > button:active > image { filter: brightness(0.85); }
+windowcontrols > button.close:hover > image { background-color: #ff7a73; }
+windowcontrols > button.minimize:hover > image { background-color: #ffc94f; }
+windowcontrols > button.maximize:hover > image { background-color: #46d65a; }
+
+windowcontrols > button.close:active > image { background-color: #e0443e; }
+windowcontrols > button.minimize:active > image { background-color: #dea123; }
+windowcontrols > button.maximize:active > image { background-color: #1aab31; }
+
 windowcontrols > button:focus-visible > image { outline: 2px solid alpha(@accent_color, 0.6); outline-offset: 1px; }
 
-/* Inactive windows: grey buttons, like macOS. */
+/* Inactive windows: GNOME's quiet grey, coloured again on hover. */
 window:backdrop windowcontrols > button > image {
-  background-color: alpha(currentColor, 0.18);
+  background-color: alpha(currentColor, 0.12);
+  color: alpha(currentColor, 0.55);
   box-shadow: none;
 }
-window:backdrop windowcontrols:hover > button.close > image { background-color: #ff5f57; }
-window:backdrop windowcontrols:hover > button.minimize > image { background-color: #febc2e; }
-window:backdrop windowcontrols:hover > button.maximize > image { background-color: #28c840; }
+window:backdrop windowcontrols > button.close:hover > image { background-color: #ff5f57; color: rgba(0, 0, 0, 0.72); }
+window:backdrop windowcontrols > button.minimize:hover > image { background-color: #febc2e; color: rgba(0, 0, 0, 0.72); }
+window:backdrop windowcontrols > button.maximize:hover > image { background-color: #28c840; color: rgba(0, 0, 0, 0.72); }
 
 /* Softer window shadows. */
 window.csd:not(.maximized):not(.fullscreen):not(.tiled):not(.tiled-left):not(.tiled-right):not(.tiled-top):not(.tiled-bottom) {

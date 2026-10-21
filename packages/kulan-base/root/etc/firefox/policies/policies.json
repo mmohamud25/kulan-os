@@ -32,6 +32,12 @@
       "MoreFromMozilla": false,
       "SkipOnboarding": true,
       "Locked": false
+    },
+    "Preferences": {
+      "widget.gtk.non-native-titlebar-buttons.enabled": {
+        "Value": false,
+        "Status": "default"
+      }
     }
   }
 }

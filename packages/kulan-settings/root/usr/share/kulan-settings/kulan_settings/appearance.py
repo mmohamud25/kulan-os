@@ -23,10 +23,13 @@ ACCENTS = [
     ("slate", "Slate", "#6f8396"),
 ]
 
-GTK_STYLES = [
-    ("gtk-4.0", "/usr/share/kulan/gtk/gtk-4.0.css"),
-    ("gtk-3.0", "/usr/share/kulan/gtk/gtk-3.0.css"),
-]
+# Window-button styles: the stylesheet each user's gtk.css imports, per GTK
+# version. "symbols" is Kulan's default; "gnome" imports nothing.
+GTK_DIR = "/usr/share/kulan/gtk"
+BUTTON_STYLES = {
+    "symbols": {"gtk-4.0": f"{GTK_DIR}/gtk-4.0.css", "gtk-3.0": f"{GTK_DIR}/gtk-3.0.css"},
+    "dots": {"gtk-4.0": f"{GTK_DIR}/dots/gtk-4.0.css", "gtk-3.0": f"{GTK_DIR}/dots/gtk-3.0.css"},
+}
 GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK's own. */"
 
 LAYOUT_LEFT = "close,minimize,maximize:appmenu"
@@ -37,27 +40,36 @@ def _import_line(css: str) -> str:
     return f'@import url("file://{css}");'
 
 
-def kulan_buttons_on() -> bool:
+def _kulan_lines() -> set[str]:
+    return {_import_line(css) for files in BUTTON_STYLES.values() for css in files.values()} | {GTK_COMMENT}
+
+
+def button_style() -> str:
+    """The style the user's GTK 4 gtk.css imports: symbols, dots or gnome."""
     path = Path(GLib.get_user_config_dir()) / "gtk-4.0" / "gtk.css"
     try:
-        return _import_line(GTK_STYLES[0][1]) in path.read_text()
+        text = path.read_text()
     except OSError:
-        return False
+        return "gnome"
+    for style, files in BUTTON_STYLES.items():
+        if _import_line(files["gtk-4.0"]) in text:
+            return style
+    return "gnome"
 
 
-def set_kulan_buttons(on: bool) -> None:
-    """Add or remove Kulan's @import in the user's gtk.css files, keeping
-    anything else the user wrote there. Apps pick it up when reopened."""
-    for folder, css in GTK_STYLES:
+def set_button_style(style: str) -> None:
+    """Switch the @import in the user's gtk.css files, keeping anything else
+    the user wrote there. Apps pick it up when they are opened again."""
+    for folder in ("gtk-4.0", "gtk-3.0"):
         path = Path(GLib.get_user_config_dir()) / folder / "gtk.css"
-        line = _import_line(css)
         try:
             current = path.read_text()
         except OSError:
             current = ""
-        lines = [x for x in current.splitlines() if x.strip() not in (line, GTK_COMMENT)]
-        if on:
-            lines = [GTK_COMMENT, line, *lines]
+        lines = [x for x in current.splitlines() if x.strip() not in _kulan_lines()]
+        css = BUTTON_STYLES.get(style, {}).get(folder)
+        if css:
+            lines = [GTK_COMMENT, _import_line(css), *lines]
         text = "\n".join(lines).strip("\n")
         path.parent.mkdir(parents=True, exist_ok=True)
         if text:
@@ -106,9 +118,9 @@ class AppearancePage(Page):
 
         windows = self.add_group("Window buttons", "Changes apply to apps as you open them.")
         windows.add(choice_row("Style", None,
-                               [("kulan", "Round (Kulan)"), ("gnome", "Standard (GNOME)")],
-                               lambda: "kulan" if kulan_buttons_on() else "gnome",
-                               lambda v: set_kulan_buttons(v == "kulan")))
+                               [("symbols", "Coloured with symbols"), ("dots", "Mac dots"),
+                                ("gnome", "GNOME standard")],
+                               button_style, set_button_style))
         if has_key(self.wm, "button-layout"):
             windows.add(choice_row("Position", None, [("left", "Left, like a Mac"), ("right", "Right")],
                                    lambda: "right" if self.wm.get_string("button-layout").startswith("appmenu")
@@ -221,6 +233,6 @@ class AppearancePage(Page):
         reset_keys(self.kulan, ["automatic-style"])
         reset_keys(self.wm, ["button-layout"])
         reset_keys(self.background, ["picture-uri", "picture-uri-dark", "picture-options", "primary-color"])
-        set_kulan_buttons(True)
+        set_button_style("symbols")
         self.window.reload_page(self)
         self.toast("Appearance reset to Kulan defaults")
