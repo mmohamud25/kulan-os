@@ -80,7 +80,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: dist/engine
           key: kulan-engine-${{ matrix.arch }}-${{ hashFiles('ci/build-engine.sh', 'kulan.conf') }}
