@@ -1,8 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="24 40 464 464">
-  <path d="M36 196 C 84 96, 428 96, 476 196 C 428 236, 84 236, 36 196 Z" fill="#BEBEBE"/>
-  <path d="M256 356 V 270 M256 270 L 186 186 M256 270 L 326 186" stroke="#BEBEBE" stroke-width="58" stroke-linecap="round" fill="none"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="56 56 400 400">
   <g fill="#BEBEBE">
-    <circle cx="92" cy="400" r="44"/><circle cx="172" cy="446" r="44"/><circle cx="256" cy="460" r="44"/>
-    <circle cx="340" cy="446" r="44"/><circle cx="420" cy="400" r="44"/>
+    <circle cx="256" cy="106" r="46"/><circle cx="386" cy="181" r="46"/><circle cx="386" cy="331" r="46"/>
+    <circle cx="256" cy="406" r="46"/><circle cx="126" cy="331" r="46"/><circle cx="126" cy="181" r="46"/>
+    <circle cx="256" cy="256" r="58"/>
   </g>
 </svg>

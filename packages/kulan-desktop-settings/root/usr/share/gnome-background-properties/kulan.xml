@@ -1,11 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
-<!-- Adds the Kulan wallpaper to Settings > Appearance. -->
+<!-- Adds the Kulan wallpapers to GNOME Settings > Appearance. -->
 <wallpapers>
   <wallpaper deleted="false">
-    <name>Kulan</name>
+    <name>Kulan Gathering</name>
     <filename>/usr/share/backgrounds/kulan/kulan-light.png</filename>
     <filename-dark>/usr/share/backgrounds/kulan/kulan-dark.png</filename-dark>
+    <options>zoom</options>
+    <shade_type>solid</shade_type>
+    <pcolor>#0A2240</pcolor>
+    <scolor>#0A2240</scolor>
+  </wallpaper>
+  <wallpaper deleted="false">
+    <name>Kulan Waves</name>
+    <filename>/usr/share/backgrounds/kulan/kulan-waves-light.png</filename>
+    <filename-dark>/usr/share/backgrounds/kulan/kulan-waves-dark.png</filename-dark>
     <options>zoom</options>
     <shade_type>solid</shade_type>
     <pcolor>#0A2240</pcolor>

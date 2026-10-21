@@ -228,8 +228,8 @@ def main() -> int:
     mimes = theme / "scalable/mimetypes"
     places.mkdir(parents=True, exist_ok=True)
     mimes.mkdir(parents=True, exist_ok=True)
-    for name, symbol in folder_symbols.items():
-        (places / f"{name}.svg").write_text(kulan_folder("teal", symbol) + "\n")
+    for icon_name, symbol in folder_symbols.items():
+        (places / f"{icon_name}.svg").write_text(kulan_folder("teal", symbol) + "\n")
     (places / "folder-drag-accept.svg").write_text(kulan_folder("teal", open_=True) + "\n")
     (mimes / "inode-directory.svg").write_text(kulan_folder("teal") + "\n")
     for colour in folder_colours:
@@ -260,6 +260,9 @@ def main() -> int:
     # Wallpapers.
     render((ASSETS / "wallpaper-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-dark.png")
     render((ASSETS / "wallpaper-light.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-light.png")
+    # The 1.0 waves, kept as a second choice in Settings > Appearance.
+    render((ASSETS / "wallpaper-waves-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-waves-dark.png")
+    render((ASSETS / "wallpaper-waves-light.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-waves-light.png")
 
     # Login-screen wordmark (GDM shows it under the user list; light text on dark).
     render(
@@ -296,14 +299,13 @@ def main() -> int:
     }
     variants = {"": logo_svg}
     for suffix, colour in flat.items():
-        # The tree and the gathered people alone (no badge, no sun), in one
-        # colour. Bold and cropped close, so it still reads at top-bar size.
-        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="24 40 464 464">
-  <path d="M36 196 C 84 96, 428 96, 476 196 C 428 236, 84 236, 36 196 Z" fill="{colour}"/>
-  <path d="M256 356 V 270 M256 270 L 186 186 M256 270 L 326 186" stroke="{colour}" stroke-width="58" stroke-linecap="round" fill="none"/>
+        # The gathering alone (no badge), in one colour: six people around
+        # one centre. Cropped close, so it still reads at top-bar size.
+        variants[f"-{suffix}"] = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="56 56 400 400">
   <g fill="{colour}">
-    <circle cx="92" cy="400" r="44"/><circle cx="172" cy="446" r="44"/><circle cx="256" cy="460" r="44"/>
-    <circle cx="340" cy="446" r="44"/><circle cx="420" cy="400" r="44"/>
+    <circle cx="256" cy="106" r="46"/><circle cx="386" cy="181" r="46"/><circle cx="386" cy="331" r="46"/>
+    <circle cx="256" cy="406" r="46"/><circle cx="126" cy="331" r="46"/><circle cx="126" cy="181" r="46"/>
+    <circle cx="256" cy="256" r="58"/>
   </g>
 </svg>'''
     # The Kulan menu's top-bar icon (GNOME recolours "-symbolic" icons).
