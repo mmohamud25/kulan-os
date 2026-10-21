@@ -103,9 +103,17 @@ To verify the download: `cd ~/Projects/kulan-os-iso && shasum -a 256 -c *.sha256
    **Edit**, select the drive under **Drives** that holds the ISO (often **USB Drive**),
    click **Delete** (your ISO file is kept) and **Save**. Press **Play** again.
 
+**Best display setting:** in UTM, click **Edit > Display** and choose
+**virtio-ramfb-gl** (GPU supported). With it you see the Kulan splash and the disk password
+prompt from the very start of every boot.
+
 If a VM window says **"Display output is not active"**, the screen has gone to sleep or
 the system is waiting for the disk password: click inside the window and press **Shift**,
 or type the disk password and press **Enter**.
+
+**Restarting in UTM:** UTM can freeze the VM's screen when Kulan OS restarts (for example
+after updates). If the window stays on a still picture, choose **Shut Down** instead of
+Restart, then press **Play** in UTM. Real computers aren't affected.
 
 In the live session the user is `kulan` and the password is `live`.
 

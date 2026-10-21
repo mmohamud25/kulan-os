@@ -76,7 +76,10 @@ if apt-get update -q >/tmp/released.log 2>&1 &&
 	UPGRADE_FROM="$(dpkg-query -W -f '${Version}' kulan-base)"
 	result pass "Released version" "kulan-base ${UPGRADE_FROM} installed from the update channel first"
 else
-	result fail "Released version" "couldn't install from ${CHANNEL}: $(grep -E '^(E|W):' /tmp/released.log | tail -n 2 | tr '\n' ' ')"
+	result fail "Released version" "couldn't install from ${CHANNEL}: $(grep -E '^(E|W|Err|Ign):' /tmp/released.log | head -n 4 | tr '\n' ' ' | cut -c1-400)"
+	echo "--- apt output (released version) ---"
+	cat /tmp/released.log
+	apt-cache policy kulan-base
 fi
 # The released kulan-base brings its own kulan.sources for the same channel.
 rm -f /etc/apt/sources.list.d/kulan-ci-released.sources /usr/share/keyrings/kulan-ci-released.gpg

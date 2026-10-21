@@ -23,14 +23,19 @@ ProgressBarBackgroundColor=0x1e3a5f
 ProgressBarForegroundColor=0x2dd4bf
 MessageBelowAnimation=true
 
+# Status lines such as "cryptsetup: … set up successfully" stay off the
+# splash; the disk password prompt still shows. Press Esc to see them.
 [boot-up]
 UseEndAnimation=false
+SuppressMessages=true
 
 [shutdown]
 UseEndAnimation=false
+SuppressMessages=true
 
 [reboot]
 UseEndAnimation=false
+SuppressMessages=true
 
 [updates]
 SuppressMessages=true
