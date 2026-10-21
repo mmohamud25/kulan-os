@@ -120,6 +120,9 @@ for SRC in "${ROOT}"/packages/*/; do
 	if [[ -d "${SRC}/root" ]]; then
 		cp -a "${SRC}/root/." "${STAGE}/"
 	fi
+	# Tool caches from local development never belong in a package.
+	find "${STAGE}" \( -name __pycache__ -o -name .ruff_cache -o -name .mypy_cache -o -name '*.pyc' \) \
+		-prune -exec rm -rf {} +
 	if [[ "${NAME}" == kulan-base ]]; then
 		generate_kulan_base "${STAGE}"
 	fi

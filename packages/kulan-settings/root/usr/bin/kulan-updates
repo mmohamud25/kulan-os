@@ -1,0 +1,8 @@
+#!/bin/sh
+# Update Center now lives in Kulan Settings ("Updates and recovery").
+# Kept so existing shortcuts and scripts keep working.
+set -eu
+if [ "${1:-}" = "--check" ]; then
+	exec kulan-settings updates --check
+fi
+exec kulan-settings updates

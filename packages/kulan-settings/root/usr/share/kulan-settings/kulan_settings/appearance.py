@@ -1,0 +1,226 @@
+"""Appearance: light/dark/automatic, accent colour, wallpaper, window buttons."""
+from __future__ import annotations
+
+from pathlib import Path
+
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+
+from .common import KULAN_SCHEMA, Page, choice_row, has_key, open_gnome_panel, reset_keys, settings
+
+KULAN_WALLPAPER_LIGHT = "file:///usr/share/backgrounds/kulan/kulan-light.png"
+KULAN_WALLPAPER_DARK = "file:///usr/share/backgrounds/kulan/kulan-dark.png"
+
+# (GNOME accent-color value, label, colour used for the swatch)
+ACCENTS = [
+    ("teal", "Teal", "#2190a4"),
+    ("blue", "Blue", "#3584e4"),
+    ("green", "Green", "#3a944a"),
+    ("yellow", "Yellow", "#c88800"),
+    ("orange", "Orange", "#ed5b00"),
+    ("red", "Red", "#e62d42"),
+    ("pink", "Pink", "#d56199"),
+    ("purple", "Purple", "#9141ac"),
+    ("slate", "Slate", "#6f8396"),
+]
+
+GTK_STYLES = [
+    ("gtk-4.0", "/usr/share/kulan/gtk/gtk-4.0.css"),
+    ("gtk-3.0", "/usr/share/kulan/gtk/gtk-3.0.css"),
+]
+GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK's own. */"
+
+LAYOUT_LEFT = "close,minimize,maximize:appmenu"
+LAYOUT_RIGHT = "appmenu:minimize,maximize,close"
+
+
+def _import_line(css: str) -> str:
+    return f'@import url("file://{css}");'
+
+
+def kulan_buttons_on() -> bool:
+    path = Path(GLib.get_user_config_dir()) / "gtk-4.0" / "gtk.css"
+    try:
+        return _import_line(GTK_STYLES[0][1]) in path.read_text()
+    except OSError:
+        return False
+
+
+def set_kulan_buttons(on: bool) -> None:
+    """Add or remove Kulan's @import in the user's gtk.css files, keeping
+    anything else the user wrote there. Apps pick it up when reopened."""
+    for folder, css in GTK_STYLES:
+        path = Path(GLib.get_user_config_dir()) / folder / "gtk.css"
+        line = _import_line(css)
+        try:
+            current = path.read_text()
+        except OSError:
+            current = ""
+        lines = [x for x in current.splitlines() if x.strip() not in (line, GTK_COMMENT)]
+        if on:
+            lines = [GTK_COMMENT, line, *lines]
+        text = "\n".join(lines).strip("\n")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if text:
+            path.write_text(text + "\n")
+        elif path.exists():
+            path.unlink()
+
+
+class AppearancePage(Page):
+    title = "Appearance"
+    icon = "applications-graphics-symbolic"
+    keywords = ("dark", "light", "theme", "accent", "colour", "color", "wallpaper", "background", "buttons")
+
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self.interface = settings("org.gnome.desktop.interface")
+        self.background = settings("org.gnome.desktop.background")
+        self.wm = settings("org.gnome.desktop.wm.preferences")
+        self.kulan = settings(KULAN_SCHEMA)
+
+        style = self.add_group("Style")
+        style.add(choice_row("Appearance", "Automatic follows the sunset: dark at night, light by day",
+                             [("light", "Light"), ("dark", "Dark"), ("auto", "Automatic")],
+                             self.get_style, self.set_style))
+        if has_key(self.interface, "accent-color"):
+            style.add(self.accent_row())
+
+        wallpaper = self.add_group("Wallpaper")
+        self.kulan_wallpaper_row = Adw.ActionRow(title="Kulan dusk and dawn",
+                                                 subtitle="Dusk in dark mode, dawn in light mode")
+        self.kulan_wallpaper_check = Gtk.Image(icon_name="object-select-symbolic", css_classes=["accent"])
+        use = Gtk.Button(label="Use", valign=Gtk.Align.CENTER)
+        use.connect("clicked", lambda _b: self.use_kulan_wallpaper())
+        self.kulan_wallpaper_use = use
+        self.kulan_wallpaper_row.add_suffix(self.kulan_wallpaper_check)
+        self.kulan_wallpaper_row.add_suffix(use)
+        own = Adw.ActionRow(title="Your own picture", subtitle="Used in both light and dark mode")
+        choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+        choose.connect("clicked", lambda _b: self.choose_picture())
+        own.add_suffix(choose)
+        more = Adw.ActionRow(title="More wallpapers", subtitle="GNOME’s wallpapers and colour backgrounds",
+                             activatable=True)
+        more.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        more.connect("activated", lambda _r: open_gnome_panel("background"))
+        self.add_rows(wallpaper, self.kulan_wallpaper_row, own, more)
+
+        windows = self.add_group("Window buttons", "Changes apply to apps as you open them.")
+        windows.add(choice_row("Style", None,
+                               [("kulan", "Round (Kulan)"), ("gnome", "Standard (GNOME)")],
+                               lambda: "kulan" if kulan_buttons_on() else "gnome",
+                               lambda v: set_kulan_buttons(v == "kulan")))
+        if has_key(self.wm, "button-layout"):
+            windows.add(choice_row("Position", None, [("left", "Left, like a Mac"), ("right", "Right")],
+                                   lambda: "right" if self.wm.get_string("button-layout").startswith("appmenu")
+                                   else "left",
+                                   lambda v: self.wm.set_string("button-layout",
+                                                                LAYOUT_LEFT if v == "left" else LAYOUT_RIGHT)))
+        self.add_reset(self.reset)
+        if self.background is not None:
+            self.background.connect("changed", lambda *_a: self.shown())
+        self.shown()
+
+    # --- light / dark / automatic -------------------------------------------------
+    def get_style(self) -> str:
+        if self.kulan is not None and self.kulan.get_boolean("automatic-style"):
+            return "auto"
+        if self.interface is not None and self.interface.get_string("color-scheme") == "prefer-dark":
+            return "dark"
+        return "light"
+
+    def set_style(self, value: str) -> None:
+        if self.kulan is not None:
+            self.kulan.set_boolean("automatic-style", value == "auto")
+        if value != "auto" and self.interface is not None:
+            self.interface.set_string("color-scheme", "prefer-dark" if value == "dark" else "default")
+
+    # --- accent ----------------------------------------------------------------------
+    def accent_row(self) -> Adw.ActionRow:
+        row = Adw.ActionRow(title="Accent colour")
+        box = Gtk.Box(spacing=6, valign=Gtk.Align.CENTER)
+        provider = Gtk.CssProvider()
+        css = "".join(f".kulan-swatch-{v} {{ background: {c}; border-radius: 999px; min-width: 22px; "
+                      f"min-height: 22px; padding: 0; }}" for v, _l, c in ACCENTS)
+        css += (".kulan-swatch:checked { box-shadow: 0 0 0 2px @window_bg_color, 0 0 0 4px currentColor; }"
+                ".kulan-swatch image { color: white; }")
+        provider.load_from_string(css)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        current = self.interface.get_string("accent-color")
+        first = None
+        self.swatches = {}
+        for value, label, _colour in ACCENTS:
+            button = Gtk.ToggleButton(tooltip_text=label, css_classes=["kulan-swatch", f"kulan-swatch-{value}"],
+                                      valign=Gtk.Align.CENTER)
+            button.update_property([Gtk.AccessibleProperty.LABEL], [f"{label} accent"])
+            if first is None:
+                first = button
+            else:
+                button.set_group(first)
+            button.set_active(value == current)
+            button.connect("toggled", self.on_accent, value)
+            self.swatches[value] = button
+            box.append(button)
+        row.add_suffix(box)
+        return row
+
+    def on_accent(self, button: Gtk.ToggleButton, value: str) -> None:
+        if button.get_active():
+            self.interface.set_string("accent-color", value)
+
+    # --- wallpaper -----------------------------------------------------------------
+    def kulan_wallpaper_active(self) -> bool:
+        if self.background is None:
+            return False
+        return (self.background.get_string("picture-uri") == KULAN_WALLPAPER_LIGHT
+                and self.background.get_string("picture-uri-dark") == KULAN_WALLPAPER_DARK)
+
+    def use_kulan_wallpaper(self) -> None:
+        if self.background is None:
+            return
+        for key in ("picture-uri", "picture-uri-dark", "picture-options", "primary-color"):
+            self.background.reset(key)
+        if not self.kulan_wallpaper_active():  # a site-wide default other than Kulan's
+            self.background.set_string("picture-uri", KULAN_WALLPAPER_LIGHT)
+            self.background.set_string("picture-uri-dark", KULAN_WALLPAPER_DARK)
+        self.toast("Kulan wallpaper on")
+
+    def choose_picture(self) -> None:
+        dialog = Gtk.FileDialog(title="Choose a wallpaper")
+        images = Gtk.FileFilter(name="Pictures")
+        images.add_mime_type("image/*")
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        filters.append(images)
+        dialog.set_filters(filters)
+        pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+        if pictures:
+            dialog.set_initial_folder(Gio.File.new_for_path(pictures))
+
+        def done(d, result) -> None:
+            try:
+                picked = d.open_finish(result)
+            except GLib.Error:
+                return  # cancelled
+            if picked is not None and self.background is not None:
+                uri = picked.get_uri()
+                self.background.set_string("picture-uri", uri)
+                self.background.set_string("picture-uri-dark", uri)
+                self.background.set_string("picture-options", "zoom")
+                self.toast("Wallpaper changed")
+
+        dialog.open(self.window, None, done)
+
+    # --- refresh and reset --------------------------------------------------------------
+    def shown(self) -> None:
+        active = self.kulan_wallpaper_active()
+        self.kulan_wallpaper_check.set_visible(active)
+        self.kulan_wallpaper_use.set_visible(not active)
+
+    def reset(self) -> None:
+        reset_keys(self.interface, ["color-scheme", "accent-color"])
+        reset_keys(self.kulan, ["automatic-style"])
+        reset_keys(self.wm, ["button-layout"])
+        reset_keys(self.background, ["picture-uri", "picture-uri-dark", "picture-options", "primary-color"])
+        set_kulan_buttons(True)
+        self.window.reload_page(self)
+        self.toast("Appearance reset to Kulan defaults")

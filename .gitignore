@@ -23,3 +23,5 @@
 # built packages
 /dist/
 /site/
+.ruff_cache/
+__pycache__/

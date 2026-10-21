@@ -1,0 +1,41 @@
+.TH KULAN-SETTINGS 1 "October 2026" "Kulan OS" "User Commands"
+.SH NAME
+kulan-settings \- Kulan OS settings
+.SH SYNOPSIS
+.B kulan-settings
+[\fIpage\fR] [\fB\-\-check\fR]
+.SH DESCRIPTION
+.B kulan-settings
+is one place for Kulan OS options: appearance, the dock, the top bar,
+desktop and windows, Night Light and display, keyboard, login items,
+updates and recovery, add-ons and About Kulan OS. Pages that belong to GNOME
+Settings (Wi-Fi, Bluetooth, sound, displays, users) are listed too and open
+there.
+.PP
+Installing updates or add-ons and changing automatic updates ask for an
+administrator password through
+.BR pkexec (1).
+.SH PAGES
+.IR appearance ", " dock ", " top-bar ", " desktop ", " display ", "
+.IR keyboard ", " login-items ", " updates ", " add-ons ", " about .
+.SH OPTIONS
+.TP
+.B \-\-check
+Open Updates and recovery and check for new updates.
+.TP
+.B \-\-self\-test
+Build every page, then quit; exits non-zero if a page fails. Used by
+automated tests.
+.SH FILES
+.TP
+.I /usr/share/kulan/addons.json
+The add-ons offered on the Add-ons page.
+.TP
+.I ~/.config/kulan/updates.ini
+The "Create a restore point before installing" choice.
+.TP
+.I ~/.config/gtk-4.0/gtk.css, ~/.config/gtk-3.0/gtk.css
+Where the Kulan window-button style is switched on or off.
+.SH SEE ALSO
+.BR gnome-control-center (1),
+.BR timeshift (1)

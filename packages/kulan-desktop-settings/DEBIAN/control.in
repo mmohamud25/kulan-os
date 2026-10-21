@@ -4,7 +4,7 @@ Architecture: all
 Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: x11
 Priority: optional
-Depends: kulan-base (= @VERSION@), libglib2.0-bin, dconf-cli, plymouth, plymouth-themes, papirus-icon-theme, bibata-cursor-theme, fonts-inter, fonts-jetbrains-mono, gnome-shell-extension-dashtodock, gnome-shell-extension-blur-my-shell, kulan-update-center (= @VERSION@)
+Depends: kulan-base (= @VERSION@), libglib2.0-bin, dconf-cli, plymouth, plymouth-themes, papirus-icon-theme, bibata-cursor-theme, fonts-inter, fonts-jetbrains-mono, gnome-shell-extension-dashtodock, gnome-shell-extension-blur-my-shell, kulan-update-center (= @VERSION@), kulan-settings (= @VERSION@)
 Recommends: gnome-shell-extension-appindicator, gtk-update-icon-cache, initramfs-tools, console-setup
 Homepage: @HOME_URL@
 Description: @NAME@ desktop look and defaults

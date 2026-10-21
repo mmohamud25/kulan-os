@@ -50,8 +50,8 @@ for DEB in dist/debs/kulan-*.deb; do
 done
 DEVKIT=(dist/debs/kulan-devkit_*.deb)
 APPS=(dist/debs/kulan-apps_*.deb)
-[[ ${#DEBS[@]} -eq 4 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 ]] || {
-	echo "::error::expected 4 core packages, kulan-devkit and kulan-apps in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]} and ${#APPS[@]}"
+[[ ${#DEBS[@]} -eq 5 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 ]] || {
+	echo "::error::expected 5 core packages, kulan-devkit and kulan-apps in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]} and ${#APPS[@]}"
 	exit 1
 }
 VERSION="$(cat dist/debs/VERSION)"
@@ -59,9 +59,12 @@ VERSION="$(cat dist/debs/VERSION)"
 # --- Install, as the ISO build does (recommends included) -----------------------
 # htop and gnome-tour are installed too, so the "Clutter hidden" check has
 # real launchers to hide; gdm3 and desktop-base so the login screen's settings
-# and Debian's vendor logos can be checked.
-if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour gdm3 desktop-base >/tmp/install.log 2>&1; then
-	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-welcome, kulan-update-center ${VERSION} with Debian dependencies"
+# and Debian's vendor logos can be checked; xvfb, xauth and dbus-x11 so Kulan
+# Settings can open every page on a virtual screen; appstream for the store
+# pages.
+if apt-get install -y -q "${DEBS[@]/#/./}" htop gnome-tour gdm3 desktop-base xvfb xauth dbus-x11 appstream \
+	>/tmp/install.log 2>&1; then
+	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-settings, kulan-welcome, kulan-update-center ${VERSION} with Debian dependencies"
 else
 	result fail "Install" "apt failed: $(grep -E '^E:|error' /tmp/install.log | tail -n 3 | tr '\n' ' ')"
 	tail -n 40 /tmp/install.log
@@ -156,11 +159,29 @@ check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
-check "Update Center compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-updates /usr/lib/kulan/update-status
+check "Kulan Settings compiles" "python3 -m py_compile" bash -c 'python3 -m py_compile /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 pages built"'
+check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
+check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
+check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
+check "Dock default" "always visible" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-fixed)\" = true"
+check "Add-on list" "every add-on names packages; the helper refuses anything else" python3 - <<'PY'
+import json, subprocess
+addons = json.load(open("/usr/share/kulan/addons.json"))
+ids = [a["id"] for a in addons]
+assert len(ids) == len(set(ids)), ids
+assert {"apps", "devkit"} <= set(ids), ids
+for a in addons:
+    assert a.get("title") and a.get("description") and a.get("packages"), a
+for bad in ("nope", "x;y", "../etc", ""):
+    r = subprocess.run(["/usr/lib/kulan/update-run", "addon-install", bad], capture_output=True, text=True)
+    assert r.returncode != 0, bad
+PY
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
-check "1.0 upgrade path" "kulan-desktop-settings pulls in kulan-update-center and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
+check "Upgrade path" "kulan-desktop-settings pulls in kulan-update-center, kulan-settings and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-settings && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
 
 # --- Welcome app against Debian's real GTK and libadwaita ------------------------------
 check "Welcome app compiles" "python3 -m py_compile" python3 -m py_compile /usr/bin/kulan-welcome
@@ -183,7 +204,7 @@ PY
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # --- Removal restores Debian -------------------------------------------------------
-if dpkg --purge kulan-update-center kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then
+if dpkg --purge kulan-settings kulan-update-center kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'

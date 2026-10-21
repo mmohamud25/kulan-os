@@ -4,6 +4,7 @@
 # Kulan OS's own packages (built by packages/build-debs.sh)
 kulan-base
 kulan-desktop-settings
+kulan-settings
 kulan-welcome
 
 # Desktop

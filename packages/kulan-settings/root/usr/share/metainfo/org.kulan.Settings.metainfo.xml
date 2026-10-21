@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.kulan.Settings</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Kulan Settings</name>
+  <summary>Appearance, dock, updates and add-ons for Kulan OS</summary>
+  <description>
+    <p>One place for every Kulan OS option, from how the desktop looks to updates, restore points and optional add-ons.</p>
+    <ul>
+      <li>Appearance: light, dark or automatic, accent colour, wallpaper and window buttons</li>
+      <li>Dock: always visible, show on hover or hide when covered, size and position</li>
+      <li>Top bar, animations, app folders, Night Light, text size and keyboard</li>
+      <li>Login items: choose which apps open when you sign in</li>
+      <li>Updates and recovery: install updates, see what is new, restore points</li>
+      <li>Add-ons: the Developer Kit and office and media apps in one click</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.kulan.Settings.desktop</launchable>
+  <developer id="com.kulangroup">
+    <name>Kulan Group</name>
+  </developer>
+  <url type="homepage">https://kulangroup.com</url>
+  <provides>
+    <binary>kulan-settings</binary>
+    <id>org.kulan.Updates.desktop</id>
+  </provides>
+  <categories>
+    <category>Settings</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.2" date="2026-10-21">
+      <description><p>First release: Kulan Settings replaces Update Center.</p></description>
+    </release>
+  </releases>
+</component>

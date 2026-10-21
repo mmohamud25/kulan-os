@@ -12,6 +12,7 @@ Pillow (pip install pillow) and a sans font (Inter or Noto Sans recommended).
 """
 from __future__ import annotations
 
+import math
 import re
 import shlex
 import shutil
@@ -112,6 +113,32 @@ def main() -> int:
     for px in (48, 128, 256):
         render(logo_svg, CHROOT / f"usr/share/icons/hicolor/{px}x{px}/apps/kulan-logo.png", px, px)
     render(logo_svg, CHROOT / "usr/share/kulan/calamares/logo.png", 256, 256)
+
+    # Kulan Settings app icon: the logo's badge with a white gear.
+    teeth, r_out, r_in, cx, cy = 10, 170, 138, 256, 256
+    points = []
+    for i in range(teeth * 2):
+        for edge in (-0.32, 0.32):
+            angle = (i + 0.5 + edge) * math.pi / teeth
+            radius = r_out if i % 2 == 0 else r_in
+            points.append(f"{cx + radius * math.cos(angle):.1f},{cy + radius * math.sin(angle):.1f}")
+    settings_svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#0B2A4A"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#sb)"/>
+  <circle cx="256" cy="256" r="150" fill="#F59E0B" fill-opacity="0.22"/>
+  <path fill-rule="evenodd" fill="#ECFDF5" d="M{" L".join(points)} Z M256 196 a60 60 0 1 0 0.01 0 Z"/>
+</svg>'''
+    icons = CHROOT.parent.parent / "kulan-settings" / "root" / "usr/share/icons/hicolor"
+    (icons / "scalable/apps").mkdir(parents=True, exist_ok=True)
+    (icons / "scalable/apps/kulan-settings.svg").write_text(settings_svg + "\n")
+    print(f"  wrote {(icons / 'scalable/apps/kulan-settings.svg').relative_to(ROOT)}")
+    for px in (48, 128, 256):
+        render(settings_svg, icons / f"{px}x{px}/apps/kulan-settings.png", px, px)
 
     # Wallpapers.
     render((ASSETS / "wallpaper-dark.svg").read_text(), CHROOT / "usr/share/backgrounds/kulan/kulan-dark.png")

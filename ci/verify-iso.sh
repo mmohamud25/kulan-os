@@ -80,7 +80,7 @@ has_path() { grep -q "squashfs-root/$1\$" "${WORK}/listing"; }
 check "Boot menu" "\"Kulan OS Live\" entries in GRUB" grep -q "Kulan OS Live" "${WORK}/grub.cfg"
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
-for PKG in kulan-base kulan-desktop-settings kulan-welcome kulan-update-center kulan-apps; do
+for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps; do
 	VER="$(awk -v p="${PKG}" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" {match($0, /\nVersion: [^\n]+/); print substr($0, RSTART+10, RLENGTH-10)}' "${R}/var/lib/dpkg/status")"
 	check "Package ${PKG}" "installed ${VER:-?}" installed "${PKG}"
 done

@@ -1,7 +1,8 @@
 // Kulan Shell: the Kulan OS look (stylesheet-dark.css / stylesheet-light.css,
 // loaded by GNOME Shell on top of its own theme), the Kulan menu at the top
-// left, the Update Center indicator in the top bar, slightly quicker
-// animations, and (once per user) the Kulan window buttons for apps.
+// left, the update indicator in the top bar, slightly quicker animations,
+// automatic light/dark at sunset, and (once per user) the Kulan window
+// buttons for apps. Its options (org.kulan.desktop) are set in Kulan Settings.
 //
 // The indicator reads /var/lib/kulan/updates.json, which the
 // kulan-update-center package keeps current from apt's own hooks. It only
@@ -20,14 +21,18 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as SystemActions from 'resource:///org/gnome/shell/misc/systemActions.js';
 
 const STATUS_FILE = '/var/lib/kulan/updates.json';
-const UPDATE_CENTER = 'org.kulan.Updates.desktop';
+const KULAN_SCHEMA = 'org.kulan.desktop';
 const RELOAD_DELAY_MS = 400;
 const FALLBACK_RELOAD_S = 600;
 // An install that was interrupted (power loss) can leave "running" behind;
 // the boot-time refresh clears it, and the indicator ignores it after 3 hours.
 const STALE_RUNNING_S = 3 * 3600;
-// Animations run at this fraction of GNOME's normal duration.
-const ANIMATION_SPEED = 0.8;
+// Animation duration, as a fraction of GNOME's own, per Kulan Settings choice.
+const ANIMATION_SPEEDS = {calm: 1.0, normal: 0.8, fast: 0.6};
+// Without a known location, "automatic" is dark from 19:00 to 07:00.
+const FALLBACK_SUNSET = 19;
+const FALLBACK_SUNRISE = 7;
+const STYLE_CHECK_S = 60;
 
 // GNOME writes its own folder list into a user's settings at first login,
 // which hides the Kulan folders (system defaults) for users who existed
@@ -111,9 +116,28 @@ function launchApp(desktopId) {
 function runCommand(argv) {
     try {
         Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
+        return true;
     } catch (e) {
         logError(e, `Kulan Shell: could not run ${argv[0]}`);
+        return false;
     }
+}
+
+// Open a page of Kulan Settings; GNOME Settings if Kulan Settings is missing.
+function openKulanSettings(page) {
+    if (GLib.find_program_in_path('kulan-settings'))
+        return runCommand(page ? ['kulan-settings', page] : ['kulan-settings']);
+    if (page === 'about')
+        return runCommand(['gnome-control-center', 'system', 'about']);
+    return launchApp('org.gnome.Settings.desktop');
+}
+
+// The Kulan options, or null when the schema isn't installed yet.
+function kulanSettings() {
+    const source = Gio.SettingsSchemaSource.get_default();
+    if (!source?.lookup(KULAN_SCHEMA, true))
+        return null;
+    return new Gio.Settings({schema_id: KULAN_SCHEMA});
 }
 
 // The Kulan menu: the logo at the top left, like the Apple menu.
@@ -128,14 +152,11 @@ class KulanMenu extends PanelMenu.Button {
         }));
 
         const actions = SystemActions.getDefault();
-        this.menu.addAction('About Kulan OS', () =>
-            runCommand(['gnome-control-center', 'system', 'about']));
-        this.menu.addAction('Settings', () => launchApp('org.gnome.Settings.desktop'));
-        this.menu.addAction('Update Center', () => {
-            if (!launchApp(UPDATE_CENTER))
-                Main.notify('Update Center isn’t installed', 'Install the kulan-update-center package.');
-        });
-        this.menu.addAction('Software', () => launchApp('org.gnome.Software.desktop'));
+        this.menu.addAction('About Kulan OS', () => openKulanSettings('about'));
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        this.menu.addAction('Kulan Settings…', () => openKulanSettings(null));
+        this.menu.addAction('Software Updates…', () => openKulanSettings('updates'));
+        this.menu.addAction('Software…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
         this.menu.addAction('Log Out…', () => actions.activateLogout());
@@ -187,14 +208,14 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._title);
         this.menu.addMenuItem(this._detail);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addAction('Open Update Center', () => this._openUpdateCenter());
+        this.menu.addAction('Open Software Updates', () => this._openUpdateCenter());
 
         this.visible = false;
+        this.allowed = true;
     }
 
     _openUpdateCenter() {
-        if (!launchApp(UPDATE_CENTER))
-            Main.notify('Update Center isn’t installed', 'Install the kulan-update-center package.');
+        openKulanSettings('updates');
     }
 
     update(status) {
@@ -203,7 +224,7 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         const since = Number(status?.running_since) || 0;
         const running = status?.state === 'running' && Date.now() / 1000 - since < STALE_RUNNING_S;
 
-        this.visible = running || available > 0;
+        this.visible = this.allowed && (running || available > 0);
         this._count.text = available > 0 && !running ? String(available) : '';
 
         if (running) {
@@ -217,7 +238,7 @@ class KulanUpdateIndicator extends PanelMenu.Button {
             this._title.label.text = `${plural(available, 'update')} available`;
             this._detail.label.text = security > 0
                 ? `${plural(security, 'security fix')} included`
-                : 'Open Update Center to install them now.';
+                : 'Open Software Updates to install them now.';
         }
     }
 });
@@ -230,7 +251,6 @@ export default class KulanShellExtension extends Extension {
         }
 
         this._oldSlowDown = St.Settings.get().slow_down_factor;
-        St.Settings.get().slow_down_factor = ANIMATION_SPEED;
 
         this._menu = new KulanMenu();
         Main.panel.addToStatusArea(`${this.uuid}-menu`, this._menu, 0, 'left');
@@ -248,11 +268,70 @@ export default class KulanShellExtension extends Extension {
         });
         this._sessionId = Main.sessionMode.connect('updated', () => this._syncSession());
 
+        this._settings = kulanSettings();
+        this._settingsId = this._settings?.connect('changed', () => this._applySettings()) ?? 0;
+        this._interface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._styleTimerId = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, STYLE_CHECK_S, () => {
+            this._syncStyle();
+            return GLib.SOURCE_CONTINUE;
+        });
+        Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, null,
+            'org.gnome.SettingsDaemon.Color', '/org/gnome/SettingsDaemon/Color',
+            'org.gnome.SettingsDaemon.Color', null, (_o, result) => {
+                try {
+                    this._color = Gio.DBusProxy.new_for_bus_finish(result);
+                } catch {
+                    this._color = null;
+                }
+                this._syncStyle();
+            });
+
         this._reload();
+        this._applySettings();
+    }
+
+    _applySettings() {
+        const speed = this._settings?.get_string('animation-speed') ?? 'normal';
+        St.Settings.get().slow_down_factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
+        if (this._indicator) {
+            this._indicator.allowed = this._settings?.get_boolean('update-indicator') ?? true;
+            this._indicator.update(readStatus());
+        }
         this._syncSession();
+        this._syncStyle();
+    }
+
+    // "Automatic" appearance: dark from sunset to sunrise. GNOME's colour
+    // daemon knows today's times when it knows the location.
+    _syncStyle() {
+        if (!this._settings?.get_boolean('automatic-style') || Main.sessionMode.isLocked)
+            return;
+        const hours = name => {
+            const value = this._color?.get_cached_property(name)?.unpack();
+            return typeof value === 'number' && value > 0 ? value : null;
+        };
+        const sunrise = hours('Sunrise') ?? FALLBACK_SUNRISE;
+        const sunset = hours('Sunset') ?? FALLBACK_SUNSET;
+        const now = GLib.DateTime.new_now_local();
+        const hour = now.get_hour() + now.get_minute() / 60;
+        const dark = sunset > sunrise ? hour >= sunset || hour < sunrise : hour >= sunset && hour < sunrise;
+        const wanted = dark ? 'prefer-dark' : 'default';
+        if (this._interface.get_string('color-scheme') !== wanted)
+            this._interface.set_string('color-scheme', wanted);
     }
 
     disable() {
+        if (this._settingsId) {
+            this._settings.disconnect(this._settingsId);
+            this._settingsId = 0;
+        }
+        this._settings = null;
+        this._color = null;
+        this._interface = null;
+        if (this._styleTimerId) {
+            GLib.source_remove(this._styleTimerId);
+            this._styleTimerId = 0;
+        }
         if (this._sessionId) {
             Main.sessionMode.disconnect(this._sessionId);
             this._sessionId = 0;
@@ -286,7 +365,7 @@ export default class KulanShellExtension extends Extension {
         if (this._indicator)
             this._indicator.container.visible = unlocked;
         if (this._menu)
-            this._menu.container.visible = unlocked;
+            this._menu.container.visible = unlocked && (this._settings?.get_boolean('kulan-menu') ?? true);
     }
 
     // apt writes the status file a few times in a row; reload once it settles.
@@ -310,7 +389,7 @@ export default class KulanShellExtension extends Extension {
         if (this._lastRun !== undefined && runTime !== null && runTime !== this._lastRun &&
             status?.state !== 'running' && Number(lastRun.count) > 0) {
             Main.notify('Kulan OS was updated',
-                `${plural(Number(lastRun.count), 'update')} installed. See what’s new in Update Center.`);
+                `${plural(Number(lastRun.count), 'update')} installed. See what’s new in Kulan Settings.`);
         }
         this._lastRun = runTime;
     }

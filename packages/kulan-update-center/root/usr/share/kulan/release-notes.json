@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.2",
+    "title": "Kulan OS 2.2",
+    "items": [
+      "Kulan Settings: appearance, dock, top bar, animations, Night Light, keyboard, login items, add-ons and About in one app",
+      "Update Center is now Updates and recovery in Kulan Settings",
+      "Automatic light and dark mode, following the sunset",
+      "Dock: always visible by default, or show on hover, or hide when a window covers it",
+      "Add-ons: install or remove the Developer Kit and office and media apps in one click",
+      "Kulan apps have store pages in Software"
+    ]
+  },
+  {
     "version": "2.1",
     "title": "Kulan OS 2.1",
     "items": [

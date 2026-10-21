@@ -41,7 +41,7 @@ center-new-windows=true
 # Floating, translucent dock with running-app dots.
 [org.gnome.shell.extensions.dash-to-dock]
 dock-position='BOTTOM'
-dock-fixed=false
+dock-fixed=true
 intellihide=true
 extend-height=false
 # Calmer dock: smaller icons, quick show and hide, no bounce on launch.
