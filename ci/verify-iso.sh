@@ -104,6 +104,19 @@ check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
+	# Debian's plymouth hook swaps the theme's watermark for Debian's logo;
+	# Kulan's hook (kulan-splash) puts Kulan's back. Compare the two images.
+	if command -v unmkinitramfs >/dev/null 2>&1 && unmkinitramfs "${WORK}/initrd.img" "${WORK}/initrd-x" >/dev/null 2>&1 \
+		&& unsquashfs -q -n -d "${WORK}/wm" "${WORK}/fs.squashfs" usr/share/plymouth/themes/kulan/watermark.png >/dev/null 2>&1; then
+		WM_INITRD="$(find "${WORK}/initrd-x" -path '*plymouth/themes/kulan/watermark.png' | head -n 1)"
+		if [[ -n "${WM_INITRD}" ]] && cmp -s "${WM_INITRD}" "${WORK}/wm/usr/share/plymouth/themes/kulan/watermark.png"; then
+			result pass "Splash logo" "the initramfs shows Kulan's logo, not Debian's"
+		else
+			result fail "Splash logo" "watermark in the initramfs isn't Kulan's (${WM_INITRD:-missing})"
+		fi
+	else
+		result fail "Splash logo" "could not unpack the initramfs or the watermark"
+	fi
 	# Debian's console-setup puts the layout in the initramfs as
 	# etc/console-setup/cached_*.kmap, loaded by scripts/init-top/keymap.
 	lsinitramfs "${WORK}/initrd.img" > "${WORK}/initrd.list"

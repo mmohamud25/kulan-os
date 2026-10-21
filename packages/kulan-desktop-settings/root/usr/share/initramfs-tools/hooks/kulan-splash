@@ -1,0 +1,11 @@
+#!/bin/sh
+# Kulan OS: Debian's plymouth hook replaces the theme's watermark with
+# Debian's logo (desktop-base's logo-text-version-64.png) when it builds the
+# initramfs; put Kulan's back. Runs after the plymouth hook (PREREQ).
+PREREQ="plymouth"
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+THEME_DIR=/usr/share/plymouth/themes/kulan
+if [ -d "${DESTDIR}${THEME_DIR}" ] && [ -f "${THEME_DIR}/watermark.png" ]; then
+	cp "${THEME_DIR}/watermark.png" "${DESTDIR}${THEME_DIR}/watermark.png"
+fi

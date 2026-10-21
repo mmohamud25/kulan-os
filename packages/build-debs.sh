@@ -145,7 +145,7 @@ for SRC in "${ROOT}"/packages/*/; do
 	# Normalise permissions so the package never depends on the build machine.
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type d -exec chmod 0755 {} +
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type f -exec chmod 0644 {} +
-	for EXEC in usr/bin usr/lib/kulan; do
+	for EXEC in usr/bin usr/lib/kulan usr/share/initramfs-tools/hooks; do
 		[[ -d "${STAGE}/${EXEC}" ]] && find "${STAGE}/${EXEC}" -type f -exec chmod 0755 {} +
 	done
 
