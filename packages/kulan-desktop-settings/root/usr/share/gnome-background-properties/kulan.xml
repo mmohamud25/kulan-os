@@ -3,7 +3,7 @@
 <!-- Adds the Kulan wallpapers to GNOME Settings > Appearance. -->
 <wallpapers>
   <wallpaper deleted="false">
-    <name>Kulan Gathering</name>
+    <name>Kulan Teal Waves</name>
     <filename>/usr/share/backgrounds/kulan/kulan-light.png</filename>
     <filename-dark>/usr/share/backgrounds/kulan/kulan-dark.png</filename-dark>
     <options>zoom</options>
@@ -12,7 +12,7 @@
     <scolor>#0A2240</scolor>
   </wallpaper>
   <wallpaper deleted="false">
-    <name>Kulan Waves</name>
+    <name>Kulan Classic Waves</name>
     <filename>/usr/share/backgrounds/kulan/kulan-waves-light.png</filename>
     <filename-dark>/usr/share/backgrounds/kulan/kulan-waves-dark.png</filename-dark>
     <options>zoom</options>

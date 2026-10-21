@@ -12,9 +12,9 @@ KULAN_WALLPAPER_DARK = "file:///usr/share/backgrounds/kulan/kulan-dark.png"
 # Kulan's own wallpapers: (title, subtitle, light picture, dark picture). The
 # first is the default.
 KULAN_WALLPAPERS = [
-    ("Kulan gathering", "The Kulan ring over the waves, by day and by night",
+    ("Kulan teal waves", "Light by day, starry night in dark mode",
      KULAN_WALLPAPER_LIGHT, KULAN_WALLPAPER_DARK),
-    ("Kulan waves", "The original Kulan OS waves, light and dark",
+    ("Kulan classic waves", "The original Kulan OS 1.0 waves, light and dark",
      "file:///usr/share/backgrounds/kulan/kulan-waves-light.png",
      "file:///usr/share/backgrounds/kulan/kulan-waves-dark.png"),
 ]
