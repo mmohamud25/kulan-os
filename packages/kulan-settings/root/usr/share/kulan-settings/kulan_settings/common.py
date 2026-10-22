@@ -280,12 +280,20 @@ class Page(Adw.Bin):
     title = ""
     icon = "preferences-system-symbolic"
     keywords: tuple[str, ...] = ()
+    show_title = True  # the large title at the top (About has its own)
 
     def __init__(self, window) -> None:
         super().__init__()
         self.window = window
         self.page = Adw.PreferencesPage()
         self.set_child(self.page)
+        # The page's name, large, at the top (2.4 look); the header bar above
+        # stays empty, as on a Mac.
+        if self.title and self.show_title:
+            heading = Adw.PreferencesGroup()
+            heading.add(Gtk.Label(label=self.title, xalign=0, css_classes=["kulan-page-title"],
+                                  wrap=True, accessible_role=Gtk.AccessibleRole.HEADING))
+            self.page.add(heading)
         self._watches: list[tuple[GObject.Object, int]] = []
         self._monitors: list[Gio.FileMonitor] = []
 

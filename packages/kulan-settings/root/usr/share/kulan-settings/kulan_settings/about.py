@@ -75,6 +75,7 @@ def storage() -> str:
 class AboutPage(Page):
     title = "About Kulan OS"
     icon = "help-about-symbolic"
+    show_title = False  # the logo and "Kulan OS" are the heading
     keywords = ("about", "version", "build", "system", "computer", "memory", "processor", "storage",
                 "organisation", "organization", "managed", "fleet", "company", "work")
 
