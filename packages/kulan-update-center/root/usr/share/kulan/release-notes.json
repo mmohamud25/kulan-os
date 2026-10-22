@@ -32,7 +32,8 @@
       "Kulan Files: a status bar with the folder's path, the number of items and the free space; a preview pane (Shift+Ctrl+P or the toolbar button) with a large preview, tags, size and dates; and a Finder-style sidebar with Favourites, Locations and your Tags",
       "Encrypted disks: if you mistype the disk password when the computer starts, it simply asks again instead of giving up after three tries",
       "Smaller, calmer icons: Files (64 px, about the Finder's size), the desktop, the dock and the app grid; each can still be made bigger in Kulan Settings or Files",
-      "Apps from the Kulan Store (Flatpak) get Kulan's red, yellow and green window buttons too"
+      "Apps from the Kulan Store (Flatpak) get Kulan's red, yellow and green window buttons too",
+      "A new start-up screen: the six dots of the Kulan gathering walk in and meet, the centre lights up, and the ring gently breathes while the computer starts; the disk password is asked right under it"
     ]
   },
   {

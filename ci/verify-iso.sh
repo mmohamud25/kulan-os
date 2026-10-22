@@ -141,6 +141,7 @@ check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
+	check "Animated splash" "the gathering animation (script, images) and Plymouth's script module in the initramfs" bash -c "L=\"\$(lsinitramfs '${WORK}/initrd.img')\"; echo \"\$L\" | grep -q 'plymouth/themes/kulan/kulan.script' && echo \"\$L\" | grep -q 'plymouth/themes/kulan/dot-amber.png' && echo \"\$L\" | grep -q 'plymouth/script.so'"
 	# Debian's plymouth hook swaps the theme's watermark for Debian's logo;
 	# Kulan's hook (kulan-splash) puts Kulan's back. Compare the two images.
 	if command -v unmkinitramfs >/dev/null 2>&1 && unmkinitramfs "${WORK}/initrd.img" "${WORK}/initrd-x" >/dev/null 2>&1 \

@@ -376,6 +376,32 @@ def main() -> int:
         CHROOT / "usr/share/kulan/plymouth/watermark.png",
     )
 
+    # Start-up screen pieces for the animated splash (kulan.script scales
+    # them to the screen): the two dot colours, the centre's glow, the name,
+    # and the disk password prompt, field and dot.
+    splash = CHROOT / "usr/share/kulan/plymouth"
+    for fname, colour in (("dot-amber.png", "#F59E0B"), ("dot-mint.png", "#ECFDF5")):
+        render(f'''<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <circle cx="64" cy="64" r="62" fill="{colour}"/>
+</svg>''', splash / fname)
+    render('''<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs><radialGradient id="g"><stop offset="0" stop-color="#2DD4BF" stop-opacity="0.55"/>
+  <stop offset="0.45" stop-color="#14B8A6" stop-opacity="0.18"/><stop offset="1" stop-color="#14B8A6" stop-opacity="0"/></radialGradient></defs>
+  <circle cx="128" cy="128" r="128" fill="url(#g)"/>
+</svg>''', splash / "glow.png")
+    render(f'''<svg xmlns="http://www.w3.org/2000/svg" width="600" height="110" viewBox="0 0 600 110">
+  <text x="300" y="78" text-anchor="middle" font-family="{FONT}" font-size="68" font-weight="600" fill="#FFFFFF">{name}</text>
+</svg>''', splash / "wordmark.png")
+    render(f'''<svg xmlns="http://www.w3.org/2000/svg" width="840" height="60" viewBox="0 0 840 60">
+  <text x="420" y="42" text-anchor="middle" font-family="{FONT}" font-size="32" fill="#DCE7F0">Enter the password to unlock this disk</text>
+</svg>''', splash / "prompt.png")
+    render('''<svg xmlns="http://www.w3.org/2000/svg" width="720" height="96" viewBox="0 0 720 96">
+  <rect x="2" y="2" width="716" height="92" rx="46" fill="#FFFFFF" fill-opacity="0.10" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3"/>
+</svg>''', splash / "field.png")
+    render('''<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="30" fill="#FFFFFF"/>
+</svg>''', splash / "bullet.png")
+
     # Installed system's boot menu background (shown only if you hold Esc).
     render(
         f'''<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
