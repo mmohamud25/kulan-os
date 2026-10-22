@@ -17,14 +17,18 @@ trap 'rm -rf "${WORK}"' EXIT
 . "${ROOT}/kulan.conf"
 
 # Versions must always increase so installed systems pick up updates:
-# <KULAN_VERSION>.<UTC timestamp of the last commit>, e.g. 1.0.202610201905.
+# <major.minor>.<UTC timestamp of the last commit>, e.g. 2.4.202610201905.
+# Only major.minor: a point release (KULAN_VERSION 2.4.1) must still sort
+# after 2.4.202610201905, and "2.4.1.2026…" would sort before it (1 < 2026…),
+# which apt treats as a downgrade. os-release still says 2.4.1.
+KULAN_SERIES="$(cut -d. -f1-2 <<<"${KULAN_VERSION}")"
 if [[ -z "${KULAN_PKG_VERSION:-}" ]]; then
 	if STAMP="$(git -C "${ROOT}" log -1 --format=%ct 2>/dev/null)" && [[ -n "${STAMP}" ]]; then
 		:
 	else
 		STAMP="$(date +%s)"
 	fi
-	KULAN_PKG_VERSION="${KULAN_VERSION}.$(date -u -d "@${STAMP}" +%Y%m%d%H%M)"
+	KULAN_PKG_VERSION="${KULAN_SERIES}.$(date -u -d "@${STAMP}" +%Y%m%d%H%M)"
 fi
 KULAN_BUILD="${KULAN_BUILD:-local}"
 if ! [[ "${KULAN_BUILD}" =~ ^[A-Za-z0-9]+$ ]]; then

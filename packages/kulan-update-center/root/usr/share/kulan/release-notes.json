@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.4.1",
+    "title": "A simpler Software Update",
+    "items": [
+      "Software Update, simpler: Automatic Updates and Update History at the top, one clear status in the middle, and More Details on the Kulan OS website. Updates show by the names you know, like Firefox or Encryption, instead of package codes",
+      "The Kulan OS website: os.kulangroup.com has the downloads, an install guide (including keeping Windows), what's new in every version, and help"
+    ]
+  },
+  {
     "version": "2.4",
     "title": "The new Kulan look",
     "items": [
