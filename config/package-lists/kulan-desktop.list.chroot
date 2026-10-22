@@ -60,6 +60,15 @@ ptyxis
 zsh
 zsh-autosuggestions
 zsh-syntax-highlighting
+# Terminal power tools: fuzzy history and file search, fast search, nicer
+# listings and viewing, folder jumping, a live system monitor
+fzf
+ripgrep
+fd-find
+bat
+eza
+zoxide
+btop
 # Qt apps follow the GTK theme (QT_QPA_PLATFORMTHEME=gtk3)
 qt5-gtk-platformtheme
 qt6-gtk-platformtheme

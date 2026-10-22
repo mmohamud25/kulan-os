@@ -1,0 +1,246 @@
+#!/usr/bin/python3
+"""kulan: Kulan OS from the Terminal.
+
+  kulan info                      this computer at a glance
+  kulan update [--check]          install waiting updates (or just look for them)
+  kulan doctor                    check for common problems and say how to fix them
+  kulan settings [PAGE]           open Kulan Settings (at a page: wifi, sound, …)
+  kulan settings dark-mode on|off switch dark mode
+  kulan ask QUESTION…             ask Kulan Assistant (runs on this computer)
+  kulan why                       ask Kulan Assistant why the last command failed
+                                  (Alt+K in the Terminal does the same)
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+UPDATE_RUN = "/usr/lib/kulan/update-run"
+UPDATES = Path("/var/lib/kulan/updates.json")
+RESTART = Path("/run/kulan/restart-required")
+ASSISTANT = "/usr/bin/kulan-assistant"
+
+BOLD, DIM, TEAL, AMBER, RED, OFF = "\033[1m", "\033[2m", "\033[36m", "\033[33m", "\033[31m", "\033[0m"
+if not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+    BOLD = DIM = TEAL = AMBER = RED = OFF = ""
+
+
+def out(cmd: list[str], timeout: int = 10) -> str:
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False,
+                              env={**os.environ, "LC_ALL": "C.UTF-8"}).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def read(path: str) -> str:
+    try:
+        return Path(path).read_text(errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def os_release() -> dict[str, str]:
+    info = {}
+    for line in read("/etc/os-release").splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            info[key] = value.strip().strip('"')
+    return info
+
+
+def gib(n: float) -> str:
+    return f"{n / 1024 ** 3:.1f} GB"
+
+
+def memory() -> tuple[int, int]:
+    fields = {}
+    for line in read("/proc/meminfo").splitlines():
+        key, _s, rest = line.partition(":")
+        fields[key] = int(rest.split()[0]) * 1024 if rest.split() else 0
+    return fields.get("MemTotal", 0), fields.get("MemAvailable", 0)
+
+
+def status() -> dict:
+    try:
+        data = json.loads(UPDATES.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+# --- info ---------------------------------------------------------------------------
+def cmd_info(_args: list[str]) -> int:
+    rel = os_release()
+    total, avail = memory()
+    disk = shutil.disk_usage("/")
+    model = " ".join(x for x in (read("/sys/class/dmi/id/sys_vendor"), read("/sys/class/dmi/id/product_name"))
+                     if x and "To Be Filled" not in x)
+    cpu = next((line.split(":", 1)[1].strip() for line in read("/proc/cpuinfo").splitlines()
+                if line.startswith(("model name", "Model"))), os.uname().machine)
+    uptime = float((read("/proc/uptime") or "0").split()[0])
+    waiting = status().get("available") or []
+    rows = [
+        ("System", f"{rel.get('PRETTY_NAME', 'Kulan OS')} ({rel.get('VERSION', '').split('(')[-1].rstrip(')')})"),
+        ("Computer", model or "unknown"),
+        ("Processor", f"{cpu} · {os.cpu_count()} cores"),
+        ("Memory", f"{gib(total - avail)} used of {gib(total)}"),
+        ("Disk", f"{gib(disk.used)} used of {gib(disk.total)} ({gib(disk.free)} free)"),
+        ("Linux", os.uname().release),
+        ("Desktop", f"GNOME {out(['gnome-shell', '--version']).split()[-1]}" if shutil.which("gnome-shell")
+         else "none"),
+        ("Up for", f"{int(uptime // 3600)} h {int(uptime % 3600 // 60)} min"),
+        ("Updates", f"{len(waiting)} waiting" if waiting else "up to date"),
+    ]
+    print(f"{BOLD}{TEAL}{rel.get('NAME', 'Kulan OS')}{OFF}")
+    for key, value in rows:
+        print(f"  {DIM}{key:<10}{OFF} {value}")
+    return 0
+
+
+# --- update -------------------------------------------------------------------------
+def cmd_update(args: list[str]) -> int:
+    if not Path(UPDATE_RUN).exists():
+        print("Software Update isn't installed here.", file=sys.stderr)
+        return 1
+    if "--check" in args:
+        print("Checking for updates…")
+        rc = subprocess.call(["pkexec", UPDATE_RUN, "check"])
+        waiting = status().get("available") or []
+        print(f"{len(waiting)} update(s) waiting." if waiting else "Kulan OS is up to date.")
+        return rc
+    waiting = status().get("available") or []
+    if not waiting:
+        print("Nothing waiting (from the last check). Checking now…")
+        subprocess.call(["pkexec", UPDATE_RUN, "check"])
+        waiting = status().get("available") or []
+        if not waiting:
+            print("Kulan OS is up to date.")
+            return 0
+    print(f"Installing {len(waiting)} update(s)…")
+    rc = subprocess.call(["pkexec", UPDATE_RUN, "install", "--restore-point"])
+    if rc == 0 and RESTART.exists():
+        print(f"{AMBER}Restart to finish updating.{OFF}")
+    return rc
+
+
+# --- doctor -------------------------------------------------------------------------
+def cmd_doctor(_args: list[str]) -> int:
+    problems = 0
+
+    def report(ok: bool | None, what: str, detail: str, fix: str = "") -> None:
+        nonlocal problems
+        mark = f"{TEAL}✓{OFF}" if ok else (f"{DIM}–{OFF}" if ok is None else f"{AMBER}!{OFF}")
+        print(f" {mark} {BOLD}{what}{OFF}  {detail}")
+        if ok is False:
+            problems += 1
+            if fix:
+                print(f"     {DIM}→ {fix}{OFF}")
+
+    disk = shutil.disk_usage("/")
+    free_pct = disk.free / disk.total * 100 if disk.total else 100
+    report(free_pct >= 10, "Disk space", f"{gib(disk.free)} free ({free_pct:.0f}%)",
+           "Kulan Settings › Storage frees space (Bin, old caches, old updates)")
+    total, avail = memory()
+    report(avail >= total * 0.1 if total else None, "Memory", f"{gib(avail)} free of {gib(total)}",
+           "close apps you're not using, or see what's using it with btop")
+    failed = [line.split()[0] for line in out(["systemctl", "--failed", "--no-legend", "--plain"]).splitlines()
+              if line.strip()]
+    report(not failed, "System services", "all running" if not failed else f"not running: {', '.join(failed[:4])}",
+           "sudo systemctl restart <name>, or a restart of the computer")
+    if shutil.which("nmcli"):
+        conn = out(["nmcli", "-t", "-f", "CONNECTIVITY", "general"]) or "unknown"
+        words = {"full": "connected", "none": "not connected", "limited": "limited",
+                 "portal": "needs you to sign in (a Wi-Fi sign-in page)", "unknown": "couldn't check"}
+        report(None if conn == "unknown" else conn == "full", "Internet", words.get(conn, conn),
+               "Kulan Settings › Wi-Fi and network; for a sign-in page, open Firefox")
+    ufw = read("/etc/ufw/ufw.conf")
+    report("ENABLED=yes" in ufw if ufw else None, "Firewall", "on" if "ENABLED=yes" in ufw else "off",
+           "Kulan Settings › Security turns it on")
+    waiting = status().get("available") or []
+    security = [u for u in waiting if isinstance(u, dict) and u.get("security")]
+    report(not security, "Updates", f"{len(security)} security update(s) waiting" if security else
+           (f"{len(waiting)} waiting" if waiting else "up to date"), "kulan update")
+    report(not RESTART.exists(), "Restart", "needed to finish updating" if RESTART.exists() else "not needed",
+           "restart when it suits you")
+    synced = out(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
+    report(synced == "yes" if synced else None, "Clock", "set from the internet" if synced == "yes" else
+           "not synchronised", "Kulan Settings › Date and time › Set automatically")
+    if shutil.which("pactl"):
+        sink = out(["pactl", "get-default-sink"])
+        report(bool(sink) and "auto_null" not in sink, "Sound", "output found" if sink and "auto_null" not in sink
+               else "no speakers or headphones found", "Kulan Settings › Sound; check the cable or Bluetooth")
+    print()
+    print(f"{TEAL}Everything looks fine.{OFF}" if not problems else
+          f"{AMBER}{problems} thing(s) to look at.{OFF} Ask for help any time: {BOLD}kulan ask …{OFF}")
+    return 0 if not problems else 1
+
+
+# --- settings -----------------------------------------------------------------------
+def cmd_settings(args: list[str]) -> int:
+    if args[:1] == ["dark-mode"]:
+        if len(args) != 2 or args[1] not in ("on", "off"):
+            print("Usage: kulan settings dark-mode on|off", file=sys.stderr)
+            return 64
+        scheme = "prefer-dark" if args[1] == "on" else "default"
+        return subprocess.call(["gsettings", "set", "org.gnome.desktop.interface", "color-scheme", scheme])
+    if not shutil.which("kulan-settings"):
+        print("Kulan Settings isn't installed here.", file=sys.stderr)
+        return 1
+    subprocess.Popen(["kulan-settings", *args[:1]], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return 0
+
+
+# --- Kulan Assistant ------------------------------------------------------------------
+def assistant(task: str, text: str) -> int:
+    if not Path(ASSISTANT).exists():
+        print("Kulan Assistant isn't installed here (Kulan Settings › Add-ons).", file=sys.stderr)
+        return 1
+    print(f"{DIM}Kulan Assistant is thinking (on this computer)…{OFF}", file=sys.stderr)
+    return subprocess.call([ASSISTANT, "ask", task, text])
+
+
+def cmd_ask(args: list[str]) -> int:
+    question = " ".join(args).strip() or (sys.stdin.read().strip() if not sys.stdin.isatty() else "")
+    if not question:
+        print('Ask anything, for example:  kulan ask "how do I find big files?"', file=sys.stderr)
+        return 64
+    return assistant("answer", question)
+
+
+def cmd_why(_args: list[str]) -> int:
+    path = os.environ.get("KULAN_LAST_FAILED_FILE", "")
+    line = read(path) if path else ""
+    code, _tab, command = line.partition("\t")
+    if not command:
+        print("No failed command to explain (it works in Kulan OS's zsh Terminal).", file=sys.stderr)
+        return 1
+    print(f"{DIM}Explaining: {command}  (exit code {code}){OFF}", file=sys.stderr)
+    return assistant("terminal-error", f"Command: {command}\nExit code: {code}")
+
+
+COMMANDS = {"info": cmd_info, "update": cmd_update, "doctor": cmd_doctor, "settings": cmd_settings,
+            "ask": cmd_ask, "why": cmd_why}
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    command = COMMANDS.get(argv[1])
+    if command is None:
+        print(f"kulan: no command \"{argv[1]}\". Try: kulan help", file=sys.stderr)
+        return 64
+    try:
+        return command(argv[2:])
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -408,6 +408,19 @@ out="$(bash -i -c '__kulan_prompt; printf "%s" "$PS1"' 2>"$h/bash.err")"
 grep -v -e "job control" -e "terminal process group" "$h/bash.err" | grep . && exit 1
 case "$out" in *'\u@\h'*) ;; *) echo "bash prompt: $out"; exit 1 ;; esac
 SH
+check "Terminal power tools" "fzf, ripgrep, fd, bat, eza, zoxide and btop installed; zsh uses them; a missing command names its package" bash <<'SH'
+set -u
+for c in fzf rg fdfind batcat eza zoxide btop; do command -v "$c" >/dev/null || { echo "missing $c"; exit 1; }; done
+h=$(mktemp -d); export HOME=$h TERM=xterm-256color
+cp /etc/skel/.zshrc "$h/"
+out="$(zsh -i -c 'alias ls; alias fd; alias bat; (( $+functions[__zoxide_z] )) && print zoxide-on; bindkey "^[k"; cowsay hi' 2>&1)"
+for want in "ls='eza" "fd=fdfind" "bat=batcat" "zoxide-on" "_kulan_ask_last" "sudo apt install cowsay"; do
+	grep -qF -- "$want" <<<"$out" || { echo "no \"$want\" in: $out"; exit 1; }
+done
+SH
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "kulan command" "help, info, doctor and settings work; mistakes get a usage message" bash -c 'kulan help | grep -q "kulan doctor" && kulan info | grep -q "^  Memory" && { kulan doctor; rc=$?; [ "$rc" -le 1 ]; } && { kulan settings dark-mode maybe 2>/dev/null; [ $? -eq 64 ]; } && { kulan nonsense 2>/dev/null; [ $? -eq 64 ]; } && { kulan why 2>/dev/null; [ $? -eq 1 ]; }'
+check "Terminal questions" "kulan ask and kulan why use the Terminal instructions (Debian, apt, nothing run)" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import tasks; a = tasks.messages_for("answer", "How do I list files?"); w = tasks.messages_for("terminal-error", "Command: lss\nExit code: 127"); assert "Debian 13" in a[0]["content"] and "Debian 13" in w[0]["content"] and "writing helper" not in a[0]["content"], a'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Projects and templates" "first sign-in makes Projects (in the sidebar) and the templates, once" bash -c 'h=$(mktemp -d) && desktop-file-validate /etc/xdg/autostart/org.kulan.UserSetup.desktop && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test -d $h/Projects && grep -qx "file://$h/Projects" $h/.config/gtk-3.0/bookmarks && t=$(HOME=$h xdg-user-dir TEMPLATES) && test -f "$t/Document.odt" && rm "$t/Document.odt" && HOME=$h XDG_CONFIG_HOME= XDG_STATE_HOME= sh /usr/lib/kulan/user-setup && test ! -e "$t/Document.odt" && test "$(wc -l < $h/.config/gtk-3.0/bookmarks)" -eq 1 && test "$(readlink $h/.local/share/org.gnome.Ptyxis/palettes/Kulan.palette)" = /usr/share/kulan/ptyxis/Kulan.palette'
 check "Add-on list" "every add-on names its apps; the helper refuses anything else" python3 - <<'PY'
@@ -428,7 +441,7 @@ PY
 # Every Debian package an add-on installs, and the security and privacy apps
 # the ISO adds in 2.2, must exist in Debian 13 (main).
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting qt5-gtk-platformtheme qt6-gtk-platformtheme; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
+check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting fzf ripgrep fd-find bat eza zoxide btop qt5-gtk-platformtheme qt6-gtk-platformtheme; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
@@ -477,6 +490,12 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 		result pass "Assistant proofreads" "Quick model fixed ${FIXED} of 5 mistakes: ${ANSWER:0:150}"
 	else
 		result fail "Assistant proofreads" "Quick model fixed ${FIXED} of 5 mistakes: ${ANSWER:0:200}"
+	fi
+	ASKED="$(timeout 900 kulan ask "Which command lists the files in a folder?" 2>/dev/null)"
+	if grep -qwE "ls|eza" <<<"${ASKED}"; then
+		result pass "Assistant answers in the Terminal" "kulan ask: ${ASKED:0:150}"
+	else
+		result fail "Assistant answers in the Terminal" "kulan ask didn't mention ls: ${ASKED:0:200}"
 	fi
 	check "Assistant understands questions" "a search question becomes words, a kind of file and dates" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; q = search.understand("the invoice PDF from last month"); print(q); assert q and q["words"] and q["kind"] in ("pdf", "document", "any")'
 	# "Do it for me": the Quick model must turn requests into Kulan's own actions only.
