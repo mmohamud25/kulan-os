@@ -31,6 +31,8 @@ case "$1" in
 		# Take the Kulan splash hook and early graphics out of the boot image.
 		if [ "$1" = remove ] && command -v update-initramfs >/dev/null 2>&1; then
 			update-initramfs -u || true
+		elif [ "$1" = remove ] && command -v dracut >/dev/null 2>&1; then
+			dracut --force --regenerate-all || true
 		fi
 		;;
 esac

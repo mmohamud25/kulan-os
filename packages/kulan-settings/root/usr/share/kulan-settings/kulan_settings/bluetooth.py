@@ -1,11 +1,12 @@
-"""Bluetooth: turn it on or off, and connect, disconnect or forget the
-devices you've paired. Pairing a new device opens GNOME Settings, which
-handles the codes some devices show. Talks to BlueZ over D-Bus."""
+"""Bluetooth: turn it on or off, pair new devices (btpair.py answers the
+codes some devices show), and connect, disconnect or forget the devices
+you've paired. Talks to BlueZ over D-Bus."""
 from __future__ import annotations
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, open_gnome_panel
+from .btpair import Agent, nearby_devices
+from .common import Page
 
 BLUEZ = "org.bluez"
 ADAPTER = "org.bluez.Adapter1"
@@ -47,7 +48,8 @@ def paired_devices(objects: dict[str, dict[str, dict]]) -> list[dict]:
 class BluetoothPage(Page):
     title = "Bluetooth"
     icon = "bluetooth-active-symbolic"
-    keywords = ("bluetooth", "headphones", "airpods", "speaker", "mouse", "keyboard", "pair", "wireless")
+    keywords = ("bluetooth", "headphones", "airpods", "speaker", "mouse", "keyboard", "pair", "add device",
+                "wireless")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -63,9 +65,21 @@ class BluetoothPage(Page):
         self.main.add(self.power)
 
         self.devices = self.add_group("My devices")
-        add = Gtk.Button(label="Add device…", valign=Gtk.Align.CENTER, css_classes=["flat"])
-        add.connect("clicked", lambda _b: open_gnome_panel("bluetooth"))
-        self.devices.set_header_suffix(add)
+        self.nearby = self.add_group("Nearby devices",
+                                     "Put the device in pairing mode (often by holding its Bluetooth or power "
+                                     "button), then click it here.")
+        self.searching = Adw.Spinner() if hasattr(Adw, "Spinner") else Gtk.Spinner(spinning=True)
+        self.searching.set_valign(Gtk.Align.CENTER)
+        self.look_again = Gtk.Button(label="Look again", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        self.look_again.connect("clicked", lambda _b: self.discover())
+        header = Gtk.Box(spacing=6)
+        header.append(self.searching)
+        header.append(self.look_again)
+        self.nearby.set_header_suffix(header)
+        self.discovering = False
+        self.discovery_timer = 0
+        self.agent = None
+        self.pairing: str | None = None
 
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, None,
                                   RFKILL_NAME, RFKILL_PATH, RFKILL_NAME, None, self.got_rfkill)
@@ -101,7 +115,95 @@ class BluetoothPage(Page):
         if self.refresh_id:
             GLib.source_remove(self.refresh_id)
             self.refresh_id = 0
+        self.stop_discovery()
+        if self.agent is not None:
+            self.agent.close()
+            self.agent = None
         super().teardown()
+
+    def shown(self) -> None:
+        self.discover()
+
+    # --- finding and pairing new devices ---------------------------------------------
+
+    def discover(self) -> None:
+        """Look for devices for a minute (searching drains batteries)."""
+        adapter = self.adapter()
+        if adapter is None or not adapter[1].get("Powered") or self.manager is None:
+            return
+        if not self.discovering:
+            # "Already in progress" (another app is looking) is fine: the list fills either way.
+            self.manager.get_connection().call(BLUEZ, adapter[0], ADAPTER, "StartDiscovery", None, None,
+                                               Gio.DBusCallFlags.NONE, 10000, None,
+                                               lambda c, r: self.discovery_started(c, r))
+            self.discovering = True
+        if self.discovery_timer:
+            GLib.source_remove(self.discovery_timer)
+        self.discovery_timer = GLib.timeout_add_seconds(60, self.discovery_over)
+        self.queue_refresh()
+
+    def discovery_started(self, connection, result) -> None:
+        try:
+            connection.call_finish(result)
+        except GLib.Error as exc:
+            if "InProgress" not in (Gio.DBusError.get_remote_error(exc) or "") and not self.torn_down:
+                self.discovering = False
+                self.toast(f"Couldn’t look for devices: {exc.message}")
+        if not self.torn_down:
+            self.queue_refresh()
+
+    def discovery_over(self) -> bool:
+        self.discovery_timer = 0
+        self.stop_discovery()
+        self.queue_refresh()
+        return GLib.SOURCE_REMOVE
+
+    def stop_discovery(self) -> None:
+        if self.discovery_timer:
+            GLib.source_remove(self.discovery_timer)
+            self.discovery_timer = 0
+        if self.discovering:
+            self.discovering = False
+            adapter = self.adapter()
+            if adapter is not None and self.manager is not None:
+                self.manager.get_connection().call(BLUEZ, adapter[0], ADAPTER, "StopDiscovery", None, None,
+                                                   Gio.DBusCallFlags.NONE, 5000, None, None)
+
+    def name_of(self, path: str) -> str:
+        props = self.objects().get(path, {}).get(DEVICE, {})
+        return props.get("Alias") or props.get("Name") or "the device"
+
+    def pair(self, dev: dict) -> None:
+        if self.pairing is not None:
+            return
+        if self.agent is None:
+            try:
+                self.agent = Agent(self.manager.get_connection(), self.window, self.name_of)
+            except GLib.Error as exc:
+                self.toast(f"Couldn’t get ready to pair: {exc.message}")
+                return
+        self.pairing = dev["path"]
+        self.queue_refresh()
+
+        def paired() -> None:
+            self.pairing = None
+            props = self.objects().get(dev["path"], {}).get(DEVICE, {})
+            if props.get("Paired") or props.get("Bonded"):
+                self.call(dev["path"], "org.freedesktop.DBus.Properties", "Set",
+                          GLib.Variant("(ssv)", (DEVICE, "Trusted", GLib.Variant("b", True))), "Couldn’t trust it")
+                self.call(dev["path"], DEVICE, "Connect", None, f"Paired, but couldn’t connect to {dev['name']}")
+                self.toast(f"{dev['name']} is paired")
+        self.call(dev["path"], DEVICE, "Pair", None, f"Couldn’t pair with {dev['name']}", paired)
+
+    def nearby_row(self, dev: dict) -> Adw.ActionRow:
+        row = Adw.ActionRow(title=GLib.markup_escape_text(dev["name"]), activatable=self.pairing is None)
+        row.add_prefix(Gtk.Image(icon_name=device_icon(dev["icon"])))
+        if self.pairing == dev["path"]:
+            row.set_subtitle("Pairing…")
+        else:
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r: self.pair(dev))
+        return row
 
     # --- state -----------------------------------------------------------------------
 
@@ -175,13 +277,30 @@ class BluetoothPage(Page):
             self.power.set_subtitle(f"Others see this computer as “{name}”" if powered and name else "")
 
         self.devices.set_visible(powered)
+        self.nearby.set_visible(powered)
         if powered:
-            devices = paired_devices(self.objects())
+            objects = self.objects()
+            devices = paired_devices(objects)
             if not devices:
                 self.add_row(Adw.ActionRow(title="No devices yet",
-                                           subtitle="Use Add device… to pair headphones, a mouse or a keyboard."))
+                                           subtitle="Pair headphones, a mouse or a keyboard from Nearby devices."))
             for dev in devices:
                 self.add_row(self.device_row(dev))
+            if not self.discovering and self.discovery_timer == 0 and adapter[1].get("Discovering") is False \
+                    and not getattr(self, "looked", False):
+                self.looked = True
+                GLib.idle_add(lambda: (self.discover(), False)[1])
+            self.searching.set_visible(self.discovering)
+            self.look_again.set_visible(not self.discovering)
+            nearby = nearby_devices(objects, adapter[0])
+            if not nearby:
+                row = Adw.ActionRow(title="Looking for devices…" if self.discovering else "No devices found")
+                self.nearby.add(row)
+                self.rows.append((self.nearby, row))
+            for dev in nearby[:15]:
+                row = self.nearby_row(dev)
+                self.nearby.add(row)
+                self.rows.append((self.nearby, row))
         return GLib.SOURCE_REMOVE
 
     def add_row(self, row: Gtk.Widget) -> None:

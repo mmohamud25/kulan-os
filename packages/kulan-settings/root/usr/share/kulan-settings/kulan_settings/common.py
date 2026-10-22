@@ -183,7 +183,9 @@ class Helper:
 
     def run(self, args: list[str], success: str | None = None,
             on_progress: Callable[[float, str], None] | None = None,
-            on_done: Callable[[bool], None] | None = None) -> None:
+            on_done: Callable[[bool], None] | None = None, stdin: str | None = None) -> None:
+        """stdin: text handed to the helper on standard input (a password),
+        never on the command line, where other users could see it."""
         if self.busy:
             self.toast("Another change is still running")
             if on_done:
@@ -195,14 +197,23 @@ class Helper:
                 on_done(False)
             return
         try:
-            proc = Gio.Subprocess.new(["pkexec", HELPER, *args],
-                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+            flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            if stdin is not None:
+                flags |= Gio.SubprocessFlags.STDIN_PIPE
+            proc = Gio.Subprocess.new(["pkexec", HELPER, *args], flags)
         except GLib.Error as exc:
             self.toast(f"Couldn’t start: {exc.message}")
             if on_done:
                 on_done(False)
             return
         self.set_busy(True)
+        if stdin is not None:
+            pipe = proc.get_stdin_pipe()
+            try:
+                pipe.write_all((stdin + "\n").encode(), None)
+            except GLib.Error:
+                pass
+            pipe.close(None)
         errors: list[str] = []
 
         def reader(stream: Gio.DataInputStream, handle: Callable[[str], None]) -> None:
@@ -269,12 +280,20 @@ class Page(Adw.Bin):
     title = ""
     icon = "preferences-system-symbolic"
     keywords: tuple[str, ...] = ()
+    show_title = True  # the large title at the top (About has its own)
 
     def __init__(self, window) -> None:
         super().__init__()
         self.window = window
         self.page = Adw.PreferencesPage()
         self.set_child(self.page)
+        # The page's name, large, at the top (2.4 look); the header bar above
+        # stays empty, as on a Mac.
+        if self.title and self.show_title:
+            heading = Adw.PreferencesGroup()
+            heading.add(Gtk.Label(label=self.title, xalign=0, css_classes=["kulan-page-title"],
+                                  wrap=True, accessible_role=Gtk.AccessibleRole.HEADING))
+            self.page.add(heading)
         self._watches: list[tuple[GObject.Object, int]] = []
         self._monitors: list[Gio.FileMonitor] = []
 

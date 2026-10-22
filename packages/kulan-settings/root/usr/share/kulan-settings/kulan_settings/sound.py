@@ -9,7 +9,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, has_key, open_gnome_panel, settings
+from .common import Page, has_key, settings
 
 ALERTS_DIR = Path("/usr/share/sounds/gnome/default/alerts")
 ALERTS = [("click", "Click"), ("string", "String"), ("swing", "Swing"), ("hum", "Hum")]
@@ -102,7 +102,7 @@ class SoundPage(Page):
     title = "Sound"
     icon = "audio-speakers-symbolic"
     keywords = ("sound", "audio", "volume", "speakers", "headphones", "microphone", "mic", "input", "output",
-                "alert", "beep")
+                "alert", "beep", "app volume", "apps")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -144,11 +144,10 @@ class SoundPage(Page):
             self.sound.bind("event-sounds", events, "active", Gio.SettingsBindFlags.DEFAULT)
             alerts.add(events)
 
-        more = self.add_group()
-        row = Adw.ActionRow(title="Volume of each app, and balance", activatable=True)
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: open_gnome_panel("sound"))
-        more.add(row)
+        self.apps = self.add_group("Apps", "The volume of each app that’s playing sound.")
+        self.app_rows: dict[int, tuple] = {}
+        self.no_apps = Adw.ActionRow(title="No apps are playing sound")
+        self.apps.add(self.no_apps)
 
         self.status = Adw.StatusPage(icon_name="audio-speakers-symbolic", title="Sound isn’t ready",
                                      description="The sound service isn’t running yet.")
@@ -166,13 +165,17 @@ class SoundPage(Page):
                 ("active-output-update", lambda *_a: self.sync_devices("output")),
                 ("active-input-update", lambda *_a: self.sync_devices("input")),
                 ("default-sink-changed", lambda *_a: self.follow_stream("output")),
-                ("default-source-changed", lambda *_a: self.follow_stream("input"))):
+                ("default-source-changed", lambda *_a: self.follow_stream("input")),
+                ("stream-added", lambda _c, i: self.app_added(i)),
+                ("stream-removed", lambda _c, i: self.app_removed(i))):
             self.watch(self.control, signal, handler)
         self.control.open()
 
     def teardown(self) -> None:
         for kind in list(self.stream_watch):
             self.unfollow(kind)
+        for ident in list(self.app_rows):
+            self.app_removed(ident)
         super().teardown()
         if self.control is not None:
             self.control.close()
@@ -193,6 +196,8 @@ class SoundPage(Page):
             self.sync_devices("input")
             self.follow_stream("output")
             self.follow_stream("input")
+            for stream in self.control.get_sink_inputs():
+                self.app_added(stream.get_id())
         elif state == Gvc.MixerControlState.FAILED:
             self.set_ready(False, "Couldn’t reach the sound service (PipeWire).")
         elif state in (Gvc.MixerControlState.CLOSED, Gvc.MixerControlState.CONNECTING):
@@ -337,6 +342,70 @@ class SoundPage(Page):
         if self.syncing or stream is None:
             return
         stream.change_is_muted(button.get_active())
+
+    # --- apps ------------------------------------------------------------------------
+
+    def app_added(self, ident: int) -> None:
+        if self.control is None or ident in self.app_rows:
+            return
+        stream = self.control.lookup_stream_id(ident)
+        if stream is None or not isinstance(stream, Gvc.MixerSinkInput) or stream.is_event_stream():
+            return
+        if (stream.get_application_id() or "") in ("org.gnome.VolumeControl", "org.PulseAudio.pavucontrol",
+                                                    "org.kulan.Settings"):
+            return
+        row = Adw.ActionRow(title=GLib.markup_escape_text(stream.get_name() or "App"))
+        icon = Gtk.Image(pixel_size=32)
+        if stream.get_gicon() is not None:
+            icon.set_from_gicon(stream.get_gicon())
+        else:
+            icon.set_from_icon_name(stream.get_icon_name() or "application-x-executable-symbolic")
+        row.add_prefix(icon)
+        mute = Gtk.ToggleButton(valign=Gtk.Align.CENTER, css_classes=["flat"], tooltip_text="Mute")
+        mute.update_property([Gtk.AccessibleProperty.LABEL], [f"Mute {stream.get_name() or 'app'}"])
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        scale.set_draw_value(False)
+        scale.set_hexpand(True)
+        scale.set_size_request(220, -1)
+        scale.update_property([Gtk.AccessibleProperty.LABEL], [f"{stream.get_name() or 'App'} volume"])
+        row.add_suffix(mute)
+        row.add_suffix(scale)
+        state = {"syncing": False}
+
+        def sync(*_a) -> None:
+            state["syncing"] = True
+            scale.set_value(stream.get_volume() / self.control.get_vol_max_norm() * 100)
+            mute.set_active(stream.get_is_muted())
+            mute.set_icon_name("audio-volume-muted-symbolic" if stream.get_is_muted() else "audio-volume-high-symbolic")
+            state["syncing"] = False
+
+        def changed(s: Gtk.Scale) -> None:
+            if state["syncing"]:
+                return
+            if stream.set_volume(int(s.get_value() / 100 * self.control.get_vol_max_norm())):
+                stream.push_volume()
+            if stream.get_is_muted() and s.get_value() > 0:
+                stream.change_is_muted(False)
+
+        def muted(b: Gtk.ToggleButton) -> None:
+            if not state["syncing"]:
+                stream.change_is_muted(b.get_active())
+        scale.connect("value-changed", changed)
+        mute.connect("toggled", muted)
+        handlers = (stream.connect("notify::volume", sync), stream.connect("notify::is-muted", sync))
+        sync()
+        self.apps.add(row)
+        self.app_rows[ident] = (row, stream, handlers)
+        self.no_apps.set_visible(False)
+
+    def app_removed(self, ident: int) -> None:
+        row, stream, handlers = self.app_rows.pop(ident, (None, None, ()))
+        for handler in handlers:
+            if stream.handler_is_connected(handler):
+                stream.disconnect(handler)
+        if row is not None:
+            self.apps.remove(row)
+        self.no_apps.set_visible(not self.app_rows)
 
     # --- alerts ----------------------------------------------------------------------
 

@@ -7,18 +7,18 @@ import secrets
 import socket
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import (
     Page,
     choice_row,
     has_key,
     launch,
-    open_gnome_panel,
     reset_keys,
     settings,
     switch_row,
 )
+from .permissions import PermissionsDialog
 
 DNS_CONF = Path("/etc/systemd/resolved.conf.d/60-kulan-dns.conf")
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
@@ -59,6 +59,10 @@ def current_name() -> str:
 
 def private_name() -> str:
     return f"kulan-{secrets.token_hex(3)}"
+
+
+NM_NAME = "org.freedesktop.NetworkManager"
+NM_PATH = "/org/freedesktop/NetworkManager"
 
 
 class PrivacyPage(Page):
@@ -104,7 +108,7 @@ class PrivacyPage(Page):
         permissions = Adw.ActionRow(title="App permissions", subtitle="Which apps may use the camera, files "
                                                                       "and more", activatable=True)
         permissions.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        permissions.connect("activated", lambda _r: open_gnome_panel("privacy"))
+        permissions.connect("activated", lambda _r: PermissionsDialog(self.toast).present(self.window))
         devices.add(permissions)
 
         history = self.add_group("History")
@@ -133,13 +137,13 @@ class PrivacyPage(Page):
         for title, text in CONNECTIONS:
             row = Adw.ActionRow(title=title, subtitle=text, subtitle_lines=0)
             connections.add(row)
-        check = Adw.ActionRow(title="Connectivity check",
-                              subtitle="GNOME loads a test page to spot Wi-Fi sign-in pages. You can turn it off "
-                                       "in GNOME Settings, under Privacy",
-                              activatable=True)
-        check.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        check.connect("activated", lambda _r: open_gnome_panel("privacy"))
-        connections.add(check)
+        self.check_row = Adw.SwitchRow(title="Connectivity check",
+                                       subtitle="Loads a small test page now and then to spot Wi-Fi sign-in pages "
+                                                "(hotels, airports). Off: you open those pages yourself")
+        self.check_row.set_visible(False)
+        connections.add(self.check_row)
+        Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, NM_NAME, NM_PATH, NM_NAME,
+                                  None, self.got_nm)
 
         self.add_reset(self.reset)
         self.listen_busy(self.on_busy)
@@ -212,6 +216,42 @@ class PrivacyPage(Page):
         for button in self.name_buttons:
             button.set_sensitive(not busy)
         self.dns_row.set_sensitive(not busy)
+
+    def got_nm(self, _source, result) -> None:
+        try:
+            self.nm = Gio.DBusProxy.new_for_bus_finish(result)
+        except GLib.Error:
+            return
+        if self.torn_down or self.nm.get_name_owner() is None:
+            return
+        available = self.nm.get_cached_property("ConnectivityCheckAvailable")
+        enabled = self.nm.get_cached_property("ConnectivityCheckEnabled")
+        if available is None or enabled is None or not available.unpack():
+            return  # turned off in NetworkManager's own settings
+        self.check_row.set_active(enabled.unpack())
+        self.check_row.set_visible(True)
+        self.check_row.connect("notify::active", self.on_check)
+
+    def on_check(self, row: Adw.SwitchRow, _pspec) -> None:
+        on = row.get_active()
+
+        def done(_conn, result) -> None:
+            try:
+                _conn.call_finish(result)
+            except GLib.Error as exc:
+                if not self.torn_down:
+                    self.toast("Not changed" if "not authorized" in exc.message.lower()
+                               or "dismissed" in exc.message.lower() else exc.message)
+                    row.handler_block_by_func(self.on_check)
+                    row.set_active(not on)
+                    row.handler_unblock_by_func(self.on_check)
+                return
+            if not self.torn_down:
+                self.toast("Connectivity check on" if on else "Connectivity check off")
+        self.nm.get_connection().call(NM_NAME, NM_PATH, "org.freedesktop.DBus.Properties", "Set",
+                                      GLib.Variant("(ssv)", (NM_NAME, "ConnectivityCheckEnabled",
+                                                             GLib.Variant("b", on))),
+                                      None, Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, 60000, None, done)
 
     def reset(self) -> None:
         reset_keys(self.privacy, ["disable-camera", "disable-microphone", "remember-recent-files",

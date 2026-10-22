@@ -1,0 +1,648 @@
+#!/usr/bin/python3
+"""Kulan Installer's engine: puts Kulan OS on a disk. Runs as root (through
+pkexec from the Kulan Installer app, or directly in tests).
+
+    installer-engine disks                  # JSON: the disks it could install to
+    installer-engine install < plan.json    # progress as JSON lines on stdout
+
+The plan (JSON on standard input):
+    disk        "/dev/nvme0n1"
+    mode        "erase" (the whole disk) or "free" (the largest free space,
+                next to Windows or another system; GPT disks only)
+    encrypt     true/false; password  the disk password (with encrypt)
+    locale      "en_US.UTF-8";  keyboard {"layout": "us", "variant": ""}
+    timezone    "America/New_York";  hostname "amina-laptop"
+    user        {"full_name", "username", "password", "autologin"}
+  For tests only:
+    source      the live system's squashfs (default: the one the live session runs)
+    medium      the live medium (for its package pool; default /run/live/medium)
+    kernel_args extra kernel options; efi_removable  also write EFI/BOOT
+    firmware    "uefi"/"bios"; no_nvram  leave the firmware's boot list alone;
+    require_pool  fail rather than fetch the boot loader from the internet
+
+Progress lines: {"progress": 0.0-1.0, "text": "..."}; the last line is
+{"done": true} or {"error": "what went wrong, in plain words"}.
+
+What it does, in order: checks the plan; partitions (erase: GPT with an EFI
+partition, a BIOS boot partition on PCs, /boot when encrypted, then the
+system; free: the same in the largest free area, reusing an EFI partition
+that's already there); formats (LUKS2 + ext4 when encrypted); copies the live
+system's files; writes fstab, crypttab, host name, language, keyboard and
+time zone; removes the live session's packages; makes the account; installs
+GRUB (with Secure Boot's shim on PCs) from the package pool on the Kulan OS
+USB stick, so no internet is needed; rebuilds the start-up image.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+ESP_TYPE = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+BIOS_BOOT_TYPE = "21686148-6449-6E6F-744E-656564454649"
+LINUX_TYPE = "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+MIN_SIZE = 20 * 1024 ** 3
+ESP_MB, BOOT_MB = 512, 1024
+NAME_RULE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+HOST_RULE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+LIVE_PACKAGES = ["live-boot", "live-boot-initramfs-tools", "live-config", "live-config-systemd", "live-tools",
+                 "calamares", "calamares-settings-debian", "kulan-installer"]
+GROUPS = ["sudo", "adm", "cdrom", "audio", "dip", "video", "plugdev", "netdev", "lpadmin", "scanner",
+          "bluetooth", "users"]
+CRYPT_NAME = "kulan_crypt"
+MEDIA_ONLY = ["-o", "Dir::Etc::SourceParts=/nonexistent",
+              "-o", "Dir::Etc::SourceList=/etc/apt/sources.list.d/kulan-installer-media.list"]
+
+
+class Failure(Exception):
+    """Something went wrong; the message is shown to the person."""
+
+
+def emit(**data) -> None:
+    print(json.dumps(data), flush=True)
+
+
+def log(text: str) -> None:
+    print(text, file=sys.stderr, flush=True)
+
+
+def run(argv: list[str], input_text: str | None = None, check: bool = True, env: dict | None = None,
+        timeout: int = 3600) -> subprocess.CompletedProcess:
+    log("+ " + " ".join(argv))
+    try:
+        result = subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout,
+                                env={**os.environ, "LC_ALL": "C.UTF-8", **(env or {})})
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Failure(f"{argv[0]} couldn't run: {exc}") from exc
+    if result.stdout.strip():
+        log(result.stdout.strip()[-4000:])
+    if result.stderr.strip():
+        log(result.stderr.strip()[-4000:])
+    if check and result.returncode != 0:
+        detail = (result.stderr.strip() or result.stdout.strip()).splitlines()
+        raise Failure(f"{argv[0]} failed: {detail[-1] if detail else 'exit ' + str(result.returncode)}")
+    return result
+
+
+# --- what's here --------------------------------------------------------------------
+
+FIRMWARE = ""  # set by a test plan ("firmware": "uefi"), else what this computer has
+
+
+def firmware() -> str:
+    return FIRMWARE or ("uefi" if Path("/sys/firmware/efi").is_dir() else "bios")
+
+
+def arch() -> str:
+    return subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True).stdout.strip() or "amd64"
+
+
+def live_disks() -> set[str]:
+    """The disk(s) the live session runs from, never offered."""
+    found = set()
+    for mount in ("/run/live/medium", "/lib/live/mount/medium"):
+        source = subprocess.run(["findmnt", "-no", "SOURCE", mount], capture_output=True, text=True).stdout.strip()
+        if source:
+            parent = subprocess.run(["lsblk", "-no", "PKNAME", source], capture_output=True, text=True).stdout
+            found.update("/dev/" + p.strip() for p in parent.split() if p.strip())
+            found.add(source)
+    return found
+
+
+def free_areas(disk: str) -> list[dict]:
+    """Free areas of a GPT disk, largest first: [{start, size}] in sectors."""
+    out = subprocess.run(["sfdisk", "-F", "--bytes", disk], capture_output=True, text=True,
+                         env={**os.environ, "LC_ALL": "C"}).stdout
+    areas = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0].isdigit() and parts[1].isdigit():
+            areas.append({"start": int(parts[0]), "end": int(parts[1]), "bytes": int(parts[3])})
+    return sorted(areas, key=lambda a: -a["bytes"])
+
+
+def partition_table(disk: str) -> dict:
+    out = subprocess.run(["sfdisk", "--json", disk], capture_output=True, text=True).stdout
+    try:
+        return json.loads(out)["partitiontable"] if out.strip() else {}
+    except (ValueError, KeyError):
+        return {}
+
+
+def disks() -> list[dict]:
+    """Disks Kulan OS could go on, with what's on them now."""
+    out = subprocess.run(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MODEL,TRAN,RM,RO,FSTYPE,LABEL"],
+                         capture_output=True, text=True).stdout
+    skip = live_disks()
+    found = []
+    for dev in json.loads(out or '{"blockdevices": []}').get("blockdevices", []):
+        if dev.get("type") != "disk" or dev.get("ro") or dev["path"] in skip:
+            continue
+        if dev["path"].startswith(("/dev/zram", "/dev/loop", "/dev/sr", "/dev/ram")):
+            continue
+        children = dev.get("children") or []
+        systems = sorted({c.get("label") or c.get("fstype") for c in children if c.get("fstype")} - {None})
+        table = partition_table(dev["path"]) if children else {}
+        free = free_areas(dev["path"]) if table.get("label") == "gpt" else []
+        found.append({
+            "path": dev["path"], "size": int(dev.get("size") or 0), "model": (dev.get("model") or "").strip(),
+            "removable": bool(dev.get("rm")) or dev.get("tran") == "usb", "empty": not children,
+            "contents": systems, "windows": any("ntfs" == (c.get("fstype") or "") for c in children),
+            "table": table.get("label", ""), "largest_free": free[0]["bytes"] if free else 0,
+            "big_enough": int(dev.get("size") or 0) >= MIN_SIZE,
+        })
+    return found
+
+
+# --- checks ---------------------------------------------------------------------------
+
+def check_plan(plan: dict) -> dict:
+    disk = plan.get("disk", "")
+    if not re.fullmatch(r"/dev/[A-Za-z0-9/_-]+", disk or "") or not Path(disk).is_block_device():
+        raise Failure("Choose a disk to install on")
+    if disk in live_disks() and not plan.get("source"):
+        raise Failure("That’s the Kulan OS USB stick itself; choose another disk")
+    if plan.get("mode") not in ("erase", "free"):
+        raise Failure("Choose to erase the disk or to use its free space")
+    user = plan.get("user") or {}
+    if not NAME_RULE.match(user.get("username", "")):
+        raise Failure("The user name must start with a small letter and use only small letters, digits, - and _")
+    if not user.get("password"):
+        raise Failure("Choose a password for the account")
+    if plan.get("encrypt") and len(plan.get("password", "")) < 8:
+        raise Failure("The disk password must be at least 8 characters")
+    if not HOST_RULE.match(plan.get("hostname", "")):
+        raise Failure("The computer’s name may use only small letters, digits and dashes")
+    zone = plan.get("timezone", "UTC")
+    if not re.fullmatch(r"[A-Za-z0-9_+/-]+", zone) or not Path("/usr/share/zoneinfo", zone).is_file():
+        raise Failure(f"Unknown time zone {zone}")
+    if not re.fullmatch(r"[a-z]{2,3}(_[A-Z]{2})?\.UTF-8(@[a-z]+)?", plan.get("locale", "en_US.UTF-8")):
+        raise Failure("Unknown language")
+    keyboard = plan.get("keyboard") or {}
+    for part in (keyboard.get("layout", "us"), keyboard.get("variant", "")):
+        if not re.fullmatch(r"[A-Za-z0-9_-]*", part):
+            raise Failure("Unknown keyboard layout")
+    source = plan.get("source") or "/run/live/medium/live/filesystem.squashfs"
+    if not Path(source).is_file():
+        raise Failure("The Kulan OS system files weren’t found on the USB stick")
+    size = int(run(["blockdev", "--getsize64", disk]).stdout.strip() or 0)
+    if plan["mode"] == "erase" and size < MIN_SIZE:
+        raise Failure("That disk is too small: Kulan OS needs at least 20 GB")
+    if plan["mode"] == "free":
+        if partition_table(disk).get("label") != "gpt":
+            raise Failure("Installing next to another system needs a GPT disk; erase the disk instead")
+        areas = free_areas(disk)
+        need = MIN_SIZE + (BOOT_MB * 2 ** 20 if plan.get("encrypt") else 0)
+        if not areas or areas[0]["bytes"] < need:
+            raise Failure("There isn’t enough free space (Kulan OS needs 20 GB). Make room in the other "
+                          "system first, for example with Windows’ Disk Management")
+    return {**plan, "source": source, "medium": plan.get("medium") or "/run/live/medium"}
+
+
+# --- the disk -------------------------------------------------------------------------
+
+def partitions_of(disk: str) -> list[str]:
+    out = run(["lsblk", "-lnpo", "NAME,TYPE", disk]).stdout
+    return [line.split()[0] for line in out.splitlines() if line.split()[1:] == ["part"]]
+
+
+def wait_for(paths: list[str]) -> None:
+    for _ in range(50):
+        run(["udevadm", "settle"], check=False)
+        if all(Path(p).exists() for p in paths):
+            return
+        time.sleep(0.2)
+    raise Failure("The new partitions didn’t appear")
+
+
+def part_path(disk: str, number: int) -> str:
+    return f"{disk}p{number}" if disk[-1].isdigit() else f"{disk}{number}"
+
+
+def release_disk(disk: str) -> None:
+    """Unmount anything from this disk the live session mounted (it opens
+    drives you plug in), and turn off swap on it."""
+    out = run(["lsblk", "-lnpo", "NAME,MOUNTPOINT", disk], check=False).stdout
+    for line in out.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and parts[1].strip():
+            if parts[1].strip() == "[SWAP]":
+                run(["swapoff", parts[0]], check=False)
+            else:
+                run(["umount", "-l", parts[1].strip()], check=False)
+
+
+def partition(plan: dict) -> dict:
+    """Make the partitions; returns their paths: esp, boot (or None), root,
+    and whether the EFI partition is new (to be formatted)."""
+    disk, encrypt, uefi = plan["disk"], bool(plan.get("encrypt")), firmware() == "uefi"
+    release_disk(disk)
+    if plan["mode"] == "erase":
+        run(["wipefs", "-a", disk])
+        layout = ["label: gpt"]
+        names = []
+        if uefi:
+            layout.append(f"size={ESP_MB}MiB, type={ESP_TYPE}, name=\"EFI\"")
+            names.append("esp")
+        else:
+            layout.append(f"size=1MiB, type={BIOS_BOOT_TYPE}, name=\"BIOS boot\"")
+            names.append("bios")
+        if encrypt:
+            layout.append(f"size={BOOT_MB}MiB, type={LINUX_TYPE}, name=\"Kulan boot\"")
+            names.append("boot")
+        layout.append(f"type={LINUX_TYPE}, name=\"Kulan OS\"")
+        names.append("root")
+        run(["sfdisk", "--wipe", "always", "--wipe-partitions", "always", disk], input_text="\n".join(layout) + "\n")
+        run(["partprobe", disk], check=False)
+        paths = {name: part_path(disk, i + 1) for i, name in enumerate(names)}
+        wait_for(list(paths.values()))
+        return {"esp": paths.get("esp"), "boot": paths.get("boot"), "root": paths["root"], "new_esp": uefi,
+                "bios": paths.get("bios")}
+
+    # Free space next to another system: reuse its EFI partition, and put
+    # every new partition at an exact place inside the largest free area.
+    table = partition_table(disk)
+    existing = [p["node"] for p in table.get("partitions", []) if p.get("type", "").upper() == ESP_TYPE]
+    before = set(partitions_of(disk))
+    area = free_areas(disk)[0]
+    sector = int(table.get("sectorsize", 512))
+    mib = 2 ** 20 // sector
+    cursor = -(-area["start"] // mib) * mib  # rounded up to the next MiB
+    layout, names = [], []
+    wanted = []
+    if uefi and not existing:
+        wanted.append(("esp", ESP_MB, ESP_TYPE, "EFI"))
+    if not uefi:
+        wanted.append(("bios", 1, BIOS_BOOT_TYPE, "BIOS boot"))
+    if encrypt:
+        wanted.append(("boot", BOOT_MB, LINUX_TYPE, "Kulan boot"))
+    for name, size_mb, kind, label in wanted:
+        layout.append(f'start={cursor}, size={size_mb * mib}, type={kind}, name="{label}"')
+        names.append(name)
+        cursor += size_mb * mib
+    root_size = ((area["end"] + 1 - cursor) // mib) * mib
+    if root_size * sector < MIN_SIZE:
+        raise Failure("There isn’t enough free space (Kulan OS needs 20 GB)")
+    layout.append(f'start={cursor}, size={root_size}, type={LINUX_TYPE}, name="Kulan OS"')
+    names.append("root")
+    run(["sfdisk", "--append", "--no-reread", disk], input_text="\n".join(layout) + "\n")
+    run(["partprobe", disk], check=False)
+    run(["udevadm", "settle"], check=False)
+    starts = {p["node"]: int(p.get("start", 0)) for p in partition_table(disk).get("partitions", [])}
+    new = sorted((p for p in starts if p not in before), key=lambda p: starts[p])
+    if len(new) != len(names):
+        raise Failure("The new partitions couldn’t be found after making them")
+    paths = dict(zip(names, new))
+    wait_for(list(paths.values()))
+    esp = (paths.get("esp") or existing[0]) if uefi else None
+    return {"esp": esp, "boot": paths.get("boot"), "root": paths["root"], "new_esp": uefi and not existing,
+            "bios": paths.get("bios")}
+
+
+def format_and_mount(plan: dict, parts: dict, target: Path) -> dict:
+    encrypt = bool(plan.get("encrypt"))
+    if parts.get("new_esp"):
+        run(["mkfs.vfat", "-F", "32", "-n", "EFI", parts["esp"]])
+    if parts.get("boot"):
+        run(["mkfs.ext4", "-q", "-F", "-L", "kulan-boot", parts["boot"]])
+    root_dev = parts["root"]
+    luks_uuid = None
+    if encrypt:
+        if Path(f"/dev/mapper/{CRYPT_NAME}").exists():
+            run(["cryptsetup", "close", CRYPT_NAME], check=False)
+        run(["cryptsetup", "luksFormat", "-q", "--type", "luks2", "--pbkdf", "argon2id", "--key-file=-",
+             parts["root"]], input_text=plan["password"])
+        run(["cryptsetup", "open", "--key-file=-", parts["root"], CRYPT_NAME], input_text=plan["password"])
+        luks_uuid = run(["blkid", "-s", "UUID", "-o", "value", parts["root"]]).stdout.strip()
+        root_dev = f"/dev/mapper/{CRYPT_NAME}"
+    run(["mkfs.ext4", "-q", "-F", "-L", "kulan", root_dev])
+    target.mkdir(parents=True, exist_ok=True)
+    run(["mount", root_dev, str(target)])
+    if parts.get("boot"):
+        (target / "boot").mkdir(exist_ok=True)
+        run(["mount", parts["boot"], str(target / "boot")])
+    return {"root_dev": root_dev, "luks_uuid": luks_uuid}
+
+
+def uuid_of(dev: str) -> str:
+    return run(["blkid", "-s", "UUID", "-o", "value", dev]).stdout.strip()
+
+
+# --- the system -----------------------------------------------------------------------
+
+def copy_system(plan: dict, target: Path, progress) -> None:
+    """unsquashfs, with its percentage turned into progress."""
+    argv = ["unsquashfs", "-f", "-percentage", "-d", str(target), plan["source"]]
+    log("+ " + " ".join(argv))
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    last = -1
+    for line in proc.stdout:
+        line = line.strip()
+        if line.isdigit():
+            value = int(line)
+            if value != last:
+                last = value
+                progress(value / 100)
+    if proc.wait() != 0:
+        raise Failure("Copying the system failed (is the USB stick still plugged in?)")
+
+
+class Chroot:
+    """The new system with /dev, /proc, /sys, /run and EFI mounted."""
+
+    def __init__(self, target: Path, esp: str | None, efivars: bool = True) -> None:
+        self.target = target
+        self.esp = esp
+        self.efivars = efivars
+        self.mounts: list[Path] = []
+
+    def __enter__(self) -> "Chroot":
+        if self.esp:
+            efi = self.target / "boot/efi"
+            efi.mkdir(parents=True, exist_ok=True)
+            run(["mount", self.esp, str(efi)])
+            self.mounts.append(efi)
+        for name in ("dev", "dev/pts", "proc", "sys", "run"):
+            point = self.target / name
+            point.mkdir(parents=True, exist_ok=True)
+            run(["mount", "--bind", f"/{name}", str(point)])
+            self.mounts.append(point)
+        # Name lookups inside, for the rare install that needs the internet.
+        resolv = self.target / "etc/resolv.conf"
+        if Path("/etc/resolv.conf").exists() and not resolv.exists():
+            resolv.unlink(missing_ok=True)
+            shutil.copy("/etc/resolv.conf", resolv)
+        if self.efivars and Path("/sys/firmware/efi/efivars").is_dir():
+            point = self.target / "sys/firmware/efi/efivars"
+            if point.is_dir():
+                run(["mount", "--bind", "/sys/firmware/efi/efivars", str(point)], check=False)
+                self.mounts.append(point)
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        for point in reversed(self.mounts):
+            run(["umount", "-l", str(point)], check=False)
+        self.mounts.clear()
+
+    def run(self, argv: list[str], **kwargs) -> subprocess.CompletedProcess:
+        env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C.UTF-8",
+               "HOME": "/root"}
+        return run(["chroot", str(self.target), "/usr/bin/env", "-i", *[f"{k}={v}" for k, v in env.items()],
+                    *argv], **kwargs)
+
+
+def write(path: Path, text: str, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    os.chmod(path, mode)
+
+
+def configure(plan: dict, target: Path, parts: dict, disk_info: dict) -> None:
+    lines = [f"UUID={uuid_of(disk_info['root_dev'])} / ext4 errors=remount-ro 0 1"]
+    if parts.get("boot"):
+        lines.append(f"UUID={uuid_of(parts['boot'])} /boot ext4 defaults 0 2")
+    if parts.get("esp"):
+        lines.append(f"UUID={uuid_of(parts['esp'])} /boot/efi vfat umask=0077 0 1")
+    write(target / "etc/fstab", "# Kulan OS, made by Kulan Installer\n" + "\n".join(lines) + "\n")
+    if disk_info.get("luks_uuid"):
+        write(target / "etc/crypttab", f"{CRYPT_NAME} UUID={disk_info['luks_uuid']} none luks,discard,initramfs\n")
+        write(target / "etc/initramfs-tools/conf.d/kulan-umask", "UMASK=0077\n")
+
+    write(target / "etc/hostname", plan["hostname"] + "\n")
+    write(target / "etc/hosts", f"127.0.0.1\tlocalhost\n127.0.1.1\t{plan['hostname']}\n\n"
+                                "::1\tlocalhost ip6-localhost ip6-loopback\nff02::1\tip6-allnodes\n"
+                                "ff02::2\tip6-allrouters\n")
+    zone = plan.get("timezone", "UTC")
+    localtime = target / "etc/localtime"
+    localtime.unlink(missing_ok=True)
+    localtime.symlink_to(f"/usr/share/zoneinfo/{zone}")
+    write(target / "etc/timezone", zone + "\n")
+
+    locale = plan.get("locale", "en_US.UTF-8")
+    gen = target / "etc/locale.gen"
+    text = gen.read_text() if gen.exists() else ""
+    entry = f"{locale} UTF-8"
+    if not re.search(rf"^{re.escape(entry)}$", text, re.M):
+        if re.search(rf"^#\s*{re.escape(entry)}$", text, re.M):
+            text = re.sub(rf"^#\s*{re.escape(entry)}$", entry, text, flags=re.M)
+        else:
+            text += entry + "\n"
+        write(gen, text)
+    write(target / "etc/default/locale", f"LANG={locale}\n")
+
+    keyboard = plan.get("keyboard") or {}
+    layout, variant = keyboard.get("layout") or "us", keyboard.get("variant") or ""
+    write(target / "etc/default/keyboard",
+          f'XKBMODEL="pc105"\nXKBLAYOUT="{layout}"\nXKBVARIANT="{variant}"\nXKBOPTIONS=""\n\nBACKSPACE="guess"\n')
+    write(target / "etc/X11/xorg.conf.d/00-keyboard.conf",
+          'Section "InputClass"\n\tIdentifier "system-keyboard"\n\tMatchIsKeyboard "on"\n'
+          f'\tOption "XkbLayout" "{layout}"\n' + (f'\tOption "XkbVariant" "{variant}"\n' if variant else "")
+          + "EndSection\n")
+    for path in ("etc/machine-id", "var/lib/dbus/machine-id"):
+        (target / path).unlink(missing_ok=True)
+    write(target / "etc/machine-id", "", 0o444)
+
+
+def make_user(chroot: Chroot, plan: dict) -> None:
+    user = plan["user"]
+    target = chroot.target
+    groups_file = (target / "etc/group").read_text()
+    groups = [g for g in GROUPS if re.search(rf"^{g}:", groups_file, re.M)]
+    full = re.sub(r"[:,=\n]", " ", user.get("full_name") or user["username"]).strip()
+    chroot.run(["useradd", "-m", "-s", "/bin/zsh" if (target / "bin/zsh").exists() else "/bin/bash",
+                "-G", ",".join(groups), "-c", full, user["username"]])
+    chroot.run(["chpasswd"], input_text=f"{user['username']}:{user['password']}\n")
+    if user.get("autologin"):
+        conf = target / "etc/gdm3/daemon.conf"
+        text = conf.read_text() if conf.exists() else "[daemon]\n"
+        if "[daemon]" not in text:
+            text = "[daemon]\n" + text
+        text = re.sub(r"^#?\s*AutomaticLoginEnable\s*=.*$\n?", "", text, flags=re.M)
+        text = re.sub(r"^#?\s*AutomaticLogin\s*=.*$\n?", "", text, flags=re.M)
+        text = text.replace("[daemon]\n", f"[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin={user['username']}\n", 1)
+        write(conf, text)
+
+
+def pool_source(medium: str) -> tuple[str, str] | None:
+    """An apt line for the USB stick's package pool, if it has one."""
+    dists = Path(medium, "dists")
+    if not dists.is_dir():
+        return None
+    for suite in sorted(p.name for p in dists.iterdir() if p.is_dir()):
+        if Path(dists, suite, "main").is_dir() or Path(dists, suite, "Release").exists():
+            return suite, f"deb [trusted=yes] file:{medium} {suite} main\n"
+    return None
+
+
+def boot_packages(encrypt: bool) -> list[str]:
+    machine = arch()
+    if firmware() == "uefi":
+        packages = [f"grub-efi-{machine}", f"grub-efi-{machine}-signed", "shim-signed", "efibootmgr"]
+    else:
+        packages = ["grub-pc"]
+    if encrypt:
+        packages += ["cryptsetup-initramfs", "cryptsetup", "keyutils"]
+    return packages + ["os-prober"]
+
+
+def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict) -> None:
+    target = chroot.target
+    medium = plan["medium"]
+    inside = target / medium.lstrip("/")
+    sources_list = target / "etc/apt/sources.list.d/kulan-installer-media.list"
+    pool = pool_source(medium) if Path(medium).is_dir() else None
+    if pool is None and plan.get("require_pool"):
+        raise Failure(f"No package pool on the medium ({medium}/dists)")
+    mounted = False
+    try:
+        if pool:
+            inside.mkdir(parents=True, exist_ok=True)
+            run(["mount", "--bind", medium, str(inside)])
+            mounted = True
+            write(sources_list, pool[1])
+            # Only the USB stick's packages: no waiting for an internet that may not be there.
+            chroot.run(["apt-get", "update", "-q", *MEDIA_ONLY], check=False)
+        result = chroot.run(["apt-get", "install", "-y", "-q", "--no-install-recommends",
+                             "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+                             *(MEDIA_ONLY if pool else []),
+                             *boot_packages(bool(plan.get("encrypt")))], check=False)
+        if result.returncode != 0:
+            raise Failure("The boot loader’s packages couldn’t be installed"
+                          + ("" if pool else " (this USB stick has no package pool, and the internet isn’t "
+                                             "reachable)"))
+    finally:
+        sources_list.unlink(missing_ok=True)
+        if mounted:
+            run(["umount", "-l", str(inside)], check=False)
+        # The normal package lists, for updates later.
+        chroot.run(["apt-get", "update", "-q"], check=False, timeout=120)
+
+    grub_d = target / "etc/default/grub.d"
+    settings = ["# Kulan Installer", "GRUB_DISABLE_OS_PROBER=false"]
+    if plan.get("kernel_args"):
+        if not re.fullmatch(r"[A-Za-z0-9_.,=:+/ -]*", plan["kernel_args"]):
+            raise Failure("Unexpected kernel options")
+        settings.append(f'GRUB_CMDLINE_LINUX_DEFAULT="${{GRUB_CMDLINE_LINUX_DEFAULT}} {plan["kernel_args"]}"')
+    write(grub_d / "60-kulan-installer.cfg", "\n".join(settings) + "\n")
+
+    chroot.run(["update-initramfs", "-u", "-k", "all"])
+    if firmware() == "uefi":
+        target_name = {"amd64": "x86_64-efi", "arm64": "arm64-efi"}.get(arch(), f"{arch()}-efi")
+        # bootloader-id "debian": Debian's signed GRUB only looks there with Secure Boot.
+        argv = ["grub-install", f"--target={target_name}", "--efi-directory=/boot/efi", "--bootloader-id=debian",
+                "--recheck"]
+        if arch() == "amd64":
+            argv.append("--uefi-secure-boot")
+        if plan.get("no_nvram"):
+            argv.append("--no-nvram")  # tests: leave the machine running them alone
+        chroot.run(argv)
+        # Also the fallback path some firmware (and VMs without saved settings)
+        # start from, unless another system already put its own file there.
+        boot_dir = target / "boot/efi/EFI/BOOT"
+        taken = boot_dir.is_dir() and any(f.name.lower().startswith("boot") and f.suffix.lower() == ".efi"
+                                          for f in boot_dir.iterdir())
+        if plan.get("efi_removable") or not taken:
+            chroot.run([a for a in argv if a != "--recheck"] + ["--removable", "--no-nvram"])
+    else:
+        chroot.run(["grub-install", "--target=i386-pc", "--recheck", plan["disk"]])
+    chroot.run(["update-grub"])
+    # GRUB names a loop device (tests) by its path, which won't exist at start-up.
+    root_dev = disk_info.get("root_dev", "")
+    config = target / "boot/grub/grub.cfg"
+    if root_dev.startswith("/dev/loop") and config.exists():
+        text = config.read_text()
+        config.write_text(re.sub(rf"root={re.escape(root_dev)}(?=\s)", f"root=UUID={uuid_of(root_dev)}", text))
+
+
+# --- the install ----------------------------------------------------------------------
+
+def install(plan: dict) -> None:
+    global FIRMWARE
+    started = time.time()
+    if plan.get("firmware") in ("uefi", "bios"):
+        FIRMWARE = plan["firmware"]
+    plan = check_plan(plan)
+    steps = {"partition": (0.00, 0.05), "copy": (0.05, 0.70), "configure": (0.70, 0.75), "clean": (0.75, 0.82),
+             "user": (0.82, 0.84), "boot": (0.84, 0.99)}
+
+    def at(step: str, fraction: float, text: str) -> None:
+        low, high = steps[step]
+        emit(progress=round(low + (high - low) * max(0.0, min(1.0, fraction)), 3), text=text)
+
+    target = Path(tempfile.mkdtemp(prefix="kulan-target-"))
+    disk_info: dict = {}
+    parts: dict = {}
+    try:
+        at("partition", 0, "Preparing the disk…")
+        parts = partition(plan)
+        disk_info = format_and_mount(plan, parts, target)
+        at("copy", 0, "Copying Kulan OS…")
+        copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
+        at("configure", 0, "Setting the language, keyboard and time zone…")
+        configure(plan, target, parts, disk_info)
+        with Chroot(target, parts.get("esp"), efivars=not plan.get("no_nvram")) as chroot:
+            chroot.run(["systemd-machine-id-setup"], check=False)
+            chroot.run(["locale-gen"], check=False)
+            at("clean", 0, "Removing the live session’s tools…")
+            installed = chroot.run(["dpkg-query", "-W", "-f=${Package}\\n"], check=False).stdout.split()
+            remove = [p for p in LIVE_PACKAGES if p in installed]
+            if remove:
+                chroot.run(["apt-get", "purge", "-y", "-q", *remove], check=False)
+                chroot.run(["apt-get", "autoremove", "-y", "-q"], check=False)
+            at("user", 0, "Making your account…")
+            make_user(chroot, plan)
+            at("boot", 0, "Making the disk start Kulan OS…")
+            install_boot_loader(chroot, plan, parts, disk_info)
+        at("boot", 1, "Finishing…")
+        run(["sync"], check=False)
+    finally:
+        for point in ("boot/efi", "boot", ""):
+            path = target / point if point else target
+            if os.path.ismount(path):
+                run(["umount", "-l", str(path)], check=False)
+        if disk_info.get("luks_uuid"):
+            run(["cryptsetup", "close", CRYPT_NAME], check=False)
+        try:
+            target.rmdir()
+        except OSError:
+            pass
+    log(f"installed in {int(time.time() - started)} s")
+    emit(progress=1.0, text="Kulan OS is installed")
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2 or argv[1] not in ("disks", "install"):
+        print(__doc__.split("\n\n")[0], file=sys.stderr)
+        return 64
+    if os.geteuid() != 0:
+        emit(error="Kulan Installer needs administrator rights")
+        return 1
+    # Started through pkexec (which asks no password in the live session):
+    # only ever from the Kulan OS USB stick, never on an installed system.
+    if "PKEXEC_UID" in os.environ and not Path("/run/live/medium").is_dir():
+        emit(error="Kulan Installer only runs from the Kulan OS USB stick")
+        return 1
+    try:
+        if argv[1] == "disks":
+            print(json.dumps({"firmware": firmware(), "disks": disks()}))
+            return 0
+        plan = json.loads(sys.stdin.read() or "{}")
+        install(plan)
+        emit(done=True)
+        return 0
+    except Failure as exc:
+        emit(error=str(exc))
+        return 1
+    except (ValueError, KeyError) as exc:
+        emit(error=f"The installer got an unexpected plan: {exc}")
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

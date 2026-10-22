@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Kulan Fleet
+Comment=See and manage your organisation's Kulan OS computers
+Keywords=fleet;admin;devices;computers;compliance;organisation;
+Exec=kulan-fleet-admin
+Icon=org.kulan.Fleet
+Categories=System;Settings;
+StartupNotify=true

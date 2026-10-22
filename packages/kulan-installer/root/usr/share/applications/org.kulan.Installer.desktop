@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Install Kulan OS
+Comment=Put Kulan OS on this computer
+Exec=kulan-installer
+Icon=kulan-logo
+Terminal=false
+Categories=System;
+Keywords=install;installer;setup;disk;
+StartupNotify=true

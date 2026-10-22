@@ -3,11 +3,11 @@
 # in a virtual machine (QEMU with KVM, UEFI), let it restart once, and check
 # both starts reach the desktop with no failed services.
 #
-# The installation is done the way the installer does it: the live system's
-# files copied to an ext4 partition, live-only packages removed, a user
-# account, the boot loader (GRUB with shim) on an EFI partition. The test
-# account signs in by itself; the kernel options ask for the boot report and
-# for one restart (kulan.restart-test).
+# The installation is done by Kulan Installer's engine, as the app does it
+# (erase the disk, copy, remove the live packages, account, GRUB with shim from
+# the ISO's own package pool, no internet). The test account signs in by
+# itself; the kernel options ask for the boot report and for one restart
+# (kulan.restart-test).
 #
 # Usage: ci/install-test.sh <iso> [output-dir]      (runs commands with sudo)
 # Needs: qemu-system-x86, ovmf, squashfs-tools, xorriso, dosfstools, fdisk
@@ -63,65 +63,68 @@ fail_now() {
 in_root() { sudo chroot "${MNT}" /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive "$@"; }
 
 # --- Install ----------------------------------------------------------------------
+# With Kulan Installer's own engine (the same file the ISO carries), as the
+# app runs it: erase the disk, copy the system, remove the live session's
+# packages, make the account, and install GRUB from the ISO's package pool.
+ENGINE="$(cd "$(dirname "$0")/.." && pwd)/packages/kulan-installer/root/usr/lib/kulan/installer-engine"
+[[ -x "${ENGINE}" ]] || fail_now "Installer" "installer-engine not found"
 xorriso -osirrox on -indev "${ISO}" -extract /live/filesystem.squashfs "${WORK}/fs.squashfs" >/dev/null 2>&1 ||
 	fail_now "Live filesystem" "couldn't read live/filesystem.squashfs from the ISO"
+mkdir -p "${WORK}/medium"
+xorriso -osirrox on -indev "${ISO}" -extract /pool "${WORK}/medium/pool" -extract /dists "${WORK}/medium/dists" \
+	>/dev/null 2>&1 || fail_now "Package pool" "the ISO has no package pool (/pool, /dists) for the boot loader"
 
-truncate -s 16G "${WORK}/disk.img"
-printf 'label: gpt\n,512M,U\n,,L\n' | sfdisk -q "${WORK}/disk.img" >/dev/null || fail_now "Disk" "partitioning failed"
+truncate -s 24G "${WORK}/disk.img"
 LOOP="$(sudo losetup -fP --show "${WORK}/disk.img")" || fail_now "Disk" "no loop device"
-sudo udevadm settle 2>/dev/null || true
-for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -b "${LOOP}p2" ]] && break; sleep 1; done
-[[ -b "${LOOP}p1" && -b "${LOOP}p2" ]] || fail_now "Disk" "the partitions of ${LOOP} didn't appear"
-sudo mkfs.vfat -F 32 -n EFI "${LOOP}p1" >/dev/null && sudo mkfs.ext4 -q -L kulan "${LOOP}p2" ||
-	fail_now "Disk" "formatting failed"
-mkdir -p "${MNT}"
-sudo mount "${LOOP}p2" "${MNT}" || fail_now "Disk" "couldn't mount the new system's partition"
 START=$(date +%s)
-sudo unsquashfs -q -f -d "${MNT}" "${WORK}/fs.squashfs" >/dev/null || fail_now "Copy" "copying the system failed"
-sudo mkdir -p "${MNT}/boot/efi"
-sudo mount "${LOOP}p1" "${MNT}/boot/efi" || fail_now "Disk" "couldn't mount the EFI partition"
-for M in dev dev/pts proc sys run; do sudo mount --bind "/${M}" "${MNT}/${M}"; done
-sudo rm -f "${MNT}/etc/resolv.conf"
-sudo cp -L /etc/resolv.conf "${MNT}/etc/resolv.conf"
+PLAN="$(python3 - "${LOOP}" "${WORK}" <<'PY'
+import json, sys
+loop, work = sys.argv[1], sys.argv[2]
+print(json.dumps({
+    "disk": loop, "mode": "erase", "encrypt": False, "locale": "en_US.UTF-8",
+    "keyboard": {"layout": "us", "variant": ""}, "timezone": "America/New_York", "hostname": "kulan-test",
+    "user": {"full_name": "Kulan Test", "username": "kulan", "password": "kulan-test-pw", "autologin": True},
+    "source": f"{work}/fs.squashfs", "medium": f"{work}/medium", "firmware": "uefi",
+    "kernel_args": "console=tty0 console=ttyS0,115200 kulan.boot-report kulan.restart-test",
+    "efi_removable": True, "no_nvram": True, "require_pool": True,
+}))
+PY
+)"
+# shellcheck disable=SC2024  # the logs belong to this user, on purpose
+sudo "${ENGINE}" install <<<"${PLAN}" >"${OUT}/engine.jsonl" 2>"${OUT}/install.log"
+LAST="$(tail -n 1 "${OUT}/engine.jsonl")"
+if ! grep -q '"done": true' <<<"${LAST}"; then
+	fail_now "Install" "Kulan Installer's engine: $(sed -n 's/.*"error": "\(.*\)".*/\1/p' <<<"${LAST}") | $(grep -E 'error|E:|failed' "${OUT}/install.log" | tail -n 3 | tr '\n' ' ' | cut -c1-300)"
+fi
+STEPS="$(grep -c '"progress"' "${OUT}/engine.jsonl")"
+if grep -q "kulan-installer-media.list" "${OUT}/install.log"; then
+	result pass "Offline boot loader" "GRUB and shim came from the ISO's package pool"
+else
+	result fail "Offline boot loader" "the package pool wasn't used"
+fi
+result pass "Install" "Kulan Installer's engine: erased, copied, set up and made bootable in $(( $(date +%s) - START )) s (${STEPS} progress updates)"
 
-ROOT_UUID="$(sudo blkid -s UUID -o value "${LOOP}p2")"
-EFI_UUID="$(sudo blkid -s UUID -o value "${LOOP}p1")"
-printf 'UUID=%s / ext4 errors=remount-ro 0 1\nUUID=%s /boot/efi vfat umask=0077 0 1\n' "${ROOT_UUID}" "${EFI_UUID}" |
-	sudo tee "${MNT}/etc/fstab" >/dev/null
-
-# What the installer does after copying: remove the live session's own
-# packages, a new machine ID, a host name and a person's account.
-{
-	in_root apt-get purge -y -q live-boot live-boot-initramfs-tools live-config live-config-systemd live-tools \
-		calamares calamares-settings-debian
-	in_root apt-get autoremove -y -q
-} >"${OUT}/install.log" 2>&1 || result info "Live packages" "some live packages couldn't be removed (see install.log)"
-sudo rm -f "${MNT}/etc/machine-id" "${MNT}/var/lib/dbus/machine-id"
-in_root systemd-machine-id-setup >/dev/null 2>&1
-echo kulan-test | sudo tee "${MNT}/etc/hostname" >/dev/null
-printf '127.0.0.1\tlocalhost\n127.0.1.1\tkulan-test\n' | sudo tee "${MNT}/etc/hosts" >/dev/null
-in_root useradd -m -s /bin/zsh -G sudo,adm -c "Kulan Test" kulan >>"${OUT}/install.log" 2>&1 ||
-	fail_now "Account" "couldn't create the account"
-echo 'kulan:kulan-test-pw' | in_root chpasswd
-# Signs in by itself, so the test sees a real session.
-sudo mkdir -p "${MNT}/etc/gdm3"
-printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=kulan\n' | sudo tee "${MNT}/etc/gdm3/daemon.conf" >/dev/null
-
-# Boot loader, as the installer sets it up for UEFI (shim, signed GRUB).
-sudo mkdir -p "${MNT}/etc/default/grub.d"
-printf 'GRUB_TIMEOUT=0\nGRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} console=tty0 console=ttyS0,115200 kulan.boot-report kulan.restart-test"\n' |
-	sudo tee "${MNT}/etc/default/grub.d/zz-kulan-install-test.cfg" >/dev/null
-{
-	in_root apt-get update -q &&
-		in_root apt-get install -y -q grub-efi-amd64 grub-efi-amd64-signed shim-signed &&
-		in_root update-initramfs -u -k all &&
-		in_root grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot --removable --no-nvram &&
-		in_root update-grub
-} >>"${OUT}/install.log" 2>&1 || fail_now "Boot loader" "GRUB setup failed: $(grep -E 'error|E:' "${OUT}/install.log" | tail -n 3 | tr '\n' ' ' | cut -c1-300)"
-result pass "Install" "copied, cleaned up and made bootable in $(( $(date +%s) - START )) s"
+# The installed system, as the engine left it.
+sudo partprobe "${LOOP}" 2>/dev/null || true
+mkdir -p "${MNT}"
+ROOT_PART="$(lsblk -lnpo NAME,PARTLABEL "${LOOP}" | awk '$2 == "Kulan" {print $1}' | head -n 1)"
+[[ -n "${ROOT_PART}" ]] || ROOT_PART="${LOOP}p2"
+if sudo mount -o ro "${ROOT_PART}" "${MNT}"; then
+	if sudo test -e "${MNT}/usr/lib/kulan/installer-engine" || sudo test -e "${MNT}/usr/bin/calamares"; then
+		result fail "Live tools removed" "Kulan Installer or Calamares is still on the installed system"
+	else
+		result pass "Live tools removed" "no installer and no live-boot on the installed system"
+	fi
+	if sudo grep -q "^kulan:" "${MNT}/etc/passwd" && sudo grep -qx "kulan-test" "${MNT}/etc/hostname" &&
+		[[ "$(sudo readlink "${MNT}/etc/localtime")" == */America/New_York ]]; then
+		result pass "Settings" "account, computer name and time zone as chosen"
+	else
+		result fail "Settings" "account, computer name or time zone missing"
+	fi
+	sudo umount "${MNT}"
+fi
 
 sync
-for M in dev/pts dev proc sys run boot/efi ""; do sudo umount "${MNT}/${M}" 2>/dev/null || sudo umount -l "${MNT}/${M}"; done
 sudo losetup -d "${LOOP}"
 LOOP=""
 sudo chown "$(id -u):$(id -g)" "${WORK}/disk.img"

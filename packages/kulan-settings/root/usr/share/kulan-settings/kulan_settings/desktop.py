@@ -47,7 +47,30 @@ WIDGETS = [
     ("weather", "Weather", "For the place chosen in the Weather app"),
     ("prayer", "Prayer Times", "The next prayer, while Prayer Times is on"),
     ("notes", "Note", "Your Quick Note (Cmd+Shift+N)"),
+    ("clock", "Clock", "The time here and in the cities added in Clocks"),
+    ("system", "System", "Processor, memory, disk space and battery"),
+    ("todo", "To-do", "A short task list: tick tasks off on the desktop"),
+    ("media", "Now Playing", "Play, pause and skip whatever music or video is playing"),
 ]
+WIDGET_INFO = {w: (t, s) for w, t, s in WIDGETS}
+
+
+def widget_order(current: list[str], widget_id: str, on: bool) -> list[str]:
+    """The shown widgets after switching one on (added at the end) or off,
+    keeping the order the person chose. Unknown ids are dropped."""
+    kept = [w for w in current if w in WIDGET_INFO and w != widget_id]
+    return [*kept, widget_id] if on else kept
+
+
+def widget_move(current: list[str], widget_id: str, step: int) -> list[str]:
+    """Move one shown widget up (-1) or down (+1)."""
+    order = [w for w in current if w in WIDGET_INFO]
+    if widget_id not in order:
+        return order
+    i = order.index(widget_id)
+    j = max(0, min(len(order) - 1, i + step))
+    order.insert(j, order.pop(i))
+    return order
 
 
 def folders_on(folders) -> bool:
@@ -58,7 +81,7 @@ def folders_on(folders) -> bool:
 class DesktopPage(Page):
     title = "Desktop and windows"
     icon = "focus-windows-symbolic"
-    keywords = ("animation", "speed", "folders", "app grid", "hot corner", "workspaces", "windows", "reopen", "restore apps", "restart", "resume")
+    keywords = ("widgets", "clock", "world clock", "to-do", "todo", "system monitor", "now playing", "music", "animation", "speed", "folders", "app grid", "hot corner", "workspaces", "windows", "reopen", "restore apps", "restart", "resume")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -104,14 +127,10 @@ class DesktopPage(Page):
                     desktop.add(row)
 
         if has_key(self.kulan, "desktop-widgets"):
-            widgets = self.add_group("Widgets", "Small cards at the top left of the desktop. Click one to open its app.")
-            self.widget_rows = {}
-            for widget_id, title, subtitle in WIDGETS:
-                row = Adw.SwitchRow(title=title, subtitle=subtitle,
-                                    active=widget_id in self.kulan.get_strv("desktop-widgets"))
-                row.connect("notify::active", lambda r, _p, w=widget_id: self.set_widget(w, r.get_active()))
-                widgets.add(row)
-                self.widget_rows[widget_id] = row
+            self.widgets_group = self.add_group(
+                "Widgets", "Cards at the top left of the desktop, in this order. Click one to open its app.")
+            self.widget_rows = []
+            self.build_widget_rows()
 
         if has_key(self.kulan, "reopen-apps"):
             session = self.add_group("Restarting")
@@ -176,11 +195,51 @@ class DesktopPage(Page):
         else:
             self.folders.set_strv("folder-children", NO_FOLDERS)
 
+    def build_widget_rows(self, focus: str | None = None) -> None:
+        """Shown widgets first, in their order (with Move up/down), then the rest."""
+        for row in self.widget_rows:
+            self.widgets_group.remove(row)
+        self.widget_rows = []
+        shown = [w for w in self.kulan.get_strv("desktop-widgets") if w in WIDGET_INFO]
+        hidden = [w for w, _t, _s in WIDGETS if w not in shown]
+        for index, widget_id in enumerate([*shown, *hidden]):
+            title, subtitle = WIDGET_INFO[widget_id]
+            # Move buttons, then the switch (an action row, so the switch
+            # stays at the far end like every other switch).
+            row = Adw.ActionRow(title=title, subtitle=subtitle)
+            switch = Gtk.Switch(active=widget_id in shown, valign=Gtk.Align.CENTER)
+            switch.update_property([Gtk.AccessibleProperty.LABEL], [title])
+            if widget_id in shown:
+                for icon, name, step, usable in (("go-up-symbolic", "Move up", -1, index > 0),
+                                                 ("go-down-symbolic", "Move down", 1, index < len(shown) - 1)):
+                    button = Gtk.Button(icon_name=icon, valign=Gtk.Align.CENTER, sensitive=usable,
+                                        css_classes=["flat", "circular"], tooltip_text=name)
+                    button.update_property([Gtk.AccessibleProperty.LABEL], [f"{name}: {title}"])
+                    button.connect("clicked", lambda _b, w=widget_id, d=step: self.move_widget(w, d))
+                    row.add_suffix(button)
+            row.add_suffix(switch)
+            row.set_activatable_widget(switch)
+            switch.connect("notify::active", lambda sw, _p, w=widget_id: self.set_widget(w, sw.get_active()))
+            self.widgets_group.add(row)
+            self.widget_rows.append(row)
+            if widget_id == focus:
+                GLib.idle_add(lambda sw=switch: sw.grab_focus() and False)
+
     def set_widget(self, widget_id: str, on: bool) -> None:
         current = self.kulan.get_strv("desktop-widgets")
-        wanted = [w for w, _t, _s in WIDGETS if (w == widget_id and on) or (w != widget_id and w in current)]
+        wanted = widget_order(current, widget_id, on)
         if wanted != current:
             self.kulan.set_strv("desktop-widgets", wanted)
+        # Rebuilt after this click is handled, so the switch isn't removed
+        # while it's still sending its signal.
+        GLib.idle_add(lambda: self.build_widget_rows(widget_id) and False)
+
+    def move_widget(self, widget_id: str, step: int) -> None:
+        current = self.kulan.get_strv("desktop-widgets")
+        wanted = widget_move(current, widget_id, step)
+        if wanted != current:
+            self.kulan.set_strv("desktop-widgets", wanted)
+            GLib.idle_add(lambda: self.build_widget_rows(widget_id) and False)
 
     def tidy_grid(self) -> None:
         # GNOME keeps each app where it was dropped; with no saved layout it

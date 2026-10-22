@@ -1,0 +1,283 @@
+#!/usr/bin/python3
+"""Unlock the encrypted disk with this computer's security chip (TPM 2.0).
+
+  kulan-tpm status [--json]   can it be used here, and is it on (no root needed)
+  kulan-tpm on                read the disk password from stdin, enrol the TPM (root)
+  kulan-tpm off               remove the TPM key; the password is asked again (root)
+
+How it works: systemd-cryptenroll adds a key slot to the LUKS2 system disk
+that only this computer's TPM can open, and only while Secure Boot is in the
+same state as now (PCR 7: Secure Boot on, with the same trusted keys). The
+start-up image is built with dracut, whose systemd-cryptsetup reads that key
+(Debian's initramfs-tools can't), and /etc/crypttab gets tpm2-device=auto.
+The disk password stays as it is and is asked whenever the TPM says no
+(a different computer, Secure Boot turned off, the disk moved elsewhere).
+
+Secure Boot must be on: with it off, any system started from a USB stick
+would see the same PCR 7 and could unlock the disk.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+STATE_FILE = Path("/var/lib/kulan/tpm.json")
+DRACUT_CONF = Path("/etc/dracut.conf.d/50-kulan-tpm.conf")
+CRYPTTAB = Path("/etc/crypttab")
+SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+PCRS = "7"
+# Held back in 2.4: the dracut start-up image hasn't passed the restart test
+# yet, so "on" is refused and Kulan Settings hides the switch. Turning it off
+# still works. KULAN_TPM_PREVIEW=1 (the CI TPM test) allows it.
+PREVIEW = os.environ.get("KULAN_TPM_PREVIEW") == "1"
+COMING = "TPM unlock is coming in Kulan OS 2.5"
+TPM_OPTION = "tpm2-device=auto"
+
+
+def run(argv: list[str], input_text: str | None = None, env: dict | None = None,
+        timeout: int = 900) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout, check=False,
+                              env={**os.environ, "LC_ALL": "C.UTF-8", **(env or {})})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return subprocess.CompletedProcess(argv, 127, "", str(e))
+
+
+def say(text: str) -> None:
+    print(text, file=sys.stderr, flush=True)
+
+
+# --- what this computer has -------------------------------------------------------
+def tpm2_present() -> bool:
+    try:
+        return Path("/sys/class/tpm/tpm0/tpm_version_major").read_text().strip() == "2"
+    except OSError:
+        return False
+
+
+def secure_boot_on() -> bool:
+    try:
+        data = SECURE_BOOT_VAR.read_bytes()
+    except OSError:
+        return False
+    return bool(data) and data[-1] == 1
+
+
+def root_luks() -> tuple[str, str] | None:
+    """(crypttab name, partition) of the LUKS volume under /, or None."""
+    source = run(["findmnt", "-no", "SOURCE", "/"]).stdout.strip()
+    if not source:
+        return None
+    r = run(["lsblk", "-J", "-s", "-o", "NAME,PATH,TYPE", source])
+    try:
+        tree = json.loads(r.stdout)["blockdevices"]
+    except (ValueError, KeyError):
+        return None
+
+    def walk(nodes: list[dict]) -> tuple[str, str] | None:
+        for node in nodes:
+            # -s inverts the tree: a node's "children" are what it sits on.
+            if node.get("type") == "crypt":
+                below = node.get("children") or []
+                if below:
+                    return node["name"], below[0]["path"]
+            found = walk(node.get("children") or [])
+            if found:
+                return found
+        return None
+
+    return walk(tree)
+
+
+def luks_dump(device: str) -> str:
+    return run(["cryptsetup", "luksDump", device]).stdout
+
+
+def luks_version(dump: str) -> str:
+    for line in dump.splitlines():
+        if line.startswith("Version:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def status() -> dict:
+    luks = root_luks()
+    dump = luks_dump(luks[1]) if luks and os.geteuid() == 0 else ""
+    enrolled = "systemd-tpm2" in dump if dump else None
+    if enrolled is None:
+        try:
+            enrolled = json.loads(STATE_FILE.read_text()).get("on") is True
+        except (OSError, ValueError):
+            enrolled = False
+    reasons = [] if PREVIEW else [COMING]
+    if not Path("/sys/firmware/efi").exists():
+        reasons.append("This computer starts without UEFI")
+    if not tpm2_present():
+        reasons.append("No TPM 2.0 security chip was found (it may be switched off in the firmware settings)")
+    if not secure_boot_on():
+        reasons.append("Secure Boot is off; turn it on in the firmware settings first")
+    if luks is None:
+        reasons.append("The system disk isn't encrypted")
+    elif dump and luks_version(dump) not in ("", "2"):
+        reasons.append("The disk uses LUKS1; TPM unlock needs LUKS2")
+    return {
+        "on": bool(enrolled),
+        "available": PREVIEW,
+        "possible": not reasons,
+        "reasons": reasons,
+        "tpm2": tpm2_present(),
+        "secure_boot": secure_boot_on(),
+        "volume": luks[0] if luks else None,
+        "device": luks[1] if luks else None,
+        "pcrs": PCRS,
+    }
+
+
+# --- changes ----------------------------------------------------------------------------
+def need_root() -> None:
+    if os.geteuid() != 0:
+        sys.exit("kulan-tpm: this needs administrator rights (run it with sudo)")
+
+
+def set_crypttab_option(volume: str, add: bool) -> None:
+    lines = CRYPTTAB.read_text().splitlines()
+    out = []
+    changed = False
+    for line in lines:
+        fields = line.split()
+        if fields and not line.lstrip().startswith("#") and fields[0] == volume:
+            while len(fields) < 4:
+                fields.append("none" if len(fields) == 2 else "luks")
+            options = [o for o in fields[3].split(",") if o and o != TPM_OPTION]
+            if add:
+                options.append(TPM_OPTION)
+            fields[3] = ",".join(options)
+            line = " ".join(fields)
+            changed = True
+        out.append(line)
+    if not changed:
+        raise RuntimeError(f"{volume} isn't listed in /etc/crypttab")
+    tmp = CRYPTTAB.with_name("crypttab.kulan-new")
+    tmp.write_text("\n".join(out) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, CRYPTTAB)
+
+
+def rebuild_startup_image() -> None:
+    r = run(["dracut", "--force", "--regenerate-all"], timeout=1800)
+    if r.returncode != 0:
+        raise RuntimeError("the start-up image couldn't be rebuilt: " + (r.stderr.strip()[-300:] or "dracut failed"))
+    run(["update-grub"])
+
+
+def turn_on() -> int:
+    need_root()
+    st = status()
+    if not st["possible"]:
+        for reason in st["reasons"]:
+            say(reason)
+        return 3
+    password = sys.stdin.readline().rstrip("\n")
+    if not password:
+        say("The disk password is needed (one line on standard input)")
+        return 64
+    volume, device = st["volume"], st["device"]
+    # Check the password first, so nothing is changed if it's wrong.
+    if run(["cryptsetup", "open", "--test-passphrase", "--key-file=-", device], input_text=password).returncode != 0:
+        say("That isn't the disk password")
+        return 65
+
+    say("Installing dracut and the TPM tools…")
+    # Never stop to ask (it can run from Kulan Settings, with nobody at a terminal).
+    r = run(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confdef",
+             "-o", "Dpkg::Options::=--force-confold", "dracut", "systemd-cryptsetup", "tpm2-tools"],
+            env={"DEBIAN_FRONTEND": "noninteractive"}, input_text="")
+    if r.returncode != 0:
+        say("dracut couldn't be installed (is the computer online?): " + r.stderr.strip()[-300:])
+        return 1
+    DRACUT_CONF.parent.mkdir(parents=True, exist_ok=True)
+    DRACUT_CONF.write_text(
+        "# Kulan OS: TPM unlock of the system disk (kulan-tpm). The start-up image\n"
+        "# carries systemd-cryptsetup and the TPM libraries, and the splash.\n"
+        'hostonly="yes"\n'
+        'hostonly_cmdline="yes"\n'
+        'add_dracutmodules+=" systemd crypt tpm2-tss plymouth "\n')
+
+    say("Adding the TPM key to the disk…")
+    if "systemd-tpm2" in luks_dump(device):
+        run(["systemd-cryptenroll", "--wipe-slot=tpm2", device], env={"PASSWORD": password})
+    r = run(["systemd-cryptenroll", "--tpm2-device=auto", f"--tpm2-pcrs={PCRS}", device],
+            env={"PASSWORD": password})
+    if r.returncode != 0:
+        say("The TPM key couldn't be added: " + r.stderr.strip()[-300:])
+        return 1
+    # Prove it: open the disk's key with the TPM alone, right now.
+    if run(["cryptsetup", "open", "--test-passphrase", "--token-only", device]).returncode != 0:
+        run(["systemd-cryptenroll", "--wipe-slot=tpm2", device], env={"PASSWORD": password})
+        say("The TPM didn't give the key back, so TPM unlock was left off")
+        return 1
+
+    set_crypttab_option(volume, True)
+    say("Rebuilding the start-up image…")
+    try:
+        rebuild_startup_image()
+    except RuntimeError as e:
+        set_crypttab_option(volume, False)
+        run(["systemd-cryptenroll", "--wipe-slot=tpm2", device], env={"PASSWORD": password})
+        say(str(e))
+        return 1
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps({"on": True, "since": int(time.time()), "pcrs": PCRS}) + "\n")
+    say("TPM unlock on: the disk opens by itself on this computer")
+    return 0
+
+
+def turn_off() -> int:
+    need_root()
+    st = status()
+    if not st["device"]:
+        say("The system disk isn't encrypted")
+        return 3
+    password = sys.stdin.readline().rstrip("\n") if not sys.stdin.isatty() else ""
+    env = {"PASSWORD": password} if password else {}
+    r = run(["systemd-cryptenroll", "--wipe-slot=tpm2", st["device"]], env=env)
+    if r.returncode != 0:
+        say("The TPM key couldn't be removed: " + r.stderr.strip()[-300:])
+        return 1
+    try:
+        set_crypttab_option(st["volume"], False)
+        rebuild_startup_image()
+    except RuntimeError as e:
+        say(str(e))
+        return 1
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps({"on": False, "since": int(time.time())}) + "\n")
+    say("TPM unlock off: the disk password is asked at start-up again")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    command = argv[1] if len(argv) > 1 else "status"
+    if command == "status":
+        st = status()
+        if "--json" in argv[2:]:
+            print(json.dumps(st, indent=2))
+        else:
+            print("TPM unlock " + ("on" if st["on"] else "off"))
+            for reason in st["reasons"]:
+                print("  " + reason)
+        return 0
+    if command == "on":
+        return turn_on()
+    if command == "off":
+        return turn_off()
+    print(__doc__.split("\n\n")[1], file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

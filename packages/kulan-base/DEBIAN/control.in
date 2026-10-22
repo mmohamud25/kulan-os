@@ -5,7 +5,7 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: admin
 Priority: optional
 Pre-Depends: dpkg (>= 1.19.1)
-Depends: ufw, unattended-upgrades
+Depends: ufw, unattended-upgrades, python3
 Recommends: apparmor-profiles-extra, systemd-zram-generator, systemd-oomd, kexec-tools
 Homepage: @HOME_URL@
 Description: @NAME@ identity, update channel and security defaults

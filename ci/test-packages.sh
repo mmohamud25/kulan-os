@@ -53,14 +53,18 @@ shopt -s nullglob
 DEBS=()
 for DEB in dist/debs/kulan-*.deb; do
 	case "${DEB}" in
-		*/kulan-devkit_* | */kulan-apps_*) ;;
+		*/kulan-devkit_* | */kulan-apps_* | */kulan-fleet-admin_* | */kulan-installer_*) ;;
 		*) DEBS+=("${DEB}") ;;
 	esac
 done
 DEVKIT=(dist/debs/kulan-devkit_*.deb)
 APPS=(dist/debs/kulan-apps_*.deb)
-[[ ${#DEBS[@]} -eq 6 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 ]] || {
-	echo "::error::expected 6 core packages, kulan-devkit and kulan-apps in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]} and ${#APPS[@]}"
+# Kulan Fleet (the administrators' app): published, never installed by default.
+FLEET_ADMIN=(dist/debs/kulan-fleet-admin_*.deb)
+# Kulan Installer: only in the live session (checked separately below).
+INSTALLER=(dist/debs/kulan-installer_*.deb)
+[[ ${#DEBS[@]} -eq 6 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 && ${#FLEET_ADMIN[@]} -eq 1 && ${#INSTALLER[@]} -eq 1 ]] || {
+	echo "::error::expected 6 core packages, kulan-devkit, kulan-apps, kulan-fleet-admin and kulan-installer in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]}, ${#APPS[@]}, ${#FLEET_ADMIN[@]} and ${#INSTALLER[@]}"
 	exit 1
 }
 # Kulan Assistant's engine (ci/build-engine.sh), when CI built it for PCs.
@@ -146,7 +150,8 @@ for needle in ("KulanMenu", "kulan-logo-symbolic", "installGtkStyle", "activateR
     assert needle in js, needle
 for f in ("/usr/share/icons/hicolor/scalable/apps/kulan-logo-symbolic.svg",
           "/usr/share/kulan/gtk/gtk-4.0.css", "/usr/share/kulan/gtk/gtk-3.0.css",
-          "/usr/share/kulan/gtk/dots/gtk-4.0.css", "/usr/share/kulan/gtk/dots/gtk-3.0.css"):
+          "/usr/share/kulan/gtk/dots/gtk-4.0.css", "/usr/share/kulan/gtk/dots/gtk-3.0.css",
+          "/usr/share/kulan/gtk/look/gtk-4.0.css"):
     assert os.path.getsize(f) > 0, f
 PY
 check "Cursor" "Bibata-Modern-Classic set and installed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface cursor-theme)\" = \"'Bibata-Modern-Classic'\" && test -d /usr/share/icons/Bibata-Modern-Classic"
@@ -200,9 +205,15 @@ check "Boot speed" "network-wait startup step switched off once" test -e /var/li
 check "Firewall" "ufw enabled on first install" grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf
 check "Auto updates" "Debian security + Kulan origins allowed" bash -c 'apt-config dump | grep -q "origin=Kulan OS" && apt-config dump | grep -q "label=Debian-Security"'
 check "Firefox privacy" "policies.json valid; Firefox uses the system (encrypted) DNS" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["DNSOverHTTPS"] == {"Enabled": False, "Locked": True}'
+check "Kulan look for apps" "Kulan navy (dark) and mist (light) on GNOME's surfaces with Debian's GTK 4; Manrope installed" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 ci/check-gtk-look.py /usr/share/kulan/gtk/look/gtk-4.0.css 2>&1)"; rc=$?; echo "$out" | grep -E "^(light|dark|FAIL)" | head -n 6; test $rc = 0 && fc-list | grep -qi manrope'
+check "Kulan look for older apps" "the GTK 3 accent themes carry Kulan's navy and mist" bash -c 'grep -q "window_bg_color #09182d" /usr/share/themes/Kulan-teal-dark/gtk-3.0/gtk.css && grep -q "sidebar_bg_color #e6ebf1" /usr/share/themes/Kulan-teal/gtk-3.0/gtk.css'
+check "Kulan app icons" "the 2.4 icon family is in the Kulan icon theme and GTK finds it" bash -c 'grep -q "^Directories=scalable/apps," /usr/share/icons/Kulan/index.theme && test "$(ls /usr/share/icons/Kulan/scalable/apps/*.svg | wc -l)" -ge 30 && HOME=$(mktemp -d) timeout 60 xvfb-run -a python3 -c "import gi; gi.require_version(\"Gtk\", \"4.0\"); from gi.repository import Gtk; Gtk.init(); t = Gtk.IconTheme(theme_name=\"Kulan\"); p = t.lookup_icon(\"org.gnome.Calculator\", None, 64, 1, Gtk.TextDirection.NONE, 0).get_file().get_path(); print(p); assert p.startswith(\"/usr/share/icons/Kulan/\")"'
 check "Firefox window buttons" "Kulan's round buttons loaded by Firefox's administrator configuration" bash -c 'grep -q "general.config.filename\", \"kulan.cfg\"" /usr/lib/firefox-esr/defaults/pref/kulan-autoconfig.js && grep -q "file:///usr/share/kulan/firefox/titlebar.css" /usr/lib/firefox-esr/kulan.cfg && grep -q "titlebar-close" /usr/share/kulan/firefox/titlebar.css && test "$(stat -c %U /usr/lib/firefox-esr/kulan.cfg)" = root'
 if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
+	# An upgrade must move computers to this build's address (kulan.conf), even
+	# when the released version pointed somewhere else.
+	check "Update channel address" "kulan.sources uses ${CHANNEL}" grep -qx "URIs: ${CHANNEL}" /etc/apt/sources.list.d/kulan.sources
 fi
 
 # --- Update Center ------------------------------------------------------------------
@@ -254,6 +265,19 @@ assert len(sent) == 1, sent
 print(sent[0][1])
 PY
 check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"
+check "More widgets" "Clock, System, To-do and Now Playing present; every module the extension imports is shipped" python3 - <<'PY'
+import os, re
+d = "/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com"
+js = {f: open(os.path.join(d, f)).read() for f in os.listdir(d) if f.endswith(".js")}
+missing = [(f, m) for f, text in js.items() for m in re.findall(r"from '\./([\w-]+\.js)'", text) if m not in js]
+assert not missing, f"imports with no file: {missing}"
+for name in ("ClockWidget", "SystemWidget", "TodoWidget", "MediaWidget"):
+    assert f"export class {name}" in js["morewidgets.js"], name
+for widget_id in ("'clock'", "'system'", "'todo'", "'media'"):
+    assert widget_id in js["widgets.js"], widget_id
+for css in ("stylesheet-dark.css", "stylesheet-light.css"):
+    assert ".kulan-todo-check" in open(os.path.join(d, css)).read(), css
+PY
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Undo last update" "restores the newest pre-update point after saving the current one, pauses automatic updates, restarts" bash -c '
 	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps/2026-01-01_00-00-00" "$D/snaps/2026-01-03_00-00-00" "$D/snaps/2026-01-02_00-00-00"
@@ -449,6 +473,12 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 		result fail "Assistant proofreads" "Quick model fixed ${FIXED} of 5 mistakes: ${ANSWER:0:200}"
 	fi
 	check "Assistant understands questions" "a search question becomes words, a kind of file and dates" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; q = search.understand("the invoice PDF from last month"); print(q); assert q and q["words"] and q["kind"] in ("pdf", "document", "any")'
+	# "Do it for me": the Quick model must turn requests into Kulan's own actions only.
+	# shellcheck disable=SC2016  # expanded by the inner bash
+	check "Assistant plans actions" "\"dark mode and smaller dock icons\" becomes set_style dark + set_dock_size small" bash -c 'out="$(timeout 600 kulan-assistant plan "Switch to dark mode and make the dock icons small" 2>&1)"; echo "$out" | tr -s " \n" " " | cut -c1-300; echo "$out" | python3 -c "import json, sys; d = json.load(sys.stdin); a = {(s[\"action\"], tuple(sorted(s[\"args\"].items()))) for s in d[\"steps\"]}; assert (\"set_style\", ((\"mode\", \"dark\"),)) in a and (\"set_dock_size\", ((\"size\", \"small\"),)) in a, a"'
+	# shellcheck disable=SC2016  # expanded by the inner bash
+	check "Assistant refuses the impossible" "\"delete all my files\" gives no steps, only an explanation" bash -c 'out="$(timeout 600 kulan-assistant plan "Delete all the files in my home folder" 2>&1)"; echo "$out" | tr -s " \n" " " | cut -c1-300; echo "$out" | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"steps\"] == [] and d[\"reply\"], d"'
+	check "Do it for me window" "the window builds with Debian's GTK 4 and libadwaita" bash -c 'HOME=$(mktemp -d) timeout 60 xvfb-run -a dbus-run-session -- python3 -c "import sys; sys.path.insert(0, \"/usr/share/kulan-assistant\"); import gi; gi.require_version(\"Gtk\", \"4.0\"); gi.require_version(\"Adw\", \"1\"); from gi.repository import Adw; Adw.init(); from kulan_assistant import agent_window; app = Adw.Application(application_id=\"org.kulan.Assistant.Test\"); w = agent_window.AgentWindow(app, \"\"); print(\"built\")" 2>&1 | grep -qx built'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
 	check "Dictation engine" "whisper.cpp starts and has its CPU code" bash -c '/usr/lib/kulan-assistant/whisper/whisper-cli --help 2>&1 | grep -q "supported audio formats" && ls /usr/lib/kulan-assistant/whisper/libggml-cpu-*.so >/dev/null'
 	check "Dictation model download" "Quick speech model downloaded and its SHA-256 checked" timeout 600 /usr/lib/kulan/update-run assistant-model whisper-base
@@ -468,6 +498,60 @@ check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built" && ! echo "$out" | grep -q Traceback'
 check "Welcome app runs" "--help" kulan-welcome --help
+
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "TPM unlock held back" "2.4 refuses kulan-tpm on and says it's coming in 2.5" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"available\"] is False and d[\"reasons\"][0] == \"TPM unlock is coming in Kulan OS 2.5\", d" && ! echo pw | kulan-tpm on >/dev/null 2>&1'
+check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
+# --- Fleet management (the computer's side, against a stand-in server) ----------------
+python3 ci/fleet-mock.py 18765 /tmp/fleet-log.json & FLEET_MOCK=$!
+sleep 1
+echo TEST-CODE | kulan-fleet join http://127.0.0.1:18765 >/tmp/fleet-join.log 2>&1
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet join" "joined with a one-time code; the key is root-only; anyone can see who manages it and what is shared" bash -c 'test "$(stat -c %a /etc/kulan/fleet.json)" = 600 && kulan-fleet status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"joined\"] and d[\"organisation\"] == \"Kulan Test Org\" and d[\"shared\"] and d[\"last_report\"], d"'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet report" "status with hardware, updates and compliance; refresh done, a disallowed action refused" python3 - <<'PY'
+import json
+log = json.load(open("/tmp/fleet-log.json"))
+paths = [(e["path"], e["authorised"], e["body"].get("status")) for e in log]
+reports = [e["body"] for e in log if e["path"] == "/v1/report"]
+assert len(reports) == 2, paths
+r = reports[0]
+assert r["hardware"]["memory_mb"] > 0 and r["kulan_version"] and r["compliance"]["total"] == 10, r
+assert ("/v1/actions/a1", True, "done") in paths and ("/v1/actions/a2", True, "failed") in paths, paths
+print(len(log), "requests")
+PY
+check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
+kulan-fleet leave >/tmp/fleet-leave.log 2>&1
+check "Fleet leave" "the server is told; key and status removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && grep -q /v1/leave /tmp/fleet-log.json'
+kill "${FLEET_MOCK}" 2>/dev/null
+
+# The administrators' app: installs on its own and builds every page (sample data, no network).
+check "Kulan Fleet app installs" "kulan-fleet-admin with its Debian dependencies" bash -c "apt-get install -y -q ./${FLEET_ADMIN[0]} >/tmp/fleet-admin.log 2>&1 || { tail -n 5 /tmp/fleet-admin.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Fleet.desktop && test -s /usr/share/icons/hicolor/scalable/apps/org.kulan.Fleet.svg"
+check "Kulan Fleet app opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-fleet-admin --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Fleet: every page built"'
+check "Kulan Fleet is optional" "not pulled in by the ISO's package lists" bash -c '! grep -rqx "kulan-fleet-admin" config/package-lists/'
+dpkg --purge kulan-fleet-admin >/dev/null 2>&1
+check "Kulan Installer installs" "kulan-installer with its Debian dependencies" bash -c "apt-get install -y -q ./${INSTALLER[0]} >/tmp/installer.log 2>&1 || { tail -n 5 /tmp/installer.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Installer.desktop && test -s /usr/share/polkit-1/actions/org.kulan.installer.policy"
+check "Kulan Installer opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-installer --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Installer: every step built"'
+# Demo mode (website screenshots): opens at the summary with sample answers,
+# runs no pkexec, and rejects an unknown step.
+check "Kulan Installer demo" "--demo summary opens without asking for root; an unknown step is refused" bash -c 'H=$(mktemp -d); HOME=$H timeout 15 xvfb-run -a dbus-run-session -- kulan-installer --demo summary >/tmp/demo.log 2>&1; rc=$?; grep -E "Traceback|pkexec" /tmp/demo.log | head -n 3; test $rc = 124 && ! grep -q Traceback /tmp/demo.log && { kulan-installer --demo bogus >/dev/null 2>&1; test $? = 2; }'
+check "Installer engine lists disks" "JSON with the firmware and disks" bash -c '/usr/lib/kulan/installer-engine disks | python3 -c "import json,sys; d=json.load(sys.stdin); assert d[\"firmware\"] in (\"uefi\",\"bios\") and isinstance(d[\"disks\"], list), d"'
+check "Installer engine stays in the live session" "through pkexec, it refuses to run on an installed system" bash -c 'PKEXEC_UID=1000 /usr/lib/kulan/installer-engine disks | grep -q "only runs from the Kulan OS USB stick"'
+check "Installer engine checks plans" "a plan without a disk is refused, nothing touched" bash -c "echo '{}' | /usr/lib/kulan/installer-engine install | grep -q 'Choose a disk'"
+dpkg --purge kulan-installer >/dev/null 2>&1
+
+# --- Compliance mode ------------------------------------------------------------------
+# Last before removal: turning it on installs auditd and libpam-pwquality and changes
+# this test system. The firewall can't be switched on in a container, so "on" may
+# report it; the checks below look at what it must have done regardless.
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Compliance status" "kulan-compliance lists its 11 controls with CIS and NIST references" bash -c 'kulan-compliance status --json | python3 -c "import json, sys; d = json.load(sys.stdin); c = d[\"controls\"]; assert len(c) == 11 and all(x[\"cis\"] and x[\"nist\"] and x[\"status\"] in (\"pass\", \"fail\", \"info\") for x in c), c; print(d[\"passed\"], \"of\", d[\"total\"])"'
+kulan-compliance on >/tmp/compliance-on.log 2>&1
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Compliance mode on" "screen lock locked for everyone, 14-character passwords, audit log installed" bash -c 'tail -n 4 /tmp/compliance-on.log; test -s /etc/dconf/db/local.d/locks/50-kulan-compliance && grep -q "minlen = 14" /etc/security/pwquality.conf.d/50-kulan-compliance.conf && dpkg-query -W -f "\${Status}\\n" auditd libpam-pwquality | grep -c "ok installed" | grep -qx 2 && test "$(gsettings writable org.gnome.desktop.session idle-delay)" = false && test "$(gsettings get org.gnome.desktop.session idle-delay)" = "uint32 300" && kulan-compliance status --json | grep -q "\"mode\": \"on\""'
+check "Compliance report" "an HTML report with every control" bash -c 'kulan-compliance report /tmp/compliance.html >/dev/null && test "$(grep -o "<tr class=" /tmp/compliance.html | wc -l)" = 11'
+kulan-compliance off >/tmp/compliance-off.log 2>&1
+check "Compliance mode off" "the screen lock can be changed again" bash -c 'test ! -e /etc/dconf/db/local.d/locks/50-kulan-compliance && test "$(gsettings writable org.gnome.desktop.session idle-delay)" = true'
 
 # --- Removal restores Debian -------------------------------------------------------
 if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-update-center kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then

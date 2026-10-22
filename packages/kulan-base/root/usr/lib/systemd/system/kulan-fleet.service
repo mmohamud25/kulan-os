@@ -1,0 +1,11 @@
+[Unit]
+Description=Report this computer's status to its organisation (Kulan fleet)
+ConditionPathExists=/etc/kulan/fleet.json
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kulan-fleet report
+Nice=10
+IOSchedulingClass=idle

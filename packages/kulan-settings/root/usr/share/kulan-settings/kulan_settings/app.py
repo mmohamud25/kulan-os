@@ -6,12 +6,15 @@ import sys
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .about import AboutPage
+from .accessibility import AccessibilityPage
 from .addons import AddonsPage
+from .apps import AppsPage
 from .appearance import AppearancePage
 from .assistant import AssistantPage
 from .battery import BatteryPage
 from .bluetooth import BluetoothPage
 from .common import Helper, open_gnome_panel
+from .dateandtime import DateTimePage
 from .desktop import DesktopPage
 from .display import DisplayPage
 from .family import FamilyPage
@@ -19,13 +22,17 @@ from .dock import DockPage
 from .focus import FocusPage
 from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
+from .mouse import MousePage
+from .notifications import NotificationsPage
 from .prayer import PrayerPage
 from .privacy import PrivacyPage
+from .region import RegionPage
 from .security import SecurityPage
 from .sound import SoundPage
 from .storage import StoragePage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
+from .users import UsersPage
 from .wifi import WifiPage
 
 APP_ID = "org.kulan.Settings"
@@ -40,6 +47,8 @@ PAGES = [
     # Sound and attention
     ("sound", SoundPage),
     ("focus", FocusPage),
+    ("notifications", NotificationsPage),
+    ("users", UsersPage),
     ("parental-controls", FamilyPage),
     # How it looks
     ("appearance", AppearancePage),
@@ -51,36 +60,59 @@ PAGES = [
     ("battery", BatteryPage),
     ("storage", StoragePage),
     ("login-items", LoginItemsPage),
+    ("apps", AppsPage),
     # Protection
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
     # Input and helpers
     ("keyboard", KeyboardPage),
+    ("mouse", MousePage),
+    ("accessibility", AccessibilityPage),
     ("assistant", AssistantPage),
     ("prayer-times", PrayerPage),
     # This computer
+    ("date-time", DateTimePage),
+    ("region", RegionPage),
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),
 ]
-GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "updates"}
+GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-time"}
+
+# Each page's tile colour in the sidebar (2.4 look): a white symbol on a
+# rounded square, like a Mac's System Settings.
+TILE_COLOURS = {
+    "wifi": "#0d9488", "bluetooth": "#3b82f6",
+    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
+    "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
+    "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
+    "security": "#0f766e", "privacy": "#2563eb",
+    "keyboard": "#64748b", "mouse": "#64748b", "accessibility": "#2563eb", "assistant": "#7c3aed", "prayer-times": "#d97706",
+    "date-time": "#0ea5e9", "region": "#0d9488", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
+}
+EXTERNAL_TILE = "#94a3b8"
+
+STYLE = """
+.kulan-tile { min-width: 26px; min-height: 26px; border-radius: 8px; color: #ffffff;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.22); }
+.kulan-tile > image { -gtk-icon-size: 15px; }
+.navigation-sidebar > row { border-radius: 9px; }
+.navigation-sidebar > row:selected { background-color: @accent_bg_color; color: @accent_fg_color; }
+.navigation-sidebar > row:selected .dim-label { color: @accent_fg_color; }
+.kulan-page-title { font-family: Manrope, Inter, sans-serif; font-weight: 800; font-size: 26px; }
+list.boxed-list { border-radius: 14px; }
+list.boxed-list > row:first-child { border-top-left-radius: 14px; border-top-right-radius: 14px; }
+list.boxed-list > row:last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
+preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px; }
+""" + "".join(f".kulan-tile.tile-{pid} {{ background-color: {colour}; }}\n" for pid, colour in TILE_COLOURS.items()) \
+    + f".kulan-tile.tile-external {{ background-color: {EXTERNAL_TILE}; }}\n"
+
 
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
-    ("Network", "network-wired-symbolic", ("network",)),
-    ("Mouse and touchpad", "input-mouse-symbolic", ("mouse",)),
     ("Printers", "printer-symbolic", ("printers",)),
-    ("Notifications", "org.gnome.Settings-notifications-symbolic|preferences-system-notifications-symbolic",
-     ("notifications",)),
     ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
     ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
-    ("Accessibility", "org.gnome.Settings-accessibility-symbolic|preferences-desktop-accessibility-symbolic",
-     ("universal-access",)),
-    ("Apps", "view-app-grid-symbolic", ("applications",)),
-    ("Users", "system-users-symbolic", ("system", "users")),
-    ("Language and region", "org.gnome.Settings-region-symbolic|preferences-desktop-locale-symbolic",
-     ("system", "region")),
-    ("Date and time", "preferences-system-time-symbolic", ("system", "datetime")),
 ]
 
 
@@ -90,6 +122,10 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.set_default_size(980, 720)
         self.set_size_request(360, 480)
         self.helper = Helper(self.toast)
+        style = Gtk.CssProvider()
+        style.load_from_string(STYLE)
+        Gtk.StyleContext.add_provider_for_display(self.get_display(), style,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.pages: dict[str, Gtk.Widget] = {}
         self.current: str | None = None
 
@@ -98,7 +134,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.sidebar_list.connect("row-activated", self.on_row)
         self.rows: dict[str, Gtk.ListBoxRow] = {}
         for page_id, cls in PAGES:
-            row = self.sidebar_row(cls.title, cls.icon)
+            row = self.sidebar_row(cls.title, cls.icon, page_id=page_id)
             row.page_id = page_id
             row.keywords = " ".join((cls.title, *cls.keywords)).lower()
             self.rows[page_id] = row
@@ -171,9 +207,14 @@ class SettingsWindow(Adw.ApplicationWindow):
         return candidates[-1] if display is None else "preferences-system-symbolic"
 
     @staticmethod
-    def sidebar_row(title: str, icon: str, external: bool = False) -> Gtk.ListBoxRow:
-        box = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6, margin_end=6)
-        box.append(Gtk.Image(icon_name=SettingsWindow.pick_icon(icon)))
+    def sidebar_row(title: str, icon: str, external: bool = False, page_id: str | None = None) -> Gtk.ListBoxRow:
+        box = Gtk.Box(spacing=10, margin_top=5, margin_bottom=5, margin_start=4, margin_end=6)
+        tile = Gtk.Box(css_classes=["kulan-tile", f"tile-{page_id}" if page_id else "tile-external"],
+                       valign=Gtk.Align.CENTER, halign=Gtk.Align.START, hexpand=False)
+        tile.append(Gtk.Image(icon_name=SettingsWindow.pick_icon(icon), halign=Gtk.Align.CENTER,
+                              valign=Gtk.Align.CENTER, hexpand=True, vexpand=True))
+        tile.set_size_request(26, 26)
+        box.append(tile)
         box.append(Gtk.Label(label=title, xalign=0, hexpand=True))
         if external:
             box.append(Gtk.Image(icon_name="adw-external-link-symbolic", css_classes=["dim-label"]))
@@ -219,7 +260,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         else:
             self.pages[page_id].shown()
         self.stack.set_visible_child_name(page_id)
-        self.content_title.set_title(cls.title)
+        self.content_title.set_title("")  # the page shows its own large title
         self.content.set_title(cls.title)
         self.current = page_id
         self.sidebar_list.select_row(self.rows[page_id])

@@ -37,6 +37,11 @@ class State:
                 "name": mprops.get("display-name") or connector, "builtin": bool(mprops.get("is-builtin")),
                 "modes": mode_list,
             })
+        # Two screens of the same model share a name: add where they're plugged in.
+        names = [m["name"] for m in self.monitors]
+        for m in self.monitors:
+            if names.count(m["name"]) > 1:
+                m["name"] = f"{m['name']} ({m['connector']})"
         self.logical = []
         for x, y, scale, transform, primary, specs, _lprops in logical:
             self.logical.append({"x": x, "y": y, "scale": scale, "transform": transform, "primary": primary,
@@ -136,6 +141,138 @@ def build_config(state: State, connector: str, mode: dict, scale: float, transfo
         monitors = [(c, box["modes"][c]["id"], {}) for c in lm["connectors"] if box["modes"][c].get("id")]
         config.append((box["x"], box["y"], float(box["scale"]), box["transform"], lm["primary"], monitors))
     return config
+
+
+# --- several screens -----------------------------------------------------------------
+
+SIDES = [("right", "To the right"), ("left", "To the left"), ("above", "Above"), ("below", "Below")]
+
+
+def connected(state: State) -> list[str]:
+    return [m["connector"] for m in state.monitors]
+
+
+def usual_mode(monitor: dict, current: dict | None) -> dict | None:
+    """The mode a screen gets when it's switched on: its current one, else
+    its preferred one, else the largest."""
+    if current is not None:
+        return current
+    preferred = [m for m in monitor["modes"] if m["preferred"] and not m["interlaced"]]
+    if preferred:
+        return preferred[0]
+    sizes = resolutions(monitor)
+    return modes_for(monitor, sizes[0])[0] if sizes else None
+
+
+def sides_around(state: State, center: str) -> dict[str, str]:
+    """Where each active screen sits now, seen from the center screen."""
+    middle = state.logical_for(center)
+    if middle is None:
+        return {}
+    mode = state.current_mode(center) or {"width": 1920, "height": 1080}
+    cw, ch = logical_size(mode["width"], mode["height"], middle["scale"], middle["transform"], state.layout_mode)
+    sides = {}
+    for lm in state.logical:
+        if lm is middle:
+            continue
+        dx, dy = lm["x"] - middle["x"], lm["y"] - middle["y"]
+        if dx >= cw:
+            side = "right"
+        elif dx < 0 and abs(dx) >= abs(dy):
+            side = "left"
+        elif dy < 0:
+            side = "above"
+        elif dy >= ch:
+            side = "below"
+        else:
+            side = "right"
+        for c in lm["connectors"]:
+            sides[c] = side
+    return sides
+
+
+def arrangement(state: State) -> tuple[str, str, dict[str, str]]:
+    """How the screens are used now: ("join"|"mirror"|"single", primary
+    connector, {connector: side of the primary})."""
+    primary_lm = next((lm for lm in state.logical if lm["primary"]), state.logical[0] if state.logical else None)
+    if primary_lm is None:
+        return "join", "", {}
+    primary = primary_lm["connectors"][0]
+    if len(state.logical) == 1:
+        return ("mirror" if len(primary_lm["connectors"]) > 1 else "single"), primary, {}
+    sides = sides_around(state, primary)
+    return "join", primary, sides
+
+
+def layout_config(state: State, how: str, primary: str, sides: dict[str, str]) -> list:
+    """ApplyMonitorsConfig's logical monitors for joined, mirrored or single
+    use. Joined screens sit around the primary one, in order, each on its side."""
+    monitors = {m["connector"]: m for m in state.monitors}
+    if primary not in monitors:
+        raise ValueError("that screen isn’t connected")
+
+    def lm_of(c):
+        return state.logical_for(c)
+
+    if how == "single":
+        mode = usual_mode(monitors[primary], state.current_mode(primary))
+        lm = lm_of(primary)
+        scale = lm["scale"] if lm else (mode["preferred_scale"] or 1.0)
+        return [(0, 0, float(best_scale(mode["scales"] or [1.0], scale)), lm["transform"] if lm else 0, True,
+                 [(primary, mode["id"], {})])]
+    if how == "mirror":
+        common = set(resolutions(monitors[primary]))
+        for c in monitors:
+            common &= set(resolutions(monitors[c]))
+        if not common:
+            raise ValueError("these screens don’t share a resolution to show the same picture")
+        size = sorted(common, key=lambda s: s[0] * s[1], reverse=True)[0]
+        chosen = {c: modes_for(monitors[c], size)[0] for c in monitors}
+        scales = set(chosen[primary]["scales"] or [1.0])
+        for mode in chosen.values():
+            scales &= set(mode["scales"] or [1.0])
+        scale = 1.0 if 1.0 in scales or not scales else min(scales)
+        return [(0, 0, float(scale), 0, True, [(c, chosen[c]["id"], {}) for c in monitors])]
+    # Joined: the primary at the centre, others around it on their side.
+    boxes = {}
+    for c, monitor in monitors.items():
+        mode = usual_mode(monitor, state.current_mode(c) if lm_of(c) and len(lm_of(c)["connectors"]) == 1
+                          else None)
+        if mode is None:
+            continue
+        lm = lm_of(c)
+        scale = lm["scale"] if lm else (mode["preferred_scale"] or 1.0)
+        scale = best_scale(mode["scales"] or [1.0], scale)
+        transform = lm["transform"] if lm else 0
+        w, h = logical_size(mode["width"], mode["height"], scale, transform, state.layout_mode)
+        boxes[c] = {"mode": mode, "scale": scale, "transform": transform, "w": int(round(w)), "h": int(round(h))}
+    if state.global_scale and primary in boxes:
+        for c, box in boxes.items():
+            box["scale"] = best_scale(box["mode"]["scales"] or [1.0], boxes[primary]["scale"])
+            w, h = logical_size(box["mode"]["width"], box["mode"]["height"], box["scale"], box["transform"],
+                                state.layout_mode)
+            box["w"], box["h"] = int(round(w)), int(round(h))
+    p = boxes[primary]
+    p["x"], p["y"] = 0, 0
+    edge = {"right": p["w"], "left": 0, "above": 0, "below": p["h"]}
+    for c in [c for c in monitors if c != primary and c in boxes]:
+        box, side = boxes[c], sides.get(c, "right")
+        if side == "right":
+            box["x"], box["y"] = edge["right"], 0
+            edge["right"] += box["w"]
+        elif side == "left":
+            edge["left"] -= box["w"]
+            box["x"], box["y"] = edge["left"], 0
+        elif side == "above":
+            edge["above"] -= box["h"]
+            box["x"], box["y"] = 0, edge["above"]
+        else:
+            box["x"], box["y"] = 0, edge["below"]
+            edge["below"] += box["h"]
+    min_x = min(b["x"] for b in boxes.values())
+    min_y = min(b["y"] for b in boxes.values())
+    return [(b["x"] - min_x, b["y"] - min_y, float(b["scale"]), b["transform"], c == primary,
+             [(c, b["mode"]["id"], {})]) for c, b in boxes.items()]
 
 
 class DisplayConfig:

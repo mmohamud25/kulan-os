@@ -70,7 +70,7 @@
     <key name="desktop-widgets" type="as">
       <default>['calendar', 'weather', 'prayer', 'notes']</default>
       <summary>Desktop widgets</summary>
-      <description>Widgets at the top left of the desktop, in this order: calendar, weather, prayer (only shown while Prayer Times is on) and notes. Empty: no widgets.</description>
+      <description>Widgets at the top left of the desktop, in the order shown. Known: calendar, weather, prayer (only shown while Prayer Times is on), notes, clock, system, todo and media. Empty: no widgets.</description>
     </key>
     <key name="search-shortcut" type="as">
       <default>['&lt;Super&gt;space']</default>

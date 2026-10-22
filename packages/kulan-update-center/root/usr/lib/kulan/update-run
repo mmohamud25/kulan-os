@@ -15,8 +15,12 @@
 #   update-run addon-remove <id>          remove an add-on listed in addons.json
 #   update-run security-checkup           run Lynis; summary in /var/lib/kulan/security-checkup.json
 #   update-run firewall-on                turn the firewall on (block incoming)
+#   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
+#   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
+#   update-run fleet-join <server>|fleet-leave  join or leave an organisation (one-time code on stdin)
 #   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
 #   update-run set-hostname <name>        change the computer's name
+#   update-run locale-add <locale>        add a language (one listed in /usr/share/i18n/SUPPORTED)
 #   update-run clean-cache                remove downloaded update files
 #   update-run cleanup                    remove old kernels and unneeded packages
 #   update-run clean-logs                 keep only the last two weeks of system logs
@@ -311,6 +315,31 @@ except (KeyError, OSError):
 os.replace(tmp, out)
 PY
 		;;
+	fleet-join)
+		[[ $# -eq 2 ]] || die "usage: update-run fleet-join <server> (one-time code on stdin)"
+		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
+		exec /usr/bin/kulan-fleet join "$2"
+		;;
+	fleet-leave)
+		[[ $# -eq 1 ]] || die "usage: update-run fleet-leave"
+		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
+		exec /usr/bin/kulan-fleet leave
+		;;
+	tpm-on|tpm-off)
+		[[ $# -eq 1 ]] || die "usage: update-run tpm-on|tpm-off (disk password on stdin)"
+		[[ -x /usr/bin/kulan-tpm ]] || die "TPM unlock isn't installed."
+		exec /usr/bin/kulan-tpm "${1#tpm-}"
+		;;
+	compliance-on)
+		[[ $# -eq 1 ]] || die "usage: update-run compliance-on"
+		[[ -x /usr/bin/kulan-compliance ]] || die "Compliance mode isn't installed."
+		/usr/bin/kulan-compliance on 1>&2
+		;;
+	compliance-off)
+		[[ $# -eq 1 ]] || die "usage: update-run compliance-off"
+		[[ -x /usr/bin/kulan-compliance ]] || die "Compliance mode isn't installed."
+		/usr/bin/kulan-compliance off 1>&2
+		;;
 	firewall-on)
 		[[ $# -eq 1 ]] || die "usage: update-run firewall-on"
 		ufw default deny incoming 1>&2
@@ -366,6 +395,21 @@ PY
 		fi
 		echo "Renamed ${OLD} to $2" >&2
 		;;
+	locale-add)
+		[[ $# -eq 2 ]] || die "usage: update-run locale-add <locale>"
+		[[ "$2" =~ ^[a-z]{2,3}_[A-Z]{2}\.UTF-8(@[a-z]+)?$ ]] || die "Unknown language."
+		command -v locale-gen >/dev/null 2>&1 || die "The locales package isn't installed."
+		# Only languages Debian knows how to build.
+		grep -qxF "$2 UTF-8" /usr/share/i18n/SUPPORTED || die "Unknown language."
+		touch /etc/locale.gen
+		ESCAPED="$(printf '%s' "$2" | sed 's/[.@]/\\&/g')"
+		if grep -qE "^#[[:space:]]*${ESCAPED} UTF-8$" /etc/locale.gen; then
+			sed -i -E "s/^#[[:space:]]*(${ESCAPED} UTF-8)$/\1/" /etc/locale.gen
+		elif ! grep -qxF "$2 UTF-8" /etc/locale.gen; then
+			printf '%s UTF-8\n' "$2" >> /etc/locale.gen
+		fi
+		locale-gen 1>&2
+		;;
 	assistant-model | assistant-model-remove)
 		[[ $# -eq 2 ]] || die "usage: update-run $1 <model>"
 		[[ "$2" =~ ^[a-z0-9][a-z0-9.-]{0,40}$ ]] || die "Unknown model."
@@ -378,6 +422,6 @@ PY
 		fi
 		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
 		;;
 esac

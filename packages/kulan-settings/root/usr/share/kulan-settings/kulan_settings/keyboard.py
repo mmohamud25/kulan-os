@@ -10,11 +10,11 @@ from .common import (
     Page,
     choice_row,
     has_key,
-    open_gnome_panel,
     reset_keys,
     settings,
     switch_row,
 )
+from .shortcuts import LayoutsGroup, ShortcutsDialog, first_usable
 
 CAPS_OPTIONS = {"caps:none": "Does nothing", "caps:escape": "Escape", "ctrl:nocaps": "Ctrl",
                 "caps:backspace": "Backspace"}
@@ -39,17 +39,16 @@ ASSISTANT = Path("/usr/bin/kulan-assistant")
 
 
 def first_binding(gsettings, key: str) -> str:
-    """The first real key combination (skips keys like XF86Keyboard and Print,
-    so the Mac-style one is shown)."""
-    values = gsettings.get_strv(key) if has_key(gsettings, key) else []
-    mac = [v for v in values if "<Super>" in v]
-    return (mac or values or [""])[0]
+    """The first real key combination (skips keys like XF86Keyboard, and
+    prefers the Mac-style Super one)."""
+    return first_usable(gsettings.get_strv(key) if has_key(gsettings, key) else [])
 
 
 class KeyboardPage(Page):
     title = "Keyboard"
     icon = "input-keyboard-symbolic"
-    keywords = ("keyboard", "layout", "caps lock", "repeat", "shortcuts", "typing")
+    keywords = ("keyboard", "layout", "layouts", "typing language", "input source", "caps lock", "repeat",
+                "shortcuts", "typing", "custom shortcut")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -74,6 +73,9 @@ class KeyboardPage(Page):
             typing.add(choice_row("Caps Lock key", "What the Caps Lock key does",
                                   [("", "Caps Lock"), *CAPS_OPTIONS.items()],
                                   self.get_caps, self.set_caps))
+
+        if self.sources is not None and has_key(self.sources, "sources"):
+            self.layouts = LayoutsGroup(self, self.sources)
 
         self.kulan = settings(KULAN_SCHEMA)
         shortcuts = self.add_group("Shortcuts", "In UTM on a Mac, the Command key is the Super key.")
@@ -104,13 +106,13 @@ class KeyboardPage(Page):
                                  "screen. Passwords from KeePassXC are skipped, but passwords copied from a "
                                  "browser are remembered too"))
 
-        more = self.add_group("More")
-        for title, subtitle, panel in (("Keyboard layouts", "Add or switch typing languages", "keyboard"),
-                                       ("Keyboard shortcuts", "View and change every shortcut", "keyboard")):
-            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True)
-            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-            row.connect("activated", lambda _r, p=panel: open_gnome_panel(p))
-            more.add(row)
+        more = self.add_group()
+        row = Adw.ActionRow(title="Keyboard shortcuts", subtitle="View and change every shortcut, or add your own",
+                            activatable=True)
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: ShortcutsDialog(self.window, self.toast, ASSISTANT.exists())
+                    .present(self.window))
+        more.add(row)
         self.add_reset(self.reset)
 
     def get_caps(self) -> str:

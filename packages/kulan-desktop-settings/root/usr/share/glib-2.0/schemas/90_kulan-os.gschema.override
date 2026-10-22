@@ -140,7 +140,10 @@ show-delay=0.125
 hide-delay=0.25
 pressure-threshold=80.0
 transparency-mode='FIXED'
-background-opacity=0.35
+# Kulan night navy (2.4 look), see-through.
+custom-background-color=true
+background-color='#09182e'
+background-opacity=0.55
 running-indicator-style='DOTS'
 # The Bin at the end of the dock, as on a Mac.
 show-trash=true

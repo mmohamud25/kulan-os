@@ -107,11 +107,12 @@ if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
 	[ -f /etc/default/useradd ] && sed -i -E 's|^#?[[:space:]]*SHELL=.*|SHELL=/bin/zsh|' /etc/default/useradd
 fi
 
-# Launcher in the app grid / dock.
+# Calamares' launcher: Advanced install (choose partitions yourself); Kulan
+# Installer is "Install Kulan OS" in the dock.
 if [ -f "${LAUNCHER}" ]; then
 	sed -i -E \
-		-e "s|^Name=.*|Name=Install ${KULAN_NAME}|" \
-		-e "s|^Comment=.*|Comment=Install ${KULAN_NAME} on this computer|" \
+		-e "s|^Name=.*|Name=Advanced install|" \
+		-e "s|^Comment=.*|Comment=Install ${KULAN_NAME} with partitions you choose yourself|" \
 		-e "s|^Icon=.*|Icon=kulan-logo|" \
 		"${LAUNCHER}"
 fi

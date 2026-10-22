@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kulan Fleet</title>
+<meta name="description" content="Kulan OS fleet dashboard">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #f4f7fb; --surface: #ffffff; --side: #eef3f8; --ink: #0a2240; --muted: #5b6b80; --line: #e1e8f0;
+  --teal: #0d9488; --teal-ink: #ffffff; --amber: #f59e0b; --good: #0f766e; --good-bg: #ccfbf1;
+  --bad: #b91c1c; --bad-bg: #fee2e2; --warn: #b45309; --warn-bg: #fef3c7; --chip: #e3eaf2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #071428; --surface: #0c1a30; --side: #0a1c36; --ink: #eef4fb; --muted: #93a4b8; --line: #1c2c45;
+    --good: #5eead4; --good-bg: rgba(13,148,136,.22); --bad: #fca5a5; --bad-bg: rgba(185,28,28,.22);
+    --warn: #fcd34d; --warn-bg: rgba(245,158,11,.18); --chip: #15253a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 Inter, system-ui, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 2; }
+header h1 { font: 800 18px Manrope, Inter, sans-serif; margin: 0; }
+header .who { margin-left: auto; color: var(--muted); font-size: 13px; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 60px; }
+h2 { font: 800 24px Manrope, Inter, sans-serif; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 18px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 18px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+button, select, input { font: inherit; color: inherit; }
+button { border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 600; cursor: pointer; background: var(--chip); }
+button.primary { background: var(--teal); color: var(--teal-ink); }
+button:disabled { opacity: .5; cursor: default; }
+input, select { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; }
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+.stat b { display: block; font: 800 28px Manrope, Inter, sans-serif; }
+.stat span { color: var(--muted); font-size: 13px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px; border-bottom: 2px solid var(--line); white-space: nowrap; }
+td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+tr.left td { opacity: .5; }
+.tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.tag.good { background: var(--good-bg); color: var(--good); }
+.tag.bad { background: var(--bad-bg); color: var(--bad); }
+.tag.warn { background: var(--warn-bg); color: var(--warn); }
+.tag.dim { background: var(--chip); color: var(--muted); }
+.name { font-weight: 600; }
+.name a { color: var(--teal); text-decoration: none; }
+.name a:hover { text-decoration: underline; }
+@media (prefers-color-scheme: dark) { .name a { color: #5eead4; } }
+.small { font-size: 12px; color: var(--muted); }
+.code { font: 700 26px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; }
+.empty { color: var(--muted); padding: 18px 8px; }
+#signin { max-width: 420px; margin: 10vh auto; }
+.hidden { display: none !important; }
+.error { color: var(--bad); }
+dialog { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); max-width: 720px; width: calc(100% - 32px); }
+dialog::backdrop { background: rgba(7,20,40,.45); }
+pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--side); border-radius: 10px; padding: 12px; max-height: 60vh; overflow: auto; }
+.logo { width: 26px; height: 26px; }
+@media (max-width: 640px) { header { padding: 12px 16px; } .hide-sm { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><g fill="#f59e0b"><circle cx="12" cy="4.5" r="2.2"/><circle cx="5.5" cy="15.75" r="2.2"/><circle cx="18.5" cy="15.75" r="2.2"/></g><g fill="#0d9488"><circle cx="18.5" cy="8.25" r="2.2"/><circle cx="12" cy="19.5" r="2.2"/><circle cx="5.5" cy="8.25" r="2.2"/></g><circle cx="12" cy="12" r="2.8" fill="#0d9488"/></svg>
+  <h1>Kulan Fleet</h1>
+  <span class="who" id="who"></span>
+  <button id="signout" class="hidden">Sign out</button>
+</header>
+
+<main>
+  <section id="signin" class="card">
+    <h2>Sign in</h2>
+    <p class="sub">We'll email you a sign-in link. Only fleet admins can see computers.</p>
+    <form id="signin-form" class="row">
+      <input id="email" type="email" required placeholder="you@example.com" autocomplete="email" style="flex:1; min-width: 220px" aria-label="Email">
+      <button class="primary" type="submit">Email me a link</button>
+    </form>
+    <p id="signin-msg" class="small" role="status"></p>
+  </section>
+
+  <section id="app" class="hidden">
+    <div class="row" style="margin-bottom: 14px">
+      <div>
+        <h2 id="org-title">Computers</h2>
+        <p class="sub" id="org-sub">Reports arrive every hour.</p>
+      </div>
+      <div class="row" style="margin-left: auto">
+        <label class="small" for="org">Organisation</label>
+        <select id="org"></select>
+        <button id="new-org" class="hidden">New organisation…</button>
+        <button id="refresh">Refresh</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><b id="s-total">0</b><span>computers</span></div>
+      <div class="stat"><b id="s-seen">0</b><span>reported in the last day</span></div>
+      <div class="stat"><b id="s-compliant">0</b><span>meet the compliance baseline</span></div>
+      <div class="stat"><b id="s-security">0</b><span>with security updates waiting</span></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom: 8px">
+        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Computers</h3>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Computer</th><th>Kulan OS</th><th>Last report</th><th>Compliance</th><th>Updates</th><th class="hide-sm">TPM unlock</th><th>Ask it to…</th></tr></thead>
+          <tbody id="devices"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Add computers</h3>
+      <p class="sub">Make a join code, then on each computer: Kulan Settings → About → Organisation → Join an organisation.</p>
+      <div class="row">
+        <label class="small" for="hours">Valid for</label>
+        <select id="hours"><option value="24">1 day</option><option value="72" selected>3 days</option><option value="168">1 week</option><option value="720">30 days</option></select>
+        <label class="small" for="uses">Computers</label>
+        <input id="uses" type="number" min="1" max="500" value="1" style="width: 90px">
+        <button class="primary" id="make-code">Make a join code</button>
+      </div>
+      <div id="code-box" class="hidden" style="margin-top: 14px">
+        <div class="small">Server address</div>
+        <div id="server" style="font-family: ui-monospace, monospace; margin-bottom: 8px"></div>
+        <div class="small">Join code (shown once)</div>
+        <div class="code" id="code"></div>
+        <div class="small" id="code-note"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Recent requests</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Computer</th><th>Request</th><th>Result</th></tr></thead>
+          <tbody id="actions"></tbody>
+        </table>
+      </div>
+    </div>
+    <p id="app-msg" class="small error" role="status"></p>
+  </section>
+</main>
+
+<dialog id="report-dialog">
+  <div class="row"><h3 id="report-title" style="margin: 0; font: 800 18px Manrope, Inter, sans-serif"></h3><button id="report-close" style="margin-left: auto">Close</button></div>
+  <div id="report-body"></div>
+</dialog>
+
+<!-- supabase-js 2.49.4 (MIT), kept next to this page rather than loaded from a CDN. -->
+<script src="supabase-js-2.49.4.js"></script>
+<script type="module">
+const { createClient } = window.supabase;
+
+const SUPABASE_URL = "https://xegnwqxpegznsufulclx.supabase.co";
+const PUBLISHABLE_KEY = "sb_publishable_Z7MrJQBPYz3_CmXviZuTJA_kWNAMOA1";  // public by design
+const API = `${SUPABASE_URL}/functions/v1/fleet-admin`;
+const FLEET_SERVER = `${SUPABASE_URL}/functions/v1/fleet`;
+const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"],
+                 ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
+                 ["restart", "Restart (5 min notice)"]];
+const LABEL = Object.fromEntries(ACTIONS);
+
+const supabase = createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { flowType: "pkce", detectSessionInUrl: true } });
+const $ = (id) => document.getElementById(id);
+let data = null;
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(c ?? ""));
+  return node;
+}
+
+function ago(iso) {
+  if (!iso) return "never";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  const days = Math.round(s / 86400);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+async function api(body) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Please sign in again");
+  const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(body) });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(out.error || `The server said ${res.status}`);
+  return out;
+}
+
+function show(signedIn) {
+  $("signin").classList.toggle("hidden", signedIn);
+  $("app").classList.toggle("hidden", !signedIn);
+  $("signout").classList.toggle("hidden", !signedIn);
+}
+
+async function load() {
+  $("app-msg").textContent = "";
+  try {
+    data = await api({ op: "overview" });
+  } catch (e) {
+    $("app-msg").textContent = e.message;
+    return;
+  }
+  $("who").textContent = data.email;
+  $("new-org").classList.toggle("hidden", !data.global);
+  const select = $("org"), keep = select.value;
+  select.replaceChildren(...data.organisations.map((o) => el("option", { value: o.id }, o.name)));
+  if (keep && data.organisations.some((o) => o.id === keep)) select.value = keep;
+  render();
+}
+
+function render() {
+  const org = $("org").value;
+  const orgName = data.organisations.find((o) => o.id === org)?.name;
+  $("org-title").textContent = orgName || "No organisation yet";
+  $("org-sub").textContent = orgName ? "Reports arrive every hour." : "Make an organisation first (New organisation…).";
+  const devices = data.devices.filter((d) => d.organisation_id === org);
+  const active = devices.filter((d) => !d.left_at);
+  $("s-total").textContent = active.length;
+  $("s-seen").textContent = active.filter((d) => d.last_seen && Date.now() - new Date(d.last_seen) < 86400000).length;
+  $("s-compliant").textContent = active.filter((d) => d.compliance_total && d.compliance_passed === d.compliance_total).length;
+  $("s-security").textContent = active.filter((d) => (d.updates?.security || 0) > 0).length;
+
+  const rows = devices.map((d) => {
+    const comp = d.compliance_total == null ? el("span", { class: "tag dim" }, "unknown")
+      : el("span", { class: `tag ${d.compliance_passed === d.compliance_total ? "good" : "warn"}` },
+           `${d.compliance_passed} of ${d.compliance_total}${d.compliance_mode === "on" ? " · on" : ""}`);
+    const upd = d.updates == null ? el("span", { class: "tag dim" }, "unknown")
+      : d.updates.security ? el("span", { class: "tag bad" }, `${d.updates.security} security`)
+      : d.updates.waiting ? el("span", { class: "tag warn" }, `${d.updates.waiting} waiting`)
+      : el("span", { class: "tag good" }, "up to date");
+    const tpm = d.tpm == null ? "–" : d.tpm.on ? el("span", { class: "tag good" }, "on") : el("span", { class: "tag dim" }, d.tpm.possible ? "off" : "not possible");
+    const pick = el("select", { "aria-label": `Ask ${d.hostname || "this computer"} to` },
+      el("option", { value: "" }, "Choose…"), ...ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
+    const go = el("button", { onclick: async () => {
+      if (!pick.value) return;
+      if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Whoever is using it gets 5 minutes' notice.`)) return;
+      go.disabled = true;
+      try { await api({ op: "action", device_id: d.id, type: pick.value }); await load(); }
+      catch (e) { $("app-msg").textContent = e.message; go.disabled = false; }
+    } }, "Send");
+    const name = el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openReport(d); } }, d.hostname || "(no name)");
+    return el("tr", { class: d.left_at ? "left" : "" },
+      el("td", {}, el("div", { class: "name" }, name), el("div", { class: "small" }, [d.hardware?.vendor, d.hardware?.model].filter(Boolean).join(" ") || d.os || "")),
+      el("td", {}, d.kulan_version || "–"),
+      el("td", {}, d.left_at ? `left ${ago(d.left_at)}` : ago(d.last_seen)),
+      el("td", {}, comp), el("td", {}, upd), el("td", { class: "hide-sm" }, tpm),
+      el("td", {}, d.left_at ? "" : el("div", { class: "row" }, pick, go)));
+  });
+  $("devices").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "7", class: "empty" }, "No computers yet. Make a join code below."))]));
+
+  const names = Object.fromEntries(data.devices.map((d) => [d.id, d.hostname]));
+  const ids = new Set(devices.map((d) => d.id));
+  const acts = data.actions.filter((a) => ids.has(a.device_id)).map((a) =>
+    el("tr", {}, el("td", {}, ago(a.created_at)), el("td", {}, names[a.device_id] || ""), el("td", {}, LABEL[a.type] || a.type),
+       el("td", {}, el("span", { class: `tag ${a.status === "done" ? "good" : a.status === "failed" ? "bad" : "dim"}` },
+                     { pending: "waiting for the computer", sent: "sent", done: "done", failed: "failed" }[a.status] || a.status),
+          a.detail ? el("span", { class: "small" }, ` ${a.detail}`) : "")));
+  $("actions").replaceChildren(...(acts.length ? acts : [el("tr", {}, el("td", { colspan: "4", class: "empty" }, "Nothing asked yet."))]));
+}
+
+async function openReport(d) {
+  $("report-title").textContent = d.hostname || "Computer";
+  $("report-body").replaceChildren(el("p", { class: "small" }, "Loading…"));
+  $("report-dialog").showModal();
+  try {
+    const { report } = await api({ op: "report", device_id: d.id });
+    const parts = [];
+    if (report?.compliance?.controls) {
+      parts.push(el("h4", {}, `Compliance: ${report.compliance.passed} of ${report.compliance.total} (${report.compliance.baseline || ""})`));
+      parts.push(el("table", {}, ...report.compliance.controls.map((c) => el("tr", {},
+        el("td", {}, c.id), el("td", {}, c.title),
+        el("td", {}, el("span", { class: `tag ${c.status === "pass" ? "good" : c.status === "fail" ? "bad" : "dim"}` }, c.status)),
+        el("td", { class: "small" }, `CIS ${c.cis} · NIST ${c.nist}`)))));
+    }
+    parts.push(el("h4", {}, "Full report"), el("pre", {}, JSON.stringify(report, null, 2)));
+    $("report-body").replaceChildren(...parts);
+  } catch (e) {
+    $("report-body").replaceChildren(el("p", { class: "error" }, e.message));
+  }
+}
+
+$("report-close").addEventListener("click", () => $("report-dialog").close());
+$("org").addEventListener("change", render);
+$("refresh").addEventListener("click", load);
+$("signout").addEventListener("click", async () => { await supabase.auth.signOut(); show(false); });
+$("new-org").addEventListener("click", async () => {
+  const name = prompt("Name of the organisation");
+  if (!name) return;
+  try { const { id } = await api({ op: "new-organisation", name }); await load(); $("org").value = id; render(); }
+  catch (e) { $("app-msg").textContent = e.message; }
+});
+$("make-code").addEventListener("click", async () => {
+  try {
+    const out = await api({ op: "new-code", organisation_id: $("org").value, hours: Number($("hours").value), uses: Number($("uses").value) });
+    $("server").textContent = FLEET_SERVER;
+    $("code").textContent = out.code;
+    $("code-note").textContent = `Works for ${out.uses} computer${out.uses === 1 ? "" : "s"} within ${out.hours} hours.`;
+    $("code-box").classList.remove("hidden");
+  } catch (e) { $("app-msg").textContent = e.message; }
+});
+$("signin-form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const email = $("email").value.trim();
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true } });
+  $("signin-msg").textContent = error ? error.message : "Check your email for the sign-in link.";
+});
+
+// Fires once at start (INITIAL_SESSION) and on every sign-in or sign-out.
+supabase.auth.onAuthStateChange((event, session) => {
+  show(!!session);
+  if (session && (event === "INITIAL_SESSION" || event === "SIGNED_IN")) setTimeout(load, 0);
+});
+</script>
+</body>
+</html>

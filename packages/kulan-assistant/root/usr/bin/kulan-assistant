@@ -6,6 +6,8 @@
   kulan-assistant ask TASK [TEXT]                         print the result (no window)
   kulan-assistant dictate AUDIO                           print the words spoken in a recording
   kulan-assistant status                                  engine, model and memory
+  kulan-assistant do [REQUEST]                            "Do it for me": plan Kulan actions, then do them
+  kulan-assistant plan REQUEST                            print the plan as JSON (nothing is done)
   kulan-assistant search-provider                         the Activities search service (D-Bus)
 
 TASK is one of: proofread, rewrite, friendly, professional, shorter, summary,
@@ -38,6 +40,10 @@ def main(argv: list[str]) -> int:
     dictate.add_argument("audio", type=Path)
     sub.add_parser("status", help="engine, model and memory, as JSON")
     sub.add_parser("search-provider", help="run the Activities search provider (D-Bus activated)")
+    do = sub.add_parser("do", help="\"Do it for me\": a window that plans Kulan actions and does them")
+    do.add_argument("request", nargs="*", help="what to do (or type it in the window)")
+    plan = sub.add_parser("plan", help="print the plan for a request as JSON; nothing is done")
+    plan.add_argument("request", nargs="+")
     args = parser.parse_args(argv[1:])
 
     if args.command == "status":
@@ -73,6 +79,21 @@ def main(argv: list[str]) -> int:
             print(f"kulan-assistant: {exc}", file=sys.stderr)
             return 1
         return 0
+
+    if args.command == "plan":
+        from kulan_assistant import agent
+        try:
+            reply, steps = agent.plan(" ".join(args.request))
+        except engine.EngineError as exc:
+            print(f"kulan-assistant: {exc}", file=sys.stderr)
+            return 1
+        print(json.dumps({"reply": reply, "steps": [{"action": s.action.id, "args": s.args, "text": s.text,
+                                                    "changes": s.action.changes} for s in steps]}, indent=2))
+        return 0
+
+    if args.command == "do":
+        from kulan_assistant import agent_window
+        return agent_window.show(" ".join(args.request))
 
     if args.command == "search-provider":
         from kulan_assistant import search

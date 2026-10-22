@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from gi.repository import Adw, Gio, Gtk
 
-from .common import KULAN_SCHEMA, Page, has_key, open_gnome_panel, reset_keys, settings, switch_row, time_row
+from .common import KULAN_SCHEMA, Page, has_key, reset_keys, settings, switch_row, time_row
 
 NOTIFICATIONS = "org.gnome.desktop.notifications"
 
@@ -38,7 +38,7 @@ class FocusPage(Page):
         row = Adw.ActionRow(title="Notifications from each app", subtitle="Choose which apps may notify you",
                             activatable=True)
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: open_gnome_panel("notifications"))
+        row.connect("activated", lambda _r: self.window.show_page("notifications"))
         apps.add(row)
         self.add_reset(self.reset)
 

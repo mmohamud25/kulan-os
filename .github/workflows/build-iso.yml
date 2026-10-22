@@ -164,6 +164,10 @@ jobs:
           pattern: kulan-files-amd64
           path: dist/files/
           merge-multiple: true
+      # A Kulan Files version the channel already has: test the channel's file
+      # (what installed systems get), see ci/use-channel-files.sh.
+      - name: Match the update channel's Kulan Files
+        run: ci/use-channel-files.sh dist/files
       - name: Install, check and remove in Debian 13
         run: |
           docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
@@ -248,6 +252,12 @@ jobs:
           done
           rm -rf dist/files-arm64
 
+      # Never publish different bytes under a version the channel already
+      # has: installed systems would see it as a downgrade and stop updating.
+      - name: Keep the update channel's Kulan Files where the version is unchanged
+        if: steps.ready.outputs.ready == 'true'
+        run: ci/use-channel-files.sh dist/debs
+
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
         env:
@@ -272,7 +282,7 @@ jobs:
           . ./kulan.conf
           VERSION="$(cat dist/debs/VERSION)"
           for attempt in $(seq 1 30); do
-            if curl -fsS --max-time 20 "${KULAN_APT_URL}Packages" 2>/dev/null | grep -qx "Version: ${VERSION}"; then
+            if curl -fsSL --max-time 20 "${KULAN_APT_URL}Packages" 2>/dev/null | grep -qx "Version: ${VERSION}"; then
               echo "::notice title=Update channel::Live at ${KULAN_APT_URL} with ${VERSION}"
               exit 0
             fi
@@ -334,6 +344,11 @@ jobs:
             cp -v "$deb" config/packages.chroot/
           done
           rm -rf dist/files-amd64
+
+      # The image build reads the update channel too: its Kulan Files and the
+      # image's must be the same files (see ci/use-channel-files.sh).
+      - name: Match the update channel's Kulan Files
+        run: ci/use-channel-files.sh config/packages.chroot
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships
       # with toolchains we don't use, so remove them first.
@@ -407,6 +422,22 @@ jobs:
           KULAN_BOOT_LABEL: Low-end boot test
         run: ci/boot-test.sh out/*.iso boot-test-low-end
 
+      # Screenshots for os.kulangroup.com: the live desktop, Kulan Installer
+      # and Kulan Settings at 1920x1080. Never fails the build.
+      - name: Website screenshots
+        if: matrix.arch == 'amd64'
+        continue-on-error: true
+        run: ci/screenshots.sh out/*.iso screenshots
+
+      - name: Upload website screenshots
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: screenshots-amd64
+          path: screenshots/*.png
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload low-end boot test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6
@@ -421,8 +452,32 @@ jobs:
       - name: Install test
         if: matrix.arch == 'amd64'
         run: |
-          sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk
+          sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk e2fsprogs cryptsetup parted xorriso
           ci/install-test.sh out/*.iso install-test
+
+      # Encrypted install with Secure Boot and an emulated TPM: turn TPM unlock
+      # on, take every other key away, and check the next start opens the disk
+      # by itself.
+      # TPM unlock is held back in 2.4 (kulan-tpm refuses "on" without
+      # KULAN_TPM_PREVIEW=1, which this test sets), so a failure here is
+      # reported but doesn't stop the build. Make it blocking again when
+      # TPM unlock ships.
+      - name: TPM unlock test
+        if: matrix.arch == 'amd64'
+        continue-on-error: true
+        timeout-minutes: 60
+        run: |
+          sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk
+          ci/tpm-test.sh out/*.iso tpm-test
+
+      - name: Upload TPM unlock test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: tpm-test-amd64
+          path: tpm-test/
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Upload install test
         if: always() && matrix.arch == 'amd64'
@@ -452,3 +507,76 @@ jobs:
             build.log
           retention-days: 14
           if-no-files-found: ignore
+
+  # Keep the website screenshots on the site-screenshots branch, one folder
+  # per build, so the site (and anyone without access to build artifacts) can
+  # use them. Only the PNGs from this run go there.
+  screenshots:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    name: Save website screenshots and test logs
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        id: get
+        continue-on-error: true
+        with:
+          name: screenshots-amd64
+          path: shots/
+      - name: Commit to site-screenshots
+        if: steps.get.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls shots/*.png >/dev/null 2>&1 || { echo "No screenshots in this run"; exit 0; }
+          git init -q repo && cd repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth 1 origin site-screenshots; then git checkout -q -b site-screenshots FETCH_HEAD; else git checkout -q --orphan site-screenshots; fi
+          DIR="${REF//\//-}/${RUN}"
+          mkdir -p "${DIR}" "${REF//\//-}/latest"
+          cp ../shots/*.png "${DIR}/"
+          rm -f "${REF//\//-}/latest/"*.png
+          cp ../shots/*.png "${REF//\//-}/latest/"
+          git add -A
+          git commit -q -m "Screenshots from run ${RUN} (${REF})"
+          git push -q origin site-screenshots
+          echo "::notice title=Screenshots::saved to site-screenshots/${DIR}"
+
+      # The virtual-machine tests' logs and screenshots, on the ci-diagnostics
+      # branch (one folder per run), for reading a failure without the
+      # Actions artifacts. Logs and pictures only, at most 2 MB each.
+      - uses: actions/download-artifact@v7
+        id: tests
+        continue-on-error: true
+        with:
+          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test}-amd64"
+          path: tests/
+      - name: Commit to ci-diagnostics
+        if: steps.tests.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [ -d tests ] || { echo "No test logs in this run"; exit 0; }
+          rm -rf diag && git init -q diag && cd diag
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth 1 origin ci-diagnostics; then git checkout -q -b ci-diagnostics FETCH_HEAD; else git checkout -q --orphan ci-diagnostics; fi
+          mkdir -p "${RUN}"
+          (cd ../tests && find . -type f \( -name '*.log' -o -name '*.png' -o -name '*.txt' \) -size -2M -print0) |
+            while IFS= read -r -d '' f; do mkdir -p "${RUN}/$(dirname "$f")"; cp "../tests/$f" "${RUN}/$f"; done
+          git add -A
+          git diff --cached --quiet && { echo "Nothing to save"; exit 0; }
+          git commit -q -m "Test logs from run ${RUN}"
+          git push -q origin ci-diagnostics
+          echo "::notice title=Test logs::saved to ci-diagnostics/${RUN}"

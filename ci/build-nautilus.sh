@@ -15,6 +15,10 @@ set -euo pipefail
 
 # 2: the update channel now carries one nautilus-data, built on PCs (see build-iso.yml).
 REVISION=2
+# The patch this revision was made with. A changed patch with the same
+# version would never reach installed systems (apt sees nothing new), so
+# changing the patch means: REVISION+1 and this hash updated.
+PATCH_SHA256=a2bb19f28502a4545ee775021ba7bc9ee2067f218528d18b1cc21b0f4f4befa2
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${ROOT}/dist/files"
 PATCH="${ROOT}/packages-src/nautilus/kulan-files.patch"
@@ -28,6 +32,11 @@ apt-get update -q >/dev/null
 
 DEBIAN_VERSION="$(apt-cache showsrc nautilus | awk '/^Version:/ {print $2}' | sort -V | tail -n 1)"
 [[ -n "${DEBIAN_VERSION}" ]] || { echo "::error title=Kulan Files::no Nautilus source in Debian 13" >&2; exit 1; }
+ACTUAL_SHA256="$(sha256sum "${PATCH}" | cut -d" " -f1)"
+if [[ "${ACTUAL_SHA256}" != "${PATCH_SHA256}" ]]; then
+	echo "::error title=Kulan Files::kulan-files.patch changed: raise REVISION in ci/build-nautilus.sh and set PATCH_SHA256=${ACTUAL_SHA256}" >&2
+	exit 1
+fi
 if [[ "${1:-}" == --version ]]; then
 	echo "${DEBIAN_VERSION}"
 	exit 0

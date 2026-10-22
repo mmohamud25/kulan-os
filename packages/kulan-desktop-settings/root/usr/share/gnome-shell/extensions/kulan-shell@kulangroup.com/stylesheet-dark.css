@@ -379,3 +379,240 @@
   box-shadow: none;
 }
 .kulan-quicknote-entry:focus { box-shadow: none; border: none; }
+
+/* ==== Kulan look 2.4 ======================================================
+   From the 2.4 mockups (Main, App grid, Lock): Control Centre tiles as
+   rounded cards with thick sliders, a rounder dock, a wider search pill,
+   Manrope for the big clock. Later rules here win over the ones above. */
+
+/* ---- Top bar ---------------------------------------------------------- */
+#panel .panel-button {
+  border-radius: 999px;
+}
+#panel .panel-button.kulan-prayer {
+  background-color: rgba(13, 148, 136, 0.28);
+}
+
+#panel .kulan-prayer-box { spacing: 6px; }
+#panel .kulan-prayer-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+  background-color: #f59e0b;
+}
+#panel .panel-button.kulan-prayer .kulan-prayer-label { font-weight: 600; }
+
+/* ---- Control Centre (quick settings) ---------------------------------- */
+.quick-settings {
+  background-color: rgba(9, 24, 46, 0.95);
+  border: 1px solid rgba(147, 197, 253, 0.16);
+  border-radius: 24px;
+  padding: 14px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.quick-settings-grid {
+  spacing-rows: 10px;
+  spacing-columns: 10px;
+}
+.quick-toggle,
+.quick-toggle-has-menu {
+  border-radius: 18px;
+}
+.quick-toggle,
+.quick-toggle-has-menu .quick-toggle,
+.quick-toggle-has-menu .quick-toggle-menu-button {
+  background-color: rgba(236, 253, 245, 0.08);
+  color: #eef4fb;
+}
+.quick-toggle:hover,
+.quick-toggle-has-menu .quick-toggle:hover,
+.quick-toggle-has-menu .quick-toggle-menu-button:hover {
+  background-color: rgba(236, 253, 245, 0.14);
+}
+.quick-toggle-has-menu .quick-toggle:ltr { border-radius: 18px 0 0 18px; }
+.quick-toggle-has-menu .quick-toggle:rtl { border-radius: 0 18px 18px 0; }
+.quick-toggle-has-menu .quick-toggle-menu-button:ltr { border-radius: 0 18px 18px 0; }
+.quick-toggle-has-menu .quick-toggle-menu-button:rtl { border-radius: 18px 0 0 18px; }
+.quick-toggle:checked,
+.quick-toggle-has-menu .quick-toggle:checked,
+.quick-toggle-has-menu .quick-toggle-menu-button:checked {
+  background-color: #0d9488;
+  color: #ffffff;
+}
+.quick-slider .slider-bin {
+  border-radius: 18px;
+  background-color: rgba(236, 253, 245, 0.08);
+  padding: 8px 10px;
+}
+.quick-settings .slider {
+  -barlevel-height: 22px;
+  -barlevel-background-color: rgba(236, 253, 245, 0.14);
+  -barlevel-active-background-color: #ecfdf5;
+  -slider-handle-radius: 11px;
+  -slider-handle-border-width: 0;
+  color: #ecfdf5;
+}
+.quick-settings-system-item .icon-button {
+  border-radius: 16px;
+  background-color: rgba(236, 253, 245, 0.08);
+}
+.quick-settings-system-item .icon-button:hover {
+  background-color: rgba(236, 253, 245, 0.14);
+}
+.quick-toggle-menu {
+  border-radius: 18px;
+  background-color: rgba(236, 253, 245, 0.08);
+}
+
+/* ---- Dock ------------------------------------------------------------- */
+#dashtodockContainer .dash-background {
+  border-radius: 26px;
+  border: 1px solid rgba(147, 197, 253, 0.16);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.35);
+}
+#dashtodockContainer .dash-item-container .app-well-app-running-dot,
+#dashtodockContainer .app-grid-running-dot {
+  background-color: #f59e0b;
+}
+
+/* ---- App grid --------------------------------------------------------- */
+/* Kulan night navy behind the overview and app grid instead of GNOME's grey
+   (with Blur my Shell's overview blur on, the blurred wallpaper covers it). */
+#overviewGroup {
+  background-color: #071a33;
+}
+.search-entry {
+  width: 34em;
+  min-height: 34px;
+  padding: 6px 18px;
+}
+.app-folder {
+  border-radius: 24px;
+  background-color: rgba(236, 253, 245, 0.14);
+}
+.overview-tile {
+  border-radius: 24px;
+}
+.page-indicator-icon {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+}
+.page-indicator:checked .page-indicator-icon {
+  width: 22px;
+  background-color: #ecfdf5;
+}
+
+/* ---- Desktop widgets -------------------------------------------------- */
+.kulan-widget {
+  border-radius: 26px;
+  padding: 16px 18px;
+}
+.kulan-widget-big {
+  font-family: Manrope, Inter, sans-serif;
+  font-weight: 800;
+  font-size: 3em;
+}
+.kulan-widget-big-text {
+  font-family: Manrope, Inter, sans-serif;
+  font-weight: 800;
+}
+.kulan-card-calendar .kulan-widget-title,
+.kulan-card-calendar .kulan-widget-icon,
+.kulan-card-prayer .kulan-widget-title,
+.kulan-card-prayer .kulan-widget-icon {
+  color: #f59e0b;
+  letter-spacing: 1px;
+}
+.kulan-card-weather {
+  background-gradient-direction: vertical;
+  background-gradient-start: rgba(13, 148, 136, 0.80);
+  background-gradient-end: rgba(10, 34, 64, 0.85);
+}
+.kulan-card-weather .kulan-widget-title,
+.kulan-card-weather .kulan-widget-icon { color: #ecfdf5; }
+.kulan-card-note,
+.kulan-card-note:hover {
+  background-color: #fef3c7;
+  border-color: rgba(180, 83, 9, 0.18);
+  color: #3b2a04;
+}
+.kulan-card-note .kulan-widget-title,
+.kulan-card-note .kulan-widget-icon { color: #b45309; letter-spacing: 1px; }
+.kulan-card-note .kulan-widget-muted { color: rgba(59, 42, 4, 0.6); }
+
+/* New widgets (2.4): Clock, System, To-do, Now Playing */
+.kulan-clock-time { spacing: 4px; }
+.kulan-clock-ampm { font-size: 0.9em; font-weight: 700; padding-bottom: 8px; }
+.kulan-card-clock .kulan-widget-title,
+.kulan-card-clock .kulan-widget-icon,
+.kulan-card-system .kulan-widget-title,
+.kulan-card-system .kulan-widget-icon,
+.kulan-card-todo .kulan-widget-title,
+.kulan-card-todo .kulan-widget-icon,
+.kulan-card-media .kulan-widget-title,
+.kulan-card-media .kulan-widget-icon { color: #f59e0b; letter-spacing: 1px; }
+.kulan-system-row { spacing: 3px; padding-top: 3px; }
+.kulan-system-value { font-size: 0.82em; font-weight: 600; }
+.kulan-system-bar { height: 5px; border-radius: 3px; background-color: rgba(255, 255, 255, 0.12); }
+.kulan-system-fill { height: 5px; border-radius: 3px; background-color: #0d9488; }
+.kulan-system-fill-warn { background-color: #f59e0b; }
+.kulan-todo-widget-row { spacing: 8px; padding: 2px 0; }
+.kulan-todo-check {
+  width: 18px; height: 18px; border-radius: 9px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background-color: transparent;
+}
+.kulan-todo-check:hover { border-color: #0d9488; }
+.kulan-todo-check:focus { border-color: #0d9488; box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.35); }
+.kulan-todo-check-done { background-color: #0d9488; border-color: #0d9488; }
+.kulan-todo-check-icon { icon-size: 12px; color: #ffffff; }
+.kulan-todo-entry {
+  padding: 9px 12px; border-radius: 10px; border: none;
+  background-color: rgba(255, 255, 255, 0.07); color: #eef4fb; caret-color: #0d9488; box-shadow: none;
+}
+.kulan-todo-entry:focus { box-shadow: inset 0 0 0 2px rgba(13, 148, 136, 0.6); }
+.kulan-todo-list { spacing: 2px; padding: 4px 2px; }
+.kulan-todo-row { spacing: 10px; padding: 7px 8px; border-radius: 10px; }
+.kulan-todo-row:hover { background-color: rgba(255, 255, 255, 0.08); }
+.kulan-todo-text { color: #eef4fb; }
+.kulan-todo-text-done { color: rgba(255, 255, 255, 0.55); }
+.kulan-todo-empty { color: rgba(255, 255, 255, 0.55); padding: 12px 8px; }
+.kulan-todo-remove { padding: 4px; border-radius: 8px; color: rgba(255, 255, 255, 0.55); }
+.kulan-todo-remove:hover { background-color: rgba(255, 255, 255, 0.08); color: #eef4fb; }
+.kulan-todo-clear { padding: 4px 12px; border-radius: 10px; color: #0d9488; font-weight: 600; }
+.kulan-todo-clear:hover { background-color: rgba(255, 255, 255, 0.08); }
+.kulan-media-track { spacing: 10px; padding-top: 2px; }
+.kulan-media-cover { icon-size: 44px; border-radius: 8px; }
+.kulan-media-controls { spacing: 14px; padding-top: 6px; }
+.kulan-media-button { padding: 6px; border-radius: 16px; color: #eef4fb; }
+.kulan-media-button:hover { background-color: rgba(255, 255, 255, 0.08); }
+
+/* ---- Lock screen ------------------------------------------------------ */
+.unlock-dialog-clock-time {
+  font-family: Manrope, Inter, sans-serif;
+  font-weight: 800;
+  font-size: 112pt;
+  letter-spacing: -3px;
+}
+.unlock-dialog-clock-hint {
+  background-color: rgba(13, 148, 136, 0.30);
+  color: #eef4fb;
+  font-weight: 600;
+}
+.unlock-dialog .user-widget.vertical .user-icon {
+  icon-size: 96px;
+  box-shadow: 0 0 0 4px rgba(236, 253, 245, 0.18);
+}
+.unlock-dialog .user-widget.vertical .user-widget-label {
+  font-weight: 700;
+}
+.unlock-dialog .login-dialog-prompt-entry {
+  width: 16em;
+  border: 1px solid rgba(236, 253, 245, 0.22);
+  background-color: rgba(236, 253, 245, 0.14);
+}
+.unlock-dialog .login-dialog-prompt-entry:focus {
+  border-color: #2dd4bf;
+  box-shadow: none;
+}

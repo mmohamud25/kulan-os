@@ -1,8 +1,15 @@
 [Icon Theme]
 Name=Kulan
-Comment=Kulan OS folders, with GNOME's Adwaita icons for everything else
+Comment=Kulan OS folders and app icons, with GNOME's Adwaita icons for everything else
 Inherits=Adwaita,hicolor
-Directories=scalable/places,scalable/mimetypes,scalable/emblems
+Directories=scalable/apps,scalable/places,scalable/mimetypes,scalable/emblems
+
+[scalable/apps]
+Context=Applications
+Size=128
+MinSize=8
+MaxSize=512
+Type=Scalable
 
 [scalable/places]
 Context=Places
