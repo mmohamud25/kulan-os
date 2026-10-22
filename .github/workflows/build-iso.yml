@@ -508,6 +508,34 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # A main build's ISOs as a GitHub Release (no login, no expiry), linked
+  # from os.kulangroup.com/download/. Only when both ISOs passed their tests
+  # and the update channel was published from this same build.
+  release:
+    needs: [build, publish]
+    if: >-
+      github.ref == 'refs/heads/main' && !cancelled() &&
+      needs.build.result == 'success' && needs.publish.result == 'success'
+    name: Publish the ISOs
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-os-amd64
+          path: iso/amd64/
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-os-arm64
+          path: iso/arm64/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KULAN_APT_SIGNING_KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
+        run: ci/make-release.sh iso
+
   # Keep the website screenshots on the site-screenshots branch, one folder
   # per build, so the site (and anyone without access to build artifacts) can
   # use them. Only the PNGs from this run go there.

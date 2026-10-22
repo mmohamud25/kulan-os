@@ -161,8 +161,8 @@ class UpdatesPage(Page):
         self.summary: dict = {}
         self.working = False
         self.restore_on = RESTORE_CONFIG.exists() and shutil.which("timeshift") is not None
-        self.remote_notes: dict[str, dict] = {}  # version -> {"title", "items"} from the website
-        self.notes_asked: set[str] = set()
+        self.remote_notes: list[dict] = []  # every version's notes, from the website (newest first)
+        self.notes_fetched = False
         self.dialog_rows: dict[str, Gtk.Widget] = {}  # rows of the open Automatic Updates sheet
 
         self.page.add(self.build_top_group())
@@ -270,7 +270,7 @@ class UpdatesPage(Page):
             return  # the running action owns the status area
         available = self.available()
         self.summary = updatelist.summarize(available, self.release.get("VERSION_ID", ""))
-        new_version = self.summary.get("release")
+        new_version = self.release_offered()
         name = self.release.get("NAME", "Kulan OS")
         current = self.release.get("VERSION_ID", "")
         restart = self.restart_needed()
@@ -291,10 +291,9 @@ class UpdatesPage(Page):
             self.status_icon.set_from_icon_name("kulan-logo")
             self.status_icon.set_pixel_size(88)
             self.status_title.set_label(f"{name} {new_version}")
-            notes = self.remote_notes.get(new_version)
+            notes = self.note_for(new_version)
             self.status_subtitle.set_label(notes["title"] if notes and notes.get("title") else "A new version")
             self.action = "install"
-            self.fetch_notes(new_version)
         elif available:
             count = self.summary["count"]
             security = self.summary.get("security", [])
@@ -365,7 +364,7 @@ class UpdatesPage(Page):
 
     def more_details(self) -> None:
         """A Kulan OS version: its page on the website. Other updates: a short sheet."""
-        new_version = self.summary.get("release")
+        new_version = self.release_offered()
         if new_version:
             self.open_url(notes_url(new_version))
         elif self.available():
@@ -415,27 +414,48 @@ class UpdatesPage(Page):
             page.add(tech)
         self.sheet("Updates", page)
 
-    def fetch_notes(self, version: str) -> None:
-        """The new version's name from the website, once, in the background."""
-        if version in self.notes_asked:
+    def release_offered(self) -> str | None:
+        """The Kulan OS version these updates bring, if they bring one: a new
+        major.minor from the packages themselves, or a point release (2.4.1)
+        named by the website's notes when Kulan's packages are updating."""
+        if self.summary.get("release"):
+            self.fetch_notes()
+            return self.summary["release"]
+        if not self.summary.get("kulan"):
+            return None
+        self.fetch_notes()
+        current = updatelist.version_tuple(self.release.get("VERSION_ID", ""))
+        newest = str(self.remote_notes[0].get("version", "")) if self.remote_notes else ""
+        same_series = updatelist.series(newest) == updatelist.series(self.release.get("VERSION_ID", ""))
+        if newest and same_series and updatelist.version_tuple(newest) > current:
+            return newest
+        return None
+
+    def note_for(self, version: str) -> dict | None:
+        return next((n for n in self.remote_notes if str(n.get("version")) == version), None)
+
+    def fetch_notes(self) -> None:
+        """Every version's notes from the website, once, in the background."""
+        if self.notes_fetched:
             return
-        self.notes_asked.add(version)
+        self.notes_fetched = True
 
         def work() -> None:
             try:
                 with urllib.request.urlopen(NOTES_JSON, timeout=8) as resp:  # noqa: S310 - fixed https URL
                     data = json.loads(resp.read(512 * 1024).decode("utf-8"))
-                note = next((n for n in data if isinstance(n, dict) and n.get("version") == version), None)
-            except (OSError, ValueError, TypeError):
-                note = None
-            if note:
-                GLib.idle_add(self.notes_arrived, version, note)
+            except (OSError, ValueError):
+                return
+            if isinstance(data, list):
+                notes = [{"version": str(n.get("version")), "title": str(n.get("title") or "")}
+                         for n in data if isinstance(n, dict) and n.get("version")]
+                GLib.idle_add(self.notes_arrived, notes)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def notes_arrived(self, version: str, note: dict) -> bool:
+    def notes_arrived(self, notes: list[dict]) -> bool:
         if not self.torn_down:
-            self.remote_notes[version] = {"title": str(note.get("title") or "")}
+            self.remote_notes = notes
             self.render_status()
         return GLib.SOURCE_REMOVE
 

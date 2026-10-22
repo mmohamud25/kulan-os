@@ -86,6 +86,16 @@ def series(version: str) -> tuple[int, int] | None:
     return (int(match.group(1)), int(match.group(2))) if match else None
 
 
+def version_tuple(version: str) -> tuple[int, ...]:
+    """"2.4.1" -> (2, 4, 1); anything else stops at the first non-number."""
+    parts = []
+    for piece in (version or "").split("."):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+    return tuple(parts)
+
+
 def is_kulan(update: dict) -> bool:
     name = str(update.get("name") or "")
     return name.startswith("kulan-") and update.get("kind") not in ("app", "runtime")
@@ -191,5 +201,9 @@ def self_test() -> None:
     assert headline("Kulan Installer: four short steps") == ("Kulan Installer", "Four short steps")
     assert headline("Round red, yellow and green window buttons") == ("Round red, yellow and green window buttons", "")
     assert history_title([], "2.4") == "Updated to Kulan OS 2.4"
+    assert version_tuple("2.4.1") > version_tuple("2.4") and version_tuple("2.5") > version_tuple("2.4.9")
+    assert series("2.4.1") == series("2.4.202610231200") == (2, 4)
+    point = summarize([{"name": "kulan-base", "from": "2.4.202610222011", "to": "2.4.202610231200"}], "2.4")
+    assert point["release"] is None and point["kulan"] == ["kulan-base"], point
     assert friendly_name({"name": "linux-image-6.12.57-amd64", "source": "linux-signed-amd64"}) == \
         "System core (Linux kernel)"
