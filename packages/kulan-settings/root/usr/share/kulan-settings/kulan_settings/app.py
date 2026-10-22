@@ -108,7 +108,6 @@ preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px
 
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
-    ("Network", "network-wired-symbolic", ("network",)),
     ("Printers", "printer-symbolic", ("printers",)),
     ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
     ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),

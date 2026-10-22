@@ -1,11 +1,12 @@
 """Wi-Fi and network: turn Wi-Fi on or off, see nearby networks and join one,
-and see the wired connection. Uses NetworkManager (libnm); anything unusual
-(enterprise Wi-Fi, VPN, proxy, hidden networks) opens GNOME Settings."""
+and see the wired connection. Uses NetworkManager (libnm). Enterprise and
+hidden networks, VPN, hotspot and proxy are in netextras.py."""
 from __future__ import annotations
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, open_gnome_panel
+from .common import Page
+from .netextras import NetworkExtras, details_text
 
 try:
     import gi
@@ -76,7 +77,8 @@ def signal_icon(strength: int) -> str:
 class WifiPage(Page):
     title = "Wi-Fi and network"
     icon = "network-wireless-symbolic"
-    keywords = ("wifi", "wi-fi", "wireless", "network", "internet", "ethernet", "wired", "password", "hotspot")
+    keywords = ("wifi", "wi-fi", "wireless", "network", "internet", "ethernet", "wired", "password", "hotspot",
+                "vpn", "wireguard", "openvpn", "proxy", "hidden network", "eduroam", "enterprise", "ip address", "dns")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -93,6 +95,10 @@ class WifiPage(Page):
         self.wifi_switch.connect("notify::active", self.on_switch)
         self.wifi_group.add(self.wifi_switch)
         self.status_row = Adw.ActionRow(title="Not connected")
+        self.status_details = Gtk.Button(label="Details", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                                         visible=False)
+        self.status_details.connect("clicked", lambda _b: self.wifi_device() and self.show_details(self.wifi_device()))
+        self.status_row.add_suffix(self.status_details)
         self.wifi_group.add(self.status_row)
 
         self.networks = self.add_group("Networks nearby")
@@ -104,14 +110,7 @@ class WifiPage(Page):
 
         self.wired_group = self.add_group("Wired")
 
-        more = self.more = self.add_group()
-        for title, panel in (("Other Wi-Fi options", "wifi"), ("VPN, proxy and network details", "network")):
-            row = Adw.ActionRow(title=title, subtitle="Hidden networks, hotspot, VPN" if panel == "wifi" else "",
-                                activatable=True)
-            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-            row.connect("activated", lambda _r, p=panel: open_gnome_panel(p))
-            more.add(row)
-
+        self.extras = None
         self.wifi_group.set_visible(False)
         self.networks.set_visible(False)
         self.wired_group.set_visible(False)
@@ -129,6 +128,11 @@ class WifiPage(Page):
         if not self.client.get_nm_running():
             self.unavailable("NetworkManager, which runs Wi-Fi and wired connections, isn’t running.")
             return
+        self.extras = NetworkExtras(self)
+        self.watch(self.client, "connection-added", lambda *_a: self.queue_refresh())
+        self.watch(self.client, "connection-removed", lambda *_a: self.queue_refresh())
+        self.watch(self.client, "active-connection-added", lambda *_a: self.queue_refresh())
+        self.watch(self.client, "active-connection-removed", lambda *_a: self.queue_refresh())
         self.watch(self.client, "notify::wireless-enabled", lambda *_a: self.queue_refresh())
         self.watch(self.client, "notify::wireless-hardware-enabled", lambda *_a: self.queue_refresh())
         self.watch(self.client, "notify::primary-connection", lambda *_a: self.queue_refresh())
@@ -138,14 +142,10 @@ class WifiPage(Page):
         self.scan()
 
     def unavailable(self, why: str) -> None:
-        for name in ("wifi_group", "networks", "wired_group", "more"):
+        for name in ("wifi_group", "networks", "wired_group"):
             if hasattr(self, name):
                 getattr(self, name).set_visible(False)
-        group = self.add_group("Wi-Fi", why)
-        row = Adw.ActionRow(title="Open network settings", activatable=True)
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: open_gnome_panel("wifi"))
-        group.add(row)
+        self.add_group("Wi-Fi", why)
 
     # --- devices ---------------------------------------------------------------------
 
@@ -228,9 +228,11 @@ class WifiPage(Page):
             self.wifi_switch.set_subtitle("")
 
         active_ap = device.get_active_access_point() if device is not None else None
+        self.status_details.set_visible(False)
         if active_ap is not None:
             self.status_row.set_title(f"Connected to {ssid_text(active_ap.get_ssid()) or 'a hidden network'}")
             self.status_row.set_subtitle(self.address_text(device))
+            self.status_details.set_visible(True)
         elif device is not None and device.get_state() in (NM.DeviceState.PREPARE, NM.DeviceState.CONFIG,
                                                              NM.DeviceState.NEED_AUTH, NM.DeviceState.IP_CONFIG,
                                                              NM.DeviceState.IP_CHECK):
@@ -273,8 +275,23 @@ class WifiPage(Page):
             row.add_prefix(Gtk.Image(icon_name="network-wired-symbolic"))
             if len(wired) > 1:
                 row.set_title(f"{dev.get_iface()}: {title}")
+            if state == NM.DeviceState.ACTIVATED:
+                self.add_details_button(row, dev)
             self.add_row(self.wired_group, row)
+        if self.extras is not None:
+            self.extras.refresh()
         return GLib.SOURCE_REMOVE
+
+    def add_details_button(self, row: Adw.ActionRow, device) -> None:
+        button = Gtk.Button(label="Details", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        button.connect("clicked", lambda _b: self.show_details(device))
+        row.add_suffix(button)
+
+    def show_details(self, device) -> None:
+        dialog = Adw.AlertDialog(heading="Connection details", body=details_text(device) or "No details yet")
+        dialog.set_body_use_markup(False)
+        dialog.add_response("close", "Close")
+        dialog.present(self.window)
 
     def add_row(self, group: Adw.PreferencesGroup, row: Gtk.Widget) -> None:
         group.add(row)
@@ -345,8 +362,7 @@ class WifiPage(Page):
                                                                       "Couldn’t connect"))
             return
         if net["security"] in ("enterprise", "wep"):
-            self.toast("This network needs extra details: opening Wi-Fi settings")
-            open_gnome_panel("wifi")
+            self.extras.join_special(device, net)
             return
         if net["security"] == "open":
             self.connect_new(device, net, None)
