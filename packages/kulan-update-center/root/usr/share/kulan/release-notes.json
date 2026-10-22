@@ -37,7 +37,8 @@
       "Apps reopen after a restart: the apps you had open come back when you sign in again, as on a Mac (switch it off in Kulan Settings > Desktop and windows)",
       "Faster start-up on slower computers: work that used to be redone at every start (about 20 seconds on a 2 GB, 1-processor machine) is now done once when Kulan OS is built, and the update check waits until the desktop has finished loading",
       "Smoother on computers without graphics acceleration (many virtual machines, older PCs): the live blur behind menus and app folders is switched off there and animations are a little shorter; they come back by themselves once acceleration works",
-      "The Weather widget stays off the desktop until you've picked a place in Weather"
+      "The Weather widget stays off the desktop until you've picked a place in Weather",
+      "Kulan Settings' sidebar is grouped like a Mac's: connections, sound and attention, looks, power and space, protection, input and helpers, then updates and About, with a little space between groups"
     ]
   },
   {
