@@ -1,0 +1,451 @@
+#!/usr/bin/python3
+"""Kulan OS compliance mode: one security baseline for a work computer.
+
+  kulan-compliance status [--json]     what passes and what doesn't (no root needed)
+  kulan-compliance on                  apply the baseline and lock it in (root)
+  kulan-compliance off                 remove the locks; settings stay as they are (root)
+  kulan-compliance report FILE.html    a report to hand to an auditor or a client
+
+Each control is mapped to the CIS Critical Security Controls v8 (IG1
+safeguards) and NIST SP 800-53 rev. 5 controls it supports, so the report
+can be read against either. Kulan Settings > Security > Compliance shows the
+same results and has the switch; fleet management reads `status --json`.
+
+The baseline, in plain words: the disk is encrypted, the firewall blocks
+incoming connections, security updates install by themselves, the screen
+locks after 5 minutes away (and that can't be changed), nobody is signed in
+automatically, security events are logged, passwords are at least 14
+characters, remote login is off or keys-only, the clock is kept in sync and
+Kulan's kernel hardening is in place. Secure Boot is reported, not changed.
+"""
+from __future__ import annotations
+
+import html
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+STATE_FILE = Path("/var/lib/kulan/compliance.json")
+DCONF_KEYS = Path("/etc/dconf/db/local.d/50-kulan-compliance")
+DCONF_LOCKS = Path("/etc/dconf/db/local.d/locks/50-kulan-compliance")
+PWQUALITY = Path("/etc/security/pwquality.conf.d/50-kulan-compliance.conf")
+SSHD_DROPIN = Path("/etc/ssh/sshd_config.d/50-kulan-compliance.conf")
+GDM_CONF = Path("/etc/gdm3/daemon.conf")
+HARDENING = Path("/etc/sysctl.d/60-kulan-hardening.conf")
+SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
+IDLE_SECONDS = 300
+MIN_PASSWORD = 14
+
+PASS, FAIL, INFO = "pass", "fail", "info"
+
+
+def run(argv: list[str], timeout: int = 20) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False,
+                              env={**os.environ, "LC_ALL": "C.UTF-8"})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return subprocess.CompletedProcess(argv, 127, "", str(e))
+
+
+def out(argv: list[str]) -> str:
+    return run(argv).stdout.strip()
+
+
+def active(unit: str) -> bool:
+    return out(["systemctl", "is-active", unit]) == "active"
+
+
+def installed(package: str) -> bool:
+    return out(["dpkg-query", "-W", "-f", "${Status}", package]).endswith("ok installed")
+
+
+def write(path: Path, text: str, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".kulan-new")
+    tmp.write_text(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def apt_install(*packages: str) -> None:
+    missing = [p for p in packages if not installed(p)]
+    if not missing:
+        return
+    r = run(["apt-get", "install", "-y", "-q", *missing], timeout=900)
+    if r.returncode != 0:
+        raise RuntimeError(f"couldn't install {', '.join(missing)} (is the computer online?)")
+
+
+@dataclass
+class Control:
+    id: str
+    title: str
+    why: str
+    cis: str
+    nist: str
+    check: Callable[[], tuple[str, str]]
+    apply: Callable[[], None] | None = None
+    result: tuple[str, str] = field(default=(INFO, ""))
+
+
+# --- checks and fixes ------------------------------------------------------------
+def is_live() -> bool:
+    try:
+        return "boot=live" in Path("/proc/cmdline").read_text().split()
+    except OSError:
+        return False
+
+
+def check_encryption() -> tuple[str, str]:
+    if is_live():
+        return INFO, "Running from the live USB; chosen when Kulan OS is installed"
+    source = out(["findmnt", "-no", "SOURCE", "/"])
+    types = out(["lsblk", "-s", "-no", "TYPE", source]).split() if source else []
+    if "crypt" in types:
+        return PASS, "The system disk is encrypted (LUKS)"
+    return FAIL, "The system disk isn't encrypted. Encryption is chosen when installing Kulan OS"
+
+
+def check_firewall() -> tuple[str, str]:
+    try:
+        enabled = "ENABLED=yes" in Path("/etc/ufw/ufw.conf").read_text().split()
+    except OSError:
+        enabled = False
+    if enabled and active("ufw"):
+        return PASS, "On, blocking incoming connections"
+    return FAIL, "Off"
+
+
+def apply_firewall() -> None:
+    run(["ufw", "default", "deny", "incoming"])
+    run(["ufw", "default", "allow", "outgoing"])
+    r = run(["ufw", "--force", "enable"])
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or "ufw couldn't be turned on")
+
+
+def check_updates() -> tuple[str, str]:
+    dump = out(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"])
+    if 'Unattended-Upgrade "1"' in dump and installed("unattended-upgrades"):
+        return PASS, "Security updates install every day"
+    return FAIL, "Security updates wait until someone installs them"
+
+
+def apply_updates() -> None:
+    apt_install("unattended-upgrades")
+    for p in (Path("/etc/apt/apt.conf.d/52kulan-auto-off"), Path("/etc/apt/apt.conf.d/54kulan-paused-after-undo")):
+        p.unlink(missing_ok=True)
+    if 'Unattended-Upgrade "1"' not in out(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"]):
+        write(Path("/etc/apt/apt.conf.d/20kulan-compliance-updates"),
+              '// Kulan compliance mode: security updates every day.\n'
+              'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n')
+
+
+def check_lock() -> tuple[str, str]:
+    if not DCONF_LOCKS.exists() or not DCONF_KEYS.exists():
+        return FAIL, "Each person sets their own screen lock (it can be turned off)"
+    return PASS, f"Locks after {IDLE_SECONDS // 60} minutes away, for everyone; it can't be turned off"
+
+
+def apply_lock() -> None:
+    write(DCONF_KEYS,
+          "# Kulan compliance mode: lock the screen after 5 minutes away.\n"
+          "[org/gnome/desktop/session]\n"
+          f"idle-delay=uint32 {IDLE_SECONDS}\n\n"
+          "[org/gnome/desktop/screensaver]\nlock-enabled=true\nlock-delay=uint32 0\n\n"
+          "[org/gnome/desktop/lockdown]\ndisable-lock-screen=false\n")
+    write(DCONF_LOCKS,
+          "/org/gnome/desktop/session/idle-delay\n"
+          "/org/gnome/desktop/screensaver/lock-enabled\n"
+          "/org/gnome/desktop/screensaver/lock-delay\n"
+          "/org/gnome/desktop/lockdown/disable-lock-screen\n")
+    run(["dconf", "update"])
+
+
+def check_autologin() -> tuple[str, str]:
+    try:
+        text = GDM_CONF.read_text()
+    except OSError:
+        return PASS, "No automatic sign-in"
+    for line in text.splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "AutomaticLoginEnable" and value.strip().lower() == "true":
+            return FAIL, "Someone is signed in automatically at start-up"
+    return PASS, "No automatic sign-in"
+
+
+def apply_autologin() -> None:
+    try:
+        lines = GDM_CONF.read_text().splitlines()
+    except OSError:
+        return
+    lines = [("AutomaticLoginEnable=false" if line.split("=")[0].strip() == "AutomaticLoginEnable" else line)
+             for line in lines]
+    write(GDM_CONF, "\n".join(lines) + "\n")
+
+
+def check_audit() -> tuple[str, str]:
+    if installed("auditd") and active("auditd"):
+        return PASS, "Security events are recorded (auditd)"
+    return FAIL, "Security events aren't recorded"
+
+
+def apply_audit() -> None:
+    apt_install("auditd")
+    run(["systemctl", "enable", "--now", "auditd"])
+
+
+def check_passwords() -> tuple[str, str]:
+    if not installed("libpam-pwquality"):
+        return FAIL, "Any password is accepted"
+    try:
+        text = PWQUALITY.read_text()
+    except OSError:
+        return FAIL, "Passwords can be short"
+    if f"minlen = {MIN_PASSWORD}" in text:
+        return PASS, f"New passwords need at least {MIN_PASSWORD} characters"
+    return FAIL, "Passwords can be short"
+
+
+def apply_passwords() -> None:
+    apt_install("libpam-pwquality")
+    write(PWQUALITY,
+          "# Kulan compliance mode: long passwords (CIS Controls v8 5.2).\n"
+          f"minlen = {MIN_PASSWORD}\n"
+          "dictcheck = 1\n"
+          "usercheck = 1\n"
+          "enforce_for_root\n")
+
+
+def check_ssh() -> tuple[str, str]:
+    if not installed("openssh-server") or not (active("ssh") or active("ssh.socket")):
+        return PASS, "Remote login (SSH) is off"
+    effective = out(["sshd", "-T"]).lower().splitlines()
+    if "passwordauthentication no" in effective and "permitrootlogin no" in effective:
+        return PASS, "Remote login (SSH) on, keys only, no root"
+    if not effective:
+        return FAIL, "Remote login (SSH) is on and its settings couldn't be read (run as root)"
+    return FAIL, "Remote login (SSH) accepts passwords or root"
+
+
+def apply_ssh() -> None:
+    if not installed("openssh-server"):
+        return
+    write(SSHD_DROPIN, "# Kulan compliance mode: keys only, no root.\n"
+                       "PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n")
+    run(["systemctl", "reload-or-restart", "ssh"])
+
+
+def check_time() -> tuple[str, str]:
+    ntp = out(["timedatectl", "show", "-p", "NTP", "--value"])
+    if ntp == "yes":
+        return PASS, "The clock is kept in sync over the network"
+    return FAIL, "The clock isn't kept in sync"
+
+
+def apply_time() -> None:
+    run(["timedatectl", "set-ntp", "true"])
+
+
+def check_hardening() -> tuple[str, str]:
+    values = {k: out(["sysctl", "-n", k]) for k in ("kernel.kptr_restrict", "kernel.dmesg_restrict",
+                                                     "fs.protected_symlinks", "net.ipv4.tcp_syncookies")}
+    weak = [k for k, v in values.items() if v in ("", "0")]
+    if HARDENING.exists() and not weak:
+        return PASS, "Kulan's kernel hardening is in place"
+    return FAIL, "Kernel hardening is missing: " + ", ".join(weak or ["60-kulan-hardening.conf"])
+
+
+def check_secure_boot() -> tuple[str, str]:
+    if not Path("/sys/firmware/efi").exists():
+        return INFO, "This computer starts without UEFI, so Secure Boot isn't available"
+    try:
+        data = SECURE_BOOT_VAR.read_bytes()
+    except OSError:
+        data = b""
+    if data and data[-1] == 1:
+        return PASS, "On: only signed software can start the computer"
+    return INFO, "Off. It's turned on in the computer's firmware settings"
+
+
+CONTROLS = [
+    Control("KUL-01", "Disk encryption", "A lost or stolen laptop doesn't expose its files.",
+            "3.6", "SC-28", check_encryption),
+    Control("KUL-02", "Firewall", "Other computers on the network can't connect to this one.",
+            "4.5", "SC-7", check_firewall, apply_firewall),
+    Control("KUL-03", "Automatic security updates", "Known holes are fixed within a day.",
+            "7.3", "SI-2", check_updates, apply_updates),
+    Control("KUL-04", "Screen lock", "An unattended computer locks itself.",
+            "4.3", "AC-11", check_lock, apply_lock),
+    Control("KUL-05", "No automatic sign-in", "Starting the computer always asks who you are.",
+            "4.7", "IA-2", check_autologin, apply_autologin),
+    Control("KUL-06", "Audit log", "Sign-ins, privilege use and system changes are recorded.",
+            "8.2", "AU-2, AU-12", check_audit, apply_audit),
+    Control("KUL-07", "Strong passwords", f"New passwords need at least {MIN_PASSWORD} characters.",
+            "5.2", "IA-5", check_passwords, apply_passwords),
+    Control("KUL-08", "Remote login", "SSH, if installed, accepts keys only and never root.",
+            "4.8", "CM-7, AC-17", check_ssh, apply_ssh),
+    Control("KUL-09", "Time sync", "Logs from different computers line up.",
+            "8.4", "AU-8", check_time, apply_time),
+    Control("KUL-10", "Kernel hardening", "Kulan's safer kernel settings are in force.",
+            "4.1", "CM-6", check_hardening),
+    Control("KUL-11", "Secure Boot", "Only signed software can start the computer.",
+            "4.1", "SI-7", check_secure_boot),
+]
+
+
+def evaluate() -> dict:
+    for c in CONTROLS:
+        try:
+            c.result = c.check()
+        except Exception as e:  # a broken check is a failed check, never a crash
+            c.result = (FAIL, f"Couldn't check: {e}")
+    counted = [c for c in CONTROLS if c.result[0] != INFO]
+    passed = sum(1 for c in counted if c.result[0] == PASS)
+    state = {}
+    try:
+        state = json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError):
+        pass
+    return {
+        "schema": 1,
+        "baseline": "Kulan OS baseline 1 (CIS Controls v8 IG1, NIST SP 800-53 rev. 5)",
+        "host": os.uname().nodename,
+        "os": _os_name(),
+        "time": int(time.time()),
+        "mode": "on" if state.get("mode") == "on" else "off",
+        "mode_since": state.get("since"),
+        "passed": passed,
+        "total": len(counted),
+        "compliant": passed == len(counted),
+        "controls": [{"id": c.id, "title": c.title, "why": c.why, "cis": c.cis, "nist": c.nist,
+                      "status": c.result[0], "detail": c.result[1], "fixable": c.apply is not None}
+                     for c in CONTROLS],
+    }
+
+
+def _os_name() -> str:
+    try:
+        for line in Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                return line.split("=", 1)[1].strip('"')
+    except OSError:
+        pass
+    return "Linux"
+
+
+def need_root() -> None:
+    if os.geteuid() != 0:
+        sys.exit("kulan-compliance: this needs administrator rights (run it with sudo)")
+
+
+def turn_on() -> int:
+    need_root()
+    problems = []
+    for c in CONTROLS:
+        if c.apply is None:
+            continue
+        status, _ = c.check()
+        if status == PASS:
+            continue
+        print(f"{c.id} {c.title}: applying", flush=True)
+        try:
+            c.apply()
+        except Exception as e:
+            problems.append(f"{c.title}: {e}")
+    write(STATE_FILE, json.dumps({"mode": "on", "since": int(time.time())}) + "\n")
+    report = evaluate()
+    print(f"Compliance mode on: {report['passed']} of {report['total']} controls pass")
+    for p in problems:
+        print("Couldn't apply", p, file=sys.stderr)
+    return 0 if not problems else 2
+
+
+def turn_off() -> int:
+    need_root()
+    for p in (DCONF_KEYS, DCONF_LOCKS):
+        p.unlink(missing_ok=True)
+    run(["dconf", "update"])
+    write(STATE_FILE, json.dumps({"mode": "off", "since": int(time.time())}) + "\n")
+    print("Compliance mode off: the screen-lock setting can be changed again; everything else stays as it is")
+    return 0
+
+
+def html_report(data: dict) -> str:
+    rows = []
+    label = {PASS: "Pass", FAIL: "Fail", INFO: "Info"}
+    for c in data["controls"]:
+        rows.append(
+            f'<tr class="{c["status"]}"><td>{html.escape(c["id"])}</td><td><b>{html.escape(c["title"])}</b>'
+            f'<br><span class="why">{html.escape(c["why"])}</span></td>'
+            f'<td><span class="tag">{label[c["status"]]}</span> {html.escape(c["detail"])}</td>'
+            f'<td>{html.escape(c["cis"])}</td><td>{html.escape(c["nist"])}</td></tr>')
+    when = time.strftime("%d %B %Y, %H:%M", time.localtime(data["time"]))
+    verdict = "Meets the baseline" if data["compliant"] else "Doesn't meet the baseline yet"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Compliance report: {html.escape(data['host'])}</title>
+<style>
+body{{font-family:Inter,system-ui,sans-serif;color:#0a2240;margin:40px;max-width:1000px}}
+h1{{font-family:Manrope,Inter,sans-serif;font-weight:800;margin:0 0 4px}}
+.meta{{color:#5b6b80;margin-bottom:24px}}
+.verdict{{display:inline-block;padding:6px 14px;border-radius:999px;font-weight:700;
+ background:{'#ccfbf1' if data['compliant'] else '#fef3c7'};color:{'#0f766e' if data['compliant'] else '#b45309'}}}
+table{{border-collapse:collapse;width:100%;margin-top:20px;font-size:14px}}
+th{{text-align:left;color:#5b6b80;font-size:12px;letter-spacing:.06em;text-transform:uppercase;border-bottom:2px solid #e1e8f0;padding:8px}}
+td{{border-bottom:1px solid #e1e8f0;padding:10px 8px;vertical-align:top}}
+td:first-child,td:nth-child(4),td:nth-child(5){{white-space:nowrap}}
+.why{{color:#5b6b80;font-size:13px}}
+.tag{{display:inline-block;min-width:38px;text-align:center;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;margin-right:6px}}
+.pass .tag{{background:#ccfbf1;color:#0f766e}} .fail .tag{{background:#fee2e2;color:#b91c1c}} .info .tag{{background:#e2e8f0;color:#334155}}
+.foot{{color:#5b6b80;font-size:12px;margin-top:24px}}
+</style></head><body>
+<h1>Compliance report</h1>
+<div class="meta">{html.escape(data['host'])} · {html.escape(data['os'])} · {when}<br>{html.escape(data['baseline'])}</div>
+<span class="verdict">{verdict}: {data['passed']} of {data['total']} controls pass</span>
+&nbsp; Compliance mode is <b>{data['mode']}</b>.
+<table><tr><th>ID</th><th>Control</th><th>Result</th><th>CIS v8</th><th>NIST 800-53</th></tr>
+{''.join(rows)}
+</table>
+<p class="foot">"Info" items are reported but not counted. CIS safeguard and NIST control numbers show which
+requirement each check supports; a full assessment also covers people, processes and the rest of the network.
+Made by kulan-compliance on Kulan OS.</p>
+</body></html>
+"""
+
+
+def print_status(data: dict) -> None:
+    mark = {PASS: "✓", FAIL: "✗", INFO: "·"}
+    print(f"Compliance mode {data['mode']} · {data['passed']} of {data['total']} controls pass")
+    for c in data["controls"]:
+        print(f"  {mark[c['status']]} {c['id']} {c['title']}: {c['detail']}")
+
+
+def main(argv: list[str]) -> int:
+    command = argv[1] if len(argv) > 1 else "status"
+    if command == "status":
+        data = evaluate()
+        if "--json" in argv[2:]:
+            print(json.dumps(data, indent=2))
+        else:
+            print_status(data)
+        return 0
+    if command == "on":
+        return turn_on()
+    if command == "off":
+        return turn_off()
+    if command == "report" and len(argv) == 3:
+        Path(argv[2]).write_text(html_report(evaluate()))
+        print(f"Report saved to {argv[2]}")
+        return 0
+    print(__doc__.split("\n\n")[1], file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

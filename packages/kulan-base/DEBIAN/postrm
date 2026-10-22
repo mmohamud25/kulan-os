@@ -6,6 +6,11 @@ OS_RELEASE=/usr/lib/os-release
 
 case "$1" in
 	purge)
+		# Compliance mode's files: back to Debian's own settings.
+		rm -f /etc/dconf/db/local.d/50-kulan-compliance /etc/dconf/db/local.d/locks/50-kulan-compliance \
+			/etc/security/pwquality.conf.d/50-kulan-compliance.conf /etc/ssh/sshd_config.d/50-kulan-compliance.conf \
+			/etc/apt/apt.conf.d/20kulan-compliance-updates /var/lib/kulan/compliance.json
+		if command -v dconf >/dev/null 2>&1; then dconf update 2>/dev/null || true; fi
 		deb-systemd-helper purge kulan-boot-report.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-oom-notice.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-kexec-guard.service >/dev/null 2>&1 || true

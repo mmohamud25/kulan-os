@@ -473,6 +473,19 @@ check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built" && ! echo "$out" | grep -q Traceback'
 check "Welcome app runs" "--help" kulan-welcome --help
 
+# --- Compliance mode ------------------------------------------------------------------
+# Last before removal: turning it on installs auditd and libpam-pwquality and changes
+# this test system. The firewall can't be switched on in a container, so "on" may
+# report it; the checks below look at what it must have done regardless.
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Compliance status" "kulan-compliance lists its 11 controls with CIS and NIST references" bash -c 'kulan-compliance status --json | python3 -c "import json, sys; d = json.load(sys.stdin); c = d[\"controls\"]; assert len(c) == 11 and all(x[\"cis\"] and x[\"nist\"] and x[\"status\"] in (\"pass\", \"fail\", \"info\") for x in c), c; print(d[\"passed\"], \"of\", d[\"total\"])"'
+kulan-compliance on >/tmp/compliance-on.log 2>&1
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Compliance mode on" "screen lock locked for everyone, 14-character passwords, audit log installed" bash -c 'tail -n 4 /tmp/compliance-on.log; test -s /etc/dconf/db/local.d/locks/50-kulan-compliance && grep -q "minlen = 14" /etc/security/pwquality.conf.d/50-kulan-compliance.conf && dpkg-query -W -f "\${Status}" auditd libpam-pwquality | grep -c "ok installed" | grep -qx 2 && test "$(gsettings writable org.gnome.desktop.session idle-delay)" = false && test "$(gsettings get org.gnome.desktop.session idle-delay)" = "uint32 300" && kulan-compliance status --json | grep -q "\"mode\": \"on\""'
+check "Compliance report" "an HTML report with every control" bash -c 'kulan-compliance report /tmp/compliance.html >/dev/null && test "$(grep -o "<tr class=" /tmp/compliance.html | wc -l)" = 11'
+kulan-compliance off >/tmp/compliance-off.log 2>&1
+check "Compliance mode off" "the screen lock can be changed again" bash -c 'test ! -e /etc/dconf/db/local.d/locks/50-kulan-compliance && test "$(gsettings writable org.gnome.desktop.session idle-delay)" = true'
+
 # --- Removal restores Debian -------------------------------------------------------
 if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-update-center kulan-welcome kulan-desktop-settings kulan-base >/tmp/purge.log 2>&1; then
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
