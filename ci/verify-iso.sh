@@ -137,6 +137,7 @@ else
 	result pass "Lean services" "cups-browsed left out"
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
+check "KeePassXC frame" "KeePassXC opens through XWayland, so it gets Kulan's window buttons" has_path usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop
 check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
