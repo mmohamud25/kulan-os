@@ -429,12 +429,20 @@ jobs:
         continue-on-error: true
         run: ci/screenshots.sh out/*.iso screenshots
 
+      # Start-up and app-opening times from the screenshot step, against
+      # ci/speed-budget.json: a build that got slower fails here.
+      - name: Speed check
+        if: matrix.arch == 'amd64'
+        run: ci/check-speed.py screenshots/speed.json
+
       - name: Upload website screenshots
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6
         with:
           name: screenshots-amd64
-          path: screenshots/*.png
+          path: |
+            screenshots/*.png
+            screenshots/speed.json
           retention-days: 14
           if-no-files-found: ignore
 

@@ -166,5 +166,65 @@ for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
     shot(name)
     close_apps()
     time.sleep(3)
+
+# --- Speed: how long each everyday app takes to show its window ----------------
+# Opened twice: the first time (nothing in memory yet) and again. "Shown" is
+# the first screen with a new window on it, compared with the screen before,
+# ignoring the top bar (its clock changes).
+from PIL import ImageChops
+
+def grab():
+    ppm = os.path.join(out, "_speed.ppm")
+    qmp_call("screendump", filename=os.path.abspath(ppm))
+    img = Image.open(ppm).convert("L")
+    w, h = img.size
+    return img.crop((0, int(h * 0.06), w, int(h * 0.92))).resize((320, 172))
+
+def changed(before, now) -> bool:
+    diff = ImageChops.difference(before, now).point(lambda v: 255 if v > 40 else 0)
+    return diff.histogram()[255] > 320 * 172 * 0.04
+
+def time_open(cmd: str, limit: float = 40.0):
+    before = grab()
+    start = time.monotonic()
+    run(SESSION % cmd, wait=False)
+    while time.monotonic() - start < limit:
+        if changed(before, grab()):
+            return round(time.monotonic() - start, 2)
+        time.sleep(0.05)
+    return None
+
+APPS = (("Files", "nautilus --new-window", "pkill -x nautilus"),
+        ("Terminal", "ptyxis --new-window", "pkill -x ptyxis"),
+        ("Kulan Settings", "/usr/bin/kulan-settings", "pkill -f /usr/bin/kulan-settings"),
+        ("Firefox", "firefox-esr --new-window about:blank", "pkill -f firefox-esr"))
+speed = {}
+if qga is not None:
+    for label, cmd, stop in APPS:
+        times = []
+        for _ in range(2):
+            times.append(time_open(cmd))
+            time.sleep(3)
+            run(stop + "; sleep 3")
+            time.sleep(2)
+        speed[label] = {"first": times[0], "again": times[1]}
+        print(f"Speed: {label} first {times[0]} s, again {times[1]} s")
+with open(os.path.join(out, "speed.json"), "w") as fh:
+    json.dump(speed, fh, indent=2)
+try:
+    os.remove(os.path.join(out, "_speed.ppm"))
+except OSError:
+    pass
+PY
+# How long the live session took to start (systemd's own count, from the
+# boot report on the serial console).
+STARTUP="$(tr -d '\r' < "${WORK}/serial.log" | sed -n 's/^time=Startup finished in .* = \([0-9.]*\)s.*$/\1/p' | head -n 1)"
+python3 - "${OUT}/speed.json" "${STARTUP:-}" <<'PY'
+import json, sys
+path, startup = sys.argv[1], sys.argv[2]
+data = json.load(open(path)) if startup is not None else {}
+if startup:
+    data["Start-up"] = {"seconds": float(startup)}
+json.dump(data, open(path, "w"), indent=2)
 PY
 ls -l "${OUT}"

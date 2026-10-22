@@ -1,0 +1,9 @@
+[Unit]
+Description=Kulan OS: have your most-used apps ready to open quickly
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/prewarm
+Nice=19
+IOSchedulingClass=idle
+CPUSchedulingPolicy=idle

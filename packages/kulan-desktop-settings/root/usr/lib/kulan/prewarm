@@ -1,0 +1,55 @@
+#!/bin/sh
+# Kulan OS: after you sign in, while the computer is idle, read the apps you
+# open most (Firefox, Files, Terminal, Kulan Settings) into memory, so the
+# first time you open them is as quick as the second. Only on computers with
+# memory to spare, and never on battery; the system frees this memory again
+# whenever anything else needs it. Run by kulan-prewarm.timer.
+set -u
+
+available_mb() { awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo; }
+on_battery() {
+	for supply in /sys/class/power_supply/*; do
+		[ -r "${supply}/type" ] || continue
+		case "$(cat "${supply}/type")" in
+			Mains | USB) [ "$(cat "${supply}/online" 2>/dev/null)" = 1 ] && return 1 ;;
+		esac
+	done
+	# A battery but no mains online: on battery. No battery at all: a desktop.
+	for supply in /sys/class/power_supply/*; do
+		[ "$(cat "${supply}/type" 2>/dev/null)" = Battery ] && return 0
+	done
+	return 1
+}
+
+# Not from the USB stick: the live system is already all in memory.
+[ -d /run/live/medium ] && { echo "Live session; skipping"; exit 0; }
+[ "$(available_mb)" -ge 3000 ] || { echo "Not enough free memory; skipping"; exit 0; }
+on_battery && { echo "On battery; skipping"; exit 0; }
+
+# Wait (up to 10 minutes) until the computer is idle.
+tries=0
+while [ "${tries}" -lt 20 ]; do
+	load="$(cut -d' ' -f1 /proc/loadavg)"
+	awk -v l="${load}" 'BEGIN { exit !(l < 1.0) }' && break
+	sleep 30
+	tries=$((tries + 1))
+done
+
+# At most a quarter of the free memory.
+budget_kb=$(( $(available_mb) * 1024 / 4 ))
+for pkg in firefox-esr nautilus ptyxis libgtk-4-1 libadwaita-1-0 gir1.2-adw-1 kulan-settings python3-gi; do
+	dpkg-query -W "${pkg}" >/dev/null 2>&1 && dpkg-query -L "${pkg}" 2>/dev/null
+done | grep -vE '^/usr/share/(doc|man|locale|help)/' | {
+	read_kb=0
+	while IFS= read -r file; do
+		if [ ! -f "${file}" ] || [ -L "${file}" ]; then continue; fi
+		size_kb=$(( $(stat -c %s "${file}") / 1024 + 1 ))
+		if [ $(( read_kb + size_kb )) -gt "${budget_kb}" ]; then
+			echo "Memory budget reached"
+			break
+		fi
+		cat "${file}" >/dev/null 2>&1
+		read_kb=$(( read_kb + size_kb ))
+	done
+	echo "Read $(( read_kb / 1024 )) MB of apps into memory"
+}

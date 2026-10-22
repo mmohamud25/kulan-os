@@ -3,6 +3,7 @@
     "version": "2.5",
     "title": "Faster, with a more powerful Terminal",
     "items": [
+      "Apps ready sooner: a couple of minutes after you sign in, while the computer is idle, Kulan OS gets Firefox, Files, Terminal and Kulan Settings ready, so the first time you open them is as quick as the next. Only with memory to spare, never on battery, and the memory is given back whenever anything needs it",
       "A more powerful Terminal: Ctrl+R searches everything you've typed before, Ctrl+T finds a file, \"z\" jumps to folders you use, nicer file listings with eza, and ripgrep, fd, bat and btop built in",
       "The kulan command: kulan info shows this computer at a glance, kulan update installs updates, kulan doctor checks for common problems and says how to fix them, and kulan settings opens any page",
       "Ask Kulan Assistant in the Terminal: ask how to do something with kulan ask, and after a command fails press Alt+K to hear why and how to fix it. It runs on this computer",

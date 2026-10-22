@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import threading
 import time
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -441,6 +440,7 @@ class UpdatesPage(Page):
         self.notes_fetched = True
 
         def work() -> None:
+            import urllib.request  # only when a Kulan update is offered (keeps opening Settings quick)
             try:
                 with urllib.request.urlopen(NOTES_JSON, timeout=8) as resp:  # noqa: S310 - fixed https URL
                     data = json.loads(resp.read(512 * 1024).decode("utf-8"))
