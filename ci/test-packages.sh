@@ -349,6 +349,7 @@ out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "gtk-th
                      env={"GSETTINGS_BACKEND": "memory", "PATH": "/usr/bin:/bin"}).stdout.strip()
 assert out == "'Kulan-teal'", out
 assert "QT_QPA_PLATFORMTHEME=gtk3" in open("/usr/lib/environment.d/60-kulan-os.conf").read()
+assert "QT_QPA_PLATFORM=xcb;wayland" in open("/usr/lib/environment.d/60-kulan-os.conf").read()
 PY
 check "Terminal colours" "Kulan palette for Ptyxis (light and dark, 16 colours each) chosen by default" python3 - <<'PY'
 import configparser, re, subprocess

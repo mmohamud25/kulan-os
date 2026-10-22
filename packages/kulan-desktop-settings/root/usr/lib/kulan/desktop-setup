@@ -104,20 +104,9 @@ else
 	rm -f "${STORE}"
 fi
 
-# KeePassXC (Qt 5) runs as a native Wayland window and then draws plain
-# window buttons of its own; through XWayland, GNOME draws its frame with
-# Kulan's red, yellow and green buttons, as for VLC. Same launcher, run that
-# way (also keeps Auto-Type working).
-KPX_SRC=/usr/share/applications/org.keepassxc.KeePassXC.desktop
-KPX=/usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop
-if [ -f "${KPX_SRC}" ]; then
-	mkdir -p "$(dirname "${KPX}")"
-	sed -E 's/^(Exec=)(env QT_QPA_PLATFORM=xcb )?/\1env QT_QPA_PLATFORM=xcb /' "${KPX_SRC}" > "${KPX}.tmp"
-	chmod 0644 "${KPX}.tmp"
-	mv -f "${KPX}.tmp" "${KPX}"
-else
-	rm -f "${KPX}"
-fi
+# KeePassXC's own launcher copy from 2.3 test builds: Qt apps now open
+# through XWayland for everyone (environment.d), so it isn't needed.
+rm -f /usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop
 
 # The dock's settings icon opens Kulan Settings (which links to GNOME
 # Settings for Wi-Fi, printers and the rest); GNOME's own if it's missing.

@@ -129,7 +129,7 @@ check "Compressed memory" "zram swap generator installed" installed systemd-zram
 check "Terminal" "Ptyxis with zsh, suggestions and highlighting; new accounts use zsh" bash -c "$(declare -f installed); R='${R}'; installed ptyxis && installed zsh && installed zsh-autosuggestions && installed zsh-syntax-highlighting && grep -qx 'DSHELL=/bin/zsh' \"\${R}/etc/adduser.conf\" && grep -qE '(shell:|userShell:)[[:space:]]+/bin/zsh' \"\${R}/etc/calamares/modules/users.conf\" && grep -q kulan.zsh \"\${R}/etc/skel/.zshrc\""
 check "Restart in ARM VMs" "kexec-tools, fast-restart generator, and the kexec hardening moved to kulan-kexec-guard (enabled)" bash -c "$(declare -f installed has_path); R='${R}'; WORK='${WORK}'; installed kexec-tools && has_path usr/lib/systemd/system-generators/kulan-fast-restart && has_path etc/systemd/system/sysinit.target.wants/kulan-kexec-guard.service && has_path etc/systemd/system/multi-user.target.wants/kulan-fast-restart.service && ! grep -q '^kernel.kexec_load_disabled' \"\${R}/etc/sysctl.d/60-kulan-hardening.conf\" && grep -q '^kernel.kptr_restrict' \"\${R}/etc/sysctl.d/60-kulan-hardening.conf\""
 check "Disk password" "a mistyped disk password asks again (installer writes tries=0 to crypttab)" grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${R}/etc/calamares/modules/fstab.conf"
-check "Store apps' look" "Flatpak apps may read the GTK settings folders, for Kulan's window buttons" bash -c "grep -q 'xdg-config/gtk-4.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'xdg-config/gtk-3.0:ro' '${R}/var/lib/flatpak/overrides/global'"
+check "Store apps' look" "Flatpak apps may read the GTK settings folders, for Kulan's window buttons" bash -c "grep -q 'xdg-config/gtk-4.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'xdg-config/gtk-3.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'QT_QPA_PLATFORM=xcb;wayland' '${R}/var/lib/flatpak/overrides/global'"
 check "Boot report" "kulan-boot-report.service enabled, for the boot test" has_path etc/systemd/system/multi-user.target.wants/kulan-boot-report.service
 if installed cups-browsed; then
 	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"
@@ -137,7 +137,6 @@ else
 	result pass "Lean services" "cups-browsed left out"
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
-check "KeePassXC frame" "KeePassXC opens through XWayland, so it gets Kulan's window buttons" has_path usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop
 check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
