@@ -31,7 +31,8 @@
       "In virtual machines the screen no longer shows \"Display output is not active\" after sitting idle: it goes dark and locks as usual, and a key press brings it back",
       "Kulan Files: a status bar with the folder's path, the number of items and the free space; a preview pane (Shift+Ctrl+P or the toolbar button) with a large preview, tags, size and dates; and a Finder-style sidebar with Favourites, Locations and your Tags",
       "Encrypted disks: if you mistype the disk password when the computer starts, it simply asks again instead of giving up after three tries",
-      "Smaller, calmer icons: Files (64 px, about the Finder's size), the desktop, the dock and the app grid; each can still be made bigger in Kulan Settings or Files"
+      "Smaller, calmer icons: Files (64 px, about the Finder's size), the desktop, the dock and the app grid; each can still be made bigger in Kulan Settings or Files",
+      "Apps from the Kulan Store (Flatpak) get Kulan's red, yellow and green window buttons too"
     ]
   },
   {

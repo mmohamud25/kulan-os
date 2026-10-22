@@ -131,34 +131,67 @@ function tidyAppGrid() {
 // Kulan window buttons (round, macOS-style) for GTK 4 and GTK 3 apps. GTK has
 // no system-wide stylesheet, so each user's gtk.css imports Kulan's. Added
 // once: a user who removes the line keeps it removed.
-const GTK_STYLES = [
-    ['gtk-4.0', '/usr/share/kulan/gtk/gtk-4.0.css'],
-    ['gtk-3.0', '/usr/share/kulan/gtk/gtk-3.0.css'],
-];
+// Kulan's window buttons for GTK apps. Each user's gtk.css imports a copy
+// kept next to it (kulan-window-buttons.css), not the file in /usr/share:
+// apps from the Kulan Store (Flatpak) can read ~/.config/gtk-*.0 (Kulan
+// allows that for every Flatpak) but not /usr/share. The copy is refreshed at
+// every sign-in, so updates to the style reach everyone.
+const GTK_DIRS = ['gtk-4.0', 'gtk-3.0'];
+const GTK_STYLE_FILES = {
+    symbols: {'gtk-4.0': '/usr/share/kulan/gtk/gtk-4.0.css', 'gtk-3.0': '/usr/share/kulan/gtk/gtk-3.0.css'},
+    dots: {'gtk-4.0': '/usr/share/kulan/gtk/dots/gtk-4.0.css', 'gtk-3.0': '/usr/share/kulan/gtk/dots/gtk-3.0.css'},
+};
+const GTK_COPY = 'kulan-window-buttons.css';
+const GTK_IMPORT = `@import url("${GTK_COPY}");`;
+const GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK's own. */";
+
+function readText(path) {
+    try {
+        const [, bytes] = GLib.file_get_contents(path);
+        return new TextDecoder().decode(bytes);
+    } catch (e) {
+        return null;
+    }
+}
 
 function installGtkStyle() {
-    const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'gtk-style-v1']);
-    if (GLib.file_test(marker, GLib.FileTest.EXISTS))
-        return;
+    const dataDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan']);
+    const firstTime = !GLib.file_test(GLib.build_filenamev([dataDir, 'gtk-style-v1']), GLib.FileTest.EXISTS) &&
+        !GLib.file_test(GLib.build_filenamev([dataDir, 'gtk-style-v2']), GLib.FileTest.EXISTS);
     try {
-        for (const [dir, css] of GTK_STYLES) {
-            if (!GLib.file_test(css, GLib.FileTest.EXISTS))
-                continue;
+        for (const dir of GTK_DIRS) {
             const folder = GLib.build_filenamev([GLib.get_user_config_dir(), dir]);
             const path = GLib.build_filenamev([folder, 'gtk.css']);
-            const line = `@import url("file://${css}");`;
-            let current = '';
-            if (GLib.file_test(path, GLib.FileTest.EXISTS)) {
-                const [, bytes] = GLib.file_get_contents(path);
-                current = new TextDecoder().decode(bytes);
+            const copy = GLib.build_filenamev([folder, GTK_COPY]);
+            const current = readText(path) ?? '';
+            // Which style this person uses: an old import of /usr/share, the
+            // name in the copy's first line, or Kulan's default the first time.
+            let style = null;
+            for (const [name, files] of Object.entries(GTK_STYLE_FILES)) {
+                if (current.includes(`@import url("file://${files[dir]}");`))
+                    style = name;
             }
-            if (current.includes(line))
+            if (!style && current.includes(GTK_IMPORT))
+                style = (readText(copy) ?? '').match(/^\/\* kulan-style: (\w+) \*\//)?.[1] ?? 'symbols';
+            if (!style && firstTime)
+                style = 'symbols';
+            if (!style || !GTK_STYLE_FILES[style])
+                continue; // switched to GTK's own buttons
+            const source = readText(GTK_STYLE_FILES[style][dir]);
+            if (source === null)
                 continue;
             GLib.mkdir_with_parents(folder, 0o755);
-            GLib.file_set_contents(path, `/* Kulan OS window buttons. Delete this line to use GTK's own. */\n${line}\n${current}`);
+            const fresh = `/* kulan-style: ${style} */\n${source}`;
+            if (readText(copy) !== fresh)
+                GLib.file_set_contents(copy, fresh);
+            const kept = current.split('\n').filter(l => !l.trim().startsWith('@import url("file:///usr/share/kulan/gtk/') &&
+                l.trim() !== GTK_IMPORT && l.trim() !== GTK_COMMENT);
+            const text = [GTK_COMMENT, GTK_IMPORT, ...kept].join('\n').replace(/\n+$/, '') + '\n';
+            if (text !== current)
+                GLib.file_set_contents(path, text);
         }
-        GLib.mkdir_with_parents(GLib.path_get_dirname(marker), 0o700);
-        GLib.file_set_contents(marker, '');
+        GLib.mkdir_with_parents(dataDir, 0o700);
+        GLib.file_set_contents(GLib.build_filenamev([dataDir, 'gtk-style-v2']), '');
     } catch (e) {
         logError(e, 'Kulan Shell: could not set up the window buttons');
     }
