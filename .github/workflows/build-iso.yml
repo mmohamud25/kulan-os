@@ -422,6 +422,22 @@ jobs:
           KULAN_BOOT_LABEL: Low-end boot test
         run: ci/boot-test.sh out/*.iso boot-test-low-end
 
+      # Screenshots for os.kulangroup.com: the live desktop, Kulan Installer
+      # and Kulan Settings at 1920x1080. Never fails the build.
+      - name: Website screenshots
+        if: matrix.arch == 'amd64'
+        continue-on-error: true
+        run: ci/screenshots.sh out/*.iso screenshots
+
+      - name: Upload website screenshots
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: screenshots-amd64
+          path: screenshots/*.png
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload low-end boot test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6
@@ -486,3 +502,45 @@ jobs:
             build.log
           retention-days: 14
           if-no-files-found: ignore
+
+  # Keep the website screenshots on the site-screenshots branch, one folder
+  # per build, so the site (and anyone without access to build artifacts) can
+  # use them. Only the PNGs from this run go there.
+  screenshots:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    name: Save website screenshots
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        id: get
+        continue-on-error: true
+        with:
+          name: screenshots-amd64
+          path: shots/
+      - name: Commit to site-screenshots
+        if: steps.get.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.run_id }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls shots/*.png >/dev/null 2>&1 || { echo "No screenshots in this run"; exit 0; }
+          git init -q repo && cd repo
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q --depth 1 origin site-screenshots; then git checkout -q -b site-screenshots FETCH_HEAD; else git checkout -q --orphan site-screenshots; fi
+          DIR="${REF//\//-}/${RUN}"
+          mkdir -p "${DIR}" "${REF//\//-}/latest"
+          cp ../shots/*.png "${DIR}/"
+          rm -f "${REF//\//-}/latest/"*.png
+          cp ../shots/*.png "${REF//\//-}/latest/"
+          git add -A
+          git commit -q -m "Screenshots from run ${RUN} (${REF})"
+          git push -q origin site-screenshots
+          echo "::notice title=Screenshots::saved to site-screenshots/${DIR}"

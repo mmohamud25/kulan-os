@@ -1,0 +1,166 @@
+#!/bin/bash
+# Take the website's screenshots from a built Kulan OS ISO: boot the live
+# session in a virtual machine at 1920x1080, then capture the desktop, Kulan
+# Installer and Kulan Settings. Apps are opened through the QEMU guest agent
+# as the live session's user.
+#
+# Usage: ci/screenshots.sh <iso> [output-dir]
+# Needs: qemu-system-x86, xorriso, python3 with Pillow. Best with KVM.
+# Never fails the build: missing shots are reported as warnings.
+set -uo pipefail
+
+ISO="${1:?usage: $0 <iso> [output-dir]}"
+OUT="${2:-screenshots}"
+WAIT_S="${KULAN_BOOT_WAIT:-600}"
+mkdir -p "${OUT}"
+WORK="$(mktemp -d)"
+QEMU_PID=""
+# shellcheck disable=SC2317  # called by the EXIT trap
+cleanup() {
+	[[ -n "${QEMU_PID}" ]] && kill "${QEMU_PID}" 2>/dev/null
+	rm -rf "${WORK}"
+}
+trap cleanup EXIT
+
+xorriso -osirrox on -indev "${ISO}" -extract /boot/grub/grub.cfg "${WORK}/grub.cfg" >/dev/null 2>&1
+LINUX_LINE="$(grep -m1 -E '^[[:space:]]*linux[[:space:]]+/live/vmlinuz' "${WORK}/grub.cfg")"
+INITRD_LINE="$(grep -m1 -E '^[[:space:]]*initrd[[:space:]]+/live/initrd' "${WORK}/grub.cfg")"
+KERNEL_PATH="$(awk '{print $2}' <<<"${LINUX_LINE}")"
+INITRD_PATH="$(awk '{print $2}' <<<"${INITRD_LINE}")"
+BOOT_ARGS="$(awk '{ $1 = ""; $2 = ""; sub(/^[[:space:]]+/, ""); print }' <<<"${LINUX_LINE}")"
+# shellcheck disable=SC2016  # a literal ${ to match
+BOOT_ARGS="$(tr ' ' '\n' <<<"${BOOT_ARGS}" | grep -v '\${' | paste -sd ' ' -)"
+[[ -n "${KERNEL_PATH}" && -n "${INITRD_PATH}" ]] || { echo "::warning title=Screenshots::no live entry in the ISO's boot menu"; exit 0; }
+xorriso -osirrox on -indev "${ISO}" -extract "${KERNEL_PATH}" "${WORK}/vmlinuz" \
+	-extract "${INITRD_PATH}" "${WORK}/initrd" >/dev/null 2>&1
+BOOT_ARGS="${BOOT_ARGS} console=tty0 console=ttyS0,115200 kulan.boot-report"
+
+ACCEL=(-accel tcg)
+if [[ -w /dev/kvm ]]; then
+	ACCEL=(-enable-kvm -cpu host)
+else
+	WAIT_S=$((WAIT_S * 3))
+fi
+
+START=$(date +%s)
+qemu-system-x86_64 "${ACCEL[@]}" -m 4096 -smp 2 \
+	-kernel "${WORK}/vmlinuz" -initrd "${WORK}/initrd" -append "${BOOT_ARGS}" \
+	-drive "file=${ISO},media=cdrom,readonly=on" \
+	-device virtio-vga,xres=1920,yres=1080 -display none \
+	-serial "file:${WORK}/serial.log" \
+	-qmp "unix:${WORK}/qmp.sock,server=on,wait=off" \
+	-chardev "socket,path=${WORK}/qga.sock,server=on,wait=off,id=qga0" \
+	-device virtio-serial -device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
+	-netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+	-device virtio-rng-pci -no-reboot &
+QEMU_PID=$!
+
+while (( $(date +%s) - START < WAIT_S )); do
+	grep -q "KULAN-BOOT-REPORT-END" "${WORK}/serial.log" 2>/dev/null && break
+	kill -0 "${QEMU_PID}" 2>/dev/null || break
+	sleep 5
+done
+if ! grep -q "KULAN-BOOT-REPORT-END" "${WORK}/serial.log" 2>/dev/null; then
+	echo "::warning title=Screenshots::the live desktop didn't come up; no screenshots"
+	exit 0
+fi
+
+python3 - "${WORK}/qmp.sock" "${WORK}/qga.sock" "${OUT}" <<'PY'
+import base64, json, os, socket, sys, time
+from PIL import Image
+
+qmp_path, qga_path, out = sys.argv[1:4]
+
+def connect(path):
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(30)
+    s.connect(path)
+    return s.makefile("rw")
+
+qmp = connect(qmp_path)
+json.loads(qmp.readline())
+
+def qmp_call(cmd, **args):
+    qmp.write(json.dumps({"execute": cmd, "arguments": args}) + "\n"); qmp.flush()
+    while True:
+        reply = json.loads(qmp.readline())
+        if "return" in reply or "error" in reply:
+            return reply
+
+qmp_call("qmp_capabilities")
+
+qga = None
+def qga_call(cmd, **args):
+    qga.write(json.dumps({"execute": cmd, "arguments": args}) + "\n"); qga.flush()
+    while True:
+        line = qga.readline()
+        if not line:
+            raise RuntimeError("guest agent closed")
+        reply = json.loads(line)
+        if "return" in reply or "error" in reply:
+            return reply
+
+# The agent starts with the live system; sync until it answers.
+for _ in range(30):
+    try:
+        qga = connect(qga_path)
+        token = int(time.time())
+        if qga_call("guest-sync", id=token).get("return") == token:
+            break
+    except Exception:
+        time.sleep(4)
+else:
+    print("::warning title=Screenshots::the guest agent didn't answer; desktop only")
+    qga = None
+
+def run(script, wait=True):
+    """Run a shell script in the guest as root; return its output."""
+    if qga is None:
+        return ""
+    r = qga_call("guest-exec", path="/bin/sh", arg=["-c", script], **{"capture-output": True})
+    pid = r.get("return", {}).get("pid")
+    if pid is None or not wait:
+        return ""
+    for _ in range(60):
+        s = qga_call("guest-exec-status", pid=pid).get("return", {})
+        if s.get("exited"):
+            return base64.b64decode(s.get("out-data", "")).decode(errors="replace")
+        time.sleep(1)
+    return ""
+
+# Start an app in the live user's session, detached.
+SESSION = ('U=$(id -nu 1000); runuser -u "$U" -- env XDG_RUNTIME_DIR=/run/user/1000 '
+           'WAYLAND_DISPLAY=wayland-0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus '
+           'setsid %s >/dev/null 2>&1 </dev/null &')
+
+def shot(name):
+    ppm = os.path.join(out, name + ".ppm")
+    qmp_call("screendump", filename=os.path.abspath(ppm))
+    time.sleep(1)
+    if os.path.getsize(ppm) if os.path.exists(ppm) else 0:
+        Image.open(ppm).save(os.path.join(out, name + ".png"), optimize=True)
+        os.remove(ppm)
+        print(f"Saved {name}.png")
+    else:
+        print(f"::warning title=Screenshots::{name} wasn't captured")
+
+def close_apps():
+    # Close only the apps this script and the live session opened.
+    run("pkill -x kulan-welcome; pkill -f /usr/bin/kulan-installer; pkill -f /usr/bin/kulan-settings; sleep 2")
+
+time.sleep(25)  # let the welcome app, widgets and weather settle
+close_apps()
+time.sleep(3)
+shot("desktop")
+
+for name, cmd in (("installer", "/usr/bin/kulan-installer"),
+                  ("settings", "/usr/bin/kulan-settings")):
+    if qga is None:
+        break
+    run(SESSION % cmd, wait=False)
+    time.sleep(12)
+    shot(name)
+    close_apps()
+    time.sleep(3)
+PY
+ls -l "${OUT}"
