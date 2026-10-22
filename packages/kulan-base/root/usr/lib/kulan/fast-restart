@@ -1,0 +1,76 @@
+#!/bin/sh
+# Kulan OS fast restart for ARM virtual machines.
+#
+# In UTM on Apple silicon (QEMU's ARM "virt" machine), a normal restart
+# freezes right after "EFI stub: Exiting boot services": the VM's warm reset
+# leaves it unable to start Linux, while starting from off always works.
+# Restarting with kexec (the running Linux loads the new kernel and jumps
+# into it) never goes back through that reset, so in these VMs the Restart
+# button does that instead. If kexec fails for any reason, systemd falls back
+# to a normal restart.
+#
+# Everywhere else nothing changes, and loading another kernel stays switched
+# off (kernel.kexec_load_disabled = 1) as part of Kulan's kernel hardening.
+#
+#   fast-restart check  exit 0 if this machine restarts with kexec
+#   fast-restart guard  switch kexec loading off unless it does (at boot)
+#   fast-restart load   load the newest kernel if a restart is under way
+#
+# Touch /etc/kulan/no-fast-restart to keep normal restarts in a VM.
+set -u
+
+OPT_OUT=/etc/kulan/no-fast-restart
+KEXEC=/usr/sbin/kexec
+[ -x "${KEXEC}" ] || KEXEC=/sbin/kexec
+
+uses_fast_restart() {
+	[ "$(uname -m)" = aarch64 ] || return 1
+	[ -e "${OPT_OUT}" ] && return 1
+	[ -x "${KEXEC}" ] || return 1
+	case "$(systemd-detect-virt --vm 2>/dev/null)" in
+		qemu|kvm) return 0 ;;
+	esac
+	return 1
+}
+
+restart_pending() {
+	systemctl list-jobs --no-legend 2>/dev/null | grep -Eq '[[:space:]](reboot|kexec)\.target[[:space:]]+start'
+}
+
+newest_kernel() {
+	if command -v linux-version >/dev/null 2>&1; then
+		linux-version list 2>/dev/null | linux-version sort --reverse 2>/dev/null | head -n 1
+	else
+		ls /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' | sort -V -r | head -n 1
+	fi
+}
+
+load() {
+	uses_fast_restart || return 0
+	restart_pending || return 0
+	VERSION="$(newest_kernel)"
+	KERNEL="/boot/vmlinuz-${VERSION}"
+	INITRD="/boot/initrd.img-${VERSION}"
+	if [ -z "${VERSION}" ] || [ ! -r "${KERNEL}" ] || [ ! -r "${INITRD}" ]; then
+		echo "fast restart: no kernel found in /boot; restarting normally" >&2
+		return 0
+	fi
+	# Same options as this start, without the boot loader's own entry.
+	APPEND="$(sed -e 's/\(^\| \)BOOT_IMAGE=[^ ]*//' -e 's/^ *//' /proc/cmdline)"
+	if "${KEXEC}" -l "${KERNEL}" --initrd="${INITRD}" --append="${APPEND}"; then
+		echo "fast restart: Linux ${VERSION} loaded"
+	else
+		echo "fast restart: could not load Linux ${VERSION}; restarting normally" >&2
+	fi
+	return 0
+}
+
+case "${1:-}" in
+	check) uses_fast_restart ;;
+	guard)
+		uses_fast_restart && exit 0
+		echo 1 > /proc/sys/kernel/kexec_load_disabled
+		;;
+	load) load ;;
+	*) echo "usage: $0 check|guard|load" >&2; exit 2 ;;
+esac

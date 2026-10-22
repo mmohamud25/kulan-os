@@ -21,6 +21,16 @@ case "$1" in
 			deb-systemd-invoke restart kulan-oom-notice.service >/dev/null 2>&1 || true
 		fi
 
+		# Kernel hardening (no loading another kernel) everywhere, and fast
+		# restart in ARM VMs, where a normal restart freezes (UTM on Apple
+		# silicon). The generator takes effect from the next start.
+		deb-systemd-helper enable kulan-kexec-guard.service >/dev/null || true
+		deb-systemd-helper enable kulan-fast-restart.service >/dev/null || true
+		if [ -d /run/systemd/system ]; then
+			systemctl --system daemon-reload >/dev/null 2>&1 || true
+			deb-systemd-invoke start kulan-fast-restart.service >/dev/null 2>&1 || true
+		fi
+
 		# Console login banner (base-files' conffiles, so set here).
 		printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue
 		printf '%s %s\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue.net

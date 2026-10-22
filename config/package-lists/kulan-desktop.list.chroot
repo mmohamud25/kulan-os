@@ -108,6 +108,8 @@ torbrowser-launcher
 # Speed: swap in compressed memory (settings in kulan-base)
 systemd-zram-generator
 systemd-oomd
+# Restart that works in ARM VMs (UTM): see kulan-base fast-restart
+kexec-tools
 
 # Useful tools
 sudo

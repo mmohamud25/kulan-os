@@ -170,6 +170,13 @@ else
 	result fail "Memory guard" "systemd-oomd / notice: ${OOMD:-not reported}"
 fi
 
+KEXEC="$(field kexec)"
+case "${KEXEC}" in
+	"1 no x86_64") result pass "Kernel hardening" "loading another kernel is switched off" ;;
+	"0 yes aarch64") result pass "Restart in ARM VMs" "fast restart (kexec) set up; normal restarts freeze in UTM" ;;
+	*) result fail "Kernel hardening / fast restart" "unexpected: ${KEXEC:-not reported}" ;;
+esac
+
 APPS="$(field appupdates)"
 if [[ "${APPS}" == ok ]]; then
 	result pass "App updates" "Flatpak lists app updates (as Software Update does)"

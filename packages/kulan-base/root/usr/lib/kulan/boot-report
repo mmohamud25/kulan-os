@@ -39,6 +39,11 @@ sleep 5 # let the session settle
 	echo "memory=$(free -m | awk '/^Mem:/ {print $3 " MB used of " $2 " MB"}')"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
 	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
+	# Kernel loading switched off (1) on PCs; left on (0) with fast restart
+	# set up in ARM VMs, where a normal restart freezes.
+	FAST=no
+	[ -e /run/systemd/generator/systemd-reboot.service.d/50-kulan-fast-restart.conf ] && FAST=yes
+	echo "kexec=$(cat /proc/sys/kernel/kexec_load_disabled 2>/dev/null) ${FAST} $(uname -m)"
 	if command -v flatpak >/dev/null 2>&1; then
 		if timeout 60 flatpak remote-ls --system --updates --columns=ref,name,version >/dev/null 2>/tmp/kulan-flatpak.err; then
 			echo "appupdates=ok"

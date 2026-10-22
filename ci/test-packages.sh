@@ -224,6 +224,7 @@ assert got == [{"name": "Example", "from": "", "to": "2.0", "security": False, "
                 "ref": "app/org.example.App/x86_64/stable"}], got
 PY
 check "Status refresh after start-up" "a timer a minute after start-up, not in the way of the login screen" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-update-status.timer && ! test -e /etc/systemd/system/multi-user.target.wants/kulan-update-status.service'
+check "Restart in ARM VMs" "fast restart only in ARM QEMU VMs; kexec hardening kept elsewhere" bash -c 'systemctl is-enabled kulan-kexec-guard.service && systemctl is-enabled kulan-fast-restart.service && test -x /usr/lib/systemd/system-generators/kulan-fast-restart && ! grep -q "^kernel.kexec_load_disabled" /etc/sysctl.d/60-kulan-hardening.conf && { [ "$(uname -m)" = aarch64 ] || ! /usr/lib/kulan/fast-restart check; } && D=$(mktemp -d) && /usr/lib/systemd/system-generators/kulan-fast-restart "$D" && { [ "$(uname -m)" = aarch64 ] || ! test -e "$D/systemd-reboot.service.d/50-kulan-fast-restart.conf"; }'
 check "Memory guard" "systemd-oomd and Kulan's notice enabled; user apps closed under memory pressure" bash -c 'systemctl is-enabled systemd-oomd.service && systemctl is-enabled kulan-oom-notice.service && grep -qx "ManagedOOMMemoryPressure=kill" /usr/lib/systemd/system/user@.service.d/50-kulan-oomd.conf'
 check "Memory notice" "names the app that was closed" python3 -I - <<'PY'
 import importlib.machinery, importlib.util

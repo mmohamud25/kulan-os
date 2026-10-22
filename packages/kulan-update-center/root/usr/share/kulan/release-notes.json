@@ -25,7 +25,8 @@
       "Undo the last update: Software Update can put the system back to how it was before the last update, without touching your files, and pauses automatic updates for 3 days so it doesn't come straight back",
       "Kulan Store: the app store has Kulan's name and icon, with Kulan picks of well-known apps; it no longer shows updates, which are all in Software Update",
       "Chromium add-on: a second browser for sites that work best in Chrome-type browsers, from Debian, with Kulan's privacy settings and ad blocking; Firefox stays the default",
-      "Settings > Sound shows the alert sound (Click) instead of \"Unknown\"; Kulan's other sounds stay"
+      "Settings > Sound shows the alert sound (Click) instead of \"Unknown\"; Kulan's other sounds stay",
+      "Restart works in ARM virtual machines (UTM on Apple silicon): instead of freezing at \"Exiting boot services\", Restart goes straight into the new system (kexec). PCs keep that switched off as part of Kulan's kernel hardening"
     ]
   },
   {

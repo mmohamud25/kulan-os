@@ -1,0 +1,14 @@
+[Unit]
+Description=Kulan OS: no replacing the running kernel without a restart
+Documentation=https://github.com/mmohamud25/kulan-os
+DefaultDependencies=no
+After=systemd-sysctl.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/fast-restart guard
+
+[Install]
+WantedBy=sysinit.target
