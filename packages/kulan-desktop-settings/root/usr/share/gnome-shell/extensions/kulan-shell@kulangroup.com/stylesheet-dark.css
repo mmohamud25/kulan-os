@@ -541,6 +541,53 @@
 .kulan-card-note .kulan-widget-icon { color: #b45309; letter-spacing: 1px; }
 .kulan-card-note .kulan-widget-muted { color: rgba(59, 42, 4, 0.6); }
 
+/* New widgets (2.4): Clock, System, To-do, Now Playing */
+.kulan-clock-time { spacing: 4px; }
+.kulan-clock-ampm { font-size: 0.9em; font-weight: 700; padding-bottom: 8px; }
+.kulan-card-clock .kulan-widget-title,
+.kulan-card-clock .kulan-widget-icon,
+.kulan-card-system .kulan-widget-title,
+.kulan-card-system .kulan-widget-icon,
+.kulan-card-todo .kulan-widget-title,
+.kulan-card-todo .kulan-widget-icon,
+.kulan-card-media .kulan-widget-title,
+.kulan-card-media .kulan-widget-icon { color: #f59e0b; letter-spacing: 1px; }
+.kulan-system-row { spacing: 3px; padding-top: 3px; }
+.kulan-system-value { font-size: 0.82em; font-weight: 600; }
+.kulan-system-bar { height: 5px; border-radius: 3px; background-color: rgba(255, 255, 255, 0.12); }
+.kulan-system-fill { height: 5px; border-radius: 3px; background-color: #0d9488; }
+.kulan-system-fill-warn { background-color: #f59e0b; }
+.kulan-todo-widget-row { spacing: 8px; padding: 2px 0; }
+.kulan-todo-check {
+  width: 18px; height: 18px; border-radius: 9px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  background-color: transparent;
+}
+.kulan-todo-check:hover { border-color: #0d9488; }
+.kulan-todo-check:focus { border-color: #0d9488; box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.35); }
+.kulan-todo-check-done { background-color: #0d9488; border-color: #0d9488; }
+.kulan-todo-check-icon { icon-size: 12px; color: #ffffff; }
+.kulan-todo-entry {
+  padding: 9px 12px; border-radius: 10px; border: none;
+  background-color: rgba(255, 255, 255, 0.07); color: #eef4fb; caret-color: #0d9488; box-shadow: none;
+}
+.kulan-todo-entry:focus { box-shadow: inset 0 0 0 2px rgba(13, 148, 136, 0.6); }
+.kulan-todo-list { spacing: 2px; padding: 4px 2px; }
+.kulan-todo-row { spacing: 10px; padding: 7px 8px; border-radius: 10px; }
+.kulan-todo-row:hover { background-color: rgba(255, 255, 255, 0.08); }
+.kulan-todo-text { color: #eef4fb; }
+.kulan-todo-text-done { color: rgba(255, 255, 255, 0.55); }
+.kulan-todo-empty { color: rgba(255, 255, 255, 0.55); padding: 12px 8px; }
+.kulan-todo-remove { padding: 4px; border-radius: 8px; color: rgba(255, 255, 255, 0.55); }
+.kulan-todo-remove:hover { background-color: rgba(255, 255, 255, 0.08); color: #eef4fb; }
+.kulan-todo-clear { padding: 4px 12px; border-radius: 10px; color: #0d9488; font-weight: 600; }
+.kulan-todo-clear:hover { background-color: rgba(255, 255, 255, 0.08); }
+.kulan-media-track { spacing: 10px; padding-top: 2px; }
+.kulan-media-cover { icon-size: 44px; border-radius: 8px; }
+.kulan-media-controls { spacing: 14px; padding-top: 6px; }
+.kulan-media-button { padding: 6px; border-radius: 16px; color: #eef4fb; }
+.kulan-media-button:hover { background-color: rgba(255, 255, 255, 0.08); }
+
 /* ---- Lock screen ------------------------------------------------------ */
 .unlock-dialog-clock-time {
   font-family: Manrope, Inter, sans-serif;

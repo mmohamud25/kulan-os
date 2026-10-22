@@ -260,6 +260,19 @@ assert len(sent) == 1, sent
 print(sent[0][1])
 PY
 check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"
+check "More widgets" "Clock, System, To-do and Now Playing present; every module the extension imports is shipped" python3 - <<'PY'
+import os, re
+d = "/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com"
+js = {f: open(os.path.join(d, f)).read() for f in os.listdir(d) if f.endswith(".js")}
+missing = [(f, m) for f, text in js.items() for m in re.findall(r"from '\./([\w-]+\.js)'", text) if m not in js]
+assert not missing, f"imports with no file: {missing}"
+for name in ("ClockWidget", "SystemWidget", "TodoWidget", "MediaWidget"):
+    assert f"export class {name}" in js["morewidgets.js"], name
+for widget_id in ("'clock'", "'system'", "'todo'", "'media'"):
+    assert widget_id in js["widgets.js"], widget_id
+for css in ("stylesheet-dark.css", "stylesheet-light.css"):
+    assert ".kulan-todo-check" in open(os.path.join(d, css)).read(), css
+PY
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Undo last update" "restores the newest pre-update point after saving the current one, pauses automatic updates, restarts" bash -c '
 	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps/2026-01-01_00-00-00" "$D/snaps/2026-01-03_00-00-00" "$D/snaps/2026-01-02_00-00-00"

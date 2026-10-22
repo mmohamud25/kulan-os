@@ -1,7 +1,7 @@
 // Desktop widgets, as on a Mac: small cards at the top left of the desktop
 // (desktop icons start at the top right). Calendar (today and what's next),
-// Weather (GNOME Weather's location), Prayer Times (only when turned on) and
-// a note. Each opens its app when clicked. Windows cover them, as on a Mac;
+// Weather (GNOME Weather's location), Prayer Times (only when turned on), a
+// note, and the ones in morewidgets.js: Clock, System, To-do, Now Playing. Each opens its app when clicked. Windows cover them, as on a Mac;
 // they sit just above the desktop icons layer, so they can be clicked.
 // Chosen in Kulan Settings > Desktop and windows (org.kulan.desktop
 // desktop-widgets).
@@ -9,6 +9,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import GObject from 'gi://GObject';
 import GWeather from 'gi://GWeather?version=4.0';
 import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
@@ -18,75 +19,16 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Calendar from 'resource:///org/gnome/shell/ui/calendar.js';
 import * as Weather from 'resource:///org/gnome/shell/misc/weather.js';
 
+import {Card, label, launch, launchApp} from './cards.js';
+import {ClockWidget, MediaWidget, SystemWidget, TodoWidget} from './morewidgets.js';
 import {dayMoments} from './prayer.js';
 
 const MARGIN = 24;
+const GAP = 14;
 const TICK_S = 30;
 const MAX_EVENTS = 3;
 const NOTE_FILE = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'quick-note.txt']);
 const PRAYER_NAMES = {fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'Asr', maghrib: 'Maghrib', isha: 'Isha'};
-
-function launch(argv) {
-    try {
-        Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
-    } catch (e) {
-        logError(e, `Kulan Shell: widget could not start ${argv[0]}`);
-    }
-}
-
-function launchApp(desktopId) {
-    const app = Gio.DesktopAppInfo.new(desktopId);
-    if (!app)
-        return false;
-    try {
-        app.launch([], global.create_app_launch_context(0, -1));
-        return true;
-    } catch (e) {
-        logError(e, `Kulan Shell: widget could not open ${desktopId}`);
-        return false;
-    }
-}
-
-function label(text, styleClass, wrap = false) {
-    const l = new St.Label({text, style_class: styleClass, x_expand: true});
-    l.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-    if (wrap) {
-        l.clutter_text.line_wrap = true;
-        l.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
-    }
-    return l;
-}
-
-// One card: a button with a title row and a body that each widget fills.
-class Card {
-    constructor(title, icon, onClick, kind = '') {
-        this.actor = new St.Button({style_class: 'kulan-widget', reactive: true, can_focus: false, x_expand: false});
-        if (kind)
-            this.actor.add_style_class_name(`kulan-card-${kind}`); // e.g. the note's paper colour
-        this._box = new St.BoxLayout({vertical: true, style_class: 'kulan-widget-box', x_expand: true});
-        const head = new St.BoxLayout({style_class: 'kulan-widget-head'});
-        head.add_child(new St.Icon({icon_name: icon, style_class: 'kulan-widget-icon'}));
-        this._title = label(title, 'kulan-widget-title');
-        head.add_child(this._title);
-        this._box.add_child(head);
-        this.body = new St.BoxLayout({vertical: true, style_class: 'kulan-widget-body', x_expand: true});
-        this._box.add_child(this.body);
-        this.actor.set_child(this._box);
-        this.actor.connect('clicked', onClick);
-    }
-
-    setTitle(text) {
-        this._title.text = text;
-    }
-
-    clear() {
-        this.body.destroy_all_children();
-    }
-
-    destroy() {
-        this.actor.destroy();
-    }
-}
 
 class CalendarWidget {
     constructor() {
@@ -163,7 +105,7 @@ function placeName(info) {
         const name = place?.get_city_name() || place?.get_name();
         if (name)
             return name;
-    } catch (e) {
+    } catch {
         // Older GWeather: fall through to the station's name.
     }
     return info.get_location_name() || 'Weather';
@@ -344,12 +286,75 @@ class NotesWidget {
     }
 }
 
+// Cards top to bottom, each at its natural height, starting a new column
+// to the right when the next card wouldn't fit above the bottom of the screen.
+const ColumnsLayout = GObject.registerClass(
+class ColumnsLayout extends Clutter.LayoutManager {
+    _init() {
+        super._init();
+        this.spacing = GAP;
+        this.maxHeight = Infinity;
+    }
+
+    _columns(container) {
+        const columns = [];
+        let column = null;
+        for (const child of container.get_children()) {
+            if (!child.visible)
+                continue;
+            const [, width] = child.get_preferred_width(-1);
+            const [, height] = child.get_preferred_height(width);
+            if (column && column.height + this.spacing + height > this.maxHeight) {
+                columns.push(column);
+                column = null;
+            }
+            if (!column)
+                column = {width: 0, height: -this.spacing, cards: []};
+            column.cards.push({child, width, height});
+            column.width = Math.max(column.width, width);
+            column.height += this.spacing + height;
+        }
+        if (column)
+            columns.push(column);
+        return columns;
+    }
+
+    vfunc_get_preferred_width(container, _forHeight) {
+        const columns = this._columns(container);
+        const width = columns.reduce((sum, c) => sum + c.width, 0) + this.spacing * Math.max(0, columns.length - 1);
+        return [width, width];
+    }
+
+    vfunc_get_preferred_height(container, _forWidth) {
+        const height = Math.max(0, ...this._columns(container).map(c => c.height));
+        return [height, height];
+    }
+
+    vfunc_allocate(container, box) {
+        let x = box.x1;
+        for (const column of this._columns(container)) {
+            let y = box.y1;
+            for (const {child, width, height} of column.cards) {
+                const childBox = new Clutter.ActorBox();
+                childBox.set_origin(Math.round(x), Math.round(y));
+                childBox.set_size(width, height);
+                child.allocate(childBox);
+                y += height + this.spacing;
+            }
+            x += column.width + this.spacing;
+        }
+    }
+});
+
 export class DesktopWidgets {
     constructor(settings, openNote) {
         this._settings = settings;
         this._openNote = openNote;
         this._widgets = new Map();
-        this._box = new St.BoxLayout({vertical: true, style_class: 'kulan-widgets', reactive: false});
+        // Cards run down the left edge and carry on in a second column when
+        // they don't fit (a short screen, or many widgets).
+        this._columns = new ColumnsLayout();
+        this._box = new St.Widget({layout_manager: this._columns, style_class: 'kulan-widgets', reactive: false});
         global.window_group.add_child(this._box);
         this._restackId = global.display.connect('restacked', () => this._restack());
         this._monitorsId = Main.layoutManager.connect('monitors-changed', () => this._place());
@@ -403,6 +408,14 @@ export class DesktopWidgets {
                 widget = new PrayerWidget(this._settings);
             else if (id === 'notes')
                 widget = new NotesWidget(this._openNote);
+            else if (id === 'clock')
+                widget = this._make(ClockWidget);
+            else if (id === 'system')
+                widget = this._make(SystemWidget);
+            else if (id === 'todo')
+                widget = this._make(TodoWidget);
+            else if (id === 'media')
+                widget = this._make(MediaWidget);
             if (widget)
                 this._widgets.set(id, widget);
         }
@@ -421,11 +434,26 @@ export class DesktopWidgets {
         this._restack();
     }
 
+    // One widget that fails to start (a missing service, say) never takes
+    // the others with it.
+    _make(Widget) {
+        try {
+            return new Widget();
+        } catch (e) {
+            logError(e, `Kulan Shell: ${Widget.name} could not start`);
+            return null;
+        }
+    }
+
     _place() {
         const index = Main.layoutManager.primaryIndex;
         if (index < 0)
             return;
         const area = Main.layoutManager.getWorkAreaForMonitor(index);
+        const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+        this._columns.spacing = GAP * scale;
+        this._columns.maxHeight = Math.max(0, area.height - 2 * MARGIN);
+        this._columns.layout_changed();
         this._box.set_position(area.x + MARGIN, area.y + MARGIN);
     }
 

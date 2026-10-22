@@ -8,6 +8,8 @@
       "A new Control Centre: rounded tiles, thick sliders and Kulan's teal for what's on",
       "A rounder navy dock, a wider search in the app grid, rounder folders and night navy behind the overview",
       "Desktop widgets restyled: big Manrope numbers, amber headings, a teal Weather card and a paper-yellow note",
+      "Four new desktop widgets: Clock (with your world clocks from Clocks), System (processor, memory, disk and battery), To-do (tick tasks off right on the desktop) and Now Playing (play, pause and skip). Choose and reorder them in Kulan Settings > Desktop and windows; they flow into a second column when the screen is full",
+      "Fixed: the Calendar widget could say 'Nothing else today' twice, and the Weather widget showed the weather station's name and 'Unknown' instead of your city and the conditions",
       "The lock screen's clock in Manrope, with a ringed photo and a cleaner password field",
       "One icon family: Kulan's apps and GNOME's apps share the same rounded square, gradient and white symbol",
       "Compliance mode (Kulan Settings > Security): one switch brings the computer to a security baseline checked against CIS Controls v8 and NIST SP 800-53, keeps the screen lock from being turned off, and saves a report to hand to an auditor or a client",
