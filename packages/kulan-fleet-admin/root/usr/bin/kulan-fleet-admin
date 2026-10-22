@@ -1,0 +1,659 @@
+#!/usr/bin/python3
+"""Kulan Fleet: the administrator's app for Kulan OS fleet management.
+
+Signs in to the kulan-fleet Supabase project with an email and a one-time
+code (no password), keeps the session in the GNOME keyring, and talks only
+to the fleet-admin function, which shows nothing unless the signed-in email
+is on the fleet's admin list. Everything the computers report comes from
+the fleet server; nothing here can run commands on them beyond the five
+actions Kulan OS allows.
+
+  kulan-fleet-admin              open the app
+  kulan-fleet-admin --self-test  build every page with sample data (no network)
+"""
+from __future__ import annotations
+
+import json
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+
+try:
+    gi.require_version("Secret", "1")
+    from gi.repository import Secret  # noqa: E402
+except (ValueError, ImportError):
+    Secret = None
+
+APP_ID = "org.kulan.Fleet"
+SUPABASE_URL = "https://xegnwqxpegznsufulclx.supabase.co"
+PUBLISHABLE_KEY = "sb_publishable_Z7MrJQBPYz3_CmXviZuTJA_kWNAMOA1"  # public by design
+API = f"{SUPABASE_URL}/functions/v1/fleet-admin"
+FLEET_SERVER = f"{SUPABASE_URL}/functions/v1/fleet"
+ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
+           ("install-updates", "Install updates", "software-update-available-symbolic"),
+           ("compliance-on", "Turn compliance mode on", "security-high-symbolic"),
+           ("lock-screen", "Lock the screen", "system-lock-screen-symbolic"),
+           ("restart", "Restart (5 minutes' notice)", "system-reboot-symbolic")]
+ACTION_LABEL = {a: t for a, t, _i in ACTIONS}
+STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "done", "failed": "failed"}
+TIMEOUT = 30
+
+CSS = """
+.fleet-tag { padding: 1px 9px; border-radius: 999px; font-size: 0.82em; font-weight: 700; }
+.fleet-tag.good { background: alpha(#0d9488, 0.18); color: #0f766e; }
+.fleet-tag.bad { background: alpha(#dc2626, 0.16); color: #b91c1c; }
+.fleet-tag.warn { background: alpha(#f59e0b, 0.20); color: #b45309; }
+.fleet-tag.dim { background: alpha(currentColor, 0.08); color: alpha(currentColor, 0.65); }
+.fleet-stat { padding: 14px 16px; border-radius: 14px; }
+.fleet-stat-number { font-family: Manrope, Inter, sans-serif; font-weight: 800; font-size: 28px; }
+.fleet-code { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 26px; letter-spacing: 3px; }
+"""
+
+
+# --- the session ---------------------------------------------------------------------
+SECRET_SCHEMA = None
+if Secret is not None:
+    SECRET_SCHEMA = Secret.Schema.new(APP_ID, Secret.SchemaFlags.NONE, {"kind": Secret.SchemaAttributeType.STRING})
+
+
+def keyring_get() -> str | None:
+    if SECRET_SCHEMA is None:
+        return None
+    try:
+        return Secret.password_lookup_sync(SECRET_SCHEMA, {"kind": "refresh-token"}, None)
+    except GLib.Error:
+        return None
+
+
+def keyring_set(token: str | None) -> None:
+    if SECRET_SCHEMA is None:
+        return
+    try:
+        if token:
+            Secret.password_store_sync(SECRET_SCHEMA, {"kind": "refresh-token"}, Secret.COLLECTION_DEFAULT,
+                                       "Kulan Fleet sign-in", token, None)
+        else:
+            Secret.password_clear_sync(SECRET_SCHEMA, {"kind": "refresh-token"}, None)
+    except GLib.Error:
+        pass
+
+
+class FleetError(Exception):
+    pass
+
+
+def http(url: str, body: dict | None, headers: dict | None = None) -> dict:
+    request = urllib.request.Request(url, data=json.dumps(body or {}).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "apikey": PUBLISHABLE_KEY,
+                                              "User-Agent": "kulan-fleet-admin/1", **(headers or {})})
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
+            text = reply.read(5_000_000).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        try:
+            detail = json.loads(e.read().decode("utf-8", "replace"))
+            message = detail.get("error") or detail.get("msg") or detail.get("error_description") or detail.get("message")
+        except (ValueError, AttributeError):
+            message = None
+        raise FleetError(message or f"The server said {e.code}") from e
+    except (urllib.error.URLError, OSError) as e:
+        raise FleetError(f"Couldn't reach the fleet server: {getattr(e, 'reason', e)}") from e
+    try:
+        return json.loads(text) if text.strip() else {}
+    except ValueError as e:
+        raise FleetError("The server's answer wasn't JSON") from e
+
+
+class Session:
+    """Supabase Auth with an emailed one-time code; refresh token in the keyring."""
+
+    def __init__(self) -> None:
+        self.access_token: str | None = None
+        self.expires = 0.0
+        self.refresh_token: str | None = keyring_get()
+        self.email = ""
+
+    def _take(self, data: dict) -> None:
+        self.access_token = data.get("access_token")
+        self.refresh_token = data.get("refresh_token")
+        self.expires = time.time() + float(data.get("expires_in") or 3600) - 60
+        self.email = (data.get("user") or {}).get("email", self.email)
+        keyring_set(self.refresh_token)
+
+    def send_code(self, email: str) -> None:
+        http(f"{SUPABASE_URL}/auth/v1/otp", {"email": email, "create_user": True})
+
+    def verify(self, email: str, code: str) -> None:
+        self._take(http(f"{SUPABASE_URL}/auth/v1/verify", {"type": "email", "email": email, "token": code}))
+
+    def token(self) -> str:
+        if self.access_token and time.time() < self.expires:
+            return self.access_token
+        if not self.refresh_token:
+            raise FleetError("Please sign in")
+        try:
+            self._take(http(f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
+                            {"refresh_token": self.refresh_token}))
+        except FleetError:
+            self.sign_out(local_only=True)
+            raise FleetError("Your sign-in ran out; please sign in again")
+        return self.access_token
+
+    def call(self, body: dict) -> dict:
+        return http(API, body, {"Authorization": f"Bearer {self.token()}"})
+
+    def sign_out(self, local_only: bool = False) -> None:
+        if not local_only and self.access_token:
+            try:
+                http(f"{SUPABASE_URL}/auth/v1/logout", {}, {"Authorization": f"Bearer {self.access_token}"})
+            except FleetError:
+                pass
+        self.access_token = self.refresh_token = None
+        keyring_set(None)
+
+
+def ago(iso: str | None) -> str:
+    if not iso:
+        return "never"
+    try:
+        when = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return iso
+    s = (datetime.now(timezone.utc) - when).total_seconds()
+    if s < 90:
+        return "just now"
+    if s < 3600:
+        return f"{round(s / 60)} min ago"
+    if s < 86400:
+        return f"{round(s / 3600)} h ago"
+    days = round(s / 86400)
+    return f"{days} day{'s' if days != 1 else ''} ago"
+
+
+def tag(text: str, kind: str) -> Gtk.Label:
+    return Gtk.Label(label=text, css_classes=["fleet-tag", kind], valign=Gtk.Align.CENTER)
+
+
+def compliance_tag(d: dict) -> Gtk.Label:
+    if d.get("compliance_total") is None:
+        return tag("compliance unknown", "dim")
+    ok = d.get("compliance_passed") == d.get("compliance_total")
+    on = " · mode on" if d.get("compliance_mode") == "on" else ""
+    return tag(f"{d['compliance_passed']} of {d['compliance_total']}{on}", "good" if ok else "warn")
+
+
+def updates_tag(d: dict) -> Gtk.Label:
+    u = d.get("updates")
+    if not u:
+        return tag("updates unknown", "dim")
+    if u.get("security"):
+        return tag(f"{u['security']} security", "bad")
+    if u.get("waiting"):
+        return tag(f"{u['waiting']} waiting", "warn")
+    return tag("up to date", "good")
+
+
+# --- the window ------------------------------------------------------------------------
+class FleetWindow(Adw.ApplicationWindow):
+    def __init__(self, app: Adw.Application, session: Session, sample: dict | None = None) -> None:
+        super().__init__(application=app, title="Kulan Fleet", default_width=1040, default_height=720)
+        self.session = session
+        self.data: dict | None = sample
+        self.org_id: str | None = None
+        self.toasts = Adw.ToastOverlay()
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.toasts.set_child(self.stack)
+        self.set_content(self.toasts)
+        self.stack.add_named(self.build_signin(), "signin")
+        self.stack.add_named(self.build_main(), "main")
+        if sample is not None:
+            self.stack.set_visible_child_name("main")
+            self.show_data()
+        elif session.refresh_token:
+            self.stack.set_visible_child_name("main")
+            self.reload()
+        else:
+            self.stack.set_visible_child_name("signin")
+
+    # --- background calls ----------------------------------------------------------------
+    def background(self, work, done) -> None:
+        def run() -> None:
+            try:
+                result, error = work(), None
+            except FleetError as e:
+                result, error = None, str(e)
+            except Exception as e:  # noqa: BLE001 - never leave the app hanging
+                result, error = None, f"Something went wrong: {e}"
+            GLib.idle_add(lambda: (done(result, error), False)[1])
+        threading.Thread(target=run, daemon=True).start()
+
+    def toast(self, text: str) -> None:
+        self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
+
+    # --- sign in ---------------------------------------------------------------------------
+    def build_signin(self) -> Gtk.Widget:
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        status = Adw.StatusPage(icon_name="org.kulan.Fleet", title="Kulan Fleet",
+                                description="Sign in with your email. Only fleet admins see computers.")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, width_request=360,
+                      halign=Gtk.Align.CENTER)
+        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        self.email_row = Adw.EntryRow(title="Email")
+        self.code_row = Adw.EntryRow(title="Code from the email", visible=False)
+        rows.append(self.email_row)
+        rows.append(self.code_row)
+        self.signin_button = Gtk.Button(label="Email me a code", css_classes=["suggested-action", "pill"],
+                                        halign=Gtk.Align.CENTER)
+        self.signin_button.connect("clicked", lambda _b: self.signin_step())
+        self.email_row.connect("entry-activated", lambda _r: self.signin_step())
+        self.code_row.connect("entry-activated", lambda _r: self.signin_step())
+        self.signin_note = Gtk.Label(wrap=True, css_classes=["dim-label"])
+        box.append(rows)
+        box.append(self.signin_button)
+        box.append(self.signin_note)
+        status.set_child(box)
+        view.set_content(status)
+        return view
+
+    def signin_step(self) -> None:
+        email = self.email_row.get_text().strip()
+        if not email or "@" not in email:
+            self.signin_note.set_label("Type your email first.")
+            return
+        self.signin_button.set_sensitive(False)
+        if not self.code_row.get_visible():
+            def sent(_r, error):
+                self.signin_button.set_sensitive(True)
+                if error:
+                    self.signin_note.set_label(error)
+                    return
+                self.code_row.set_visible(True)
+                self.code_row.grab_focus()
+                self.signin_button.set_label("Sign in")
+                self.signin_note.set_label(f"We sent a code to {email}. It works once, for a short time.")
+            self.background(lambda: self.session.send_code(email), sent)
+            return
+        code = self.code_row.get_text().strip()
+
+        def verified(_r, error):
+            self.signin_button.set_sensitive(True)
+            if error:
+                self.signin_note.set_label(error)
+                return
+            self.code_row.set_text("")
+            self.stack.set_visible_child_name("main")
+            self.reload()
+        self.background(lambda: self.session.verify(email, code), verified)
+
+    def sign_out(self) -> None:
+        self.background(self.session.sign_out, lambda _r, _e: None)
+        self.data = None
+        self.code_row.set_visible(False)
+        self.signin_button.set_label("Email me a code")
+        self.signin_note.set_label("Signed out.")
+        self.stack.set_visible_child_name("signin")
+
+    # --- main view -----------------------------------------------------------------------------
+    def build_main(self) -> Gtk.Widget:
+        self.org_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
+        self.org_list.connect("row-selected", self.on_org)
+        side = Adw.ToolbarView()
+        side_header = Adw.HeaderBar()
+        self.new_org_button = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="New organisation",
+                                         visible=False)
+        self.new_org_button.connect("clicked", lambda _b: self.new_org())
+        side_header.pack_start(self.new_org_button)
+        side.add_top_bar(side_header)
+        side.set_content(Gtk.ScrolledWindow(child=self.org_list, vexpand=True))
+        sidebar = Adw.NavigationPage(title="Kulan Fleet", child=side)
+
+        self.nav = Adw.NavigationView()
+        content_view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Refresh")
+        refresh.connect("clicked", lambda _b: self.reload())
+        header.pack_end(refresh)
+        menu = Gio.Menu()
+        menu.append("Sign out", "win.sign-out")
+        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, tooltip_text="Menu"))
+        action = Gio.SimpleAction.new("sign-out", None)
+        action.connect("activate", lambda *_a: self.sign_out())
+        self.add_action(action)
+        content_view.add_top_bar(header)
+        self.page = Adw.PreferencesPage()
+        content_view.set_content(self.page)
+        self.nav.add(Adw.NavigationPage(title="Computers", child=content_view, tag="org"))
+        content = Adw.NavigationPage(title="Computers", child=self.nav)
+
+        self.groups: list[Adw.PreferencesGroup] = []
+        split = Adw.NavigationSplitView(sidebar=sidebar, content=content, min_sidebar_width=220)
+        return split
+
+    def reload(self) -> None:
+        def done(result, error):
+            if error:
+                if "sign in" in error.lower():
+                    self.sign_out()
+                self.toast(error)
+                return
+            self.data = result
+            self.show_data()
+        self.background(lambda: self.session.call({"op": "overview"}), done)
+
+    def show_data(self) -> None:
+        data = self.data or {}
+        self.new_org_button.set_visible(bool(data.get("global")))
+        keep = self.org_id
+        self.org_list.remove_all()
+        for org in data.get("organisations", []):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(org["name"]))
+            row.org_id = org["id"]
+            count = sum(1 for d in data.get("devices", []) if d["organisation_id"] == org["id"] and not d.get("left_at"))
+            row.add_suffix(Gtk.Label(label=str(count), css_classes=["dim-label"]))
+            self.org_list.append(row)
+        rows = [self.org_list.get_row_at_index(i) for i in range(len(data.get("organisations", [])))]
+        chosen = next((r for r in rows if getattr(r, "org_id", None) == keep), None)
+        target = chosen or (rows[0] if rows else None)
+        if target is not None:
+            self.org_list.select_row(target)
+        else:
+            self.org_id = None
+            self.render_org()
+
+    def on_org(self, _list, row) -> None:
+        if row is None:
+            return
+        self.org_id = getattr(row, "org_id", None)
+        self.nav.pop_to_tag("org")
+        self.render_org()
+
+    def clear(self) -> None:
+        for g in self.groups:
+            self.page.remove(g)
+        self.groups = []
+
+    def add_group(self, title: str = "", description: str = "") -> Adw.PreferencesGroup:
+        g = Adw.PreferencesGroup(title=title, description=description)
+        self.page.add(g)
+        self.groups.append(g)
+        return g
+
+    def render_org(self) -> None:
+        self.clear()
+        data = self.data or {}
+        org = next((o for o in data.get("organisations", []) if o["id"] == self.org_id), None)
+        head = self.add_group()
+        head.add(Gtk.Label(label=org["name"] if org else "No organisation yet", xalign=0,
+                           css_classes=["kulan-page-title", "title-1"]))
+        if not org:
+            note = "Add one with the + button." if data.get("global") else "Ask the fleet owner to add you to one."
+            head.add(Gtk.Label(label=note, xalign=0, css_classes=["dim-label"]))
+            return
+        devices = [d for d in data.get("devices", []) if d["organisation_id"] == org["id"]]
+        active = [d for d in devices if not d.get("left_at")]
+        now = datetime.now(timezone.utc)
+
+        def recent(d):
+            try:
+                return (now - datetime.fromisoformat(d["last_seen"].replace("Z", "+00:00"))).total_seconds() < 86400
+            except (KeyError, AttributeError, ValueError):
+                return False
+        stats = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, min_children_per_line=2, max_children_per_line=4,
+                            column_spacing=12, row_spacing=12, homogeneous=True)
+        for number, text in ((len(active), "computers"), (sum(map(recent, active)), "reported in the last day"),
+                             (sum(1 for d in active if d.get("compliance_total") and
+                                  d.get("compliance_passed") == d.get("compliance_total")), "meet the baseline"),
+                             (sum(1 for d in active if (d.get("updates") or {}).get("security")), "need security updates")):
+            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["card", "fleet-stat"])
+            card.append(Gtk.Label(label=str(number), xalign=0, css_classes=["fleet-stat-number"]))
+            card.append(Gtk.Label(label=text, xalign=0, css_classes=["dim-label"], wrap=True))
+            stats.append(card)
+        head.add(stats)
+
+        group = self.add_group("Computers", "Reports arrive every hour. Select a computer for its details.")
+        if not devices:
+            group.add(Adw.ActionRow(title="No computers yet", subtitle="Make a join code below"))
+        for d in devices:
+            left = bool(d.get("left_at"))
+            hw = " ".join(x for x in ((d.get("hardware") or {}).get("vendor"), (d.get("hardware") or {}).get("model")) if x)
+            subtitle = " · ".join(x for x in (f"Kulan OS {d['kulan_version']}" if d.get("kulan_version") else "",
+                                               hw, f"left {ago(d['left_at'])}" if left else ago(d.get("last_seen"))) if x)
+            row = Adw.ActionRow(title=GLib.markup_escape_text(d.get("hostname") or "(no name)"),
+                                subtitle=GLib.markup_escape_text(subtitle), activatable=True)
+            row.add_prefix(Gtk.Image(icon_name="computer-symbolic"))
+            if not left:
+                row.add_suffix(compliance_tag(d))
+                row.add_suffix(updates_tag(d))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            if left:
+                row.set_opacity(0.55)
+            row.connect("activated", lambda _r, dev=d: self.open_device(dev))
+            group.add(row)
+
+        add = self.add_group("Add computers",
+                             "On each computer: Kulan Settings → About → Organisation → Join an organisation.")
+        hours = Adw.ComboRow(title="Code works for", model=Gtk.StringList.new(["1 day", "3 days", "1 week", "30 days"]),
+                             selected=1)
+        uses = Adw.SpinRow.new_with_range(1, 500, 1)
+        uses.set_title("Number of computers")
+        make = Adw.ButtonRow(title="Make a join code") if hasattr(Adw, "ButtonRow") else None
+        add.add(hours)
+        add.add(uses)
+        if make is not None:
+            make.add_css_class("suggested-action")
+            make.connect("activated", lambda _r: self.make_code(org["id"], hours.get_selected(), int(uses.get_value())))
+            add.add(make)
+        else:
+            button = Gtk.Button(label="Make a join code", css_classes=["suggested-action"], margin_top=12)
+            button.connect("clicked", lambda _b: self.make_code(org["id"], hours.get_selected(), int(uses.get_value())))
+            add.add(button)
+
+        names = {d["id"]: d.get("hostname") or "" for d in data.get("devices", [])}
+        ids = {d["id"] for d in devices}
+        acts = [a for a in data.get("actions", []) if a["device_id"] in ids][:15]
+        history = self.add_group("Recent requests")
+        if not acts:
+            history.add(Adw.ActionRow(title="Nothing asked yet"))
+        for a in acts:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f"{ACTION_LABEL.get(a['type'], a['type'])} · {names.get(a['device_id'], '')}"),
+                                subtitle=GLib.markup_escape_text(" · ".join(x for x in (ago(a.get("created_at")), a.get("detail") or "") if x)))
+            row.add_suffix(tag(STATUS_LABEL.get(a["status"], a["status"]),
+                               {"done": "good", "failed": "bad"}.get(a["status"], "dim")))
+            history.add(row)
+
+    # --- one computer ---------------------------------------------------------------------------
+    def open_device(self, d: dict) -> None:
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title=d.get("hostname") or "Computer", child=view))
+        info = Adw.PreferencesGroup(title=d.get("hostname") or "Computer")
+        page.add(info)
+        hw = d.get("hardware") or {}
+        for title, value in (("Kulan OS", d.get("kulan_version") or "–"), ("System", d.get("os") or "–"),
+                             ("Computer", " ".join(x for x in (hw.get("vendor"), hw.get("model")) if x) or "–"),
+                             ("Memory", f"{round((hw.get('memory_mb') or 0) / 1024, 1)} GB" if hw.get("memory_mb") else "–"),
+                             ("Disk", f"{hw.get('disk_free_gb')} GB free of {hw.get('disk_total_gb')} GB"
+                              if hw.get("disk_total_gb") else "–"),
+                             ("Last report", ago(d.get("last_seen"))), ("Joined", ago(d.get("enrolled_at"))),
+                             ("TPM unlock", "on" if (d.get("tpm") or {}).get("on") else "off" if d.get("tpm") else "–")):
+            row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(str(value)), subtitle_selectable=True)
+            row.add_css_class("property")
+            info.add(row)
+        if not d.get("left_at"):
+            ask = Adw.PreferencesGroup(title="Ask it to", description="The computer does it at its next report "
+                                                                       "(within the hour, or now with Report now).")
+            page.add(ask)
+            for kind, label, icon in ACTIONS:
+                row = Adw.ActionRow(title=label, activatable=True)
+                row.add_prefix(Gtk.Image(icon_name=icon))
+                row.connect("activated", lambda _r, k=kind: self.send_action(d, k))
+                ask.add(row)
+        controls = Adw.PreferencesGroup(title="Compliance", description="Loading the latest report…")
+        page.add(controls)
+
+        def done(result, error):
+            if error:
+                controls.set_description(error)
+                return
+            report = (result or {}).get("report") or {}
+            comp = report.get("compliance") or {}
+            if not comp.get("controls"):
+                controls.set_description("This computer hasn't sent compliance results.")
+                return
+            controls.set_description(f"{comp.get('passed')} of {comp.get('total')} pass · {comp.get('baseline') or ''}")
+            for c in comp["controls"]:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(f"{c.get('id', '')} {c.get('title', '')}"),
+                                    subtitle=GLib.markup_escape_text(f"CIS {c.get('cis', '')} · NIST {c.get('nist', '')}"))
+                status = c.get("status")
+                row.add_suffix(tag(status or "?", {"pass": "good", "fail": "bad"}.get(status, "dim")))
+                controls.add(row)
+        if self.data and self.data.get("sample"):
+            done({"report": self.data.get("sample_report")}, None)
+        else:
+            self.background(lambda: self.session.call({"op": "report", "device_id": d["id"]}), done)
+
+    def send_action(self, d: dict, kind: str) -> None:
+        def go() -> None:
+            self.background(lambda: self.session.call({"op": "action", "device_id": d["id"], "type": kind}),
+                            lambda _r, error: (self.toast(error) if error else
+                                               (self.toast(f"Asked {d.get('hostname')} to {ACTION_LABEL[kind].lower()}"),
+                                                self.reload())))
+        if kind not in ("restart", "install-updates"):
+            go()
+            return
+        dialog = Adw.AlertDialog(heading=f"{ACTION_LABEL[kind]} on {d.get('hostname')}?",
+                                 body="Whoever is using it gets five minutes' notice before the restart."
+                                 if kind == "restart" else "Updates install in the background; a restart may follow.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", ACTION_LABEL[kind])
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE if kind == "restart"
+                                       else Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", lambda _d, r: r == "go" and go())
+        dialog.present(self)
+
+    # --- codes and organisations ------------------------------------------------------------------
+    def make_code(self, org_id: str, hours_index: int, uses: int) -> None:
+        hours = [24, 72, 168, 720][hours_index]
+
+        def done(result, error):
+            if error:
+                self.toast(error)
+                return
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            box.append(Gtk.Label(label="Server address", xalign=0, css_classes=["dim-label"]))
+            box.append(Gtk.Label(label=FLEET_SERVER, xalign=0, selectable=True, wrap=True))
+            box.append(Gtk.Label(label="Join code", xalign=0, css_classes=["dim-label"], margin_top=8))
+            box.append(Gtk.Label(label=result["code"], xalign=0, selectable=True, css_classes=["fleet-code"]))
+            dialog = Adw.AlertDialog(heading="Join code",
+                                     body=f"Works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
+                                          f"within {result['hours']} hours. It's shown only now.")
+            dialog.set_extra_child(box)
+            dialog.add_response("copy", "Copy code")
+            dialog.add_response("close", "Done")
+            dialog.set_default_response("close")
+            dialog.connect("response", lambda _d, r: r == "copy" and Gdk.Display.get_default().get_clipboard().set(result["code"]))
+            dialog.present(self)
+        self.background(lambda: self.session.call({"op": "new-code", "organisation_id": org_id,
+                                                    "hours": hours, "uses": uses}), done)
+
+    def new_org(self) -> None:
+        dialog = Adw.AlertDialog(heading="New organisation")
+        entry = Adw.EntryRow(title="Name")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+
+        def answered(_d, response):
+            name = entry.get_text().strip()
+            if response != "add" or not name:
+                return
+            self.background(lambda: self.session.call({"op": "new-organisation", "name": name}),
+                            lambda r, error: self.toast(error) if error else (setattr(self, "org_id", r["id"]), self.reload()))
+        dialog.connect("response", answered)
+        dialog.present(self)
+
+
+# --- sample data for --self-test -------------------------------------------------------------
+def sample() -> dict:
+    now = datetime.now(timezone.utc)
+    iso = lambda s: (now.timestamp() - s, datetime.fromtimestamp(now.timestamp() - s, timezone.utc).isoformat())[1]  # noqa: E731
+    org = "11111111-1111-4111-8111-111111111111"
+    controls = [{"id": f"KUL-{i:02d}", "title": t, "status": s, "cis": c, "nist": n}
+                for i, (t, s, c, n) in enumerate([("Disk encryption", "pass", "3.6", "SC-28"),
+                                                  ("Firewall", "fail", "4.5", "SC-7")], 1)]
+    return {"sample": True, "email": "admin@kulan.example", "global": True,
+            "organisations": [{"id": org, "name": "Kulan Cyber Advisory"}],
+            "devices": [{"id": "d1", "organisation_id": org, "hostname": "kca-laptop-01", "kulan_version": "2.4",
+                         "os": "Kulan OS 2.4", "last_seen": iso(1800), "enrolled_at": iso(86400 * 9),
+                         "updates": {"waiting": 0, "security": 0}, "tpm": {"on": True}, "compliance_passed": 10,
+                         "compliance_total": 10, "compliance_mode": "on",
+                         "hardware": {"vendor": "Lenovo", "model": "ThinkPad T14", "memory_mb": 16384,
+                                      "disk_total_gb": 512, "disk_free_gb": 301}},
+                        {"id": "d2", "organisation_id": org, "hostname": "kca-desk-02", "kulan_version": "2.4",
+                         "last_seen": iso(5 * 3600), "updates": {"waiting": 6, "security": 2}, "tpm": {"on": False},
+                         "compliance_passed": 8, "compliance_total": 10, "hardware": {"vendor": "Dell"}}],
+            "actions": [{"id": "a1", "device_id": "d2", "type": "install-updates", "status": "pending",
+                         "created_at": iso(120)}],
+            "sample_report": {"compliance": {"passed": 1, "total": 2, "baseline": "Kulan OS baseline 1",
+                                             "controls": controls}}}
+
+
+class FleetApp(Adw.Application):
+    def __init__(self, self_test: bool) -> None:
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE if self_test
+                         else Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self.self_test = self_test
+        self.status = 0
+
+    def do_startup(self) -> None:
+        Adw.Application.do_startup(self)
+        provider = Gtk.CssProvider()
+        provider.load_from_string(CSS)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def do_activate(self) -> None:
+        win = self.get_active_window()
+        if win is None:
+            win = FleetWindow(self, Session(), sample() if self.self_test else None)
+        win.present()
+        if self.self_test:
+            def check() -> bool:
+                try:
+                    win.open_device(win.data["devices"][0])
+                    win.nav.pop()
+                    win.org_id = None
+                    win.render_org()
+                    print("Kulan Fleet: every page built")
+                except Exception as e:  # noqa: BLE001
+                    print(f"FAIL {e}")
+                    self.status = 1
+                self.quit()
+                return False
+            GLib.timeout_add(500, check)
+
+
+def main(argv: list[str]) -> int:
+    self_test = "--self-test" in argv
+    app = FleetApp(self_test)
+    code = app.run([argv[0]])
+    return app.status or code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

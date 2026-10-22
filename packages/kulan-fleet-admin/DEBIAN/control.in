@@ -1,0 +1,15 @@
+Package: kulan-fleet-admin
+Version: @VERSION@
+Architecture: all
+Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
+Section: admin
+Priority: optional
+Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), gir1.2-secret-1
+Recommends: kulan-desktop-settings
+Homepage: @HOME_URL@
+Description: @NAME@ fleet dashboard for administrators
+ Kulan Fleet: see the computers that joined your organisation (Kulan OS
+ version, compliance results, waiting updates, TPM unlock), make join codes
+ and ask computers to report, install updates, turn compliance mode on,
+ lock the screen or restart. Only accounts on the fleet's admin list see
+ anything; not installed by default.

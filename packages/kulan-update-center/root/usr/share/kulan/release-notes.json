@@ -13,7 +13,8 @@
       "Compliance mode (Kulan Settings > Security): one switch brings the computer to a security baseline checked against CIS Controls v8 and NIST SP 800-53, keeps the screen lock from being turned off, and saves a report to hand to an auditor or a client",
       "TPM unlock (Kulan Settings > Security > Start-up): on computers with a TPM 2.0 chip and Secure Boot on, the encrypted disk opens by itself; the disk password is still asked if anything changed",
       "Fleet management, the computer's side (Kulan Settings > About > Organisation): join your organisation with a one-time code; the computer reports its model, updates, compliance and TPM status every hour, never files, browsing or messages, and the organisation can only ask it to report, install updates, turn compliance mode on, lock the screen or restart",
-      "Kulan Assistant can do things for you: say what you'd like (\"dark mode and a smaller dock\", \"make text bigger\", \"find my CV\"), see the plan in plain words, press Do it, and Undo if you change your mind. It runs on this computer and can only use Kulan's own safe actions"
+      "Kulan Assistant can do things for you: say what you'd like (\"dark mode and a smaller dock\", \"make text bigger\", \"find my CV\"), see the plan in plain words, press Do it, and Undo if you change your mind. It runs on this computer and can only use Kulan's own safe actions",
+      "Kulan Fleet, the administrators' app (optional, not installed by default): sign in with your email and a one-time code to see your organisation's computers, their compliance results, waiting updates and TPM unlock, make join codes, and ask computers to report, install updates, turn compliance mode on, lock the screen or restart"
     ]
   },
   {

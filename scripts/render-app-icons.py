@@ -51,6 +51,7 @@ SYMBOLS = {
     "sliders": "M4 7h10M20 17H10M18 7h2M4 17h2M16 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
     "scanner": "M4 14h16v5H4zM6 14l12-8M8 16.5h.01",
     "shield": "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4",
+    "fleet": "M3 5h8v6H3zM13 5h8v6h-8zM3 14h8v6H3zM13 14h8v6h-8zM7 11v3M17 11v3",
 }
 
 # icon name -> (gradient top, gradient bottom, symbol)
@@ -137,13 +138,23 @@ def svg(name: str, top: str, bottom: str, symbol: str) -> str:
 '''
 
 
+# Icons that ship inside their own app's package (not on every computer).
+PACKAGE_ICONS = {
+    ROOT / "packages/kulan-fleet-admin/root/usr/share/icons/hicolor/scalable/apps/org.kulan.Fleet.svg":
+        ("org.kulan.Fleet", "#2dd4bf", "#0a2240", "fleet"),
+}
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for old in OUT.glob("*.svg"):
         old.unlink()
     for name, (top, bottom, symbol) in ICONS.items():
         (OUT / f"{name}.svg").write_text(svg(name, top, bottom, symbol))
-    print(f"Drew {len(ICONS)} app icons into {OUT}")
+    for path, (name, top, bottom, symbol) in PACKAGE_ICONS.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(svg(name, top, bottom, symbol))
+    print(f"Drew {len(ICONS)} app icons into {OUT} and {len(PACKAGE_ICONS)} into their packages")
 
 
 if __name__ == "__main__":

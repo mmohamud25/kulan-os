@@ -53,14 +53,16 @@ shopt -s nullglob
 DEBS=()
 for DEB in dist/debs/kulan-*.deb; do
 	case "${DEB}" in
-		*/kulan-devkit_* | */kulan-apps_*) ;;
+		*/kulan-devkit_* | */kulan-apps_* | */kulan-fleet-admin_*) ;;
 		*) DEBS+=("${DEB}") ;;
 	esac
 done
 DEVKIT=(dist/debs/kulan-devkit_*.deb)
 APPS=(dist/debs/kulan-apps_*.deb)
-[[ ${#DEBS[@]} -eq 6 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 ]] || {
-	echo "::error::expected 6 core packages, kulan-devkit and kulan-apps in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]} and ${#APPS[@]}"
+# Kulan Fleet (the administrators' app): published, never installed by default.
+FLEET_ADMIN=(dist/debs/kulan-fleet-admin_*.deb)
+[[ ${#DEBS[@]} -eq 6 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 && ${#FLEET_ADMIN[@]} -eq 1 ]] || {
+	echo "::error::expected 6 core packages, kulan-devkit, kulan-apps and kulan-fleet-admin in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]}, ${#APPS[@]} and ${#FLEET_ADMIN[@]}"
 	exit 1
 }
 # Kulan Assistant's engine (ci/build-engine.sh), when CI built it for PCs.
@@ -503,6 +505,12 @@ check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
 check "Fleet leave" "the server is told; key and status removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && grep -q /v1/leave /tmp/fleet-log.json'
 kill "${FLEET_MOCK}" 2>/dev/null
+
+# The administrators' app: installs on its own and builds every page (sample data, no network).
+check "Kulan Fleet app installs" "kulan-fleet-admin with its Debian dependencies" bash -c "apt-get install -y -q ./${FLEET_ADMIN[0]} >/tmp/fleet-admin.log 2>&1 || { tail -n 5 /tmp/fleet-admin.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Fleet.desktop && test -s /usr/share/icons/hicolor/scalable/apps/org.kulan.Fleet.svg"
+check "Kulan Fleet app opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-fleet-admin --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Fleet: every page built"'
+check "Kulan Fleet is optional" "not pulled in by the ISO's package lists" bash -c '! grep -rqx "kulan-fleet-admin" config/package-lists/'
+dpkg --purge kulan-fleet-admin >/dev/null 2>&1
 
 # --- Compliance mode ------------------------------------------------------------------
 # Last before removal: turning it on installs auditd and libpam-pwquality and changes
