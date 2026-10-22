@@ -13,7 +13,8 @@
 # new version, so Kulan Files keeps every Debian fix.
 set -euo pipefail
 
-REVISION=1
+# 2: the update channel now carries one nautilus-data, built on PCs (see build-iso.yml).
+REVISION=2
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${ROOT}/dist/files"
 PATCH="${ROOT}/packages-src/nautilus/kulan-files.patch"
