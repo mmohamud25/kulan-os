@@ -7,6 +7,7 @@ set -eu
 BASE="https://github.com/@REPO@/releases/download/@TAG@"
 ARCH="$(dpkg --print-architecture)"
 TMP="$(mktemp -d)"
+chmod 755 "${TMP}"  # readable by apt's own user
 trap 'rm -rf "${TMP}"' EXIT
 cd "${TMP}"
 echo "Getting Kulan OS test packages (@TAG@) for ${ARCH}..."
@@ -26,7 +27,10 @@ for DEB in ./*.deb; do
 	esac
 done
 echo "Installing:$(for D in ${WANT}; do printf ' %s' "$(dpkg-deb -f "${D}" Package)"; done)"
+# No questions (this runs from a pipe): settings files someone edited are
+# kept, as Software Update does.
 # shellcheck disable=SC2086  # one argument per package file
-sudo apt-get install -y ${WANT}
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+	-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold ${WANT}
 echo
 echo "Done. Restart the computer (top-right menu, Restart) to finish."

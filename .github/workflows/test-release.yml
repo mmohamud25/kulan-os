@@ -50,7 +50,7 @@ jobs:
           N=1
           while gh release view "v${SHORT}-test${N}" >/dev/null 2>&1; do N=$((N + 1)); done
           TAG="v${SHORT}-test${N}"
-          rm -f debs/kulan-devkit_*.deb debs/VERSION
+          rm -f debs/VERSION
           (cd debs && sha256sum *.deb > SHA256SUMS)
           sed -e "s|@TAG@|${TAG}|g" -e "s|@REPO@|${GITHUB_REPOSITORY}|g" ci/test-update.sh > debs/kulan-test-update.sh
           gh release create "${TAG}" --prerelease --target "${{ steps.run.outputs.sha }}" \
