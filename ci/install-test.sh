@@ -74,7 +74,7 @@ mkdir -p "${WORK}/medium"
 xorriso -osirrox on -indev "${ISO}" -extract /pool "${WORK}/medium/pool" -extract /dists "${WORK}/medium/dists" \
 	>/dev/null 2>&1 || fail_now "Package pool" "the ISO has no package pool (/pool, /dists) for the boot loader"
 
-truncate -s 16G "${WORK}/disk.img"
+truncate -s 24G "${WORK}/disk.img"
 LOOP="$(sudo losetup -fP --show "${WORK}/disk.img")" || fail_now "Disk" "no loop device"
 START=$(date +%s)
 PLAN="$(python3 - "${LOOP}" "${WORK}" <<'PY'

@@ -75,7 +75,7 @@ in_root() { sudo chroot "${MNT}" /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/
 xorriso -osirrox on -indev "${ISO}" -extract /live/filesystem.squashfs "${WORK}/fs.squashfs" >/dev/null 2>&1 ||
 	fail_now "Live filesystem" "couldn't read live/filesystem.squashfs from the ISO"
 
-truncate -s 16G "${WORK}/disk.img"
+truncate -s 24G "${WORK}/disk.img"
 printf 'label: gpt\n,512M,U\n,1G,L\n,,L\n' | sfdisk -q "${WORK}/disk.img" >/dev/null || fail_now "Disk" "partitioning failed"
 LOOP="$(sudo losetup -fP --show "${WORK}/disk.img")" || fail_now "Disk" "no loop device"
 sudo udevadm settle 2>/dev/null || true
