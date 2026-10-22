@@ -116,10 +116,20 @@ def build_config(state: State, connector: str, mode: dict, scale: float, transfo
         elif state.global_scale:
             new_scale = scale
         w, h = logical_size(new_mode["width"], new_mode["height"], new_scale, new_transform, state.layout_mode)
+        modes = {}
+        for c in lm["connectors"]:
+            if c == connector:
+                modes[c] = mode
+            elif connector in lm["connectors"]:
+                # Mirrored screens must all show the same size.
+                same = [m for m in modes_for(state.monitor(c) or {"modes": []}, (mode["width"], mode["height"]))]
+                if not same:
+                    raise ValueError("the mirrored screens don’t share that resolution")
+                modes[c] = min(same, key=lambda m: abs(m["refresh"] - mode["refresh"]))
+            else:
+                modes[c] = state.current_mode(c) or old_mode
         boxes.append({"lm": lm, "x": lm["x"], "y": lm["y"], "old_w": old_w, "old_h": old_h, "w": w, "h": h,
-                      "scale": new_scale, "transform": new_transform,
-                      "modes": {c: (mode if c == connector else (state.current_mode(c) or old_mode))
-                                for c in lm["connectors"]}})
+                      "scale": new_scale, "transform": new_transform, "modes": modes})
     config = []
     for box in relayout(boxes):
         lm = box["lm"]
@@ -135,10 +145,13 @@ class DisplayConfig:
         self.proxy = None
         self.on_change = on_change
         self.handler = 0
+        self.closed = False
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES, None,
                                   BUS_NAME, PATH, BUS_NAME, None, self.got_proxy)
 
     def got_proxy(self, _source, result) -> None:
+        if self.closed:
+            return
         try:
             self.proxy = Gio.DBusProxy.new_for_bus_finish(result)
         except GLib.Error:
@@ -153,6 +166,7 @@ class DisplayConfig:
             self.on_change()
 
     def close(self) -> None:
+        self.closed = True
         if self.proxy is not None and self.handler:
             self.proxy.disconnect(self.handler)
             self.handler = 0

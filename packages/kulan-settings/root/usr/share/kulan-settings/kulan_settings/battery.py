@@ -138,6 +138,8 @@ class BatteryPage(Page):
     # --- battery ---------------------------------------------------------------------
 
     def got_battery(self, _source, result) -> None:
+        if self.torn_down:
+            return
         try:
             self.battery_proxy = Gio.DBusProxy.new_for_bus_finish(result)
         except GLib.Error:
@@ -171,6 +173,8 @@ class BatteryPage(Page):
         name, path = PROFILES[index]
 
         def done(_source, result) -> None:
+            if self.torn_down:
+                return
             try:
                 proxy = Gio.DBusProxy.new_for_bus_finish(result)
             except GLib.Error:

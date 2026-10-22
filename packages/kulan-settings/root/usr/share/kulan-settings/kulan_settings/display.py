@@ -78,10 +78,11 @@ class DisplayPage(Page):
         super().teardown()
 
     def reload_screens(self) -> None:
-        self.config.get_state(self.show_screens)
+        if not self.torn_down:
+            self.config.get_state(self.show_screens)
 
     def show_screens(self, state) -> None:
-        if self.applying:
+        if self.applying or self.torn_down:
             return
         self.state = state
         for group in self.screen_groups:
@@ -169,7 +170,12 @@ class DisplayPage(Page):
             wanted = scales[scale_row.get_selected()] if changed == "scale" else logical["scale"]
             new_scale = screens.best_scale(new_scales, wanted)
             transform = rotations[rotate_row.get_selected()]
-            config = screens.build_config(self.state, connector, new_mode, new_scale, transform)
+            try:
+                config = screens.build_config(self.state, connector, new_mode, new_scale, transform)
+            except ValueError as exc:
+                self.toast(f"Couldn’t change the screen: {exc}")
+                self.reload_screens()
+                return
             self.applying = True
 
             def done(error) -> None:

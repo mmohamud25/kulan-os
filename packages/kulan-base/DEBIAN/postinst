@@ -34,9 +34,12 @@ case "$1" in
 		# Encrypted disks: a mistyped password at start-up asks again instead
 		# of giving up after three tries (cryptsetup's default). Only lines
 		# without their own tries= setting; the start-up image is rebuilt.
-		if [ -f /etc/crypttab ] && awk '!/^[[:space:]]*(#|$)/ && NF >= 3 && $4 !~ /(^|,)tries=/ {f=1} END {exit !f}' /etc/crypttab; then
+		# Only disks unlocked with a typed password (key "none" or "-").
+		# Done once, so someone who later removes tries=0 keeps their choice.
+		if [ ! -e /var/lib/kulan/crypttab-tries-set ] && [ -f /etc/crypttab ] && awk '!/^[[:space:]]*(#|$)/ && ($3 == "none" || $3 == "-") && $4 !~ /(^|,)tries=/ {f=1} END {exit !f}' /etc/crypttab; then
 			awk 'BEGIN {OFS="\t"}
 				/^[[:space:]]*(#|$)/ {print; next}
+				$3 != "none" && $3 != "-" {print; next}
 				NF == 3 {print $1, $2, $3, "tries=0"; next}
 				NF >= 4 && $4 !~ /(^|,)tries=/ {$4 = $4 ",tries=0"; print; next}
 				{print}' /etc/crypttab > /etc/crypttab.kulan-new &&
@@ -44,6 +47,7 @@ case "$1" in
 				mv /etc/crypttab.kulan-new /etc/crypttab &&
 				{ dpkg-trigger --no-await update-initramfs 2>/dev/null || update-initramfs -u >/dev/null 2>&1 || true; }
 		fi
+		mkdir -p /var/lib/kulan && touch /var/lib/kulan/crypttab-tries-set
 
 		# Console login banner (base-files' conffiles, so set here).
 		printf '%s %s \\n \\l\n\n' "${KULAN_NAME}" "${KULAN_VERSION}" > /etc/issue

@@ -70,10 +70,12 @@ class BluetoothPage(Page):
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION, Gio.DBusProxyFlags.DO_NOT_AUTO_START, None,
                                   RFKILL_NAME, RFKILL_PATH, RFKILL_NAME, None, self.got_rfkill)
         Gio.DBusObjectManagerClient.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusObjectManagerClientFlags.NONE,
-                                                BLUEZ, "/", None, None, None, None, self.got_manager)
+                                                BLUEZ, "/", None, None, None, self.got_manager)
         self.queue_refresh()
 
     def got_rfkill(self, _source, result) -> None:
+        if self.torn_down:
+            return
         try:
             self.rfkill = Gio.DBusProxy.new_for_bus_finish(result)
         except GLib.Error:
@@ -83,6 +85,8 @@ class BluetoothPage(Page):
         self.queue_refresh()
 
     def got_manager(self, _source, result) -> None:
+        if self.torn_down:
+            return
         try:
             self.manager = Gio.DBusObjectManagerClient.new_for_bus_finish(result)
         except GLib.Error:

@@ -46,9 +46,10 @@ cd "${SRC}"
 cp "${PATCH}" debian/patches/kulan-files.patch
 echo kulan-files.patch >> debian/patches/series
 export QUILT_PATCHES=debian/patches
-if ! quilt push -a -q >/dev/null 2>"${WORK}/quilt.err"; then
+# --fuzz=0: exactly as dpkg-source applies it during the build.
+if ! quilt push -a -q --fuzz=0 >/dev/null 2>"${WORK}/quilt.err"; then
 	echo "::error title=Kulan Files::the patch doesn't apply to Debian's Nautilus ${DEBIAN_VERSION}: $(tail -n 5 "${WORK}/quilt.err" | tr '\n' ' ')" >&2
-	quilt push -a 2>&1 | tail -n 30 >&2 || true
+	quilt push -a --fuzz=0 2>&1 | tail -n 30 >&2 || true
 	exit 1
 fi
 quilt pop -a -q >/dev/null

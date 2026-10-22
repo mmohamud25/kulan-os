@@ -279,9 +279,9 @@ for p in (a, b):
     open(p, "w").write("x")
 k.remember(a, ["red"]); k.remember(b, ["red", "blue"])
 red = k.TAG_FOLDERS / "Red"
-assert sorted(os.listdir(red)) == ["a.txt", "b.txt"] and os.readlink(red / "a.txt") == a
+assert sorted(n for n in os.listdir(red) if not n.startswith(".")) == ["a.txt", "b.txt"] and os.readlink(red / "a.txt") == a
 k.remember(b, [])
-assert not (k.TAG_FOLDERS / "Blue").exists() and os.listdir(red) == ["a.txt"]
+assert not (k.TAG_FOLDERS / "Blue").exists() and [n for n in os.listdir(red) if not n.startswith(".")] == ["a.txt"]
 PY
 if [[ ${#FILES[@]} -gt 0 ]]; then
 	NAUT="$(dpkg-query -W -f '${Version}' nautilus 2>/dev/null)"

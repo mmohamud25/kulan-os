@@ -292,8 +292,12 @@ class Page(Adw.Bin):
         monitor.connect("changed", lambda *_a: callback())
         self._monitors.append(monitor)
 
+    torn_down = False
+
     def teardown(self) -> None:
-        """Disconnect everything watch(), listen_busy() and monitor_file() set up."""
+        """Disconnect everything watch(), listen_busy() and monitor_file() set up.
+        Replies that arrive later (D-Bus, NetworkManager) check torn_down."""
+        self.torn_down = True
         for obj, handler in self._watches:
             if obj.handler_is_connected(handler):
                 obj.disconnect(handler)

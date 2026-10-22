@@ -69,14 +69,17 @@ xorriso -osirrox on -indev "${ISO}" -extract /live/filesystem.squashfs "${WORK}/
 truncate -s 16G "${WORK}/disk.img"
 printf 'label: gpt\n,512M,U\n,,L\n' | sfdisk -q "${WORK}/disk.img" >/dev/null || fail_now "Disk" "partitioning failed"
 LOOP="$(sudo losetup -fP --show "${WORK}/disk.img")" || fail_now "Disk" "no loop device"
+sudo udevadm settle 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -b "${LOOP}p2" ]] && break; sleep 1; done
+[[ -b "${LOOP}p1" && -b "${LOOP}p2" ]] || fail_now "Disk" "the partitions of ${LOOP} didn't appear"
 sudo mkfs.vfat -F 32 -n EFI "${LOOP}p1" >/dev/null && sudo mkfs.ext4 -q -L kulan "${LOOP}p2" ||
 	fail_now "Disk" "formatting failed"
 mkdir -p "${MNT}"
-sudo mount "${LOOP}p2" "${MNT}"
+sudo mount "${LOOP}p2" "${MNT}" || fail_now "Disk" "couldn't mount the new system's partition"
 START=$(date +%s)
 sudo unsquashfs -q -f -d "${MNT}" "${WORK}/fs.squashfs" >/dev/null || fail_now "Copy" "copying the system failed"
 sudo mkdir -p "${MNT}/boot/efi"
-sudo mount "${LOOP}p1" "${MNT}/boot/efi"
+sudo mount "${LOOP}p1" "${MNT}/boot/efi" || fail_now "Disk" "couldn't mount the EFI partition"
 for M in dev dev/pts proc sys run; do sudo mount --bind "/${M}" "${MNT}/${M}"; done
 sudo rm -f "${MNT}/etc/resolv.conf"
 sudo cp -L /etc/resolv.conf "${MNT}/etc/resolv.conf"
@@ -105,6 +108,7 @@ sudo mkdir -p "${MNT}/etc/gdm3"
 printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=kulan\n' | sudo tee "${MNT}/etc/gdm3/daemon.conf" >/dev/null
 
 # Boot loader, as the installer sets it up for UEFI (shim, signed GRUB).
+sudo mkdir -p "${MNT}/etc/default/grub.d"
 printf 'GRUB_TIMEOUT=0\nGRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} console=tty0 console=ttyS0,115200 kulan.boot-report kulan.restart-test"\n' |
 	sudo tee "${MNT}/etc/default/grub.d/zz-kulan-install-test.cfg" >/dev/null
 {
@@ -142,7 +146,11 @@ qemu-system-x86_64 "${ACCEL[@]}" -m 4096 -smp 2 -machine q35 \
 	-netdev user,id=net0 -device virtio-net-pci,netdev=net0 -device virtio-rng-pci &
 QEMU_PID=$!
 
-reports() { grep -c "KULAN-BOOT-REPORT-END" "${OUT}/serial.log" 2>/dev/null || echo 0; }
+reports() {
+	local n
+	n="$(grep -c "KULAN-BOOT-REPORT-END" "${OUT}/serial.log" 2>/dev/null)"
+	echo "${n:-0}"
+}
 while (( $(date +%s) - START < WAIT_S )); do
 	[[ "$(reports)" -ge 2 ]] && break
 	kill -0 "${QEMU_PID}" 2>/dev/null || break

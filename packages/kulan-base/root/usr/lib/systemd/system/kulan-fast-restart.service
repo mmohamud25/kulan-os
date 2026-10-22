@@ -6,6 +6,7 @@ ConditionVirtualization=vm
 # Started after the file systems, so it stops (and loads the kernel) while
 # /boot is still there.
 After=local-fs.target
+RequiresMountsFor=/boot
 
 [Service]
 Type=oneshot

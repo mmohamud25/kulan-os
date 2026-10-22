@@ -57,7 +57,9 @@ load() {
 	fi
 	# Same options as this start, without the boot loader's own entry.
 	APPEND="$(sed -e 's/\(^\| \)BOOT_IMAGE=[^ ]*//' -e 's/^ *//' /proc/cmdline)"
-	if "${KEXEC}" -l "${KERNEL}" --initrd="${INITRD}" --append="${APPEND}"; then
+	# The signed-kernel method first (works with Secure Boot), then the older one.
+	if "${KEXEC}" -s -l "${KERNEL}" --initrd="${INITRD}" --append="${APPEND}" 2>/dev/null ||
+		"${KEXEC}" -l "${KERNEL}" --initrd="${INITRD}" --append="${APPEND}"; then
 		echo "fast restart: Linux ${VERSION} loaded"
 	else
 		echo "fast restart: could not load Linux ${VERSION}; restarting normally" >&2

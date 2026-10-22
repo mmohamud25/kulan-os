@@ -140,45 +140,84 @@ def _link_names(paths: list[str]) -> dict[str, str]:
     return names
 
 
+def _no_links_on_the_way(folder: Path) -> bool:
+    """True when neither the folder nor the folders above it (inside the data
+    folder) are symbolic links, so changes stay inside Kulan's own folders."""
+    data = Path(GLib.get_user_data_dir())
+    path = folder
+    while True:
+        if path.is_symlink():
+            return False
+        if path == data or path.parent == path:
+            return True
+        path = path.parent
+
+
 def sync_tag_folders(index: dict[str, list[str]] | None = None) -> None:
     """Make each tag's folder hold links to exactly the files with that tag,
-    and remove the folders of tags nobody uses. Only links are ever removed."""
+    and remove the folders of tags nobody uses. Only links Kulan made itself
+    (listed in the folder's .kulan-links) are ever removed; anything else put
+    there stays. Errors are ignored: tags themselves are already saved."""
     if index is None:
         index = load_index()
     for tag, name in TAGS:
-        folder = TAG_FOLDERS / name
-        wanted = _link_names([p for p, tags in index.items() if tag in tags and os.path.lexists(p)])
         try:
-            existing = {entry.name: entry for entry in os.scandir(folder)} if folder.is_dir() else {}
+            _sync_one(TAG_FOLDERS / name, _link_names(
+                [p for p, tags in index.items() if tag in tags and os.path.lexists(p)]))
         except OSError:
-            existing = {}
-        for entry_name, entry in existing.items():
-            if entry.is_symlink() and (entry_name not in wanted or os.readlink(entry.path) != wanted[entry_name]):
-                try:
-                    os.unlink(entry.path)
-                except OSError:
-                    pass
-        if not wanted:
-            try:
-                folder.rmdir()  # only when empty: anything else put there stays
-            except OSError:
-                pass
-            continue
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            continue
-        for link_name, target in wanted.items():
-            link = folder / link_name
-            if os.path.islink(link) and os.readlink(link) == target:
-                continue
-            if os.path.lexists(link):
-                continue  # something that isn't Kulan's link: leave it
-            try:
-                os.symlink(target, link)
-            except OSError:
-                pass
+            pass
 
+
+def _sync_one(folder: Path, wanted: dict[str, str]) -> None:
+    if not _no_links_on_the_way(folder):
+        return
+    manifest = folder / ".kulan-links"
+    try:
+        ours = set(manifest.read_text(encoding="utf-8").splitlines())
+    except (OSError, UnicodeDecodeError):
+        ours = set()
+    for link_name in list(ours):
+        link = folder / link_name
+        if "/" in link_name or link_name in ("", ".", ".."):
+            ours.discard(link_name)
+            continue
+        try:
+            current = os.readlink(link)
+        except OSError:
+            ours.discard(link_name)  # gone, or no longer a link: not ours any more
+            continue
+        if wanted.get(link_name) != current:
+            try:
+                os.unlink(link)
+            except OSError:
+                pass
+            ours.discard(link_name)
+    if not wanted:
+        try:
+            manifest.unlink()
+        except OSError:
+            pass
+        try:
+            folder.rmdir()  # only when empty: anything else put there stays
+        except OSError:
+            pass
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    for link_name, target in wanted.items():
+        link = folder / link_name
+        if os.path.islink(link) and os.readlink(link) == target:
+            ours.add(link_name)
+            continue
+        if os.path.lexists(link):
+            continue  # something that isn't Kulan's link: leave it
+        try:
+            os.symlink(target, link)
+            ours.add(link_name)
+        except OSError:
+            pass
+    tmp = folder / ".kulan-links.new"
+    tmp.write_text("".join(f"{n}\n" for n in sorted(ours)), encoding="utf-8")
+    os.replace(tmp, manifest)
 
 def find(tag: str) -> list[str]:
     """Paths of files that have the tag now (checked one by one), newest first."""

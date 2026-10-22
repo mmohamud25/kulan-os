@@ -12,7 +12,6 @@ Description: Kulan Files: status bar, preview pane, Finder-style sidebar
 Author: Kulan OS <https://github.com/mmohamud25/kulan-os>
 Forwarded: not-needed
 Last-Update: 2026-10-22
-
 diff --git a/src/gtk/nautilusgtkplacessidebar.c b/src/gtk/nautilusgtkplacessidebar.c
 index d1649e5..98b99b7 100644
 --- a/src/gtk/nautilusgtkplacessidebar.c
@@ -257,7 +256,7 @@ index f5e2272..c92459d 100644
    'nautilus-freedesktop-dbus.c',
    'nautilus-freedesktop-dbus.h',
 diff --git a/src/nautilus-files-view.c b/src/nautilus-files-view.c
-index 10a29a2..d7f61a8 100644
+index 10a29a2..ccf22f5 100644
 --- a/src/nautilus-files-view.c
 +++ b/src/nautilus-files-view.c
 @@ -85,6 +85,7 @@
@@ -282,7 +281,17 @@ index 10a29a2..d7f61a8 100644
      NautilusDirectory *directory;
      NautilusFile *directory_as_file;
      GFile *location;
-@@ -3520,9 +3528,113 @@ nautilus_files_view_finalize (GObject *object)
+@@ -3486,6 +3494,9 @@ nautilus_files_view_dispose (GObject *object)
+     g_clear_object (&priv->model);
+ 
+     adw_bin_set_child (ADW_BIN (view), NULL);
++    /* Kulan Files: no free-space answer may arrive after this. */
++    g_cancellable_cancel (priv->kulan_free_cancellable);
++
+     gtk_widget_dispose_template (GTK_WIDGET (view), NAUTILUS_TYPE_FILES_VIEW);
+ 
+     G_OBJECT_CLASS (nautilus_files_view_parent_class)->dispose (object);
+@@ -3520,9 +3531,113 @@ nautilus_files_view_finalize (GObject *object)
      g_cancellable_cancel (priv->starred_cancellable);
      g_clear_object (&priv->starred_cancellable);
  
@@ -396,7 +405,7 @@ index 10a29a2..d7f61a8 100644
  /**
   * nautilus_files_view_display_selection_info:
   *
-@@ -3755,7 +3867,10 @@ nautilus_files_view_display_selection_info (NautilusFilesView *view)
+@@ -3755,7 +3870,10 @@ nautilus_files_view_display_selection_info (NautilusFilesView *view)
      g_free (non_folder_item_count_str);
      g_free (non_folder_counts_str);
  

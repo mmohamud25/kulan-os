@@ -118,6 +118,8 @@ class WifiPage(Page):
         NM.Client.new_async(None, self.got_client)
 
     def got_client(self, _source, result) -> None:
+        if self.torn_down:
+            return
         try:
             self.client = NM.Client.new_finish(result)
         except GLib.Error as exc:

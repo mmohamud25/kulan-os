@@ -28,14 +28,20 @@ def load_gvc():
     try:
         import gi
 
-        gi.require_version("GIRepository", "2.0")
-        from gi.repository import GIRepository
-
-        for folder in ("/usr/lib/gnome-shell", "/usr/lib64/gnome-shell"):
-            if os.path.exists(os.path.join(folder, "Gvc-1.0.typelib")):
+        folder = next((f for f in ("/usr/lib/gnome-shell", "/usr/lib64/gnome-shell")
+                       if os.path.exists(os.path.join(f, "Gvc-1.0.typelib"))), None)
+        if folder is not None:
+            try:  # PyGObject up to 3.50 (Debian 13)
+                gi.require_version("GIRepository", "2.0")
+                from gi.repository import GIRepository
                 GIRepository.Repository.prepend_search_path(folder)
                 GIRepository.Repository.prepend_library_path(folder)
-                break
+            except ValueError:  # PyGObject 3.52 and later
+                gi.require_version("GIRepository", "3.0")
+                from gi.repository import GIRepository
+                repo = GIRepository.Repository.dup_default()
+                repo.prepend_search_path(folder)
+                repo.prepend_library_path(folder)
         gi.require_version("Gvc", "1.0")
         from gi.repository import Gvc as module
     except (ImportError, ValueError):
