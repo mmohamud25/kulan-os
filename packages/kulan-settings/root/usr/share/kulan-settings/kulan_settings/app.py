@@ -104,6 +104,8 @@ list.boxed-list { border-radius: 14px; }
 list.boxed-list > row:first-child { border-top-left-radius: 14px; border-top-right-radius: 14px; }
 list.boxed-list > row:last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
 preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px; }
+.kulan-update-done { background-color: alpha(@window_fg_color, 0.55); color: @window_bg_color;
+  border-radius: 999px; padding: 18px; -gtk-icon-size: 40px; }
 """ + "".join(f".kulan-tile.tile-{pid} {{ background-color: {colour}; }}\n" for pid, colour in TILE_COLOURS.items()) \
     + f".kulan-tile.tile-external {{ background-color: {EXTERNAL_TILE}; }}\n"
 
