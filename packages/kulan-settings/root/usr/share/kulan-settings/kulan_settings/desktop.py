@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from gi.repository import Adw, Gio, GLib, GObject
+from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 from .common import (
     KULAN_SCHEMA,
@@ -41,6 +41,14 @@ def set_desktop_icons(shell, on: bool) -> None:
 # is never shown, so this one stands for "folders off".
 NO_FOLDERS = ["Kulan-NoFolders"]
 
+# Desktop widgets, in the order they're shown: (id, title, subtitle).
+WIDGETS = [
+    ("calendar", "Calendar", "Today’s date and what’s next in Calendar"),
+    ("weather", "Weather", "For the place chosen in the Weather app"),
+    ("prayer", "Prayer Times", "The next prayer, while Prayer Times is on"),
+    ("notes", "Note", "Your Quick Note (Cmd+Shift+N)"),
+]
+
 
 def folders_on(folders) -> bool:
     children = folders.get_strv("folder-children")
@@ -50,7 +58,7 @@ def folders_on(folders) -> bool:
 class DesktopPage(Page):
     title = "Desktop and windows"
     icon = "focus-windows-symbolic"
-    keywords = ("animation", "speed", "folders", "app grid", "hot corner", "workspaces", "windows")
+    keywords = ("animation", "speed", "folders", "app grid", "hot corner", "workspaces", "windows", "reopen", "restore apps", "restart", "resume")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -65,7 +73,7 @@ class DesktopPage(Page):
         if self.shell is not None and DESKTOP_ICONS_DIR.is_dir():
             desktop = self.add_group("Desktop")
             icons = Adw.SwitchRow(title="Show files on the desktop",
-                                  subtitle="Folders and files in your Desktop folder, and drives you plug in",
+                                  subtitle="Folders and files in your Desktop folder",
                                   active=desktop_icons_on(self.shell))
             icons.connect("notify::active", lambda r, _p: set_desktop_icons(self.shell, r.get_active()))
             desktop.add(icons)
@@ -76,6 +84,40 @@ class DesktopPage(Page):
                                   lambda v: self.ding.set_string("icon-size", v))
                 icons.bind_property("active", size, "sensitive", GObject.BindingFlags.SYNC_CREATE)
                 desktop.add(size)
+            # The desktop icons' own settings window uses technical names;
+            # these are the choices people need, in plain words.
+            extra = [
+                switch_row(self.ding, "show-trash", "Show the Bin"),
+                switch_row(self.ding, "show-volumes", "Show drives you plug in",
+                           "USB sticks, memory cards and external disks"),
+                switch_row(self.ding, "show-home", "Show your Home folder"),
+            ]
+            if has_key(self.ding, "start-corner"):
+                extra.append(choice_row("New items appear", None,
+                                        [("top-left", "Top left"), ("top-right", "Top right"),
+                                         ("bottom-left", "Bottom left"), ("bottom-right", "Bottom right")],
+                                        lambda: self.ding.get_string("start-corner"),
+                                        lambda v: self.ding.set_string("start-corner", v)))
+            for row in extra:
+                if row is not None:
+                    icons.bind_property("active", row, "sensitive", GObject.BindingFlags.SYNC_CREATE)
+                    desktop.add(row)
+
+        if has_key(self.kulan, "desktop-widgets"):
+            widgets = self.add_group("Widgets", "Small cards at the top left of the desktop. Click one to open its app.")
+            self.widget_rows = {}
+            for widget_id, title, subtitle in WIDGETS:
+                row = Adw.SwitchRow(title=title, subtitle=subtitle,
+                                    active=widget_id in self.kulan.get_strv("desktop-widgets"))
+                row.connect("notify::active", lambda r, _p, w=widget_id: self.set_widget(w, r.get_active()))
+                widgets.add(row)
+                self.widget_rows[widget_id] = row
+
+        if has_key(self.kulan, "reopen-apps"):
+            session = self.add_group("Restarting")
+            self.add_rows(session, switch_row(self.kulan, "reopen-apps", "Reopen apps after a restart",
+                                              "Apps that were open when the computer restarted or shut "
+                                              "down open again when you sign in"))
 
         motion = self.add_group("Motion")
         motion.add(choice_row("Animations", "Kulan’s default is a little quicker than GNOME’s",
@@ -89,6 +131,14 @@ class DesktopPage(Page):
                                 active=folders_on(self.folders))
             row.connect("notify::active", lambda r, _p: self.set_folders(r.get_active()))
             grid.add(row)
+        if has_key(self.shell, "app-picker-layout"):
+            tidy = Adw.ActionRow(title="Tidy the app grid",
+                                 subtitle="Sort apps from A to Z and close the gaps between pages")
+            button = Gtk.Button(label="Tidy", valign=Gtk.Align.CENTER)
+            button.update_property([Gtk.AccessibleProperty.LABEL], ["Tidy the app grid"])
+            button.connect("clicked", lambda _b: self.tidy_grid())
+            tidy.add_suffix(button)
+            grid.add(tidy)
 
         windows = self.add_group("Windows and workspaces")
         self.add_rows(windows,
@@ -126,13 +176,25 @@ class DesktopPage(Page):
         else:
             self.folders.set_strv("folder-children", NO_FOLDERS)
 
+    def set_widget(self, widget_id: str, on: bool) -> None:
+        current = self.kulan.get_strv("desktop-widgets")
+        wanted = [w for w, _t, _s in WIDGETS if (w == widget_id and on) or (w != widget_id and w in current)]
+        if wanted != current:
+            self.kulan.set_strv("desktop-widgets", wanted)
+
+    def tidy_grid(self) -> None:
+        # GNOME keeps each app where it was dropped; with no saved layout it
+        # sorts alphabetically and fills every page.
+        self.shell.reset("app-picker-layout")
+        self.toast("App grid sorted from A to Z")
+
     def reset(self) -> None:
-        reset_keys(self.kulan, ["animation-speed"])
+        reset_keys(self.kulan, ["animation-speed", "desktop-widgets", "reopen-apps"])
         reset_keys(self.interface, ["enable-animations", "enable-hot-corners"])
         reset_keys(self.folders, ["folder-children"])
         reset_keys(self.mutter, ["center-new-windows", "dynamic-workspaces"])
         reset_keys(self.wm, ["num-workspaces"])
-        reset_keys(self.ding, ["icon-size"])
+        reset_keys(self.ding, ["icon-size", "show-trash", "show-volumes", "show-home", "start-corner"])
         if self.shell is not None and DESKTOP_ICONS_DIR.is_dir():
             set_desktop_icons(self.shell, True)
         GLib.idle_add(lambda: self.window.reload_page(self) and False)

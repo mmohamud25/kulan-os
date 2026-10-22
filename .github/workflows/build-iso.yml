@@ -100,10 +100,50 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Kulan Files: Debian 13's Nautilus with Kulan's patch, one build per
+  # architecture. Rebuilt when the patch or the script changes, or when Debian
+  # updates Nautilus (its version is part of the cache key).
+  files:
+    needs: plan
+    name: Kulan Files (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Which Nautilus Debian has
+        id: debian
+        run: |
+          VERSION="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh --version | tail -n 1)"
+          echo "Debian's Nautilus: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: dist/files
+          key: kulan-files-${{ matrix.arch }}-${{ steps.debian.outputs.version }}-${{ hashFiles('ci/build-nautilus.sh', 'packages-src/nautilus/**') }}
+      - name: Build Kulan Files in Debian 13
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh
+          sudo chown -R "$(id -u):$(id -g)" dist
+      - name: Check the packages
+        run: |
+          ls -l dist/files/
+          dpkg-deb --info dist/files/nautilus_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kulan-files-${{ matrix.arch }}
+          path: dist/files/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
   # Installs the packages into a clean Debian 13 system with their real
   # dependencies, checks them, removes them. Gates publishing and ISOs.
   test-packages:
-    needs: [packages, engine]
+    needs: [packages, engine, files]
     # The engine for PCs is tested with a real model when it was built.
     if: ${{ !cancelled() && needs.packages.result == 'success' }}
     name: Test packages on Debian 13
@@ -119,6 +159,11 @@ jobs:
           pattern: kulan-engine-amd64
           path: dist/engine/
           merge-multiple: true
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kulan-files-amd64
+          path: dist/files/
+          merge-multiple: true
       - name: Install, check and remove in Debian 13
         run: |
           docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
@@ -131,7 +176,7 @@ jobs:
   # must already be online. Skipped until scripts/setup-update-channel.sh
   # has been run.
   publish:
-    needs: [test-packages, engine]
+    needs: [test-packages, engine, files]
     # Only runs that built both architectures publish: the channel is
     # rebuilt from scratch each time and must keep both engines.
     if: github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both'
@@ -178,6 +223,18 @@ jobs:
           name: kulan-engine-arm64
           path: dist/debs/
 
+      # Kulan Files for both architectures (nautilus-data is the same in both).
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-files-amd64
+          path: dist/debs/
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-files-arm64
+          path: dist/debs/
+
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
         env:
@@ -213,12 +270,13 @@ jobs:
           exit 1
 
   build:
-    needs: [plan, packages, engine, test-packages, publish]
+    needs: [plan, packages, engine, files, test-packages, publish]
     # Runs when publishing succeeded or was skipped (tags, channel not set up).
     if: >-
       !cancelled() &&
       needs.test-packages.result == 'success' &&
       needs.engine.result == 'success' &&
+      needs.files.result == 'success' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -240,6 +298,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: kulan-engine-${{ matrix.arch }}
+          path: config/packages.chroot/
+
+      - name: Get Kulan Files
+        uses: actions/download-artifact@v7
+        with:
+          name: kulan-files-${{ matrix.arch }}
           path: config/packages.chroot/
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships
@@ -265,11 +329,15 @@ jobs:
         if: failure()
         run: |
           [ -f build.log ] || exit 0
-          grep -nE '^(E|W): |[Ee]rror|Failed to fetch|returned error' build.log | tail -n 15 | while IFS= read -r line; do
-            echo "::error title=ISO ${{ matrix.arch }} build::${line:0:400}"
-          done
-          # The last lines usually say what actually stopped the build.
-          echo "::error title=ISO ${{ matrix.arch }} build ended with::$(tail -n 12 build.log | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          # GitHub shows at most 10 error notes per step: the end of the log
+          # first (it usually says what stopped the build), then up to 8 real
+          # error lines (not apt's progress lines for packages named *error*).
+          echo "::error title=ISO ${{ matrix.arch }} build ended with::$(tail -n 20 build.log | cut -c1-200 | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+          grep -nE '^(E|W): |[Ee]rror|Failed to fetch|returned error' build.log |
+            grep -vE ':(Setting up|Unpacking|Selecting previously|Preparing to unpack|Get:[0-9]+) ' | tail -n 8 |
+            while IFS= read -r line; do
+              echo "::error title=ISO ${{ matrix.arch }} build::${line:0:400}"
+            done
           { echo '### Last 60 lines of build.log'; echo '```'; tail -n 60 build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inspect ISO
@@ -300,6 +368,41 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
           ci/boot-test.sh out/*.iso boot-test
+
+      # The same on a small computer: 2 GB of memory and one processor.
+      - name: Low-end boot test
+        if: matrix.arch == 'amd64'
+        env:
+          KULAN_BOOT_MEMORY: "2048"
+          KULAN_BOOT_CPUS: "1"
+          KULAN_BOOT_LABEL: Low-end boot test
+        run: ci/boot-test.sh out/*.iso boot-test-low-end
+
+      - name: Upload low-end boot test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: boot-test-low-end-amd64
+          path: boot-test-low-end/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # Install the PC ISO onto a virtual disk, start it, restart it, and
+      # check both starts reach the desktop.
+      - name: Install test
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk
+          ci/install-test.sh out/*.iso install-test
+
+      - name: Upload install test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: install-test-amd64
+          path: install-test/
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Upload boot test
         if: always() && matrix.arch == 'amd64'

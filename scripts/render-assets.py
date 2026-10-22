@@ -168,6 +168,18 @@ def main() -> int:
              f'<path fill="#FBBF24" d="{sparkle(366, 152, 54)} {sparkle(368, 352, 34)}"/>')
     write_icon("kulan-welcome", "kulan-setup-assistant", adwaita_tile("#3A7BD5", "#1E4E9C", "#173A75", stars))
 
+    # Kulan Store: a shopping bag with the Kulan gathering dots, on orange.
+    bag_body = "M150 214 H362 L346 398 Q344 416 326 416 H186 Q168 416 166 398 Z"
+    bag = (f'<path fill="#5A2A05" fill-opacity="0.25" transform="translate(0 8)" d="{bag_body}"/>'
+           f'<path d="M206 214 V184 Q206 134 256 134 Q306 134 306 184 V214" fill="none" stroke="#FFF7E6" '
+           f'stroke-width="22" stroke-linecap="round"/>'
+           f'<path fill="#FFF7E6" d="{bag_body}"/>'
+           + "".join(f'<circle cx="{256 + 46 * math.cos(math.radians(a)):.1f}" cy="{316 + 46 * math.sin(math.radians(a)):.1f}" '
+                     f'r="13" fill="{"#F59E0B" if i % 2 == 0 else "#0F766E"}"/>'
+                     for i, a in enumerate(range(-90, 270, 60)))
+           + '<circle cx="256" cy="316" r="17" fill="#0F766E"/>')
+    write_icon("kulan-desktop-settings", "kulan-store", adwaita_tile("#F59E0B", "#D9770A", "#A85A06", bag))
+
     # Kulan folders: an icon theme with just the folder icons, inheriting
     # Adwaita for everything else. Teal folders, a white symbol on the special
     # ones, and colour versions for the Folder Colour menu in Files.
@@ -234,12 +246,21 @@ def main() -> int:
     (mimes / "inode-directory.svg").write_text(kulan_folder("teal") + "\n")
     for colour in folder_colours:
         (places / f"folder-kulan-{colour}.svg").write_text(kulan_folder(colour) + "\n")
+    # Tag dots for Files (Tags on right-click), shown as emblems on files.
+    emblems = theme / "scalable/emblems"
+    emblems.mkdir(parents=True, exist_ok=True)
+    tag_colours = {"red": "#FF3B30", "orange": "#FF9500", "yellow": "#FFCC00", "green": "#34C759",
+                   "blue": "#007AFF", "purple": "#AF52DE", "grey": "#8E8E93"}
+    for colour, fill in tag_colours.items():
+        (emblems / f"emblem-kulan-tag-{colour}.svg").write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
+            f'<circle cx="8" cy="8" r="6.5" fill="{fill}" stroke="#FFFFFF" stroke-width="1.5"/></svg>\n')
     (theme / "index.theme").write_text(
         "[Icon Theme]\n"
         "Name=Kulan\n"
         "Comment=Kulan OS folders, with GNOME's Adwaita icons for everything else\n"
         "Inherits=Adwaita,hicolor\n"
-        "Directories=scalable/places,scalable/mimetypes\n"
+        "Directories=scalable/places,scalable/mimetypes,scalable/emblems\n"
         "\n"
         "[scalable/places]\n"
         "Context=Places\n"
@@ -251,6 +272,13 @@ def main() -> int:
         "[scalable/mimetypes]\n"
         "Context=MimeTypes\n"
         "Size=128\n"
+        "MinSize=8\n"
+        "MaxSize=512\n"
+        "Type=Scalable\n"
+        "\n"
+        "[scalable/emblems]\n"
+        "Context=Emblems\n"
+        "Size=16\n"
         "MinSize=8\n"
         "MaxSize=512\n"
         "Type=Scalable\n"
@@ -347,6 +375,32 @@ def main() -> int:
 </svg>''',
         CHROOT / "usr/share/kulan/plymouth/watermark.png",
     )
+
+    # Start-up screen pieces for the animated splash (kulan.script scales
+    # them to the screen): the two dot colours, the centre's glow, the name,
+    # and the disk password prompt, field and dot.
+    splash = CHROOT / "usr/share/kulan/plymouth"
+    for fname, colour in (("dot-amber.png", "#F59E0B"), ("dot-mint.png", "#ECFDF5")):
+        render(f'''<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <circle cx="64" cy="64" r="62" fill="{colour}"/>
+</svg>''', splash / fname)
+    render('''<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs><radialGradient id="g"><stop offset="0" stop-color="#2DD4BF" stop-opacity="0.55"/>
+  <stop offset="0.45" stop-color="#14B8A6" stop-opacity="0.18"/><stop offset="1" stop-color="#14B8A6" stop-opacity="0"/></radialGradient></defs>
+  <circle cx="128" cy="128" r="128" fill="url(#g)"/>
+</svg>''', splash / "glow.png")
+    render(f'''<svg xmlns="http://www.w3.org/2000/svg" width="600" height="110" viewBox="0 0 600 110">
+  <text x="300" y="78" text-anchor="middle" font-family="{FONT}" font-size="68" font-weight="600" fill="#FFFFFF">{name}</text>
+</svg>''', splash / "wordmark.png")
+    render(f'''<svg xmlns="http://www.w3.org/2000/svg" width="840" height="60" viewBox="0 0 840 60">
+  <text x="420" y="42" text-anchor="middle" font-family="{FONT}" font-size="32" fill="#DCE7F0">Enter the password to unlock this disk</text>
+</svg>''', splash / "prompt.png")
+    render('''<svg xmlns="http://www.w3.org/2000/svg" width="720" height="96" viewBox="0 0 720 96">
+  <rect x="2" y="2" width="716" height="92" rx="46" fill="#FFFFFF" fill-opacity="0.10" stroke="#FFFFFF" stroke-opacity="0.28" stroke-width="3"/>
+</svg>''', splash / "field.png")
+    render('''<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="30" fill="#FFFFFF"/>
+</svg>''', splash / "bullet.png")
 
     # Installed system's boot menu background (shown only if you hold Esc).
     render(

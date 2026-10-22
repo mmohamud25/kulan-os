@@ -7,6 +7,9 @@ OS_RELEASE=/usr/lib/os-release
 case "$1" in
 	purge)
 		deb-systemd-helper purge kulan-boot-report.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-oom-notice.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-kexec-guard.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-fast-restart.service >/dev/null 2>&1 || true
 		rm -rf /var/lib/kulan
 		;;
 	remove|abort-install|disappear)

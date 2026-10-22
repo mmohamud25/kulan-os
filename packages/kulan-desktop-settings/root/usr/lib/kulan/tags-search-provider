@@ -1,0 +1,121 @@
+#!/usr/bin/python3
+"""Tagged files in search (Spotlight and Activities): type a tag's colour,
+such as "red" or "tag red", to see everything tagged with it in Files.
+
+A GNOME Shell search provider, started by D-Bus when someone searches and
+gone after a few idle minutes. Results come from Kulan's tag index and are
+checked against each file (see /usr/share/kulan/python/kulan_tags.py).
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+sys.path.insert(0, "/usr/share/kulan/python")
+
+import gi  # noqa: E402
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+import kulan_tags  # noqa: E402
+
+BUS_NAME = "org.kulan.Tags.SearchProvider"
+OBJECT_PATH = "/org/kulan/Tags/SearchProvider"
+IDLE_EXIT_S = 300
+MAX_RESULTS = 8
+
+INTERFACE = """
+<node>
+  <interface name="org.gnome.Shell.SearchProvider2">
+    <method name="GetInitialResultSet"><arg type="as" name="terms" direction="in"/>
+      <arg type="as" name="results" direction="out"/></method>
+    <method name="GetSubsearchResultSet"><arg type="as" name="previous_results" direction="in"/>
+      <arg type="as" name="terms" direction="in"/><arg type="as" name="results" direction="out"/></method>
+    <method name="GetResultMetas"><arg type="as" name="identifiers" direction="in"/>
+      <arg type="aa{sv}" name="metas" direction="out"/></method>
+    <method name="ActivateResult"><arg type="s" name="identifier" direction="in"/>
+      <arg type="as" name="terms" direction="in"/><arg type="u" name="timestamp" direction="in"/></method>
+    <method name="LaunchSearch"><arg type="as" name="terms" direction="in"/>
+      <arg type="u" name="timestamp" direction="in"/></method>
+  </interface>
+</node>
+"""
+
+
+def results(terms: list[str]) -> list[str]:
+    tag = kulan_tags.tag_for_words(terms)
+    if tag is None:
+        return []
+    return [f"{tag}\n{path}" for path in kulan_tags.find(tag)[:MAX_RESULTS]]
+
+
+def meta(identifier: str) -> dict | None:
+    tag, _sep, path = identifier.partition("\n")
+    if not path or not os.path.exists(path):
+        return None
+    gfile = Gio.File.new_for_path(path)
+    icon = "text-x-generic"
+    try:
+        info = gfile.query_info("standard::icon", Gio.FileQueryInfoFlags.NONE, None)
+        if info.get_icon() is not None:
+            icon = info.get_icon().to_string()
+    except GLib.Error:
+        pass
+    folder = os.path.dirname(path)
+    home = os.path.expanduser("~")
+    where = "~" + folder[len(home):] if folder.startswith(home) else folder
+    return {
+        "id": GLib.Variant("s", identifier),
+        "name": GLib.Variant("s", os.path.basename(path) or path),
+        "description": GLib.Variant("s", f"{kulan_tags.NAMES.get(tag, tag)} tag · {where}"),
+        "gicon": GLib.Variant("s", icon),
+    }
+
+
+class Provider:
+    def __init__(self, loop: GLib.MainLoop) -> None:
+        self.loop = loop
+        self.idle_timer = GLib.timeout_add_seconds(IDLE_EXIT_S, self.idle_exit)
+
+    def idle_exit(self) -> bool:
+        self.loop.quit()
+        return GLib.SOURCE_REMOVE
+
+    def on_call(self, _conn, _sender, _path, _iface, method, params, invocation) -> None:
+        GLib.source_remove(self.idle_timer)
+        self.idle_timer = GLib.timeout_add_seconds(IDLE_EXIT_S, self.idle_exit)
+        args = params.unpack()
+        if method in ("GetInitialResultSet", "GetSubsearchResultSet"):
+            invocation.return_value(GLib.Variant("(as)", (results(list(args[-1])),)))
+        elif method == "GetResultMetas":
+            metas = [m for m in (meta(i) for i in args[0]) if m]
+            invocation.return_value(GLib.Variant("(aa{sv})", (metas,)))
+        elif method == "ActivateResult":
+            _tag, _sep, path = args[0].partition("\n")
+            if path and os.path.exists(path):
+                try:
+                    Gio.AppInfo.launch_default_for_uri(Gio.File.new_for_path(path).get_uri(), None)
+                except GLib.Error as exc:
+                    print(f"kulan tags search: {exc.message}", file=sys.stderr)
+            invocation.return_value(None)
+        elif method == "LaunchSearch":
+            invocation.return_value(None)
+
+
+def main() -> int:
+    loop = GLib.MainLoop()
+    provider = Provider(loop)
+    node = Gio.DBusNodeInfo.new_for_xml(INTERFACE)
+
+    def on_bus(connection, _name) -> None:
+        connection.register_object(OBJECT_PATH, node.interfaces[0], provider.on_call, None, None)
+
+    Gio.bus_own_name(Gio.BusType.SESSION, BUS_NAME, Gio.BusNameOwnerFlags.NONE, on_bus, None,
+                     lambda *_a: loop.quit())
+    loop.run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

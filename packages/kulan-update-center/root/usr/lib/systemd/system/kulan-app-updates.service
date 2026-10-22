@@ -1,0 +1,15 @@
+[Unit]
+Description=Kulan OS app (Flatpak) updates
+Documentation=https://github.com/mmohamud25/kulan-os
+ConditionKernelCommandLine=!boot=live
+After=network-online.target
+Wants=network-online.target
+
+# Installs app updates only when "Install updates automatically" is on in
+# Kulan Settings > Software Update; otherwise it just looks them up so they
+# show there.
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/app-updates auto
+Nice=10
+IOSchedulingClass=idle

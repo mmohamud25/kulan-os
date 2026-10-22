@@ -13,6 +13,11 @@ set -uo pipefail
 ISO="${1:?usage: $0 <iso> [output-dir]}"
 OUT="${2:-boot-test}"
 WAIT_S="${KULAN_BOOT_WAIT:-600}"
+# The low-end run (KULAN_BOOT_MEMORY=2048 KULAN_BOOT_CPUS=1) checks Kulan OS
+# still comes up on a small computer.
+MEMORY="${KULAN_BOOT_MEMORY:-4096}"
+CPUS="${KULAN_BOOT_CPUS:-2}"
+LABEL="${KULAN_BOOT_LABEL:-Boot test}"
 mkdir -p "${OUT}"
 WORK="$(mktemp -d)"
 QEMU_PID=""
@@ -27,15 +32,15 @@ ROWS=()
 
 result() { # result <pass|fail|info> <check> <detail>
 	case "$1" in
-		pass) echo "::notice title=Boot test: $2::$3"; ROWS+=("| ✅ | $2 | $3 |") ;;
-		info) echo "::notice title=Boot test: $2::$3"; ROWS+=("| ℹ️ | $2 | $3 |") ;;
-		*) echo "::error title=Boot test: $2::$3"; ROWS+=("| ❌ | $2 | $3 |"); FAILED=1 ;;
+		pass) echo "::notice title=${LABEL}: $2::$3"; ROWS+=("| ✅ | $2 | $3 |") ;;
+		info) echo "::notice title=${LABEL}: $2::$3"; ROWS+=("| ℹ️ | $2 | $3 |") ;;
+		*) echo "::error title=${LABEL}: $2::$3"; ROWS+=("| ❌ | $2 | $3 |"); FAILED=1 ;;
 	esac
 }
 
 summary() {
 	{
-		echo "### Kulan OS boot test (live session in a virtual machine)"
+		echo "### Kulan OS ${LABEL} (live session in a virtual machine, ${MEMORY} MB, ${CPUS} CPU)"
 		echo
 		echo "| | Check | Result |"
 		echo "|---|---|---|"
@@ -77,7 +82,7 @@ fi
 
 # --- Boot -----------------------------------------------------------------------
 START=$(date +%s)
-qemu-system-x86_64 "${ACCEL[@]}" -m 4096 -smp 2 \
+qemu-system-x86_64 "${ACCEL[@]}" -m "${MEMORY}" -smp "${CPUS}" \
 	-kernel "${WORK}/vmlinuz" -initrd "${WORK}/initrd" -append "${BOOT_ARGS}" \
 	-drive "file=${ISO},media=cdrom,readonly=on" \
 	-vga virtio -display none \
@@ -125,7 +130,7 @@ annotate_lines() { # annotate_lines <title> (text on stdin)
 	local text
 	text="$(tr -d '\r' | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -cd '\11\12\40-\176' | cut -c1-180 | tail -n 40 |
 		sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
-	[[ -n "${text}" ]] && echo "::error title=Boot test: $1::${text}"
+	[[ -n "${text}" ]] && echo "::error title=${LABEL}: $1::${text}"
 }
 
 # What the screen shows, as text (Tesseract), so a failure can be read from
@@ -163,13 +168,40 @@ else
 	result fail "Compressed memory" "no zram swap (${SWAP:-none})"
 fi
 
+OOMD="$(field oomd)"
+if [[ "${OOMD}" == "active active" ]]; then
+	result pass "Memory guard" "systemd-oomd and Kulan's notice running"
+else
+	result fail "Memory guard" "systemd-oomd / notice: ${OOMD:-not reported}"
+fi
+
+KEXEC="$(field kexec)"
+case "${KEXEC}" in
+	"1 no x86_64") result pass "Kernel hardening" "loading another kernel is switched off" ;;
+	"0 yes aarch64") result pass "Restart in ARM VMs" "fast restart (kexec) set up; normal restarts freeze in UTM" ;;
+	*) result fail "Kernel hardening / fast restart" "unexpected: ${KEXEC:-not reported}" ;;
+esac
+
+APPS="$(field appupdates)"
+if [[ "${APPS}" == ok ]]; then
+	result pass "App updates" "Flatpak lists app updates (as Software Update does)"
+else
+	result info "App updates" "couldn't list app updates: ${APPS:-not reported} (no network in the test machine?)"
+fi
+
 FAILED_UNITS="$(field failed | tr '\n' ' ')"
 if [[ -z "${FAILED_UNITS// /}" ]]; then
 	result pass "Services" "no failed services (system state: $(field state))"
 else
 	result fail "Services" "failed: ${FAILED_UNITS}"
 fi
+case "$(field needs_update)" in
+	no) result pass "Start-up work done in advance" "ldconfig, hardware database etc. skipped at start-up (done when the image was built)" ;;
+	yes) result fail "Start-up work done in advance" "ldconfig ran at start-up: /etc/.updated is missing or older than /usr" ;;
+	*) result info "Start-up work done in advance" "not reported" ;;
+esac
 result info "Slowest to start" "$(field blame | head -n 5 | tr -s ' ' | paste -sd ';' -)"
+result info "Login screen waited on" "$(field chain | head -n 6 | tr -s ' ' | paste -sd ';' -)"
 
 summary
 exit "${FAILED}"

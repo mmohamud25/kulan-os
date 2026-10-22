@@ -1,0 +1,19 @@
+[Unit]
+Description=Kulan OS: fast restart in ARM virtual machines
+Documentation=https://github.com/mmohamud25/kulan-os
+ConditionArchitecture=arm64
+ConditionVirtualization=vm
+# Started after the file systems, so it stops (and loads the kernel) while
+# /boot is still there.
+After=local-fs.target
+RequiresMountsFor=/boot
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/kulan/fast-restart check
+ExecStop=/usr/lib/kulan/fast-restart load
+SuccessExitStatus=1
+
+[Install]
+WantedBy=multi-user.target

@@ -30,8 +30,17 @@ mapfile -t LIST < <(grep -vE '^[[:space:]]*(#|$)' config/package-lists/kulan-des
 	grep -vxE 'kulan-.*|plymouth.*|spice-vdagent|qemu-guest-agent|linux-image.*')
 DEBS=(dist/debs/kulan-base_*.deb dist/debs/kulan-desktop-settings_*.deb dist/debs/kulan-settings_*.deb
 	dist/debs/kulan-update-center_*.deb dist/debs/kulan-welcome_*.deb dist/debs/kulan-assistant_*.deb)
+# Kulan Files (patched Nautilus), built here as the ISO build does.
+if bash ci/build-nautilus.sh >/tmp/audit-files.log 2>&1; then
+	DEBS+=(dist/files/*.deb)
+else
+	echo "::warning title=App audit::Kulan Files didn't build: $(grep -m 3 '::error' /tmp/audit-files.log | tr '\n' ' ' | cut -c1-400)"
+fi
 apt-get install -y -q "${DEBS[@]/#/./}" "${LIST[@]}" xvfb xauth imagemagick dbus-x11 xwayland sudo python3-dbusmock \
 	>/tmp/audit-install.log 2>&1 || { tail -n 30 /tmp/audit-install.log; echo "::error title=App audit::install failed"; exit 1; }
+# The installer as the ISO has it (Kulan branding, stylesheet and settings).
+sh config/hooks/live/0300-kulan-installer.hook.chroot >/tmp/audit-installer.log 2>&1 ||
+	echo "::warning title=App audit::installer branding failed: $(tail -n 2 /tmp/audit-installer.log | tr '\n' ' ')"
 
 # A person's account, as after installing (apps such as VLC refuse root).
 adduser --disabled-password --gecos Kulan kulan >/dev/null
@@ -134,6 +143,15 @@ for path in sorted(glob.glob("/usr/share/applications/*.desktop")):
             toolkit = "GTK 2"
     print("\t".join([app_id, e.get("Name", app_id), exec_line, toolkit]))
 PY
+# Kulan Settings' own system pages too (Displays talks to this GNOME Shell).
+# A wrapper keeps their errors (the loop sends apps' output nowhere) and has
+# its own name for the loop's pkill.
+printf '#!/bin/sh\nexec kulan-settings "$1" 2>>/tmp/kulan-settings-pages.log\n' > /usr/local/bin/ks-page
+chmod 755 /usr/local/bin/ks-page
+for PAGE in wifi bluetooth sound battery display; do
+	printf 'kulan-settings-%s.desktop\tKulan Settings: %s\tks-page %s\tGTK 4 + libadwaita (native)\n' \
+		"${PAGE}" "${PAGE}" "${PAGE}" >> /tmp/apps.tsv
+done
 echo "Apps to check: $(wc -l < /tmp/apps.tsv)"
 
 # --- Screenshots inside GNOME Shell ----------------------------------------------
@@ -187,9 +205,9 @@ for scheme in light dark; do
 		wait_s=7
 		case "$id" in *firefox*|*libreoffice*|*gimp*|*calamares*|*torbrowser*) wait_s=25 ;; esac
 		if [[ "$id" == *calamares* ]]; then
-			DISPLAY="${XWAYLAND:-$SCREEN}" setsid sudo -E calamares >/dev/null 2>&1 &
+			DISPLAY="${XWAYLAND:-$SCREEN}" setsid sudo -E calamares </dev/null >/dev/null 2>&1 &
 		else
-			DISPLAY="${XWAYLAND:-$SCREEN}" setsid bash -c "exec $exec" >/dev/null 2>&1 &
+			DISPLAY="${XWAYLAND:-$SCREEN}" setsid bash -c "exec $exec" </dev/null >/dev/null 2>&1 &
 		fi
 		APP=$!
 		sleep "$wait_s"
@@ -219,6 +237,7 @@ if [ -e "${OUT}/SHELL-FAILED" ]; then
 	cp /tmp/audit-shell.log "${OUT}/" 2>/dev/null
 	exit 1
 fi
+cp /tmp/kulan-settings-pages.log "${OUT}/" 2>/dev/null || true
 grep -iE "error|critical" /tmp/audit-shell.log 2>/dev/null | grep -i kulan | head -n 20 > "${OUT}/shell-kulan-errors.txt" || true
 
 # --- Report ------------------------------------------------------------------------

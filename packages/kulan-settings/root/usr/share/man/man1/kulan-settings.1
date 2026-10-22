@@ -6,22 +6,23 @@ kulan-settings \- Kulan OS settings
 [\fIpage\fR] [\fB\-\-check\fR]
 .SH DESCRIPTION
 .B kulan-settings
-is one place for Kulan OS options: appearance, the dock, the top bar,
-desktop and windows, Night Light and display, keyboard, login items,
-updates and recovery, add-ons and About Kulan OS. Pages that belong to GNOME
-Settings (Wi-Fi, Bluetooth, sound, displays, users) are listed too and open
-there.
+is one place for Kulan OS options: Wi-Fi and network, Bluetooth, sound,
+battery and power, displays and Night Light, appearance, the dock, the top
+bar, desktop and windows, keyboard, login items, updates and recovery,
+add-ons and About Kulan OS. Pages that belong to GNOME Settings (users,
+printers, sharing) are listed too and open there.
 .PP
 Installing updates or add-ons and changing automatic updates ask for an
 administrator password through
 .BR pkexec (1).
 .SH PAGES
-.IR appearance ", " dock ", " top-bar ", " desktop ", " display ", "
-.IR keyboard ", " login-items ", " updates ", " add-ons ", " about .
+.IR wifi ", " bluetooth ", " sound ", " battery ", " display ", "
+.IR appearance ", " dock ", " top-bar ", " desktop ", " keyboard ", "
+.IR login-items ", " updates ", " add-ons ", " about .
 .SH OPTIONS
 .TP
 .B \-\-check
-Open Updates and recovery and check for new updates.
+Open Software Update and check for new updates.
 .TP
 .B \-\-self\-test
 Build every page, then quit; exits non-zero if a page fails. Used by

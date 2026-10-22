@@ -62,10 +62,9 @@ center-new-windows=true
 experimental-features=['scale-monitor-framebuffer', 'xwayland-native-scaling']
 
 # --- Mac-style shortcuts (in UTM on a Mac, Command is the Super key) ---------
-# Cmd+Space: search apps, files and settings. Input sources move to
-# Ctrl+Alt+Space so Cmd+Space is free.
+# Cmd+Space: Spotlight search (Kulan Shell, org.kulan.desktop
+# search-shortcut). Input sources move to Ctrl+Alt+Space so Cmd+Space is free.
 [org.gnome.shell.keybindings]
-toggle-overview=['<Super>space']
 # Cmd+Shift+3: whole screen. Cmd+Shift+4: pick an area or window.
 # Cmd+Shift+5: record the screen. The Print key keeps working too.
 screenshot=['<Shift>Print', '<Shift><Super>3']
@@ -90,7 +89,8 @@ show-create-link=true
 date-time-format='simple'
 
 [org.gnome.nautilus.icon-view]
-default-zoom-level='large'
+# 64-pixel icons, about the Finder's size (GNOME's 'large' is 168).
+default-zoom-level='small-plus'
 
 [org.gtk.gtk4.Settings.FileChooser]
 sort-directories-first=true
@@ -116,7 +116,7 @@ show-trash=false
 show-volumes=true
 add-volumes-opposite=false
 start-corner='top-right'
-icon-size='standard'
+icon-size='small'
 
 # Window snapping: drag a window to an edge or corner for halves and quarters,
 # with a small gap, like macOS. No popup offering other windows.
@@ -133,7 +133,7 @@ dock-fixed=true
 intellihide=true
 extend-height=false
 # Calmer dock: smaller icons, quick show and hide, no bounce on launch.
-dash-max-icon-size=40
+dash-max-icon-size=34
 custom-theme-shrink=true
 animation-time=0.125
 show-delay=0.125

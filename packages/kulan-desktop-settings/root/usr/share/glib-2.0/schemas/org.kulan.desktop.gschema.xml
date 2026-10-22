@@ -52,6 +52,37 @@
       <summary>Shortcut for Dictation</summary>
       <description>Start and stop Dictation: what you say is typed where the cursor is (needs Kulan Assistant).</description>
     </key>
+    <key name="quick-note-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;n']</default>
+      <summary>Shortcut for Quick Note</summary>
+      <description>Opens a note over whatever you're doing; it's saved as you type.</description>
+    </key>
+    <key name="reopen-apps" type="b">
+      <default>true</default>
+      <summary>Reopen apps after a restart</summary>
+      <description>Apps that were open when the computer restarted or shut down open again at the next sign-in.</description>
+    </key>
+    <key name="files-preview-pane" type="b">
+      <default>false</default>
+      <summary>Preview pane in Files</summary>
+      <description>Kulan Files shows the selected item on the right (Shift+Ctrl+P or the toolbar button switches it).</description>
+    </key>
+    <key name="desktop-widgets" type="as">
+      <default>['calendar', 'weather', 'prayer', 'notes']</default>
+      <summary>Desktop widgets</summary>
+      <description>Widgets at the top left of the desktop, in this order: calendar, weather, prayer (only shown while Prayer Times is on) and notes. Empty: no widgets.</description>
+    </key>
+    <key name="search-shortcut" type="as">
+      <default>['&lt;Super&gt;space']</default>
+      <summary>Shortcut for search</summary>
+      <description>Opens the search bar (or Activities, depending on search-style).</description>
+    </key>
+    <key name="search-style" type="s">
+      <choices><choice value='spotlight'/><choice value='activities'/></choices>
+      <default>'spotlight'</default>
+      <summary>What the search shortcut opens</summary>
+      <description>spotlight: a search bar in the middle of the screen, over your windows. activities: GNOME's Activities overview with its search.</description>
+    </key>
     <key name="focus-schedule" type="b">
       <default>false</default>
       <summary>Focus schedule</summary>

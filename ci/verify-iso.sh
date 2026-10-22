@@ -71,11 +71,17 @@ FILES=(
 	etc/adduser.conf
 	etc/skel/.zshrc
 	etc/calamares/branding/kulan/show.qml
+	etc/calamares/branding/kulan/branding.desc
+	etc/calamares/branding/kulan/stylesheet.qss
+	etc/xdg/autostart/calamares-desktop-icon.desktop
 	etc/ufw/ufw.conf
 	var/lib/flatpak/repo/config
 	etc/firefox/policies/policies.json
 	etc/NetworkManager/conf.d/80-kulan-privacy.conf
 	etc/alternatives/vendor-logos
+	etc/sysctl.d/60-kulan-hardening.conf
+	etc/calamares/modules/fstab.conf
+	var/lib/flatpak/overrides/global
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -112,12 +118,18 @@ if installed kulan-devkit; then
 else
 	result pass "Developer kit" "not in the ISO (one-click add-on in Kulan Settings)"
 fi
+check "Sound" "PipeWire with PulseAudio and ALSA support and WirePlumber" bash -c "$(declare -f installed); R='${R}'; installed pipewire && installed pipewire-pulse && installed pipewire-alsa && installed wireplumber"
+check "Alert sound" "GNOME's Click alert is where Kulan's first sign-in links it" grep -q "squashfs-root/usr/share/sounds/gnome/default/alerts/click.ogg$" "${WORK}/listing"
+check "VM tools" "UTM/QEMU and VMware guest tools (clipboard, screen size)" bash -c "$(declare -f installed); R='${R}'; installed spice-vdagent && installed qemu-guest-agent && installed open-vm-tools-desktop"
 check "Mac-style apps" "Quick Look, Live Text OCR, window snapping, emoji, weather, desktop icons and Folder Colour" bash -c "$(declare -f installed); R='${R}'; installed gnome-sushi && installed python3-nautilus && installed tesseract-ocr-eng && installed gnome-shell-extension-tiling-assistant && installed gnome-characters && installed gnome-weather && installed gnome-shell-extension-desktop-icons-ng"
 if [[ "${ARCH}" == amd64 ]]; then
 	check "Laptop firmware" "Intel and AMD graphics, Wi-Fi, Bluetooth, sound and CPU microcode" bash -c "$(declare -f installed); R='${R}'; for p in firmware-intel-graphics firmware-amd-graphics firmware-iwlwifi firmware-realtek firmware-atheros firmware-mediatek firmware-sof-signed bluez-firmware intel-microcode amd64-microcode; do installed \$p || { echo \$p; exit 1; }; done"
 fi
 check "Compressed memory" "zram swap generator installed" installed systemd-zram-generator
 check "Terminal" "Ptyxis with zsh, suggestions and highlighting; new accounts use zsh" bash -c "$(declare -f installed); R='${R}'; installed ptyxis && installed zsh && installed zsh-autosuggestions && installed zsh-syntax-highlighting && grep -qx 'DSHELL=/bin/zsh' \"\${R}/etc/adduser.conf\" && grep -qE '(shell:|userShell:)[[:space:]]+/bin/zsh' \"\${R}/etc/calamares/modules/users.conf\" && grep -q kulan.zsh \"\${R}/etc/skel/.zshrc\""
+check "Restart in ARM VMs" "kexec-tools, fast-restart generator, and the kexec hardening moved to kulan-kexec-guard (enabled)" bash -c "$(declare -f installed has_path); R='${R}'; WORK='${WORK}'; installed kexec-tools && has_path usr/lib/systemd/system-generators/kulan-fast-restart && has_path etc/systemd/system/sysinit.target.wants/kulan-kexec-guard.service && has_path etc/systemd/system/multi-user.target.wants/kulan-fast-restart.service && ! grep -q '^kernel.kexec_load_disabled' \"\${R}/etc/sysctl.d/60-kulan-hardening.conf\" && grep -q '^kernel.kptr_restrict' \"\${R}/etc/sysctl.d/60-kulan-hardening.conf\""
+check "Disk password" "a mistyped disk password asks again (installer writes tries=0 to crypttab)" grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${R}/etc/calamares/modules/fstab.conf"
+check "Store apps' look" "Flatpak apps may read the GTK settings folders, for Kulan's window buttons" bash -c "grep -q 'xdg-config/gtk-4.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'xdg-config/gtk-3.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'QT_QPA_PLATFORM=xcb;wayland' '${R}/var/lib/flatpak/overrides/global'"
 check "Boot report" "kulan-boot-report.service enabled, for the boot test" has_path etc/systemd/system/multi-user.target.wants/kulan-boot-report.service
 if installed cups-browsed; then
 	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"
@@ -129,6 +141,7 @@ check "Font" "Inter installed" installed fonts-inter
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
+	check "Animated splash" "the gathering animation (script, images) and Plymouth's script module in the initramfs" bash -c "L=\"\$(lsinitramfs '${WORK}/initrd.img')\"; echo \"\$L\" | grep -q 'plymouth/themes/kulan/kulan.script' && echo \"\$L\" | grep -q 'plymouth/themes/kulan/dot-amber.png' && echo \"\$L\" | grep -q 'plymouth/script.so'"
 	# Debian's plymouth hook swaps the theme's watermark for Debian's logo;
 	# Kulan's hook (kulan-splash) puts Kulan's back. Compare the two images.
 	if command -v unmkinitramfs >/dev/null 2>&1 && unmkinitramfs "${WORK}/initrd.img" "${WORK}/initrd-x" >/dev/null 2>&1 \
@@ -159,12 +172,15 @@ fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
+check "Installer look" "Kulan stylesheet and sidebar colours" bash -c "grep -q '#0D9488' '${R}/etc/calamares/branding/kulan/stylesheet.qss' && grep -qE 'SidebarBackground:[[:space:]]+\"#0A2240\"' '${R}/etc/calamares/branding/kulan/branding.desc' && grep -qE 'SidebarTextCurrent:[[:space:]]+\"#FFFFFF\"' '${R}/etc/calamares/branding/kulan/branding.desc'"
+check "Installer desktop icon" "none on the live desktop (the dock has Install Kulan OS)" bash -c "! test -f '${R}/etc/xdg/autostart/calamares-desktop-icon.desktop' || grep -qx 'Hidden=true' '${R}/etc/xdg/autostart/calamares-desktop-icon.desktop'"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Installer slideshow" "every slide the slideshow shows is in the ISO" bash -c 'Q="$1/etc/calamares/branding/kulan/show.qml"; n=0; for f in $(grep -o "\"slide[^\"]*\.png\"" "$Q" | tr -d "\"" | sort -u); do grep -q "squashfs-root/etc/calamares/branding/kulan/$f\$" "$2" || { echo "missing $f"; exit 1; }; n=$((n+1)); done; [ "$n" -ge 5 ]' _ "${R}" "${WORK}/listing"
 check "Installer in a VM" "encryption starts unticked in virtual machines (rule enabled)" has_path etc/systemd/system/multi-user.target.wants/kulan-installer-vm.service
 check "Installer login" "\"Log in automatically\" starts unticked" bash -c "! grep -qE '^doAutologin:[[:space:]]+true' '${R}/etc/calamares/modules/users.conf'"
 check "Installer encryption" "encryption ticked by default" grep -qE "^preCheckEncryption:[[:space:]]+true" "${R}/etc/calamares/modules/partition.conf"
 check "Installer layout" "separate unencrypted /boot, so the disk is unlocked once" bash -c "grep -q '^partitionLayout:' '${R}/etc/calamares/modules/partition.conf' && grep -q 'noEncrypt: true' '${R}/etc/calamares/modules/partition.conf'"
+check "Installer swap" "no swap partition or file (compressed memory instead)" bash -c "test \"\$(sed -n '/^userSwapChoices:/,/^[^ #]/p' '${R}/etc/calamares/modules/partition.conf' | grep -cE '^[[:space:]]+- ')\" = 1 && grep -qE '^[[:space:]]+- none' '${R}/etc/calamares/modules/partition.conf' && grep -qE '^initialSwapChoice:[[:space:]]+none' '${R}/etc/calamares/modules/partition.conf'"
 check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw

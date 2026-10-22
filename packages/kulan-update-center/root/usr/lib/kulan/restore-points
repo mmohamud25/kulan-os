@@ -5,9 +5,20 @@
 #   restore-points scheduled         daily timer: take scheduled snapshots
 #   restore-points create "<note>"   take a snapshot now
 #   restore-points status            print whether restore points are on
+#   restore-points tidy              apply the limits below, then record usage
+#   restore-points usage             record how many there are and the space
+#                                    they use (for Kulan Settings > Storage)
+#   restore-points delete-all        delete every restore point
+#   restore-points undo-update       put the system back to before the last
+#                                    update (a restore point of how it is now
+#                                    is taken first), then restart
 #
 # Snapshots are skipped when the disk is low on space, so restore points can
-# never fill the disk. Schedule: daily (keep 2) and weekly (keep 1). Home
+# never fill the disk. Schedule: daily (keep 2) and weekly (keep 1); of the
+# ones taken before installing updates, the newest 2 are kept (Timeshift keeps
+# on-demand snapshots forever, so before 2.3 they piled up). Ones you make
+# yourself are never deleted automatically. If all of them together use more
+# than a quarter of the disk, the oldest automatic ones go first. Home
 # folders are not included (Timeshift's default): restore points roll back
 # the system, not personal files - Deja Dup backs those up.
 set -euo pipefail
@@ -18,6 +29,13 @@ CONFIG=/etc/timeshift/timeshift.json
 DEFAULTS=/etc/timeshift/default.json
 MIN_FREE_PERCENT=15
 MIN_FREE_GIB=6
+SNAPSHOTS="${KULAN_RESTORE_SNAPSHOTS:-/timeshift/snapshots}" # Timeshift, rsync mode on /
+USAGE_FILE="${KULAN_RESTORE_USAGE:-/var/lib/kulan/restore-points.json}"
+UPDATE_NOTE="Before installing updates" # update-run's note
+UNDO_NOTE="Before undoing an update"
+PAUSE_FILE="${KULAN_PAUSE_FILE:-/etc/apt/apt.conf.d/54kulan-paused-after-undo}"
+KEEP_UPDATE_POINTS=2
+MAX_PERCENT=25 # of the disk, for all restore points together
 
 log() { echo "kulan restore-points: $*" >&2; }
 
@@ -76,6 +94,113 @@ PY
 	log "set up: daily and weekly restore points on the system disk"
 }
 
+# Snapshots as "<name> <kind>" lines, oldest first (names are dates). kind is
+# "update" (taken before installing updates), "own" (made by hand) or "auto"
+# (the daily and weekly schedule).
+list_snapshots() {
+	python3 -I - "${SNAPSHOTS}" "${UPDATE_NOTE}" "${UNDO_NOTE}" <<'PY'
+import json, os, sys
+root, update_note, undo_note = sys.argv[1:4]
+rows = []
+try:
+    names = os.listdir(root)
+except OSError:
+    names = []
+for name in names:
+    try:
+        with open(os.path.join(root, name, "info.json"), encoding="utf-8") as fh:
+            info = json.load(fh)
+    except (OSError, ValueError):
+        continue
+    tags = str(info.get("tags", ""))
+    comment = str(info.get("comments", ""))
+    if comment == update_note:
+        kind = "update"
+    elif comment == undo_note:
+        kind = "undo"
+    elif "O" in tags.split():
+        kind = "own"
+    else:
+        kind = "auto"
+    rows.append((name, kind))
+for name, kind in sorted(rows):
+    if name and not any(c.isspace() for c in name):
+        print(name, kind)
+PY
+}
+
+delete_snapshot() {
+	log "deleting restore point $1"
+	timeshift --delete --snapshot "$1" --scripted >&2 || log "couldn't delete $1"
+}
+
+# Bytes used by all restore points (files shared between them counted once).
+used_bytes() {
+	if [[ -d "${SNAPSHOTS}" ]]; then
+		du -sx -B1 "${SNAPSHOTS}" 2>/dev/null | cut -f1
+	else
+		echo 0
+	fi
+}
+
+# Keep only the newest update-time restore points (quick).
+prune_updates() {
+	local name kind
+	local -a updates=() undos=()
+	while read -r name kind; do
+		[[ "${kind}" == update ]] && updates+=("${name}")
+		[[ "${kind}" == undo ]] && undos+=("${name}")
+	done < <(list_snapshots)
+	local extra=$(( ${#updates[@]} - KEEP_UPDATE_POINTS ))
+	local i
+	for (( i = 0; i < extra; i++ )); do
+		delete_snapshot "${updates[i]}"
+	done
+	# One "before undoing" point is enough to redo an update.
+	extra=$(( ${#undos[@]} - 1 ))
+	for (( i = 0; i < extra; i++ )); do
+		delete_snapshot "${undos[i]}"
+	done
+}
+
+# Over the cap (measuring takes a while, so it runs in the background service).
+enforce_cap() {
+	local name kind
+	# Over the cap: the oldest automatic ones go, never the newest one, and
+	# never one made by hand.
+	local size total
+	total="$(df --output=size -B1 / | tail -n 1)"
+	while true; do
+		size="$(used_bytes)"
+		(( size * 100 > total * MAX_PERCENT )) || break
+		local -a auto=()
+		while read -r name kind; do
+			[[ "${kind}" != own ]] && auto+=("${name}")
+		done < <(list_snapshots)
+		(( ${#auto[@]} > 1 )) || break
+		delete_snapshot "${auto[0]}"
+	done
+}
+
+# Writes the usage file Kulan Settings reads (it can't read /timeshift itself).
+record_usage() {
+	local count=0 own=0 last_update="" name kind size total
+	while read -r name kind; do
+		count=$((count + 1))
+		[[ "${kind}" == own ]] && own=$((own + 1))
+		[[ "${kind}" == update ]] && last_update="${name}"
+	done < <(list_snapshots)
+	size="$(used_bytes)"
+	total="$(df --output=size -B1 / | tail -n 1)"
+	mkdir -p "$(dirname "${USAGE_FILE}")"
+	local tmp="${USAGE_FILE}.tmp"
+	# Snapshot names are dates (YYYY-MM-DD_HH-MM-SS): safe in JSON as they are.
+	printf '{"count": %d, "own": %d, "bytes": %d, "disk_bytes": %d, "updated": %d, "last_update": "%s"}\n' \
+		"${count}" "${own}" "${size:-0}" "${total:-0}" "$(date +%s)" "${last_update}" > "${tmp}"
+	chmod 0644 "${tmp}"
+	mv -f "${tmp}" "${USAGE_FILE}"
+}
+
 case "${1:-}" in
 	setup)
 		setup
@@ -83,8 +208,59 @@ case "${1:-}" in
 	scheduled)
 		is_live_or_build && exit 0
 		setup
-		have_space || exit 0
-		timeshift --check --scripted
+		if have_space; then
+			timeshift --check --scripted
+		fi
+		prune_updates
+		enforce_cap
+		record_usage
+		;;
+	tidy)
+		is_live_or_build && exit 0
+		prune_updates
+		enforce_cap
+		record_usage
+		;;
+	usage)
+		is_live_or_build && exit 0
+		record_usage
+		;;
+	undo-update)
+		[[ $# -eq 1 ]] || { echo 'usage: restore-points undo-update' >&2; exit 2; }
+		is_live_or_build && { log "not available in the live session"; exit 1; }
+		TARGET=""
+		while read -r name kind; do
+			[[ "${kind}" == update ]] && TARGET="${name}"
+		done < <(list_snapshots)
+		[[ -n "${TARGET}" ]] || { log "there is no restore point from before an update"; exit 1; }
+		[[ "${TARGET}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] || { log "unexpected restore point name"; exit 1; }
+		# How things are now, so the undo can itself be undone (best effort:
+		# skipped when the disk is low on space).
+		echo "pmstatus:undo:10:Saving how things are now"
+		if have_space; then
+			timeshift --create --scripted --comments "${UNDO_NOTE}" --tags O >&2 || log "couldn't save the current state; undoing anyway"
+		fi
+		echo "pmstatus:undo:40:Putting the system back to before the update"
+		# Only the system is restored (Timeshift leaves home folders alone);
+		# the boot loader stays as it is.
+		timeshift --restore --snapshot "${TARGET}" --scripted --yes --skip-grub >&2
+		# The same updates would install themselves again tonight: pause
+		# automatic updates for 3 days (update-status lifts the pause after
+		# that; turning automatic updates on in Kulan Settings lifts it now).
+		printf '// Set by Kulan OS after undoing an update. Until: %s\nAPT::Periodic::Unattended-Upgrade "0";\n' \
+			"$(( $(date +%s) + 3 * 86400 ))" > "${PAUSE_FILE}"
+		chmod 0644 "${PAUSE_FILE}"
+		echo "pmstatus:undo:100:Restarting"
+		sync
+		systemctl reboot
+		;;
+	delete-all)
+		[[ $# -eq 1 ]] || { echo 'usage: restore-points delete-all' >&2; exit 2; }
+		is_live_or_build && exit 0
+		if [[ -n "$(list_snapshots)" ]]; then
+			timeshift --delete-all --scripted >&2
+		fi
+		record_usage
 		;;
 	create)
 		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
@@ -92,6 +268,9 @@ case "${1:-}" in
 		setup
 		have_space || exit 1
 		timeshift --create --scripted --comments "$2" --tags O
+		prune_updates
+		# Measuring can take a minute: done afterwards, at idle priority.
+		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || { enforce_cap; record_usage; }
 		;;
 	status)
 		if [[ -f "${CONFIG}" ]] && command -v timeshift >/dev/null 2>&1; then
@@ -101,7 +280,7 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		echo 'usage: restore-points setup|scheduled|create "<note>"|status' >&2
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update' >&2
 		exit 2
 		;;
 esac

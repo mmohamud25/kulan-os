@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import sys
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .about import AboutPage
 from .addons import AddonsPage
 from .appearance import AppearancePage
 from .assistant import AssistantPage
+from .battery import BatteryPage
+from .bluetooth import BluetoothPage
 from .common import Helper, open_gnome_panel
 from .desktop import DesktopPage
 from .display import DisplayPage
@@ -20,45 +22,64 @@ from .loginitems import LoginItemsPage
 from .prayer import PrayerPage
 from .privacy import PrivacyPage
 from .security import SecurityPage
+from .sound import SoundPage
 from .storage import StoragePage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
+from .wifi import WifiPage
 
 APP_ID = "org.kulan.Settings"
 
 # Sidebar order: (id, page class). The id is what `kulan-settings <id>` opens.
+# Related pages sit together, as in a Mac's System Settings; GROUP_STARTS
+# marks the first page of each group, which gets a little space above it.
 PAGES = [
+    # Connections
+    ("wifi", WifiPage),
+    ("bluetooth", BluetoothPage),
+    # Sound and attention
+    ("sound", SoundPage),
+    ("focus", FocusPage),
+    ("parental-controls", FamilyPage),
+    # How it looks
     ("appearance", AppearancePage),
+    ("desktop", DesktopPage),
     ("dock", DockPage),
     ("top-bar", TopBarPage),
-    ("desktop", DesktopPage),
     ("display", DisplayPage),
-    ("keyboard", KeyboardPage),
-    ("focus", FocusPage),
-    ("assistant", AssistantPage),
-    ("prayer-times", PrayerPage),
-    ("login-items", LoginItemsPage),
+    # Power and space
+    ("battery", BatteryPage),
     ("storage", StoragePage),
+    ("login-items", LoginItemsPage),
+    # Protection
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
-    ("parental-controls", FamilyPage),
+    # Input and helpers
+    ("keyboard", KeyboardPage),
+    ("assistant", AssistantPage),
+    ("prayer-times", PrayerPage),
+    # This computer
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),
 ]
+GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "updates"}
 
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
-    ("Wi-Fi", "network-wireless-symbolic", ("wifi",)),
     ("Network", "network-wired-symbolic", ("network",)),
-    ("Bluetooth", "bluetooth-active-symbolic", ("bluetooth",)),
-    ("Sound", "audio-speakers-symbolic", ("sound",)),
-    ("Displays", "video-display-symbolic", ("display",)),
-    ("Power", "battery-full-symbolic", ("power",)),
     ("Mouse and touchpad", "input-mouse-symbolic", ("mouse",)),
     ("Printers", "printer-symbolic", ("printers",)),
+    ("Notifications", "org.gnome.Settings-notifications-symbolic|preferences-system-notifications-symbolic",
+     ("notifications",)),
+    ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
+    ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
+    ("Accessibility", "org.gnome.Settings-accessibility-symbolic|preferences-desktop-accessibility-symbolic",
+     ("universal-access",)),
     ("Apps", "view-app-grid-symbolic", ("applications",)),
     ("Users", "system-users-symbolic", ("system", "users")),
+    ("Language and region", "org.gnome.Settings-region-symbolic|preferences-desktop-locale-symbolic",
+     ("system", "region")),
     ("Date and time", "preferences-system-time-symbolic", ("system", "datetime")),
 ]
 
@@ -98,16 +119,20 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         self.search = Gtk.SearchEntry(placeholder_text="Search settings", margin_start=12, margin_end=12,
                                       margin_bottom=6)
-        self.search.connect("search-changed", lambda _s: self.sidebar_list.invalidate_filter())
+        self.search.connect("search-changed", lambda _s: (self.sidebar_list.invalidate_filter(),
+                                                          self.sidebar_list.invalidate_headers()))
         self.sidebar_list.set_filter_func(self.filter_row)
+        self.sidebar_list.set_header_func(self.group_gap)
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar_box.append(self.search)
         sidebar_box.append(Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER,
                                               child=self.sidebar_list))
         sidebar_view = Adw.ToolbarView()
+        # "Settings" here: next to the window buttons the full name gets cut
+        # off ("Kulan Setti…"); the window itself is still "Kulan Settings".
         sidebar_view.add_top_bar(Adw.HeaderBar())
         sidebar_view.set_content(sidebar_box)
-        sidebar = Adw.NavigationPage(title="Kulan Settings", child=sidebar_view)
+        sidebar = Adw.NavigationPage(title="Settings", child=sidebar_view)
 
         # Content
         self.content_title = Adw.WindowTitle()
@@ -134,9 +159,21 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.add_action(search_action)
 
     @staticmethod
+    def pick_icon(names: str) -> str:
+        """The first of "a|b|c" the icon theme has (GNOME renames panel icons)."""
+        candidates = names.split("|")
+        display = Gdk.Display.get_default()
+        if display is not None:
+            theme = Gtk.IconTheme.get_for_display(display)
+            for name in candidates:
+                if theme.has_icon(name):
+                    return name
+        return candidates[-1] if display is None else "preferences-system-symbolic"
+
+    @staticmethod
     def sidebar_row(title: str, icon: str, external: bool = False) -> Gtk.ListBoxRow:
         box = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=6, margin_end=6)
-        box.append(Gtk.Image(icon_name=icon))
+        box.append(Gtk.Image(icon_name=SettingsWindow.pick_icon(icon)))
         box.append(Gtk.Label(label=title, xalign=0, hexpand=True))
         if external:
             box.append(Gtk.Image(icon_name="adw-external-link-symbolic", css_classes=["dim-label"]))
@@ -144,6 +181,16 @@ class SettingsWindow(Adw.ApplicationWindow):
         row.update_property([Gtk.AccessibleProperty.LABEL],
                             [f"{title} (opens GNOME Settings)" if external else title])
         return row
+
+    def group_gap(self, row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None) -> None:
+        """A little space above the first page of each group (none while searching)."""
+        gap = (before is not None and getattr(row, "page_id", None) in GROUP_STARTS
+               and not self.search.get_text().strip())
+        if not gap:
+            if row.get_header() is not None:
+                row.set_header(None)
+        elif row.get_header() is None:
+            row.set_header(Gtk.Box(height_request=12, can_target=False))
 
     def filter_row(self, row: Gtk.ListBoxRow) -> bool:
         text = self.search.get_text().strip().lower()
@@ -196,7 +243,7 @@ class KulanSettings(Adw.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self.add_main_option("check", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
-                             "Check for updates (opens Updates and recovery)", None)
+                             "Check for updates (opens Software Update)", None)
         self.add_main_option("self-test", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              "Open every page, then quit (for automated tests)", None)
         self.set_accels_for_action("win.search", ["<Control>f"])

@@ -22,6 +22,7 @@ for SLIDE in "${ASSETS}"/slide*.png; do
 	install -m 0644 "${SLIDE}" "${KULAN_BRANDING}/$(basename "${SLIDE}")"
 done
 install -m 0644 "${ASSETS}/show.qml" "${KULAN_BRANDING}/show.qml"
+install -m 0644 "${ASSETS}/stylesheet.qss" "${KULAN_BRANDING}/stylesheet.qss"
 rm -f "${KULAN_BRANDING}/debian-logo.png"
 
 # Rewrite the strings. bootloaderEntryName stays "Debian" on purpose: Debian's
@@ -42,6 +43,8 @@ sed -i -E \
 	-e "s|^([[:space:]]+productIcon:[[:space:]]+).*|\1\"kulan-logo.png\"|" \
 	-e "s|^([[:space:]]+SidebarBackground:[[:space:]]+).*|\1\"#0A2240\"|" \
 	-e "s|^([[:space:]]+SidebarBackgroundCurrent:[[:space:]]+).*|\1\"#0D9488\"|" \
+	-e "s|^([[:space:]]+SidebarText:[[:space:]]+).*|\1\"#DCE7F0\"|" \
+	-e "s|^([[:space:]]+SidebarTextCurrent:[[:space:]]+).*|\1\"#FFFFFF\"|" \
 	"${DESC}"
 
 grep -q "^componentName:   kulan" "${DESC}" || { echo "E: failed to rebrand ${DESC}" >&2; exit 1; }
@@ -79,6 +82,24 @@ if [ -f "${USERS}" ]; then
 	fi
 fi
 
+# Disk encryption: a mistyped password at start-up asks again, as often as
+# needed (tries=0), instead of giving up after three and leaving a text
+# console. Calamares copies these options into /etc/crypttab.
+FSTAB="${CAL}/modules/fstab.conf"
+if [ -f "${FSTAB}" ]; then
+	if grep -qE '^crypttabOptions:' "${FSTAB}"; then
+		if grep -qE '^crypttabOptions:.*tries=' "${FSTAB}"; then
+			sed -i -E '/^crypttabOptions:/ s|tries=[0-9]+|tries=0|' "${FSTAB}"
+		else
+			sed -i -E 's|^(crypttabOptions:[[:space:]]*)([^#[:space:]]+)|\1\2,tries=0|' "${FSTAB}"
+		fi
+	else
+		printf '\ncrypttabOptions: luks,tries=0\n' >> "${FSTAB}"
+	fi
+	grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${FSTAB}" ||
+		{ echo "E: failed to set the disk password retries" >&2; exit 1; }
+fi
+
 # The live session's account (made by adduser) and any made later with
 # adduser or useradd on the installed system use zsh too.
 if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
@@ -98,6 +119,15 @@ fi
 if [ -f /usr/bin/add-calamares-desktop-icon ]; then
 	sed -i "s|Install Debian|Install ${KULAN_NAME}|g; s|Icon=install-debian|Icon=kulan-logo|g" \
 		/usr/bin/add-calamares-desktop-icon
+fi
+
+# No installer icon on the live desktop: Debian's script copies the launcher
+# there and marks it trusted, but GNOME's desktop icons still showed it as
+# "calamares-install-debian.desktop" with a "not allowed to launch" badge.
+# "Install Kulan OS" is the first icon in the dock and in the Welcome app.
+ICON_AUTOSTART=/etc/xdg/autostart/calamares-desktop-icon.desktop
+if [ -f "${ICON_AUTOSTART}" ]; then
+	grep -qx 'Hidden=true' "${ICON_AUTOSTART}" || printf 'Hidden=true\n' >> "${ICON_AUTOSTART}"
 fi
 
 echo "I: Kulan OS installer branding installed"

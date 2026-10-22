@@ -29,7 +29,14 @@ import {ClipboardHistory} from './clipboard.js';
 import {Dictation} from './dictation.js';
 import {LiveText} from './livetext.js';
 import {PrayerTimes} from './prayer.js';
+import {Spotlight} from './spotlight.js';
+import {QuickNote} from './quicknote.js';
+import {DesktopWidgets} from './widgets.js';
+import {VmDisplayKeeper} from './vmdisplay.js';
+import {ReopenApps} from './reopen.js';
+import {LightEffects, ANIMATION_FACTOR} from './lighteffects.js';
 
+const APP_GRID_ICON_SIZE = 72;
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
 const RELOAD_DELAY_MS = 400;
@@ -48,6 +55,7 @@ const SHORTCUTS = {
     'live-text-shortcut': ext => ext._liveText?.start(),
     'writing-tools-shortcut': ext => ext._assistant?.writingTools(),
     'dictation-shortcut': ext => ext._dictation?.toggle(),
+    'quick-note-shortcut': ext => ext._quickNote?.toggle(),
     'clipboard-history-shortcut': ext => {
         if (ext._clipboard)
             ext._clipboard.show();
@@ -94,37 +102,98 @@ function migrateAppFolders() {
     }
 }
 
-// Kulan window buttons (round, macOS-style) for GTK 4 and GTK 3 apps. GTK has
-// no system-wide stylesheet, so each user's gtk.css imports Kulan's. Added
-// once: a user who removes the line keeps it removed.
-const GTK_STYLES = [
-    ['gtk-4.0', '/usr/share/kulan/gtk/gtk-4.0.css'],
-    ['gtk-3.0', '/usr/share/kulan/gtk/gtk-3.0.css'],
-];
+// GNOME keeps every app where it was last placed, so apps that are removed or
+// hidden leave holes, and a grid can end up with a half-empty first page and
+// apps spread over three pages. Once (Kulan OS 2.3), a grid with such gaps is
+// sorted A to Z again, which fills every page; a tidy grid is left alone.
+// Kulan Settings > Desktop and windows has "Tidy" to do it any time.
+function isGappy(layout) {
+    if (!Array.isArray(layout) || layout.length < 2)
+        return false;
+    const counts = layout.map(page => Object.keys(page ?? {}).length);
+    const fullest = Math.max(...counts);
+    return counts.slice(0, -1).some(n => n < fullest / 2);
+}
 
-function installGtkStyle() {
-    const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'gtk-style-v1']);
+function tidyAppGrid() {
+    const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'app-grid-tidy-v1']);
     if (GLib.file_test(marker, GLib.FileTest.EXISTS))
         return;
     try {
-        for (const [dir, css] of GTK_STYLES) {
-            if (!GLib.file_test(css, GLib.FileTest.EXISTS))
-                continue;
-            const folder = GLib.build_filenamev([GLib.get_user_config_dir(), dir]);
-            const path = GLib.build_filenamev([folder, 'gtk.css']);
-            const line = `@import url("file://${css}");`;
-            let current = '';
-            if (GLib.file_test(path, GLib.FileTest.EXISTS)) {
-                const [, bytes] = GLib.file_get_contents(path);
-                current = new TextDecoder().decode(bytes);
-            }
-            if (current.includes(line))
-                continue;
-            GLib.mkdir_with_parents(folder, 0o755);
-            GLib.file_set_contents(path, `/* Kulan OS window buttons. Delete this line to use GTK's own. */\n${line}\n${current}`);
-        }
+        const settings = new Gio.Settings({schema_id: 'org.gnome.shell'});
+        if (isGappy(settings.get_value('app-picker-layout').recursiveUnpack()))
+            settings.reset('app-picker-layout');
         GLib.mkdir_with_parents(GLib.path_get_dirname(marker), 0o700);
         GLib.file_set_contents(marker, '');
+    } catch (e) {
+        logError(e, 'Kulan Shell: could not tidy the app grid');
+    }
+}
+
+// Kulan window buttons (round, macOS-style) for GTK 4 and GTK 3 apps. GTK has
+// no system-wide stylesheet, so each user's gtk.css imports Kulan's. Added
+// once: a user who removes the line keeps it removed.
+// Kulan's window buttons for GTK apps. Each user's gtk.css imports a copy
+// kept next to it (kulan-window-buttons.css), not the file in /usr/share:
+// apps from the Kulan Store (Flatpak) can read ~/.config/gtk-*.0 (Kulan
+// allows that for every Flatpak) but not /usr/share. The copy is refreshed at
+// every sign-in, so updates to the style reach everyone.
+const GTK_DIRS = ['gtk-4.0', 'gtk-3.0'];
+const GTK_STYLE_FILES = {
+    symbols: {'gtk-4.0': '/usr/share/kulan/gtk/gtk-4.0.css', 'gtk-3.0': '/usr/share/kulan/gtk/gtk-3.0.css'},
+    dots: {'gtk-4.0': '/usr/share/kulan/gtk/dots/gtk-4.0.css', 'gtk-3.0': '/usr/share/kulan/gtk/dots/gtk-3.0.css'},
+};
+const GTK_COPY = 'kulan-window-buttons.css';
+const GTK_IMPORT = `@import url("${GTK_COPY}");`;
+const GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK's own. */";
+
+function readText(path) {
+    try {
+        const [, bytes] = GLib.file_get_contents(path);
+        return new TextDecoder().decode(bytes);
+    } catch (e) {
+        return null;
+    }
+}
+
+function installGtkStyle() {
+    const dataDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan']);
+    const firstTime = !GLib.file_test(GLib.build_filenamev([dataDir, 'gtk-style-v1']), GLib.FileTest.EXISTS) &&
+        !GLib.file_test(GLib.build_filenamev([dataDir, 'gtk-style-v2']), GLib.FileTest.EXISTS);
+    try {
+        for (const dir of GTK_DIRS) {
+            const folder = GLib.build_filenamev([GLib.get_user_config_dir(), dir]);
+            const path = GLib.build_filenamev([folder, 'gtk.css']);
+            const copy = GLib.build_filenamev([folder, GTK_COPY]);
+            const current = readText(path) ?? '';
+            // Which style this person uses: an old import of /usr/share, the
+            // name in the copy's first line, or Kulan's default the first time.
+            let style = null;
+            for (const [name, files] of Object.entries(GTK_STYLE_FILES)) {
+                if (current.includes(`@import url("file://${files[dir]}");`))
+                    style = name;
+            }
+            if (!style && current.includes(GTK_IMPORT))
+                style = (readText(copy) ?? '').match(/^\/\* kulan-style: (\w+) \*\//)?.[1] ?? 'symbols';
+            if (!style && firstTime)
+                style = 'symbols';
+            if (!style || !GTK_STYLE_FILES[style])
+                continue; // switched to GTK's own buttons
+            const source = readText(GTK_STYLE_FILES[style][dir]);
+            if (source === null)
+                continue;
+            GLib.mkdir_with_parents(folder, 0o755);
+            const fresh = `/* kulan-style: ${style} */\n${source}`;
+            if (readText(copy) !== fresh)
+                GLib.file_set_contents(copy, fresh);
+            const kept = current.split('\n').filter(l => !l.trim().startsWith('@import url("file:///usr/share/kulan/gtk/') &&
+                l.trim() !== GTK_IMPORT && l.trim() !== GTK_COMMENT);
+            const text = [GTK_COMMENT, GTK_IMPORT, ...kept].join('\n').replace(/\n+$/, '') + '\n';
+            if (text !== current)
+                GLib.file_set_contents(path, text);
+        }
+        GLib.mkdir_with_parents(dataDir, 0o700);
+        GLib.file_set_contents(GLib.build_filenamev([dataDir, 'gtk-style-v2']), '');
     } catch (e) {
         logError(e, 'Kulan Shell: could not set up the window buttons');
     }
@@ -185,8 +254,8 @@ class KulanMenu extends PanelMenu.Button {
         this.menu.addAction('About Kulan OS', () => openKulanSettings('about'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Kulan Settings…', () => openKulanSettings(null));
-        this.menu.addAction('Software Updates…', () => openKulanSettings('updates'));
-        this.menu.addAction('Software…', () => launchApp('org.gnome.Software.desktop'));
+        this.menu.addAction('Software Update…', () => openKulanSettings('updates'));
+        this.menu.addAction('Kulan Store…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
         this.menu.addAction('Log Out…', () => actions.activateLogout());
@@ -238,7 +307,8 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._title);
         this.menu.addMenuItem(this._detail);
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this.menu.addAction('Open Software Updates', () => this._openUpdateCenter());
+        this._restartItem = this.menu.addAction('Restart…', () => this._restart());
+        this.menu.addAction('Open Software Update', () => this._openUpdateCenter());
 
         this.visible = false;
         this.allowed = true;
@@ -248,19 +318,31 @@ class KulanUpdateIndicator extends PanelMenu.Button {
         openKulanSettings('updates');
     }
 
+    _restart() {
+        // GNOME's own restart dialog, which lets apps save their work first.
+        SystemActions.getDefault().activateRestart();
+    }
+
     update(status) {
         const available = Array.isArray(status?.available) ? status.available.length : 0;
         const security = Number.isInteger(status?.security) ? status.security : 0;
         const since = Number(status?.running_since) || 0;
         const running = status?.state === 'running' && Date.now() / 1000 - since < STALE_RUNNING_S;
 
-        this.visible = this.allowed && (running || available > 0);
+        const restart = Array.isArray(status?.restart_required) && status.restart_required.length > 0;
+
+        this.visible = this.allowed && (running || available > 0 || restart);
         this._count.text = available > 0 && !running ? String(available) : '';
+        this._restartItem.visible = restart && !running;
 
         if (running) {
             this._icon.icon_name = 'view-refresh-symbolic';
             this._title.label.text = 'Installing updates…';
             this._detail.label.text = 'You can keep working while this runs.';
+        } else if (restart && available === 0) {
+            this._icon.icon_name = 'system-reboot-symbolic';
+            this._title.label.text = 'Restart to finish updating';
+            this._detail.label.text = 'Some updates take effect after a restart.';
         } else {
             this._icon.icon_name = security > 0
                 ? 'software-update-urgent-symbolic'
@@ -268,7 +350,7 @@ class KulanUpdateIndicator extends PanelMenu.Button {
             this._title.label.text = `${plural(available, 'update')} available`;
             this._detail.label.text = security > 0
                 ? `${plural(security, 'security fix')} included`
-                : 'Open Software Updates to install them now.';
+                : 'Open Software Update to install them now.';
         }
     }
 });
@@ -277,6 +359,7 @@ export default class KulanShellExtension extends Extension {
     enable() {
         if (!Main.sessionMode.isLocked) {
             migrateAppFolders();
+            tidyAppGrid();
             installGtkStyle();
         }
 
@@ -306,11 +389,14 @@ export default class KulanShellExtension extends Extension {
             return GLib.SOURCE_CONTINUE;
         });
         this._sessionId = Main.sessionMode.connect('updated', () => {
+            this._widgets?.sync(); // no widgets on the lock screen
             this._syncSession();
             this._syncStyle(); // the time may have passed sunset while locked
             if (Main.sessionMode.isLocked) {
                 this._clipboard?.clear(); // nothing copied survives a lock
                 this._dictation?.destroy(); // and nothing is recorded while locked
+                this._spotlight?.close();
+                this._quickNote?.close();
             }
         });
 
@@ -341,6 +427,19 @@ export default class KulanShellExtension extends Extension {
         this._liveText = new LiveText(this._assistant);
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
+        this._spotlight = new Spotlight();
+        // A calmer app grid: 72-pixel icons instead of GNOME's 96.
+        this._appGridLayout = Main.overview._overview?.controls?._appDisplay?._grid?.layoutManager ?? null;
+        if (this._appGridLayout && this._appGridLayout.fixedIconSize === -1)
+            this._appGridLayout.fixedIconSize = APP_GRID_ICON_SIZE;
+        else
+            this._appGridLayout = null;
+        this._vmDisplay = new VmDisplayKeeper();
+        this._lightEffects = new LightEffects();
+        this._reopenApps = Main.sessionMode.isLocked ? null : new ReopenApps(this._settings);
+        this._quickNote = new QuickNote();
+        this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
+            ? new DesktopWidgets(this._settings, () => this._quickNote?.open()) : null;
         this._clipboardId = this._settings?.connect('changed::clipboard-history', () => this._syncClipboard()) ?? 0;
         this._syncClipboard();
         this._addShortcuts();
@@ -364,7 +463,10 @@ export default class KulanShellExtension extends Extension {
 
     _applySettings() {
         const speed = this._settings?.get_string('animation-speed') ?? 'normal';
-        St.Settings.get().slow_down_factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
+        const factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
+        // No graphics acceleration: every frame is drawn by the processor, so
+        // fewer of them (shorter animations) feel smoother.
+        St.Settings.get().slow_down_factor = this._lightEffects?.software ? factor * ANIMATION_FACTOR : factor;
         if (this._indicator) {
             this._indicator.allowed = this._settings?.get_boolean('update-indicator') ?? true;
             this._indicator.update(readStatus());
@@ -390,6 +492,18 @@ export default class KulanShellExtension extends Extension {
                     action(this);
                 });
             this._shortcuts.push(key);
+        }
+        // Cmd+Space: Spotlight search, or Activities if chosen in Kulan
+        // Settings > Keyboard.
+        if (this._settings.settings_schema.has_key('search-shortcut')) {
+            Main.wm.addKeybinding('search-shortcut', this._settings, Meta.KeyBindingFlags.NONE,
+                Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW, () => {
+                    if (this._settings?.get_string('search-style') === 'activities')
+                        Main.overview.toggle();
+                    else
+                        this._spotlight?.toggle();
+                });
+            this._shortcuts.push('search-shortcut');
         }
     }
 
@@ -484,6 +598,21 @@ export default class KulanShellExtension extends Extension {
         this._dictation = null;
         this._prayer?.destroy();
         this._prayer = null;
+        this._spotlight?.destroy();
+        if (this._appGridLayout)
+            this._appGridLayout.fixedIconSize = -1;
+        this._appGridLayout = null;
+        this._vmDisplay?.destroy();
+        this._lightEffects?.destroy();
+        this._lightEffects = null;
+        this._reopenApps?.destroy();
+        this._reopenApps = null;
+        this._vmDisplay = null;
+        this._spotlight = null;
+        this._widgets?.destroy();
+        this._widgets = null;
+        this._quickNote?.destroy();
+        this._quickNote = null;
         this._assistant?.destroy();
         this._assistant = null;
         this._notifications = null;

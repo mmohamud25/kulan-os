@@ -1,0 +1,12 @@
+#!/bin/sh
+# Kulan OS: in ARM virtual machines, make Restart use kexec (see
+# /usr/lib/kulan/fast-restart). The drop-in only changes how the final step
+# restarts: with a kernel loaded it jumps into it; without one, systemd
+# restarts normally.
+/usr/lib/kulan/fast-restart check || exit 0
+DIR="${1:-/run/systemd/generator}/systemd-reboot.service.d"
+mkdir -p "${DIR}"
+cat > "${DIR}/50-kulan-fast-restart.conf" <<'CONF'
+[Unit]
+SuccessAction=kexec-force
+CONF

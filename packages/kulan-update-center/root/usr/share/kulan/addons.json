@@ -23,6 +23,17 @@
     ]
   },
   {
+    "id": "chromium",
+    "title": "Chromium",
+    "icon": "web-browser-symbolic",
+    "description": "A second web browser for sites that work best in Chrome-type browsers: the open-source browser Chrome is built from, from Debian, without Google's tracking. Kulan's privacy settings apply to it",
+    "size": "about 300 MB",
+    "packages": [
+      "chromium"
+    ],
+    "note": "Open Chromium from the app grid. Firefox stays your default browser; to change it, go to Settings > Apps > Default Apps. Netflix and other protected videos don't play in Chromium."
+  },
+  {
     "id": "devkit",
     "title": "Developer Kit",
     "description": "Git, Python with pip and virtual environments, build tools, Docker and Docker Compose, curl",

@@ -1,0 +1,20 @@
+[Unit]
+Description=Kulan OS: say which app was closed when memory ran out
+Documentation=https://github.com/mmohamud25/kulan-os
+After=systemd-oomd.service systemd-journald.service
+ConditionPathExists=/usr/lib/systemd/systemd-oomd
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/kulan/oom-notice watch
+Restart=on-failure
+RestartSec=10
+Nice=10
+ProtectSystem=full
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=multi-user.target

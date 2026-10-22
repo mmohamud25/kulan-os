@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Kulan OS app (Flatpak) updates
+ConditionKernelCommandLine=!boot=live
+
+[Timer]
+OnBootSec=30min
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

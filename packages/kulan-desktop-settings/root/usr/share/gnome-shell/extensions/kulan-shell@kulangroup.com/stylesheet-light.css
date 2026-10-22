@@ -282,3 +282,100 @@
 /* Prayer times: next prayer in the top bar, highlighted in its menu */
 .kulan-prayer-label { font-feature-settings: "tnum"; }
 .kulan-prayer-next { font-weight: bold; color: #2bb3a3; }
+
+/* Spotlight search (Cmd+Space) */
+.kulan-spotlight-backdrop { background-color: rgba(0, 0, 0, 0.08); }
+.kulan-spotlight {
+  background-color: rgba(250, 251, 252, 0.97);
+  border: 1px solid rgba(0, 0, 0, 0.10);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  padding: 8px;
+  spacing: 6px;
+}
+.kulan-spotlight-entry {
+  font-size: 1.45em;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background-color: transparent;
+  color: #1c2430;
+  caret-color: #0d9488;
+  selection-background-color: rgba(13, 148, 136, 0.3);
+  box-shadow: none;
+}
+.kulan-spotlight-entry:focus { box-shadow: none; border: none; }
+.kulan-spotlight-entry-icon { icon-size: 22px; padding-right: 6px; color: rgba(0, 0, 0, 0.5); }
+.kulan-spotlight-scroll { max-height: 440px; }
+.kulan-spotlight-results { spacing: 2px; padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.08); }
+.kulan-spotlight-header {
+  font-size: 0.8em;
+  font-weight: bold;
+  color: rgba(0, 0, 0, 0.5);
+  padding: 8px 12px 2px;
+}
+.kulan-spotlight-row { padding: 6px 10px; border-radius: 10px; color: #1c2430; }
+.kulan-spotlight-row:hover { background-color: rgba(0, 0, 0, 0.05); }
+.kulan-spotlight-row:selected { background-color: #0d9488; color: #ffffff; }
+.kulan-spotlight-row:selected .kulan-spotlight-description { color: rgba(255, 255, 255, 0.85); }
+.kulan-spotlight-row-box { spacing: 12px; }
+.kulan-spotlight-name { font-weight: 600; }
+.kulan-spotlight-description { font-size: 0.85em; color: rgba(0, 0, 0, 0.55); }
+
+/* Desktop widgets (top left of the desktop) */
+.kulan-widgets { spacing: 14px; }
+.kulan-widget {
+  width: 188px;
+  padding: 14px 16px;
+  border-radius: 22px;
+  background-color: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  color: #1c2430;
+  text-align: left;
+}
+.kulan-widget:hover { background-color: rgba(255, 255, 255, 0.95); }
+.kulan-widget-box { spacing: 4px; }
+.kulan-widget-head { spacing: 6px; }
+.kulan-widget-icon { icon-size: 14px; color: #0d9488; }
+.kulan-widget-title { font-size: 0.8em; font-weight: bold; color: #0d9488; }
+.kulan-widget-body { spacing: 3px; }
+.kulan-widget-big { font-size: 2.6em; font-weight: 300; }
+.kulan-widget-big-text { font-size: 1.6em; font-weight: 600; }
+.kulan-widget-detail { font-size: 0.85em; }
+.kulan-widget-muted { font-size: 0.82em; color: rgba(0, 0, 0, 0.55); }
+.kulan-widget-line { font-size: 0.88em; font-weight: 600; }
+.kulan-widget-event { padding-top: 4px; border-top: 1px solid rgba(0, 0, 0, 0.08); }
+.kulan-widget-weather { spacing: 8px; }
+.kulan-widget-weather-icon { icon-size: 34px; }
+.kulan-widget-note { font-size: 0.88em; }
+.kulan-widget-list { padding-top: 6px; spacing: 1px; }
+.kulan-widget-list-row { spacing: 8px; }
+.kulan-widget-next .kulan-widget-muted { color: #0d9488; font-weight: bold; }
+
+/* Quick Note (Cmd+Shift+N) */
+.kulan-quicknote {
+  background-color: rgba(255, 251, 235, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  padding: 12px;
+  spacing: 8px;
+}
+.kulan-quicknote-head { spacing: 8px; padding: 2px 4px; }
+.kulan-quicknote-title { font-weight: bold; color: #1c2430; }
+.kulan-quicknote-done { padding: 4px 14px; border-radius: 10px; background-color: #0d9488; color: #ffffff; font-weight: 600; }
+.kulan-quicknote-done:hover { background-color: #0f766e; }
+.kulan-quicknote-scroll { border-radius: 10px; }
+.kulan-quicknote-field { background-color: rgba(255, 255, 255, 0.7); border-radius: 10px; }
+.kulan-quicknote-entry {
+  font-size: 1.05em;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background-color: transparent;
+  color: #1c2430;
+  caret-color: #0d9488;
+  box-shadow: none;
+}
+.kulan-quicknote-entry:focus { box-shadow: none; border: none; }

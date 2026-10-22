@@ -2,7 +2,7 @@
 Name=Kulan
 Comment=Kulan OS folders, with GNOME's Adwaita icons for everything else
 Inherits=Adwaita,hicolor
-Directories=scalable/places,scalable/mimetypes
+Directories=scalable/places,scalable/mimetypes,scalable/emblems
 
 [scalable/places]
 Context=Places
@@ -14,6 +14,13 @@ Type=Scalable
 [scalable/mimetypes]
 Context=MimeTypes
 Size=128
+MinSize=8
+MaxSize=512
+Type=Scalable
+
+[scalable/emblems]
+Context=Emblems
+Size=16
 MinSize=8
 MaxSize=512
 Type=Scalable

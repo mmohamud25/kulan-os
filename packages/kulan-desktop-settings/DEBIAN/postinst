@@ -57,6 +57,22 @@ case "$1" in
 		if command -v update-initramfs >/dev/null 2>&1; then
 			dpkg-trigger --no-await update-initramfs || true
 		fi
+		# Apps from the Kulan Store (Flatpak) may read the GTK settings folders,
+		# so they get Kulan's window buttons too, and Qt ones open through
+		# XWayland when they're allowed to (else Wayland, as before). Once;
+		# removing it with "flatpak override --system --reset" is respected.
+		if [ ! -e /var/lib/kulan/flatpak-style-v2 ]; then
+			if command -v flatpak >/dev/null 2>&1; then
+				flatpak override --system --filesystem=xdg-config/gtk-3.0:ro --filesystem=xdg-config/gtk-4.0:ro \
+					--env='QT_QPA_PLATFORM=xcb;wayland' >/dev/null 2>&1 || true
+			elif [ ! -e /var/lib/flatpak/overrides/global ]; then
+				# Flatpak not set up yet (the ISO build): the same file it writes.
+				mkdir -p /var/lib/flatpak/overrides
+				printf '[Context]\nfilesystems=xdg-config/gtk-3.0:ro;xdg-config/gtk-4.0:ro;\n\n[Environment]\nQT_QPA_PLATFORM=xcb;wayland\n' \
+					> /var/lib/flatpak/overrides/global
+			fi
+			mkdir -p /var/lib/kulan && touch /var/lib/kulan/flatpak-style-v2
+		fi
 		# Refresh the boot menu on installed systems (not during the ISO build).
 		if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1; then
 			update-grub || echo "W: update-grub failed; boot menu settings apply after the next kernel update" >&2

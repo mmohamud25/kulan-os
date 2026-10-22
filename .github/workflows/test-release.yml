@@ -1,0 +1,60 @@
+name: Test release
+
+# Pushing a branch named test-release/<build run ID> puts that build's tested
+# packages on a GitHub pre-release (v<version>-test<N>), with a script that
+# updates an installed Kulan OS to them and then deletes the downloads. The
+# update channel is not touched: normal users stay on the released version.
+on:
+  push:
+    branches: ["test-release/**"]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  release:
+    name: Pre-release for testing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Which build
+        id: run
+        run: |
+          RUN="${GITHUB_REF_NAME#test-release/}"
+          SHA="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN}" --jq .head_sha)"
+          echo "run=${RUN}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-debs
+          path: debs/
+          run-id: ${{ steps.run.outputs.run }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kulan-files-*
+          path: debs/
+          merge-multiple: true
+          run-id: ${{ steps.run.outputs.run }}
+          github-token: ${{ github.token }}
+      - name: Make the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(cat debs/VERSION)"
+          SHORT="$(echo "${VERSION}" | cut -d. -f1-2)"
+          N=1
+          while gh release view "v${SHORT}-test${N}" >/dev/null 2>&1; do N=$((N + 1)); done
+          TAG="v${SHORT}-test${N}"
+          rm -f debs/VERSION
+          (cd debs && sha256sum *.deb > SHA256SUMS)
+          sed -e "s|@TAG@|${TAG}|g" -e "s|@REPO@|${GITHUB_REPOSITORY}|g" ci/test-update.sh > debs/kulan-test-update.sh
+          gh release create "${TAG}" --prerelease --target "${{ steps.run.outputs.sha }}" \
+            --title "Kulan OS ${SHORT} test ${N} (not a release)" \
+            --notes "Packages from build ${{ steps.run.outputs.run }} for testing on an installed Kulan OS. Not on the update channel. In Terminal: curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/kulan-test-update.sh | sh" \
+            debs/*
+          echo "::notice title=Test release::${TAG}"

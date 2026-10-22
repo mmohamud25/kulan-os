@@ -82,7 +82,39 @@ if [ -f /usr/share/applications/org.gnome.Ptyxis.desktop ]; then
 else
 	rm -f "${HIDDEN_CONSOLE}"
 fi
-FAVORITES="'firefox-esr.desktop', 'org.gnome.Nautilus.desktop', '${TERMINAL}', 'org.gnome.TextEditor.desktop', 'org.gnome.Software.desktop', 'org.gnome.Settings.desktop'"
+# GNOME Software is the Kulan Store: same app, Kulan's name and icon (its
+# updates live in Kulan Settings > Software Update). Made from the real
+# launcher each time, so changes in GNOME Software's own launcher carry over.
+STORE_SRC=/usr/share/applications/org.gnome.Software.desktop
+STORE=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop
+if [ -f "${STORE_SRC}" ]; then
+	mkdir -p "$(dirname "${STORE}")"
+	sed -E \
+		-e '/^(Name|GenericName|X-GNOME-FullName|Comment|Icon)(\[[^]]*\])?=/d' \
+		-e '0,/^\[Desktop Entry\]$/s//[Desktop Entry]\
+# Kulan OS: GNOME Software, as the Kulan Store.\
+Name=Kulan Store\
+GenericName=App Store\
+Comment=Find and install apps, checked for Kulan OS\
+Icon=kulan-store/' \
+		"${STORE_SRC}" > "${STORE}.tmp"
+	chmod 0644 "${STORE}.tmp"
+	mv -f "${STORE}.tmp" "${STORE}"
+else
+	rm -f "${STORE}"
+fi
+
+# KeePassXC's own launcher copy from 2.3 test builds: Qt apps now open
+# through XWayland for everyone (environment.d), so it isn't needed.
+rm -f /usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop
+
+# The dock's settings icon opens Kulan Settings (which links to GNOME
+# Settings for Wi-Fi, printers and the rest); GNOME's own if it's missing.
+SETTINGS=org.gnome.Settings.desktop
+if [ -f /usr/share/applications/org.kulan.Settings.desktop ]; then
+	SETTINGS=org.kulan.Settings.desktop
+fi
+FAVORITES="'firefox-esr.desktop', 'org.gnome.Nautilus.desktop', '${TERMINAL}', 'org.gnome.TextEditor.desktop', 'org.gnome.Software.desktop', '${SETTINGS}'"
 if [ -f "/usr/share/applications/${INSTALLER_DESKTOP}" ]; then
 	FAVORITES="'${INSTALLER_DESKTOP}', ${FAVORITES}"
 fi

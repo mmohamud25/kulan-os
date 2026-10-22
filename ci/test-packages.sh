@@ -65,6 +65,9 @@ APPS=(dist/debs/kulan-apps_*.deb)
 }
 # Kulan Assistant's engine (ci/build-engine.sh), when CI built it for PCs.
 ENGINE=(dist/engine/kulan-assistant-engine_*_amd64.deb)
+# Kulan Files (ci/build-nautilus.sh), when CI built it for PCs.
+FILES=(dist/files/*.deb)
+[[ -e "${FILES[0]:-}" ]] || FILES=()
 VERSION="$(cat dist/debs/VERSION)"
 
 # --- Start from the released version, as existing users do -----------------------
@@ -99,7 +102,7 @@ apt-get update -q >/dev/null 2>&1
 # and Debian's vendor logos can be checked; xvfb, xauth and dbus-x11 so Kulan
 # Settings can open every page on a virtual screen; appstream for the store
 # pages.
-if apt-get install -y -q "${DEBS[@]/#/./}" "${ENGINE[@]/#/./}" htop gnome-tour gdm3 desktop-base xvfb xauth dbus-x11 appstream \
+if apt-get install -y -q "${DEBS[@]/#/./}" "${ENGINE[@]/#/./}" "${FILES[@]/#/./}" htop gnome-tour gdm3 desktop-base xvfb xauth dbus-x11 appstream \
 	>/tmp/install.log 2>&1; then
 	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-settings, kulan-welcome, kulan-update-center, kulan-assistant ${VERSION}${ENGINE:+ and the assistant engine} with Debian dependencies"
 else
@@ -127,6 +130,7 @@ check "Symlink" "/etc/os-release points at the Kulan file" test "$(readlink /etc
 
 # --- Desktop (real Debian extensions and GNOME 48 schemas) ---------------------------
 check "Extensions (strict)" "dock and blur found under their real Debian IDs" env KULAN_STRICT=1 /usr/lib/kulan/desktop-setup
+check "Dock settings icon" "the dock opens Kulan Settings; GNOME Settings is in the System folder" bash -c "grep -q \"org.kulan.Settings.desktop'\]\" /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && grep -q \"excluded-apps=\['org.kulan.Settings.desktop'\" /etc/dconf/db/local.d/10-kulan-app-folders"
 check "Extensions enabled" "dash-to-dock and blur-my-shell in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q dash-to-dock && gs org.gnome.shell enabled-extensions | grep -q blur-my-shell"
 check "Dock defaults applied" "dash-to-dock reads Kulan's settings (bottom, translucent)" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-position)\" = \"'BOTTOM'\" && test \"\$(gs org.gnome.shell.extensions.dash-to-dock transparency-mode)\" = \"'FIXED'\""
 check "Kulan Shell enabled" "kulan-shell@kulangroup.com in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q kulan-shell@kulangroup.com"
@@ -148,7 +152,7 @@ PY
 check "Cursor" "Bibata-Modern-Classic set and installed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface cursor-theme)\" = \"'Bibata-Modern-Classic'\" && test -d /usr/share/icons/Bibata-Modern-Classic"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "App folders" "only Utilities and System are folders for new users" bash -c 'test "$(HOME=$(mktemp -d) XDG_CONFIG_HOME="" dconf read /org/gnome/desktop/app-folders/folder-children)" = "['"'"'Kulan-Utilities'"'"', '"'"'Kulan-System'"'"']"'
-check "Calmer dock" "40 px icons, quick animations" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dash-max-icon-size)\" = 40 && test \"\$(gs org.gnome.shell.extensions.dash-to-dock animation-time)\" = 0.125"
+check "Calmer dock" "34 px icons, quick animations" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dash-max-icon-size)\" = 34 && test \"\$(gs org.gnome.shell.extensions.dash-to-dock animation-time)\" = 0.125"
 check "Wallpaper" "Kulan light and dark wallpapers set and present" bash -c "$(declare -f gs); for k in picture-uri picture-uri-dark; do f=\$(gs org.gnome.desktop.background \$k | sed \"s|^'file://||; s|'\$||\"); test -s \"\$f\" && case \"\$f\" in /usr/share/backgrounds/kulan/*) ;; *) echo \"\$k=\$f\"; exit 1;; esac; done"
 check "Wallpaper choices" "Kulan teal and classic waves, light and dark, in GNOME's list" bash -c 'for f in kulan-light kulan-dark kulan-waves-light kulan-waves-dark; do test -s /usr/share/backgrounds/kulan/$f.png || { echo "missing $f"; exit 1; }; grep -q "/usr/share/backgrounds/kulan/$f.png" /usr/share/gnome-background-properties/kulan.xml || { echo "$f not listed"; exit 1; }; done'
 check "Accent color" "GNOME 48 accent = teal" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface accent-color)\" = \"'teal'\""
@@ -195,7 +199,8 @@ check "Boot splash" "Plymouth theme kulan built and selected" bash -c 'test -f /
 check "Boot speed" "network-wait startup step switched off once" test -e /var/lib/kulan/network-wait-disabled
 check "Firewall" "ufw enabled on first install" grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf
 check "Auto updates" "Debian security + Kulan origins allowed" bash -c 'apt-config dump | grep -q "origin=Kulan OS" && apt-config dump | grep -q "label=Debian-Security"'
-check "Firefox privacy" "policies.json valid; Firefox uses the system window buttons and the system (encrypted) DNS" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["Preferences"]["widget.gtk.non-native-titlebar-buttons.enabled"]["Value"] is False; assert p["DNSOverHTTPS"] == {"Enabled": False, "Locked": True}'
+check "Firefox privacy" "policies.json valid; Firefox uses the system (encrypted) DNS" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["DNSOverHTTPS"] == {"Enabled": False, "Locked": True}'
+check "Firefox window buttons" "Kulan's round buttons loaded by Firefox's administrator configuration" bash -c 'grep -q "general.config.filename\", \"kulan.cfg\"" /usr/lib/firefox-esr/defaults/pref/kulan-autoconfig.js && grep -q "file:///usr/share/kulan/firefox/titlebar.css" /usr/lib/firefox-esr/kulan.cfg && grep -q "titlebar-close" /usr/share/kulan/firefox/titlebar.css && test "$(stat -c %U /usr/lib/firefox-esr/kulan.cfg)" = root'
 if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
 fi
@@ -208,21 +213,109 @@ check "Update status refresh" "refresh runs and stays idle" bash -c '/usr/lib/ku
 check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/kulan/update-run auto-off && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"0\"" && /usr/lib/kulan/update-run auto-on && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"1\""'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
+check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
+check "App updates in the status" "Flatpak updates appear with Debian's" python3 -I - <<'PY'
+import importlib.machinery, importlib.util, os, tempfile
+loader = importlib.machinery.SourceFileLoader("us", "/usr/lib/kulan/update-status")
+spec = importlib.util.spec_from_loader("us", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+    fh.write("app/org.example.App/x86_64/stable\tExample\t2.0\nnot a ref\n")
+m.APP_UPDATES = fh.name
+got = m.app_updates()
+os.unlink(fh.name)
+assert got == [{"name": "Example", "from": "", "to": "2.0", "security": False, "kind": "app",
+                "ref": "app/org.example.App/x86_64/stable"}], got
+PY
+check "Status refresh after start-up" "a timer a minute after start-up, not in the way of the login screen" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-update-status.timer && ! test -e /etc/systemd/system/multi-user.target.wants/kulan-update-status.service'
+check "Restart in ARM VMs" "fast restart only in ARM QEMU VMs; kexec hardening kept elsewhere" bash -c '
+	systemctl is-enabled kulan-kexec-guard.service || { echo "guard service not enabled"; exit 1; }
+	systemctl is-enabled kulan-fast-restart.service || { echo "fast-restart service not enabled"; exit 1; }
+	test -x /usr/lib/systemd/system-generators/kulan-fast-restart || { echo "generator missing"; exit 1; }
+	if grep -q "^kernel.kexec_load_disabled" /etc/sysctl.d/60-kulan-hardening.conf; then echo "sysctl file still sets kexec_load_disabled"; exit 1; fi
+	[ "$(uname -m)" = aarch64 ] && exit 0
+	if /usr/lib/kulan/fast-restart check; then echo "fast restart claims this $(uname -m) machine"; exit 1; fi
+	D=$(mktemp -d)
+	/usr/lib/systemd/system-generators/kulan-fast-restart "$D" || { echo "generator failed"; exit 1; }
+	if test -e "$D/systemd-reboot.service.d/50-kulan-fast-restart.conf"; then echo "generator set up kexec on $(uname -m)"; exit 1; fi
+	echo ok'
+check "Memory guard" "systemd-oomd and Kulan's notice enabled; user apps closed under memory pressure" bash -c 'systemctl is-enabled systemd-oomd.service && systemctl is-enabled kulan-oom-notice.service && grep -qx "ManagedOOMMemoryPressure=kill" /usr/lib/systemd/system/user@.service.d/50-kulan-oomd.conf'
+check "Memory notice" "names the app that was closed" python3 -I - <<'PY'
+import importlib.machinery, importlib.util
+loader = importlib.machinery.SourceFileLoader("oom", "/usr/lib/kulan/oom-notice")
+spec = importlib.util.spec_from_loader("oom", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+sent = []
+m.notify_user = lambda uid, title, body: sent.append((uid, title))
+m.pwd.getpwuid = lambda uid: type("P", (), {"pw_dir": "/nonexistent", "pw_name": "x"})()
+base = "/user.slice/user-1000.slice/user@1000.service/app.slice/"
+m.handle("Killed " + base + "app-gnome-org.gnome.Nautilus-17.scope due to memory pressure for x", {})
+m.handle("Killed /system.slice/foo.service due to memory pressure", {})
+assert sent and sent[0][0] == 1000 and ("Files" in sent[0][1] or "Nautilus" in sent[0][1]), sent
+assert len(sent) == 1, sent
+print(sent[0][1])
+PY
+check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Undo last update" "restores the newest pre-update point after saving the current one, pauses automatic updates, restarts" bash -c '
+	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps/2026-01-01_00-00-00" "$D/snaps/2026-01-03_00-00-00" "$D/snaps/2026-01-02_00-00-00"
+	printf "#!/bin/sh\necho \"\$0 \$*\" >> \"\$D/calls\"\n" | sed "s|\\\$D|$D|" > "$D/bin/timeshift"; cp "$D/bin/timeshift" "$D/bin/systemctl"; chmod +x "$D/bin/"*
+	for n in 2026-01-01_00-00-00 2026-01-03_00-00-00; do printf "{\"tags\":\"O\",\"comments\":\"Before installing updates\"}" > "$D/snaps/$n/info.json"; done
+	printf "{\"tags\":\"D\",\"comments\":\"\"}" > "$D/snaps/2026-01-02_00-00-00/info.json"
+	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" -e "s/^MIN_FREE_PERCENT=.*/MIN_FREE_PERCENT=0/" -e "s/^MIN_FREE_GIB=.*/MIN_FREE_GIB=0/" /usr/lib/kulan/restore-points > "$D/rp"; echo "{}" > "$D/ts.json"
+	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" bash "$D/rp" undo-update >/dev/null
+	grep -q -- "--create --scripted --comments Before undoing an update" "$D/calls"
+	grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "$D/calls"
+	grep -q "systemctl reboot" "$D/calls"
+	grep -q "Unattended-Upgrade \"0\"" "$D/pause" && grep -qE "Until: [0-9]+" "$D/pause"'
+check "Kulan Store" "GNOME Software shown as Kulan Store with its icon; Kulan picks in the catalogue" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Kulan Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml'
+check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
+check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I - <<'PY'
+import os, sys, tempfile
+home = tempfile.mkdtemp()
+os.environ["XDG_DATA_HOME"] = os.path.join(home, "data")
+sys.path.insert(0, "/usr/share/kulan/python")
+import kulan_tags as k
+a, b = os.path.join(home, "a.txt"), os.path.join(home, "b.txt")
+for p in (a, b):
+    open(p, "w").write("x")
+k.remember(a, ["red"]); k.remember(b, ["red", "blue"])
+red = k.TAG_FOLDERS / "Red"
+assert sorted(n for n in os.listdir(red) if not n.startswith(".")) == ["a.txt", "b.txt"] and os.readlink(red / "a.txt") == a
+k.remember(b, [])
+assert not (k.TAG_FOLDERS / "Blue").exists() and [n for n in os.listdir(red) if not n.startswith(".")] == ["a.txt"]
+PY
+if [[ ${#FILES[@]} -gt 0 ]]; then
+	NAUT="$(dpkg-query -W -f '${Version}' nautilus 2>/dev/null)"
+	check "Kulan Files" "Nautilus ${NAUT} with the status bar, preview pane and sidebar sections" bash -c "[[ '${NAUT}' == *+kulan* ]] && grep -aq kulan-status-bar /usr/bin/nautilus && grep -aq 'NautilusKulanPreview' /usr/bin/nautilus && grep -aq kulan-sidebar-heading /usr/bin/nautilus && grep -aq win.toggle-preview /usr/bin/nautilus"
+else
+	result skip "Kulan Files" "no Kulan Files package for PCs in this run"
+fi
+check "Calm file indexing" "file search indexing runs only when the computer is idle" grep -qx "CPUWeight=idle" /usr/lib/systemd/user/localsearch-3.service.d/50-kulan-idle.conf
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Restore point limits" "newest 2 update-time points kept, own ones never deleted, size recorded" bash -c '
+	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps"
+	printf "#!/bin/sh\ncase \"\$1\" in --delete) rm -rf \"\$KULAN_RESTORE_SNAPSHOTS/\$3\";; esac\n" > "$D/bin/timeshift"; chmod +x "$D/bin/timeshift"
+	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" /usr/lib/kulan/restore-points > "$D/rp"; echo "{}" > "$D/ts.json"
+	mk() { mkdir -p "$D/snaps/$1"; printf "{\"tags\":\"%s\",\"comments\":\"%s\"}" "$2" "$3" > "$D/snaps/$1/info.json"; }
+	mk 2026-01-01_00-00-00 O "Before installing updates"; mk 2026-01-02_00-00-00 O "Created in Update Center"
+	mk 2026-01-03_00-00-00 O "Before installing updates"; mk 2026-01-04_00-00-00 "D" ""; mk 2026-01-05_00-00-00 O "Before installing updates"
+	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/usage.json" bash "$D/rp" tidy
+	test "$(ls "$D/snaps" | tr "\n" " ")" = "2026-01-02_00-00-00 2026-01-03_00-00-00 2026-01-04_00-00-00 2026-01-05_00-00-00 " || { ls "$D/snaps"; exit 1; }
+	python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d[\"count\"]==4 and d[\"own\"]==1 and d[\"bytes\"]>0, d" "$D/usage.json"'
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "17/17 pages built" && ! echo "$out" | grep -q Traceback'
+check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "(2[1-9]|[3-9][0-9])/\1 pages built" && ! echo "$out" | grep -q Traceback'
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
 check "Sound theme" "Kulan chimes installed and chosen" bash -c "$(declare -f gs); test -f /usr/share/sounds/kulan/index.theme && test -s /usr/share/sounds/kulan/stereo/message-new-instant.oga && test \"\$(gs org.gnome.desktop.sound theme-name)\" = \"'kulan'\""
-check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Kulan'\" && test -f /usr/share/icons/Kulan/index.theme"
+check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.kulan.desktop search-shortcut | grep -q \"'<Super>space'\" && test \"\$(gs org.kulan.desktop search-style)\" = \"'spotlight'\" && ! gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Kulan'\" && test -f /usr/share/icons/Kulan/index.theme"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Helper refuses bad input" "computer name, DNS and add-on values are checked before anything runs as root" bash -c 'for args in "set-hostname Bad_Name" "set-hostname -x" "set-hostname a.b"; do out="$(/usr/lib/kulan/update-run $args 2>&1)"; echo "$out" | grep -q "letters, numbers and dashes" || { echo "not refused by the check: $args"; exit 1; }; done; for args in "dns bogus" "dns" "addon-install ../x" "addon-remove nope" "nonsense"; do if /usr/lib/kulan/update-run $args >/dev/null 2>&1; then echo "accepted: $args"; exit 1; fi; done'
 check "Dock default" "always visible" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-fixed)\" = true"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Pointer in VMs" "GNOME draws the pointer itself in a virtual machine (generator installed and runs)" bash -c 'g=/usr/lib/systemd/user-environment-generators/60-kulan-vm-cursor; test -x "$g" && out="$("$g")" && { [ -z "$out" ] || [ "$out" = MUTTER_DEBUG_DISABLE_HW_CURSORS=1 ]; }'
-check "Files defaults" "large icons, folders first, readable dates, Delete permanently, Bin in the dock" bash -c "$(declare -f gs); test \"\$(gs org.gnome.nautilus.preferences default-folder-viewer)\" = \"'icon-view'\" && test \"\$(gs org.gnome.nautilus.icon-view default-zoom-level)\" = \"'large'\" && test \"\$(gs org.gnome.nautilus.preferences date-time-format)\" = \"'simple'\" && test \"\$(gs org.gnome.nautilus.preferences show-delete-permanently)\" = true && test \"\$(gs org.gtk.gtk4.Settings.FileChooser sort-directories-first)\" = true && test \"\$(gs org.gnome.shell.extensions.dash-to-dock show-trash)\" = true"
+check "Files defaults" "64 px icons, folders first, readable dates, Delete permanently, Bin in the dock" bash -c "$(declare -f gs); test \"\$(gs org.gnome.nautilus.preferences default-folder-viewer)\" = \"'icon-view'\" && test \"\$(gs org.gnome.nautilus.icon-view default-zoom-level)\" = \"'small-plus'\" && test \"\$(gs org.gnome.nautilus.preferences date-time-format)\" = \"'simple'\" && test \"\$(gs org.gnome.nautilus.preferences show-delete-permanently)\" = true && test \"\$(gs org.gtk.gtk4.Settings.FileChooser sort-directories-first)\" = true && test \"\$(gs org.gnome.shell.extensions.dash-to-dock show-trash)\" = true"
 check "Folder Colour" "the Files extension parses and every colour has its icon" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-folder-colour.py && for c in red orange yellow green teal blue purple grey; do test -s /usr/share/icons/Kulan/scalable/places/folder-kulan-\$c.svg || exit 1; done"
 check "Templates" "New Document templates are valid OpenDocument files" python3 - <<'PY'
 import zipfile
@@ -256,6 +349,7 @@ out = subprocess.run(["gsettings", "get", "org.gnome.desktop.interface", "gtk-th
                      env={"GSETTINGS_BACKEND": "memory", "PATH": "/usr/bin:/bin"}).stdout.strip()
 assert out == "'Kulan-teal'", out
 assert "QT_QPA_PLATFORMTHEME=gtk3" in open("/usr/lib/environment.d/60-kulan-os.conf").read()
+assert "QT_QPA_PLATFORM=xcb;wayland" in open("/usr/lib/environment.d/60-kulan-os.conf").read()
 PY
 check "Terminal colours" "Kulan palette for Ptyxis (light and dark, 16 colours each) chosen by default" python3 - <<'PY'
 import configparser, re, subprocess
@@ -291,7 +385,7 @@ import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
 ids = [a["id"] for a in addons]
 assert len(ids) == len(set(ids)), ids
-assert {"apps", "devkit", "assistant", "learning-pack", "steam"} <= set(ids), ids
+assert {"apps", "chromium", "devkit", "assistant", "learning-pack", "steam"} <= set(ids), ids
 assert next(a for a in addons if a["id"] == "steam").get("arch") == ["amd64"]
 for a in addons:
     assert a.get("title") and a.get("description") and (a.get("packages") or a.get("flatpak")), a
@@ -325,7 +419,12 @@ for f in sources:
 have = {q.stem for d in ("/usr/share/icons/Kulan", "/usr/share/icons/Adwaita", "/usr/share/icons/hicolor")
         for q in pathlib.Path(d).rglob("*") if q.suffix in (".svg", ".png")}
 missing = sorted(n for n in names if "{" not in n and n not in have and not n.startswith("adw-"))
-print(f"{len(names)} icon names checked")
+# "a|b|c": icons Kulan Settings tries in turn; at least one must exist.
+choices = set()
+for f in sources:
+    choices |= set(re.findall(r"['\"]([A-Za-z0-9.-]+-symbolic(?:\|[A-Za-z0-9.-]+-symbolic)+)['\"]", f.read_text()))
+missing += sorted(c for c in choices if not any(n in have for n in c.split("|")))
+print(f"{len(names)} icon names and {len(choices)} icon choices checked")
 raise SystemExit(f"missing: {missing}" if missing else 0)
 PY
 check "Assistant compiles" "every Kulan Assistant Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-assistant /usr/lib/kulan-assistant/kulan-assistant-engine /usr/lib/kulan-assistant/model-download /usr/share/kulan-assistant/kulan_assistant/*.py /usr/share/nautilus-python/extensions/kulan-assistant-summarise.py"

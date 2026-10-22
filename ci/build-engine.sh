@@ -71,7 +71,11 @@ if [[ ${#WCPU[@]} -gt 0 ]]; then
 fi
 
 ARCH="$(dpkg --print-architecture)"
-VERSION="0.0.${LLAMA_TAG#b}+whisper${WHISPER_TAG#v}-${REVISION}"
+# The Kulan version is part of it: the engine is rebuilt whenever kulan.conf
+# changes (its build cache key), and the rebuilt files differ from the ones
+# already on the update channel. With the same version number apt can't tell
+# them apart and refuses to build the ISO ("Packages were downgraded").
+VERSION="0.0.${LLAMA_TAG#b}+whisper${WHISPER_TAG#v}-${REVISION}+kulan${KULAN_VERSION}"
 PKG="${STAGE}/pkg"
 DEST="${PKG}/usr/lib/kulan-assistant/engine"
 install -d "${DEST}" "${PKG}/DEBIAN" "${PKG}/usr/share/doc/kulan-assistant-engine"

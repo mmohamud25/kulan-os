@@ -1,0 +1,10 @@
+[Unit]
+Description=Kulan OS restore points: keep within limits and measure their size
+Documentation=man:timeshift(1)
+ConditionKernelCommandLine=!boot=live
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/restore-points tidy
+Nice=19
+IOSchedulingClass=idle

@@ -1,5 +1,7 @@
-"""Updates and recovery (formerly Update Center): status, install with
-progress, what's new, history, automatic updates and restore points.
+"""Software Update (formerly Update Center): every update in one place, for
+Debian, Kulan and apps (Flatpak), with progress, a restart prompt when one is
+needed, what's new, history, automatic updates and restore points. GNOME
+Software's own Updates page is turned off, so updates live only here.
 
 Reads /var/lib/kulan/updates.json (kept current by apt's own hooks through
 /usr/lib/kulan/update-status) and /var/log/apt/history.log. Changes run
@@ -12,7 +14,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import Page, launch, os_release, plural, read_json
 
@@ -20,8 +22,29 @@ STATUS_FILE = Path("/var/lib/kulan/updates.json")
 HISTORY_LOG = Path("/var/log/apt/history.log")
 RELEASE_NOTES = Path("/usr/share/kulan/release-notes.json")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
+RESTORE_USAGE = Path("/var/lib/kulan/restore-points.json")  # written by /usr/lib/kulan/restore-points
 PREFS_FILE = Path(GLib.get_user_config_dir()) / "kulan" / "updates.ini"
 STALE_RUNNING_S = 3 * 3600
+# What a restart finishes, in plain words (package name prefix -> words).
+RESTART_WORDS = [
+    (("linux-image", "linux-signed"), "the Linux kernel"),
+    (("libc6",), "core system libraries"),
+    (("systemd", "libsystemd0", "dbus"), "system services"),
+    (("gnome-shell", "mutter", "libmutter", "gdm3"), "the desktop"),
+    (("nvidia", "libnvidia"), "graphics drivers"),
+    (("firmware-", "intel-microcode", "amd64-microcode"), "firmware"),
+]
+
+
+def restart_words(packages: list[str]) -> str:
+    words: list[str] = []
+    for name in packages:
+        for prefixes, text in RESTART_WORDS:
+            if name.startswith(prefixes) and text not in words:
+                words.append(text)
+    if not words:
+        return ""
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
 
 
 def when_text(stamp: float) -> str:
@@ -100,10 +123,10 @@ class Prefs:
 
 
 class UpdatesPage(Page):
-    title = "Updates and recovery"
+    title = "Software Update"
     icon = "software-update-available-symbolic"
-    keywords = ("update", "upgrade", "security", "restore", "restore point", "timeshift", "what's new",
-                "automatic updates", "update center")
+    keywords = ("update", "updates", "upgrade", "security", "restore", "restore point", "timeshift", "what's new",
+                "automatic updates", "update center", "restart", "apps", "flatpak", "recovery")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -156,9 +179,13 @@ class UpdatesPage(Page):
         buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, margin_top=6)
         self.install_button = Gtk.Button(css_classes=["suggested-action", "pill"], visible=False)
         self.install_button.connect("clicked", lambda _b: self.install())
+        self.restart_button = Gtk.Button(label="Restart Now", css_classes=["suggested-action", "pill"],
+                                         visible=False)
+        self.restart_button.connect("clicked", lambda _b: self.restart())
         self.check_button = Gtk.Button(label="Check for updates", css_classes=["pill"])
         self.check_button.connect("clicked", lambda _b: self.check())
         buttons.append(self.install_button)
+        buttons.append(self.restart_button)
         buttons.append(self.check_button)
         for widget in (self.status_icon, self.status_title, self.status_detail, self.progress, buttons):
             box.append(widget)
@@ -172,6 +199,7 @@ class UpdatesPage(Page):
         self.render_status()
         self.render_available()
         self.render_history()
+        self.render_undo()
         return False
 
     def running(self) -> bool:
@@ -189,6 +217,9 @@ class UpdatesPage(Page):
         security = sum(1 for u in available if u.get("security"))
         name = self.release.get("NAME", "Kulan OS")
         checked = when_text(self.status.get("checked") or 0)
+        restart = self.restart_needed()
+        # One main button at a time: installing comes first, restarting after.
+        self.restart_button.set_visible(bool(restart) and not self.running() and not available)
         if self.running():
             self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
@@ -202,11 +233,34 @@ class UpdatesPage(Page):
             self.status_detail.set_label(f"Last checked {checked}{extra}")
             self.install_button.set_label(f"Install {plural(len(available), 'update')}")
             self.install_button.set_visible(True)
+        elif restart:
+            self.status_icon.set_from_icon_name("system-reboot-symbolic")
+            self.status_title.set_label("Restart to finish updating")
+            words = restart_words(restart)
+            self.status_detail.set_label(f"Updates to {words} take effect after a restart." if words
+                                         else "Some updates take effect after a restart.")
+            self.install_button.set_visible(False)
         else:
             self.status_icon.set_from_icon_name("kulan-logo")
             self.status_title.set_label(f"{name} is up to date")
             self.status_detail.set_label(f"Last checked {checked}")
             self.install_button.set_visible(False)
+
+    def restart_needed(self) -> list[str]:
+        items = self.status.get("restart_required")
+        if not isinstance(items, list) or not Path("/run/kulan/restart-required").exists():
+            return []  # the file lives in /run, so a restart clears it
+        return [str(i) for i in items if isinstance(i, str)]
+
+    def restart(self) -> None:
+        # GNOME's own restart dialog, so open apps can save their work first.
+        try:
+            Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None, "org.gnome.SessionManager",
+                "/org/gnome/SessionManager", "org.gnome.SessionManager", None).call_sync(
+                "Reboot", None, Gio.DBusCallFlags.NONE, -1, None)
+        except GLib.Error as exc:
+            self.toast(f"Couldn’t restart: {exc.message}")
 
     def render_available(self) -> None:
         for row in self.available_rows:
@@ -215,10 +269,18 @@ class UpdatesPage(Page):
         available = self.available()
         self.available_group.set_visible(bool(available) and not self.running())
         for update in available[:60]:
+            kind = update.get("kind")
+            if kind in ("app", "runtime"):
+                version = str(update.get("to") or "")
+                what = "App" if kind == "app" else "App component"
+                subtitle = f"{what} · {version}" if version else what
+                icon = "application-x-executable-symbolic" if kind == "app" else "package-x-generic-symbolic"
+            else:
+                subtitle = f"{update.get('from') or 'new'} → {update.get('to', '?')}"
+                icon = "package-x-generic-symbolic"
             row = Adw.ActionRow(title=GLib.markup_escape_text(str(update.get("name", "?"))),
-                                subtitle=GLib.markup_escape_text(
-                                    f"{update.get('from') or 'new'} → {update.get('to', '?')}"))
-            row.add_prefix(Gtk.Image(icon_name="package-x-generic-symbolic"))
+                                subtitle=GLib.markup_escape_text(subtitle))
+            row.add_prefix(Gtk.Image(icon_name=icon))
             if update.get("security"):
                 row.add_suffix(Gtk.Label(label="Security", css_classes=["warning", "caption-heading"]))
             self.available_group.add(row)
@@ -266,7 +328,7 @@ class UpdatesPage(Page):
         group = Adw.PreferencesGroup(title="Settings")
         self.auto_row = Adw.SwitchRow(
             title="Install updates automatically",
-            subtitle="Debian and Kulan updates, including security fixes, install daily in the background",
+            subtitle="Debian, Kulan and app updates, including security fixes, install daily in the background",
             active=auto_updates_on())
         self.auto_handler = self.auto_row.connect("notify::active", self.on_auto_toggled)
         group.add(self.auto_row)
@@ -294,7 +356,61 @@ class UpdatesPage(Page):
             manage.connect("clicked", lambda _b: launch("timeshift-gtk.desktop", self.toast))
             restore_row.add_suffix(manage)
         group.add(restore_row)
+
+        # Undo: back to the restore point taken before the last update.
+        self.undo_row = Adw.ActionRow(title="Undo the last update")
+        self.undo_button = Gtk.Button(label="Undo…", valign=Gtk.Align.CENTER)
+        self.undo_button.update_property([Gtk.AccessibleProperty.LABEL], ["Undo the last update"])
+        self.undo_button.connect("clicked", lambda _b: self.confirm_undo())
+        self.undo_row.add_suffix(self.undo_button)
+        group.add(self.undo_row)
+        self.pause_row = Adw.ActionRow(title="Automatic updates are paused",
+                                       css_classes=["warning"])
+        resume = Gtk.Button(label="Resume Now", valign=Gtk.Align.CENTER)
+        resume.connect("clicked", lambda _b: self.window.helper.run(
+            ["auto-on"], "Automatic updates on", on_done=lambda _ok: self.reload()))
+        self.pause_row.add_suffix(resume)
+        group.add(self.pause_row)
         return group
+
+    def last_update_point(self) -> datetime | None:
+        try:
+            name = str(read_json(RESTORE_USAGE, {}).get("last_update") or "")
+            return datetime.strptime(name, "%Y-%m-%d_%H-%M-%S") if name else None
+        except (ValueError, AttributeError):
+            return None
+
+    def render_undo(self) -> None:
+        when = self.last_update_point()
+        self.undo_row.set_visible(when is not None and self.restore_on)
+        if when is not None:
+            self.undo_row.set_subtitle(
+                f"Puts the system back to how it was before the update of {when.strftime('%-d %b, %H:%M')}. "
+                "Your own files aren’t touched. Kulan OS restarts to finish.")
+        until = self.status.get("paused_until") or 0
+        paused = isinstance(until, (int, float)) and until > time.time()
+        self.pause_row.set_visible(paused)
+        if paused:
+            self.pause_row.set_subtitle(
+                f"After undoing an update, until {datetime.fromtimestamp(until).strftime('%-d %b, %H:%M')}, "
+                "so the same updates don’t install again straight away")
+
+    def confirm_undo(self) -> None:
+        when = self.last_update_point()
+        if when is None:
+            return
+        dialog = Adw.AlertDialog(
+            heading="Undo the last update?",
+            body=f"Kulan OS goes back to how it was before the update of {when.strftime('%-d %B at %H:%M')} and "
+                 "restarts. Save your work first. Your documents, photos and other files aren’t touched, and "
+                 "a restore point of how things are now is made first, so this can be undone too.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("undo", "Undo and Restart")
+        dialog.set_response_appearance("undo", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.connect("response", lambda _d, r: r == "undo" and self.run(
+            ["undo-update"], "Undoing the last update…", None))
+        dialog.present(self.window)
 
     def on_auto_toggled(self, row: Adw.SwitchRow, _pspec) -> None:
         wanted = row.get_active()

@@ -1,0 +1,34 @@
+/* Kulan OS window buttons for Firefox: round, red/yellow/green, with their
+   symbols; grey when the window isn't active. Applies to Firefox's own
+   window (browser chrome) only. */
+@namespace url("http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul");
+
+.titlebar-buttonbox .titlebar-button {
+  padding: 0 4px !important;
+  background: none !important;
+}
+.titlebar-buttonbox .titlebar-button > .toolbarbutton-icon {
+  width: 22px !important;
+  height: 22px !important;
+  padding: 3px !important;
+  border-radius: 50% !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12) !important;
+  -moz-context-properties: fill, fill-opacity !important;
+  fill: rgba(0, 0, 0, 0.72) !important;
+  fill-opacity: 1 !important;
+}
+.titlebar-buttonbox .titlebar-close > .toolbarbutton-icon { background-color: #ff5f57 !important; }
+.titlebar-buttonbox .titlebar-min > .toolbarbutton-icon { background-color: #febc2e !important; }
+.titlebar-buttonbox .titlebar-max > .toolbarbutton-icon,
+.titlebar-buttonbox .titlebar-restore > .toolbarbutton-icon { background-color: #28c840 !important; }
+
+.titlebar-buttonbox .titlebar-close:hover > .toolbarbutton-icon { background-color: #ff7a73 !important; }
+.titlebar-buttonbox .titlebar-min:hover > .toolbarbutton-icon { background-color: #ffc94f !important; }
+.titlebar-buttonbox .titlebar-max:hover > .toolbarbutton-icon,
+.titlebar-buttonbox .titlebar-restore:hover > .toolbarbutton-icon { background-color: #46d65a !important; }
+
+:root:-moz-window-inactive .titlebar-buttonbox .titlebar-button > .toolbarbutton-icon {
+  background-color: rgba(128, 128, 128, 0.25) !important;
+  fill: rgba(128, 128, 128, 0.9) !important;
+  box-shadow: none !important;
+}

@@ -36,7 +36,33 @@ sleep 5 # let the session settle
 	echo "time=$(systemd-analyze 2>/dev/null | head -n 1)"
 	systemctl --failed --no-legend --plain 2>/dev/null | awk '{print "failed=" $1}'
 	systemd-analyze blame --no-pager 2>/dev/null | head -n 8 | sed 's/^ */blame=/'
+	# What the login screen waited on (the slowest chain to it).
+	systemd-analyze critical-chain --no-pager display-manager.service 2>/dev/null | grep -v '^The time' | grep -v '^$' | head -n 10 | sed 's/^[^a-zA-Z0-9]*/chain=/'
 	echo "memory=$(free -m | awk '/^Mem:/ {print $3 " MB used of " $2 " MB"}')"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
+	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
+	# Kernel loading switched off (1) on PCs; left on (0) with fast restart
+	# set up in ARM VMs, where a normal restart freezes.
+	FAST=no
+	[ -e /run/systemd/generator/systemd-reboot.service.d/50-kulan-fast-restart.conf ] && FAST=yes
+	echo "kexec=$(cat /proc/sys/kernel/kexec_load_disabled 2>/dev/null) ${FAST} $(uname -m)"
+	# "no": start-up skipped ldconfig and friends (the image is marked up to date).
+	echo "needs_update=$(systemctl show -P ConditionResult ldconfig.service 2>/dev/null)"
+	echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+	if command -v flatpak >/dev/null 2>&1; then
+		if timeout 60 flatpak remote-ls --system --updates --columns=ref,name,version >/dev/null 2>/tmp/kulan-flatpak.err; then
+			echo "appupdates=ok"
+		else
+			echo "appupdates=$(tail -n 1 /tmp/kulan-flatpak.err)"
+		fi
+	fi
 	echo "KULAN-BOOT-REPORT-END"
 } > "${OUT}" 2>&1
+
+# Install test (ci/install-test.sh): restart once, so the second start's
+# report shows the system comes back after a restart.
+MARK=/var/lib/kulan/restart-test-done
+if grep -qw kulan.restart-test /proc/cmdline && [ ! -e "${MARK}" ]; then
+	mkdir -p /var/lib/kulan && touch "${MARK}" && sync
+	systemctl reboot
+fi

@@ -107,6 +107,9 @@ torbrowser-launcher
 
 # Speed: swap in compressed memory (settings in kulan-base)
 systemd-zram-generator
+systemd-oomd
+# Restart that works in ARM VMs (UTM): see kulan-base fast-restart
+kexec-tools
 
 # Useful tools
 sudo
@@ -120,3 +123,6 @@ htop
 # Harmless on real hardware: the services only start inside a VM.
 spice-vdagent
 qemu-guest-agent
+# VMware Fusion / Workstation: shared clipboard, drag and drop, automatic
+# screen size and time sync (its services only start inside VMware).
+open-vm-tools-desktop

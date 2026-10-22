@@ -2,10 +2,13 @@
 # Privileged actions for Kulan Update Center. Runs as root through pkexec
 # (policy: org.kulan.updates.manage), so it accepts only these fixed actions:
 #
-#   update-run check                      download the latest package lists
-#   update-run install [--restore-point]  install available updates
+#   update-run check                      download the latest package lists (and app updates)
+#   update-run install [--restore-point]  install available updates, Debian's and apps'
+#                                         (and say when a restart is needed to finish)
 #   update-run auto-on | auto-off         automatic updates on or off
 #   update-run restore-point              create a restore point now
+#   update-run restore-points-delete-all  delete every restore point
+#   update-run undo-update                put the system back to before the last update, then restart
 #   update-run install-devkit             install the Kulan developer kit
 #   update-run install-apps               install LibreOffice, VLC and GIMP
 #   update-run addon-install <id>         install an add-on listed in addons.json
@@ -117,7 +120,9 @@ PRIVATE_NETS=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fe80::/10 fd00::/8)
 case "${1:-}" in
 	check)
 		[[ $# -eq 1 ]] || die "usage: update-run check"
+		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
 		apt-get -q update 1>&2
+		/usr/lib/kulan/update-status refresh || true
 		;;
 	install)
 		RESTORE=0
@@ -131,11 +136,23 @@ case "${1:-}" in
 			/usr/lib/kulan/restore-points create "Before installing updates" 1>&2 ||
 				echo "Restore point skipped; installing updates anyway." >&2
 		fi
+		# Updates that only take effect after a restart (the Linux kernel,
+		# the C library, systemd, the desktop itself, drivers, microcode).
+		NEEDS_RESTART="$(apt-get -s -q -o Debug::NoLocking=1 --with-new-pkgs upgrade 2>/dev/null |
+			awk '/^Inst /{print $2}' |
+			grep -E '^(linux-image|linux-signed|libc6$|systemd$|libsystemd0$|dbus$|dbus-daemon$|gnome-shell$|mutter$|libmutter|gdm3$|nvidia|libnvidia|firmware-|intel-microcode$|amd64-microcode$)' || true)"
 		run_apt --with-new-pkgs upgrade
+		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates install || echo "App updates couldn't be installed this time." >&2; }
+		if [[ -n "${NEEDS_RESTART}" ]]; then
+			mkdir -p /run/kulan
+			printf '%s\n' "${NEEDS_RESTART}" > /run/kulan/restart-required
+			chmod 0644 /run/kulan/restart-required
+		fi
+		/usr/lib/kulan/update-status refresh || true
 		;;
 	auto-on)
 		[[ $# -eq 1 ]] || die "usage: update-run auto-on"
-		rm -f "${AUTO_OVERRIDE}"
+		rm -f "${AUTO_OVERRIDE}" /etc/apt/apt.conf.d/54kulan-paused-after-undo
 		;;
 	auto-off)
 		[[ $# -eq 1 ]] || die "usage: update-run auto-off"
@@ -146,6 +163,16 @@ case "${1:-}" in
 		[[ $# -eq 1 ]] || die "usage: update-run restore-point"
 		[[ -x /usr/lib/kulan/restore-points ]] || die "Restore points aren't installed."
 		/usr/lib/kulan/restore-points create "Created in Update Center"
+		;;
+	undo-update)
+		[[ $# -eq 1 ]] || die "usage: update-run undo-update"
+		[[ -x /usr/lib/kulan/restore-points ]] || die "Restore points aren't installed."
+		/usr/lib/kulan/restore-points undo-update
+		;;
+	restore-points-delete-all)
+		[[ $# -eq 1 ]] || die "usage: update-run restore-points-delete-all"
+		[[ -x /usr/lib/kulan/restore-points ]] || die "Restore points aren't installed."
+		/usr/lib/kulan/restore-points delete-all
 		;;
 	install-devkit)
 		[[ $# -eq 1 ]] || die "usage: update-run install-devkit"

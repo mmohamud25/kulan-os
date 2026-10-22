@@ -45,42 +45,65 @@ LAYOUT_LEFT = "close,minimize,maximize:appmenu"
 LAYOUT_RIGHT = "appmenu:minimize,maximize,close"
 
 
+# Each gtk.css imports a copy kept next to it, so apps from the Kulan Store
+# (Flatpak), which can read ~/.config/gtk-*.0 but not /usr/share, get the
+# buttons too. Kulan Shell refreshes the copy at every sign-in.
+GTK_COPY = "kulan-window-buttons.css"
+GTK_IMPORT = f'@import url("{GTK_COPY}");'
+
+
 def _import_line(css: str) -> str:
+    """The import older versions wrote (straight from /usr/share)."""
     return f'@import url("file://{css}");'
 
 
 def _kulan_lines() -> set[str]:
-    return {_import_line(css) for files in BUTTON_STYLES.values() for css in files.values()} | {GTK_COMMENT}
+    return ({_import_line(css) for files in BUTTON_STYLES.values() for css in files.values()}
+            | {GTK_COMMENT, GTK_IMPORT})
 
 
 def button_style() -> str:
-    """The style the user's GTK 4 gtk.css imports: symbols, dots or gnome."""
-    path = Path(GLib.get_user_config_dir()) / "gtk-4.0" / "gtk.css"
+    """The style the user's GTK 4 gtk.css uses: symbols, dots or gnome."""
+    folder = Path(GLib.get_user_config_dir()) / "gtk-4.0"
     try:
-        text = path.read_text()
+        text = (folder / "gtk.css").read_text()
     except OSError:
         return "gnome"
     for style, files in BUTTON_STYLES.items():
         if _import_line(files["gtk-4.0"]) in text:
             return style
+    if GTK_IMPORT in text:
+        try:
+            first = (folder / GTK_COPY).read_text().split("\n", 1)[0]
+        except OSError:
+            return "symbols"
+        name = first.removeprefix("/* kulan-style: ").removesuffix(" */").strip()
+        return name if name in BUTTON_STYLES else "symbols"
     return "gnome"
 
 
 def set_button_style(style: str) -> None:
-    """Switch the @import in the user's gtk.css files, keeping anything else
-    the user wrote there. Apps pick it up when they are opened again."""
-    for folder in ("gtk-4.0", "gtk-3.0"):
-        path = Path(GLib.get_user_config_dir()) / folder / "gtk.css"
+    """Point the user's gtk.css files at the chosen style, keeping anything
+    else written there. Apps pick it up when they are opened again."""
+    for folder_name in ("gtk-4.0", "gtk-3.0"):
+        folder = Path(GLib.get_user_config_dir()) / folder_name
+        path = folder / "gtk.css"
         try:
             current = path.read_text()
         except OSError:
             current = ""
         lines = [x for x in current.splitlines() if x.strip() not in _kulan_lines()]
-        css = BUTTON_STYLES.get(style, {}).get(folder)
+        css = BUTTON_STYLES.get(style, {}).get(folder_name)
+        folder.mkdir(parents=True, exist_ok=True)
         if css:
-            lines = [GTK_COMMENT, _import_line(css), *lines]
+            try:
+                source = Path(css).read_text()
+            except OSError:
+                source = None
+            if source is not None:
+                (folder / GTK_COPY).write_text(f"/* kulan-style: {style} */\n{source}")
+                lines = [GTK_COMMENT, GTK_IMPORT, *lines]
         text = "\n".join(lines).strip("\n")
-        path.parent.mkdir(parents=True, exist_ok=True)
         if text:
             path.write_text(text + "\n")
         elif path.exists():
