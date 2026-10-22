@@ -369,6 +369,23 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
           ci/boot-test.sh out/*.iso boot-test
 
+      # Install the PC ISO onto a virtual disk, start it, restart it, and
+      # check both starts reach the desktop.
+      - name: Install test
+        if: matrix.arch == 'amd64'
+        run: |
+          sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk
+          ci/install-test.sh out/*.iso install-test
+
+      - name: Upload install test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: install-test-amd64
+          path: install-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload boot test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6

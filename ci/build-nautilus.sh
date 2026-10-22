@@ -57,7 +57,8 @@ DEBEMAIL="noreply@kulangroup.com" DEBFULLNAME="Kulan OS" \
 	dch --newversion "${VERSION}" --distribution trixie --force-distribution \
 	"Kulan Files: status bar, preview pane and Finder-style sidebar (kulan-files.patch)."
 
-export DEB_BUILD_OPTIONS="nocheck noautodbgsym parallel=$(nproc)"
+DEB_BUILD_OPTIONS="nocheck noautodbgsym parallel=$(nproc)"
+export DEB_BUILD_OPTIONS
 if ! dpkg-buildpackage -b -uc -us >"${WORK}/build.log" 2>&1; then
 	echo "::error title=Kulan Files::build failed: $(grep -E 'error:|Error' "${WORK}/build.log" | head -n 5 | tr '\n' ' ' | cut -c1-600)" >&2
 	tail -n 60 "${WORK}/build.log" >&2
