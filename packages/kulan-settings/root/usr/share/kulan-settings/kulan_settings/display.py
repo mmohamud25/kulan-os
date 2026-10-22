@@ -5,7 +5,7 @@ from __future__ import annotations
 from gi.repository import Adw, GLib, Gtk
 
 from . import screens
-from .common import Page, choice_row, has_key, open_gnome_panel, reset_keys, settings, switch_row
+from .common import Page, choice_row, has_key, reset_keys, settings, switch_row
 
 COLOR_SCHEMA = "org.gnome.settings-daemon.plugins.color"
 TEXT_SIZES = [("1.0", "Default"), ("1.1", "Larger"), ("1.25", "Large"), ("1.5", "Largest")]
@@ -15,7 +15,8 @@ class DisplayPage(Page):
     title = "Displays"
     icon = "video-display-symbolic"
     keywords = ("display", "screen", "monitor", "resolution", "refresh rate", "hz", "scale", "zoom", "rotate",
-                "portrait", "night light", "warm", "blue light", "text size", "font size")
+                "portrait", "night light", "warm", "blue light", "text size", "font size", "mirror",
+                "second screen", "external monitor", "arrange", "projector", "main screen")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -65,10 +66,6 @@ class DisplayPage(Page):
         if has_key(self.interface, "text-scaling-factor"):
             display.add(choice_row("Text size", None, TEXT_SIZES, self.get_text_size,
                                    lambda v: self.interface.set_double("text-scaling-factor", float(v))))
-        more = Adw.ActionRow(title="Arrange screens, mirroring", activatable=True)
-        more.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        more.connect("activated", lambda _r: open_gnome_panel("display"))
-        display.add(more)
         self.add_reset(self.reset)
 
     # --- screens ---------------------------------------------------------------------
@@ -93,6 +90,8 @@ class DisplayPage(Page):
                                          description="Screen settings need GNOME’s display service.")
             self.insert_group(group)
             return
+        if len(state.monitors) > 1:
+            self.insert_group(self.several_group(state))
         active = state.active_connectors()
         many = len(active) > 1
         for connector in active:
@@ -109,6 +108,64 @@ class DisplayPage(Page):
         box = group.get_parent()
         if isinstance(box, Gtk.Box) and previous.get_parent() is box:
             box.reorder_child_after(group, previous)
+
+    def several_group(self, state) -> Adw.PreferencesGroup:
+        """Join, mirror or use one screen; which is the main one; where the others are."""
+        group = Adw.PreferencesGroup(title="Several screens",
+                                     description="After a change, GNOME asks you to keep it, and puts the old "
+                                                 "settings back by itself if you don’t answer.")
+        how, primary, sides = screens.arrangement(state)
+        names = {m["connector"]: m["name"] + (" (built-in)" if m["builtin"] else "") for m in state.monitors}
+        uses = [("join", None, "Join: one desktop across the screens"),
+                ("mirror", None, "Mirror: the same picture on each")]
+        uses += [("single", c, f"Only {names[c]}") for c in names]
+        use_row = Adw.ComboRow(title="Use the screens", model=Gtk.StringList.new([u[2] for u in uses]))
+        current = next((i for i, (h, c, _l) in enumerate(uses) if h == how and (c is None or c == primary)), 0)
+        use_row.set_selected(current)
+        group.add(use_row)
+        connectors = list(names)
+        main_row = Adw.ComboRow(title="Main screen", subtitle="Has the top bar and new windows",
+                                model=Gtk.StringList.new([names[c] for c in connectors]))
+        if primary in connectors:
+            main_row.set_selected(connectors.index(primary))
+        main_row.set_visible(how == "join")
+        group.add(main_row)
+        side_rows = {}
+        for c in connectors:
+            if c == primary:
+                continue
+            row = Adw.ComboRow(title=f"{names[c]} is", subtitle=f"of {names.get(primary, 'the main screen')}",
+                               model=Gtk.StringList.new([label for _s, label in screens.SIDES]))
+            side_values = [s_ for s_, _l in screens.SIDES]
+            row.set_selected(side_values.index(sides.get(c, "right")) if sides.get(c, "right") in side_values else 0)
+            row.set_visible(how == "join")
+            group.add(row)
+            side_rows[c] = row
+
+        def apply(*_a) -> None:
+            if self.applying or self.state is None:
+                return
+            chosen_how, chosen_screen, _label = uses[use_row.get_selected()]
+            new_primary = chosen_screen or connectors[main_row.get_selected()]
+            new_sides = {c: screens.SIDES[r.get_selected()][0] for c, r in side_rows.items()}
+            try:
+                config = screens.layout_config(self.state, chosen_how, new_primary, new_sides)
+            except ValueError as exc:
+                self.toast(f"Couldn’t change the screens: {exc}")
+                self.reload_screens()
+                return
+            self.applying = True
+
+            def done(error) -> None:
+                self.applying = False
+                if error:
+                    self.toast(f"Couldn’t change the screens: {error}")
+                self.reload_screens()
+            self.config.apply(self.state, config, done)
+
+        for row in (use_row, main_row, *side_rows.values()):
+            row.connect("notify::selected", apply)
+        return group
 
     def screen_group(self, state, monitor: dict, many: bool) -> Adw.PreferencesGroup:
         connector = monitor["connector"]

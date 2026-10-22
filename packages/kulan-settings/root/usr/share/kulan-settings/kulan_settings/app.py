@@ -8,6 +8,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 from .about import AboutPage
 from .accessibility import AccessibilityPage
 from .addons import AddonsPage
+from .apps import AppsPage
 from .appearance import AppearancePage
 from .assistant import AssistantPage
 from .battery import BatteryPage
@@ -59,6 +60,7 @@ PAGES = [
     ("battery", BatteryPage),
     ("storage", StoragePage),
     ("login-items", LoginItemsPage),
+    ("apps", AppsPage),
     # Protection
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
@@ -83,7 +85,7 @@ TILE_COLOURS = {
     "wifi": "#0d9488", "bluetooth": "#3b82f6",
     "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
-    "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8",
+    "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
     "security": "#0f766e", "privacy": "#2563eb",
     "keyboard": "#64748b", "mouse": "#64748b", "accessibility": "#2563eb", "assistant": "#7c3aed", "prayer-times": "#d97706",
     "date-time": "#0ea5e9", "region": "#0d9488", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
@@ -111,7 +113,6 @@ GNOME_PANELS = [
     ("Printers", "printer-symbolic", ("printers",)),
     ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
     ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
-    ("Apps", "view-app-grid-symbolic", ("applications",)),
 ]
 
 
