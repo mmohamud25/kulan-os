@@ -25,11 +25,13 @@ from .mouse import MousePage
 from .notifications import NotificationsPage
 from .prayer import PrayerPage
 from .privacy import PrivacyPage
+from .region import RegionPage
 from .security import SecurityPage
 from .sound import SoundPage
 from .storage import StoragePage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
+from .users import UsersPage
 from .wifi import WifiPage
 
 APP_ID = "org.kulan.Settings"
@@ -45,6 +47,7 @@ PAGES = [
     ("sound", SoundPage),
     ("focus", FocusPage),
     ("notifications", NotificationsPage),
+    ("users", UsersPage),
     ("parental-controls", FamilyPage),
     # How it looks
     ("appearance", AppearancePage),
@@ -67,6 +70,7 @@ PAGES = [
     ("prayer-times", PrayerPage),
     # This computer
     ("date-time", DateTimePage),
+    ("region", RegionPage),
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),
@@ -77,12 +81,12 @@ GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-
 # rounded square, like a Mac's System Settings.
 TILE_COLOURS = {
     "wifi": "#0d9488", "bluetooth": "#3b82f6",
-    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "parental-controls": "#f97316",
+    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8",
     "security": "#0f766e", "privacy": "#2563eb",
     "keyboard": "#64748b", "mouse": "#64748b", "accessibility": "#2563eb", "assistant": "#7c3aed", "prayer-times": "#d97706",
-    "date-time": "#0ea5e9", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
+    "date-time": "#0ea5e9", "region": "#0d9488", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
 }
 EXTERNAL_TILE = "#94a3b8"
 
@@ -109,9 +113,6 @@ GNOME_PANELS = [
     ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
     ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
     ("Apps", "view-app-grid-symbolic", ("applications",)),
-    ("Users", "system-users-symbolic", ("system", "users")),
-    ("Language and region", "org.gnome.Settings-region-symbolic|preferences-desktop-locale-symbolic",
-     ("system", "region")),
 ]
 
 

@@ -11,6 +11,8 @@ kulan-assistant-engine
 
 # Desktop
 gnome-core
+# Languages can be added in Kulan Settings > Language and region
+locales
 gnome-tweaks
 gnome-shell-extension-dashtodock
 gnome-shell-extension-blur-my-shell

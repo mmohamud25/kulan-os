@@ -7,8 +7,9 @@ import shutil
 
 from gi.repository import Adw, GLib, Gtk
 
-from .common import Page, launch, open_gnome_panel
+from .common import Page, launch
 from .privacy import dns_mode
+from .users import Accounts, add_account_dialog
 
 ADMIN_GROUPS = ("sudo", "wheel", "admin")
 PARENTAL_APP = "org.freedesktop.MalcontentControl.desktop"
@@ -32,7 +33,7 @@ def standard_accounts() -> list[tuple[str, str]]:
 
 class FamilyPage(Page):
     title = "Parental Controls"
-    icon = "system-users-symbolic"
+    icon = "preferences-system-parental-controls-symbolic|system-users-symbolic"
     keywords = ("parental", "parents", "child", "children", "kids", "family", "screen time", "filter",
                 "restrictions", "safe")
 
@@ -78,12 +79,10 @@ class FamilyPage(Page):
                                 subtitle="Accounts without administrator rights appear here")
             self.accounts.add(row)
             self.account_rows.append(row)
-        add = Adw.ButtonRow(title="Add a child’s account…") if hasattr(Adw, "ButtonRow") else None
-        if add is not None:
-            add.connect("activated", lambda _r: open_gnome_panel("system", "users"))
-        else:
-            add = Adw.ActionRow(title="Add a child’s account…", activatable=True)
-            add.connect("activated", lambda _r: open_gnome_panel("system", "users"))
+        add = Adw.ButtonRow(title="Add a child’s account…", start_icon_name="list-add-symbolic") \
+            if hasattr(Adw, "ButtonRow") else Adw.ActionRow(title="Add a child’s account…", activatable=True)
+        add.connect("activated", lambda _r: add_account_dialog(self.window, Accounts(), True, self.toast,
+                                                               lambda: GLib.timeout_add(400, lambda: (self.shown(), False)[1])))
         self.accounts.add(add)
         self.account_rows.append(add)
         # The switch follows the computer's setting (Privacy may have changed it).
