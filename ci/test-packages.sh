@@ -473,6 +473,8 @@ check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built" && ! echo "$out" | grep -q Traceback'
 check "Welcome app runs" "--help" kulan-welcome --help
 
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
 # --- Compliance mode ------------------------------------------------------------------
 # Last before removal: turning it on installs auditd and libpam-pwquality and changes
 # this test system. The firewall can't be switched on in a container, so "on" may

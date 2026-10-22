@@ -56,6 +56,9 @@ case "$1" in
 		# Rebuild the initramfs so the boot splash change takes effect.
 		if command -v update-initramfs >/dev/null 2>&1; then
 			dpkg-trigger --no-await update-initramfs || true
+		elif command -v dracut >/dev/null 2>&1; then
+			# TPM unlock (kulan-tpm) builds the start-up image with dracut.
+			dracut --force --regenerate-all >/dev/null 2>&1 || true
 		fi
 		# Apps from the Kulan Store (Flatpak) may read the GTK settings folders,
 		# so they get Kulan's window buttons too, and Qt ones open through

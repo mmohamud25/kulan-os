@@ -183,7 +183,9 @@ class Helper:
 
     def run(self, args: list[str], success: str | None = None,
             on_progress: Callable[[float, str], None] | None = None,
-            on_done: Callable[[bool], None] | None = None) -> None:
+            on_done: Callable[[bool], None] | None = None, stdin: str | None = None) -> None:
+        """stdin: text handed to the helper on standard input (a password),
+        never on the command line, where other users could see it."""
         if self.busy:
             self.toast("Another change is still running")
             if on_done:
@@ -195,14 +197,23 @@ class Helper:
                 on_done(False)
             return
         try:
-            proc = Gio.Subprocess.new(["pkexec", HELPER, *args],
-                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+            flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+            if stdin is not None:
+                flags |= Gio.SubprocessFlags.STDIN_PIPE
+            proc = Gio.Subprocess.new(["pkexec", HELPER, *args], flags)
         except GLib.Error as exc:
             self.toast(f"Couldn’t start: {exc.message}")
             if on_done:
                 on_done(False)
             return
         self.set_busy(True)
+        if stdin is not None:
+            pipe = proc.get_stdin_pipe()
+            try:
+                pipe.write_all((stdin + "\n").encode(), None)
+            except GLib.Error:
+                pass
+            pipe.close(None)
         errors: list[str] = []
 
         def reader(stream: Gio.DataInputStream, handle: Callable[[str], None]) -> None:

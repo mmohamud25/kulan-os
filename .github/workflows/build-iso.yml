@@ -395,6 +395,25 @@ jobs:
           sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk
           ci/install-test.sh out/*.iso install-test
 
+      # Encrypted install with Secure Boot and an emulated TPM: turn TPM unlock
+      # on, take every other key away, and check the next start opens the disk
+      # by itself.
+      - name: TPM unlock test
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 60
+        run: |
+          sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk
+          ci/tpm-test.sh out/*.iso tpm-test
+
+      - name: Upload TPM unlock test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: tpm-test-amd64
+          path: tpm-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload install test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6

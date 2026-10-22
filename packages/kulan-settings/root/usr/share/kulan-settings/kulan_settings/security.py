@@ -14,6 +14,7 @@ from .updates import auto_updates_on, when_text
 CHECKUP_FILE = Path("/var/lib/kulan/security-checkup.json")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 COMPLIANCE = "/usr/bin/kulan-compliance"
+TPM = "/usr/bin/kulan-tpm"
 SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
 
 GOOD, WARN, INFO = "good", "warn", "info"
@@ -65,7 +66,8 @@ class SecurityPage(Page):
     title = "Security"
     icon = "security-high-symbolic"
     keywords = ("security", "firewall", "encryption", "secure boot", "lock", "checkup", "lynis", "password manager",
-                "keepassxc", "virus", "antivirus", "compliance", "cis", "nist", "baseline", "audit", "report")
+                "keepassxc", "virus", "antivirus", "compliance", "cis", "nist", "baseline", "audit", "report", "tpm",
+                "security chip", "unlock", "disk password")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -75,6 +77,15 @@ class SecurityPage(Page):
 
         self.status_group = self.add_group("Protection", "Green means on. Orange items have a fix.")
         self.status_rows: list[Gtk.Widget] = []
+
+        self.tpm_group = self.add_group(
+            "Start-up",
+            "With TPM unlock, the encrypted disk opens by itself on this computer, and the disk password is "
+            "only asked if something changed (another computer, Secure Boot turned off).")
+        self.tpm_switch = Adw.SwitchRow(title="Unlock with this computer’s security chip", subtitle="Checking…")
+        self.tpm_handler = self.tpm_switch.connect("notify::active", self.on_tpm_switch)
+        self.tpm_group.add(self.tpm_switch)
+        self.tpm_group.set_visible(Path(TPM).exists())
 
         self.compliance_group = self.add_group(
             "Compliance mode",
@@ -192,6 +203,73 @@ class SecurityPage(Page):
         self.render_checkup()
         self.render_passwords()
         self.load_compliance()
+        self.load_tpm()
+
+    # --- TPM unlock -------------------------------------------------------------------
+    def load_tpm(self) -> None:
+        if not Path(TPM).exists() or is_live():
+            self.tpm_group.set_visible(False)
+            return
+        try:
+            proc = Gio.Subprocess.new([TPM, "status", "--json"],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            return
+
+        def done(p, result) -> None:
+            if self.torn_down:
+                return
+            try:
+                _ok, stdout, _err = p.communicate_utf8_finish(result)
+                data = json.loads(stdout or "")
+            except (GLib.Error, ValueError):
+                self.tpm_switch.set_subtitle("Couldn’t check")
+                return
+            on = bool(data.get("on"))
+            with self.tpm_switch.handler_block(self.tpm_handler):
+                self.tpm_switch.set_active(on)
+            reasons = data.get("reasons") or []
+            self.tpm_switch.set_sensitive(on or (bool(data.get("possible")) and not self.window.helper.busy))
+            if on:
+                self.tpm_switch.set_subtitle("On: the disk opens by itself on this computer")
+            elif reasons:
+                self.tpm_switch.set_subtitle(GLib.markup_escape_text(reasons[0]))
+            else:
+                self.tpm_switch.set_subtitle("Off: the disk password is asked at every start")
+
+        proc.communicate_utf8_async(None, None, done)
+
+    def on_tpm_switch(self, row: Adw.SwitchRow, _pspec) -> None:
+        turning_on = row.get_active()
+        if not turning_on:
+            self.tpm_switch.set_subtitle("Turning off…")
+            self.window.helper.run(["tpm-off"], "TPM unlock off", on_done=lambda _ok: self.shown(), stdin="")
+            return
+        dialog = Adw.AlertDialog(heading="Disk password",
+                                 body="Type the password you enter at start-up. It's used once to add the "
+                                      "security chip's key, and it keeps working whenever the chip says no.")
+        entry = Adw.PasswordEntryRow(title="Disk password")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("on", "Turn on")
+        dialog.set_response_appearance("on", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("on")
+        dialog.set_close_response("cancel")
+        entry.connect("entry-activated", lambda _e: dialog.response("on"))
+
+        def answered(_d, response: str) -> None:
+            password = entry.get_text()
+            if response != "on" or not password:
+                with self.tpm_switch.handler_block(self.tpm_handler):
+                    self.tpm_switch.set_active(False)
+                return
+            self.tpm_switch.set_subtitle("Adding the key and rebuilding the start-up image (a few minutes)…")
+            self.window.helper.run(["tpm-on"], "TPM unlock on", on_done=lambda _ok: self.shown(), stdin=password)
+
+        dialog.connect("response", answered)
+        dialog.present(self.window)
 
     # --- compliance mode ------------------------------------------------------------
     def load_compliance(self) -> None:

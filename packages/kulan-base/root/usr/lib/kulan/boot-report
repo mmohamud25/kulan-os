@@ -48,6 +48,8 @@ sleep 5 # let the session settle
 	echo "kexec=$(cat /proc/sys/kernel/kexec_load_disabled 2>/dev/null) ${FAST} $(uname -m)"
 	# "no": start-up skipped ldconfig and friends (the image is marked up to date).
 	echo "needs_update=$(systemctl show -P ConditionResult ldconfig.service 2>/dev/null)"
+	# How an encrypted disk was opened (TPM unlock test): systemd-cryptsetup's own words.
+	echo "unlock=$(journalctl -b -o cat -t systemd-cryptsetup 2>/dev/null | grep -m1 -iE 'tpm2|token' | cut -c1-200)"
 	echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
 	if command -v flatpak >/dev/null 2>&1; then
 		if timeout 60 flatpak remote-ls --system --updates --columns=ref,name,version >/dev/null 2>/tmp/kulan-flatpak.err; then
