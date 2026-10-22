@@ -4,9 +4,11 @@
  * in light mode. Each colour is worked out from GNOME's own light or dark
  * colour (CSS relative colours), so switching between light and dark still
  * happens at once in open apps, and pure white stays white:
- *   lightness   1 - 1.06 x (1 - L)        (dark greys get a little darker)
- *   green-red   max(-0.04 x (1 - L), -0.010)
- *   blue-yellow max(-0.17 x (1 - L), -0.045)   (towards Kulan navy)
+ *   lightness   L x 1.06 - 0.06                (dark greys get a little darker)
+ *   green-red   max(L x 0.04 - 0.04, -0.010)
+ *   blue-yellow max(L x 0.17 - 0.17, -0.045)   (towards Kulan navy)
+ * Written "l * number": GTK 4.18 reads the channel only as the first factor
+ * of a product ("1.06 * l" and "(1 - l)" come out as 0).
  * The accent stays the one chosen in Kulan Settings.
  *
  * Each user's ~/.config/gtk-4.0/gtk.css imports a copy of this file
@@ -15,17 +17,17 @@
 :root {
   --window-radius: 18px;
 
-  --window-bg-color: oklab(from @window_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --view-bg-color: oklab(from @view_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --headerbar-bg-color: oklab(from @headerbar_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --headerbar-backdrop-color: oklab(from @headerbar_backdrop_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --sidebar-bg-color: oklab(from @sidebar_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --sidebar-backdrop-color: oklab(from @sidebar_backdrop_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --secondary-sidebar-bg-color: oklab(from @secondary_sidebar_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --secondary-sidebar-backdrop-color: oklab(from @secondary_sidebar_backdrop_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --dialog-bg-color: oklab(from @dialog_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --popover-bg-color: oklab(from @popover_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
-  --thumbnail-bg-color: oklab(from @thumbnail_bg_color calc(1 - 1.06 * (1 - l)) max(calc(-0.04 * (1 - l)), -0.010) max(calc(-0.17 * (1 - l)), -0.045));
+  --window-bg-color: oklab(from @window_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --view-bg-color: oklab(from @view_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --headerbar-bg-color: oklab(from @headerbar_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --headerbar-backdrop-color: oklab(from @headerbar_backdrop_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --sidebar-bg-color: oklab(from @sidebar_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --sidebar-backdrop-color: oklab(from @sidebar_backdrop_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --secondary-sidebar-bg-color: oklab(from @secondary_sidebar_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --secondary-sidebar-backdrop-color: oklab(from @secondary_sidebar_backdrop_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --dialog-bg-color: oklab(from @dialog_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --popover-bg-color: oklab(from @popover_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
+  --thumbnail-bg-color: oklab(from @thumbnail_bg_color calc(l * 1.06 - 0.06) max(l * 0.04 - 0.04, -0.010) max(l * 0.17 - 0.17, -0.045));
 }
 
 /* Titles in Manrope, as in Kulan's own pages; everything else stays Inter. */
