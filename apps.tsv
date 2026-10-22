@@ -1,0 +1,51 @@
+calamares-install-debian.desktop	Install Kulan OS	calamares-install-debian	script: /bin/sh
+firefox-esr.desktop	Firefox ESR	/usr/lib/firefox-esr/firefox-esr	Firefox (its own look, GTK 3 underneath)
+fr.romainvigier.MetadataCleaner.desktop	Metadata Cleaner	/usr/bin/metadata-cleaner	GTK 4 + libadwaita (native)
+gimp.desktop	GNU Image Manipulation Program	gimp-3.0	GTK 3
+gufw.desktop	Firewall Configuration	gufw	GTK 3
+libreoffice-calc.desktop	LibreOffice Calc	libreoffice --calc	LibreOffice (its own look, GTK 3 underneath)
+libreoffice-draw.desktop	LibreOffice Draw	libreoffice --draw	LibreOffice (its own look, GTK 3 underneath)
+libreoffice-impress.desktop	LibreOffice Impress	libreoffice --impress	LibreOffice (its own look, GTK 3 underneath)
+libreoffice-startcenter.desktop	LibreOffice	libreoffice	LibreOffice (its own look, GTK 3 underneath)
+libreoffice-writer.desktop	LibreOffice Writer	libreoffice --writer	LibreOffice (its own look, GTK 3 underneath)
+nm-connection-editor.desktop	Advanced Network Configuration	nm-connection-editor	GTK 3
+org.freedesktop.MalcontentControl.desktop	Parental Controls	malcontent-control	GTK 4 + libadwaita (native)
+org.gnome.Calculator.desktop	Calculator	gnome-calculator	GTK 4 + libadwaita (native)
+org.gnome.Calendar.desktop	Calendar	gnome-calendar	GTK 4 + libadwaita (native)
+org.gnome.Characters.desktop	Characters	/usr/bin/gnome-characters	GTK 4 + libadwaita (native)
+org.gnome.Connections.desktop	Connections	gnome-connections	GTK 3
+org.gnome.Contacts.desktop	Contacts	gnome-contacts	GTK 4 + libadwaita (native)
+org.gnome.DejaDup.desktop	Backups	deja-dup	GTK 4 + libadwaita (native)
+org.gnome.DiskUtility.desktop	Disks	gnome-disks	GTK 3
+org.gnome.Evince.desktop	Document Viewer	evince	GTK 3
+org.gnome.Extensions.desktop	Extensions	/usr/bin/gnome-extensions-app	GTK 4 + libadwaita (native)
+org.gnome.FileRoller.desktop	File Roller	file-roller	GTK 4 + libadwaita (native)
+org.gnome.Logs.desktop	Logs	gnome-logs	GTK 4 + libadwaita (native)
+org.gnome.Loupe.desktop	Image Viewer	loupe	GTK 4 + libadwaita (native)
+org.gnome.Maps.desktop	Maps	gapplication launch org.gnome.Maps	GTK 4 + libadwaita (native)
+org.gnome.Nautilus.desktop	Files	nautilus --new-window	GTK 4 + libadwaita (native)
+org.gnome.Ptyxis.desktop	Ptyxis	ptyxis	GTK 4 + libadwaita (native)
+org.gnome.Settings.desktop	Settings	gnome-control-center	GTK 4 + libadwaita (native)
+org.gnome.Snapshot.desktop	Camera	snapshot	GTK 4 + libadwaita (native)
+org.gnome.SystemMonitor.desktop	System Monitor	gnome-system-monitor	GTK 4 + libadwaita (native)
+org.gnome.TextEditor.desktop	Text Editor	gnome-text-editor	GTK 4 + libadwaita (native)
+org.gnome.Totem.desktop	Videos	totem	GTK 3
+org.gnome.Weather.desktop	Weather	gapplication launch org.gnome.Weather	GTK 4 + libadwaita (native)
+org.gnome.baobab.desktop	Disk Usage Analyzer	baobab	GTK 4 + libadwaita (native)
+org.gnome.clocks.desktop	Clocks	gnome-clocks	GTK 4 + libadwaita (native)
+org.gnome.font-viewer.desktop	Fonts	gnome-font-viewer	GTK 4 + libadwaita (native)
+org.gnome.tweaks.desktop	Tweaks	gnome-tweaks	GTK 4 + libadwaita (native)
+org.keepassxc.KeePassXC.desktop	KeePassXC	keepassxc	Qt 5
+org.kulan.Assistant.desktop	Kulan Assistant	kulan-settings assistant	GTK 4 + libadwaita (native)
+org.kulan.Settings.desktop	Kulan Settings	kulan-settings	GTK 4 + libadwaita (native)
+org.kulan.Welcome.desktop	Setup Assistant	kulan-welcome	GTK 4 + libadwaita (native)
+simple-scan.desktop	Document Scanner	simple-scan	GTK 4 + libadwaita (native)
+timeshift-gtk.desktop	Timeshift	timeshift-launcher	GTK 3
+torbrowser.desktop	Tor Browser	torbrowser-launcher	GTK 3
+vlc.desktop	VLC media player	/usr/bin/vlc --started-from-file	other
+yelp.desktop	Help	yelp	GTK 3
+kulan-settings-wifi.desktop	Kulan Settings: wifi	ks-page wifi	GTK 4 + libadwaita (native)
+kulan-settings-bluetooth.desktop	Kulan Settings: bluetooth	ks-page bluetooth	GTK 4 + libadwaita (native)
+kulan-settings-sound.desktop	Kulan Settings: sound	ks-page sound	GTK 4 + libadwaita (native)
+kulan-settings-battery.desktop	Kulan Settings: battery	ks-page battery	GTK 4 + libadwaita (native)
+kulan-settings-display.desktop	Kulan Settings: display	ks-page display	GTK 4 + libadwaita (native)
