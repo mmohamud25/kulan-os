@@ -31,29 +31,39 @@ from .wifi import WifiPage
 APP_ID = "org.kulan.Settings"
 
 # Sidebar order: (id, page class). The id is what `kulan-settings <id>` opens.
+# Related pages sit together, as in a Mac's System Settings; GROUP_STARTS
+# marks the first page of each group, which gets a little space above it.
 PAGES = [
+    # Connections
     ("wifi", WifiPage),
     ("bluetooth", BluetoothPage),
+    # Sound and attention
     ("sound", SoundPage),
-    ("battery", BatteryPage),
-    ("display", DisplayPage),
+    ("focus", FocusPage),
+    ("parental-controls", FamilyPage),
+    # How it looks
     ("appearance", AppearancePage),
+    ("desktop", DesktopPage),
     ("dock", DockPage),
     ("top-bar", TopBarPage),
-    ("desktop", DesktopPage),
-    ("keyboard", KeyboardPage),
-    ("focus", FocusPage),
-    ("assistant", AssistantPage),
-    ("prayer-times", PrayerPage),
-    ("login-items", LoginItemsPage),
+    ("display", DisplayPage),
+    # Power and space
+    ("battery", BatteryPage),
     ("storage", StoragePage),
+    ("login-items", LoginItemsPage),
+    # Protection
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
-    ("parental-controls", FamilyPage),
+    # Input and helpers
+    ("keyboard", KeyboardPage),
+    ("assistant", AssistantPage),
+    ("prayer-times", PrayerPage),
+    # This computer
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),
 ]
+GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "updates"}
 
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
@@ -109,8 +119,10 @@ class SettingsWindow(Adw.ApplicationWindow):
 
         self.search = Gtk.SearchEntry(placeholder_text="Search settings", margin_start=12, margin_end=12,
                                       margin_bottom=6)
-        self.search.connect("search-changed", lambda _s: self.sidebar_list.invalidate_filter())
+        self.search.connect("search-changed", lambda _s: (self.sidebar_list.invalidate_filter(),
+                                                          self.sidebar_list.invalidate_headers()))
         self.sidebar_list.set_filter_func(self.filter_row)
+        self.sidebar_list.set_header_func(self.group_gap)
         sidebar_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         sidebar_box.append(self.search)
         sidebar_box.append(Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER,
@@ -169,6 +181,16 @@ class SettingsWindow(Adw.ApplicationWindow):
         row.update_property([Gtk.AccessibleProperty.LABEL],
                             [f"{title} (opens GNOME Settings)" if external else title])
         return row
+
+    def group_gap(self, row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None) -> None:
+        """A little space above the first page of each group (none while searching)."""
+        gap = (before is not None and getattr(row, "page_id", None) in GROUP_STARTS
+               and not self.search.get_text().strip())
+        if not gap:
+            if row.get_header() is not None:
+                row.set_header(None)
+        elif row.get_header() is None:
+            row.set_header(Gtk.Box(height_request=12, can_target=False))
 
     def filter_row(self, row: Gtk.ListBoxRow) -> bool:
         text = self.search.get_text().strip().lower()
