@@ -11,7 +11,9 @@ SCHEMAS=/usr/share/glib-2.0/schemas
 EXT_DIR=/usr/share/gnome-shell/extensions
 OVERRIDE="${SCHEMAS}/90_kulan-os.gschema.override"
 GENERATED="${SCHEMAS}/98_kulan-os-generated.gschema.override"
-INSTALLER_DESKTOP=calamares-install-debian.desktop
+# Kulan Installer when it's there (the live session), else Calamares.
+INSTALLER_DESKTOP=org.kulan.Installer.desktop
+[ -f "/usr/share/applications/${INSTALLER_DESKTOP}" ] || INSTALLER_DESKTOP=calamares-install-debian.desktop
 STRICT="${KULAN_STRICT:-0}"
 
 missing() {

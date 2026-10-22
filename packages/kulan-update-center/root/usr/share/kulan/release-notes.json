@@ -3,6 +3,7 @@
     "version": "2.4",
     "title": "The new Kulan look",
     "items": [
+      "Kulan Installer: Kulan OS's own installer, in four short steps (keyboard, where to install, time zone, account). Erase a disk, or install next to Windows in its free space without deleting anything, with the disk encrypted if you like. Everything it needs is on the USB stick, so installing works without the internet. Advanced install (Calamares) is still there for choosing partitions yourself",
       "The new Kulan look: night navy and a cool mist on every app's windows, sidebars and menus, rounder windows, and Manrope for titles",
       "Kulan Settings redesigned: a coloured icon tile for every page, the open page highlighted in your accent colour, a large title on each page, and rounder cards with more room between them",
       "More of your settings in Kulan Settings itself, instead of a separate GNOME Settings window: new Notifications (each app's banners, sounds and lock-screen notifications), Mouse and touchpad, Accessibility, Date and time (time zone, setting the clock, the top bar's clock), Users (your picture, name and password; add, remove and manage other people's accounts) and Language and region (your language, formats, the login screen's language, adding languages) pages",

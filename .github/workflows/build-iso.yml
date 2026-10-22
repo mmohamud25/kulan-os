@@ -436,7 +436,7 @@ jobs:
       - name: Install test
         if: matrix.arch == 'amd64'
         run: |
-          sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk
+          sudo apt-get install -y -q ovmf squashfs-tools dosfstools fdisk e2fsprogs cryptsetup parted xorriso
           ci/install-test.sh out/*.iso install-test
 
       # Encrypted install with Secure Boot and an emulated TPM: turn TPM unlock

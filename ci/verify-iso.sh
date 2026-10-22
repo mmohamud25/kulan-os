@@ -171,6 +171,21 @@ else
 fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
+kulan_installer() {
+	test -x "${R}/usr/bin/kulan-installer" && test -x "${R}/usr/lib/kulan/installer-engine" &&
+		grep -qF "favorite-apps=['org.kulan.Installer.desktop'" "${R}/usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override" &&
+		grep -qx 'Name=Advanced install' "${R}/usr/share/applications/calamares-install-debian.desktop"
+}
+check "Kulan Installer" "Install Kulan OS (Kulan Installer) first in the dock; Calamares is Advanced install" kulan_installer
+POOL="$(xorriso -indev "${ISO}" -find /pool -name '*.deb' 2>/dev/null | tr -d "'")"
+if [[ "${ARCH}" == amd64 ]]; then POOL_NEED=(grub-efi-amd64_ grub-efi-amd64-signed_ shim-signed_ grub-pc_ cryptsetup-initramfs_); else POOL_NEED=(grub-efi-arm64_ cryptsetup-initramfs_); fi
+POOL_MISSING=()
+for P in "${POOL_NEED[@]}"; do grep -q "/${P}" <<<"${POOL}" || POOL_MISSING+=("${P%_}"); done
+if [[ ${#POOL_MISSING[@]} -eq 0 ]] && xorriso -indev "${ISO}" -find /dists -name Packages\* 2>/dev/null | grep -q Packages; then
+	result pass "Offline install" "boot loader and encryption packages in the ISO's package pool ($(grep -c . <<<"${POOL}") packages)"
+else
+	result fail "Offline install" "missing from the ISO's package pool: ${POOL_MISSING[*]:-the index (dists)}"
+fi
 check "Installer branding" "Calamares branding: kulan" grep -qx "branding: kulan" "${R}/etc/calamares/settings.conf"
 check "Installer look" "Kulan stylesheet and sidebar colours" bash -c "grep -q '#0D9488' '${R}/etc/calamares/branding/kulan/stylesheet.qss' && grep -qE 'SidebarBackground:[[:space:]]+\"#0A2240\"' '${R}/etc/calamares/branding/kulan/branding.desc' && grep -qE 'SidebarTextCurrent:[[:space:]]+\"#FFFFFF\"' '${R}/etc/calamares/branding/kulan/branding.desc'"
 check "Installer desktop icon" "none on the live desktop (the dock has Install Kulan OS)" bash -c "! test -f '${R}/etc/xdg/autostart/calamares-desktop-icon.desktop' || grep -qx 'Hidden=true' '${R}/etc/xdg/autostart/calamares-desktop-icon.desktop'"

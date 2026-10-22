@@ -53,7 +53,7 @@ shopt -s nullglob
 DEBS=()
 for DEB in dist/debs/kulan-*.deb; do
 	case "${DEB}" in
-		*/kulan-devkit_* | */kulan-apps_* | */kulan-fleet-admin_*) ;;
+		*/kulan-devkit_* | */kulan-apps_* | */kulan-fleet-admin_* | */kulan-installer_*) ;;
 		*) DEBS+=("${DEB}") ;;
 	esac
 done
@@ -61,8 +61,10 @@ DEVKIT=(dist/debs/kulan-devkit_*.deb)
 APPS=(dist/debs/kulan-apps_*.deb)
 # Kulan Fleet (the administrators' app): published, never installed by default.
 FLEET_ADMIN=(dist/debs/kulan-fleet-admin_*.deb)
-[[ ${#DEBS[@]} -eq 6 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 && ${#FLEET_ADMIN[@]} -eq 1 ]] || {
-	echo "::error::expected 6 core packages, kulan-devkit, kulan-apps and kulan-fleet-admin in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]}, ${#APPS[@]} and ${#FLEET_ADMIN[@]}"
+# Kulan Installer: only in the live session (checked separately below).
+INSTALLER=(dist/debs/kulan-installer_*.deb)
+[[ ${#DEBS[@]} -eq 6 && ${#DEVKIT[@]} -eq 1 && ${#APPS[@]} -eq 1 && ${#FLEET_ADMIN[@]} -eq 1 && ${#INSTALLER[@]} -eq 1 ]] || {
+	echo "::error::expected 6 core packages, kulan-devkit, kulan-apps, kulan-fleet-admin and kulan-installer in dist/debs, found ${#DEBS[@]}, ${#DEVKIT[@]}, ${#APPS[@]}, ${#FLEET_ADMIN[@]} and ${#INSTALLER[@]}"
 	exit 1
 }
 # Kulan Assistant's engine (ci/build-engine.sh), when CI built it for PCs.
@@ -524,6 +526,12 @@ check "Kulan Fleet app installs" "kulan-fleet-admin with its Debian dependencies
 check "Kulan Fleet app opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-fleet-admin --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Fleet: every page built"'
 check "Kulan Fleet is optional" "not pulled in by the ISO's package lists" bash -c '! grep -rqx "kulan-fleet-admin" config/package-lists/'
 dpkg --purge kulan-fleet-admin >/dev/null 2>&1
+check "Kulan Installer installs" "kulan-installer with its Debian dependencies" bash -c "apt-get install -y -q ./${INSTALLER[0]} >/tmp/installer.log 2>&1 || { tail -n 5 /tmp/installer.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Installer.desktop && test -s /usr/share/polkit-1/actions/org.kulan.installer.policy"
+check "Kulan Installer opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-installer --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Installer: every step built"'
+check "Installer engine lists disks" "JSON with the firmware and disks" bash -c '/usr/lib/kulan/installer-engine disks | python3 -c "import json,sys; d=json.load(sys.stdin); assert d[\"firmware\"] in (\"uefi\",\"bios\") and isinstance(d[\"disks\"], list), d"'
+check "Installer engine stays in the live session" "through pkexec, it refuses to run on an installed system" bash -c 'PKEXEC_UID=1000 /usr/lib/kulan/installer-engine disks | grep -q "only runs from the Kulan OS USB stick"'
+check "Installer engine checks plans" "a plan without a disk is refused, nothing touched" bash -c "echo '{}' | /usr/lib/kulan/installer-engine install | grep -q 'Choose a disk'"
+dpkg --purge kulan-installer >/dev/null 2>&1
 
 # --- Compliance mode ------------------------------------------------------------------
 # Last before removal: turning it on installs auditd and libpam-pwquality and changes

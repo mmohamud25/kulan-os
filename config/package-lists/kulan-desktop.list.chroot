@@ -81,6 +81,8 @@ flatpak
 gnome-software-plugin-flatpak
 
 # Graphical installer (shown in the live session)
+# Kulan Installer (the usual way to install); Calamares stays as Advanced install
+kulan-installer
 calamares
 calamares-settings-debian
 

@@ -1,0 +1,20 @@
+# Kulan OS: packages kept on the USB stick (the ISO's package pool) for
+# Kulan Installer and Calamares, so installing never needs the internet:
+# the boot loader for this kind of computer, and disk encryption's start-up
+# support. The live system itself doesn't use them.
+#if ARCHITECTURES amd64
+grub-efi-amd64
+grub-efi-amd64-signed
+grub-pc
+shim-signed
+#endif
+#if ARCHITECTURES arm64
+grub-efi-arm64
+grub-efi-arm64-signed
+shim-signed
+#endif
+efibootmgr
+os-prober
+cryptsetup
+cryptsetup-initramfs
+keyutils
