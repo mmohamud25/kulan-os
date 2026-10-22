@@ -115,8 +115,10 @@ class DisplayPage(Page):
         title = monitor["name"]
         if monitor["builtin"]:
             title = "Built-in display" if not many else f"{title} (built-in)"
-        group = Adw.PreferencesGroup(title=GLib.markup_escape_text(title if many or monitor["builtin"] else "Screen"),
-                                     description="" if many else GLib.markup_escape_text(monitor["name"]))
+        shown = title if many or monitor["builtin"] else "Screen"
+        group = Adw.PreferencesGroup(title=GLib.markup_escape_text(shown),
+                                     description="" if many or monitor["name"] == shown
+                                     else GLib.markup_escape_text(monitor["name"]))
         mode = state.current_mode(connector)
         logical = state.logical_for(connector)
         if mode is None or logical is None:
