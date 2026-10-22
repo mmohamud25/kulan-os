@@ -228,9 +228,12 @@ reports() {
 }
 # The first start reports too (before or after the setup step); the second
 # start's report is the one that counts.
+# Each start's report carries its boot_id; the setup step restarts the
+# computer, so a second boot_id means the second start has reported. (The
+# setup step's own lines can be cut short on the console as it restarts.)
+boot_ids() { tr -d '\r' < "${OUT}/serial.log" 2>/dev/null | sed -n 's/^.*boot_id=\([0-9a-f-]*\).*$/\1/p' | awk '!seen[$0]++'; }
 while (( $(date +%s) - START < WAIT_S )); do
-	grep -q KULAN-TPM-SETUP-END "${OUT}/serial.log" 2>/dev/null &&
-		[[ "$(awk '/KULAN-TPM-SETUP-END/{f=1} f && /KULAN-BOOT-REPORT-END/{n++} END{print n+0}' <(tr -d '\r' < "${OUT}/serial.log"))" -ge 1 ]] && break
+	[[ "$(boot_ids | wc -l)" -ge 2 ]] && break
 	kill -0 "${QEMU_PID}" 2>/dev/null || break
 	sleep 5
 done
@@ -287,7 +290,12 @@ if grep -qx 'key_removed=0' <<<"${SETUP}" && grep -q 'tpm2-device=auto' <<<"${SE
 else
 	result fail "Only TPM or password left" "$(grep -E '^(key_removed|dracut|crypttab)=' <<<"${SETUP}" | tr '\n' ' ')"
 fi
-SECOND="$(awk '/KULAN-TPM-SETUP-END/{f=1} f && /KULAN-BOOT-REPORT-BEGIN/{r=1} r{print} r && /KULAN-BOOT-REPORT-END/{exit}' <<<"${LOG}")"
+# The second start's report: the block whose boot_id is the second one seen.
+SECOND_ID="$(boot_ids | sed -n 2p)"
+SECOND=""
+if [[ -n "${SECOND_ID}" ]]; then
+	SECOND="$(awk -v id="boot_id=${SECOND_ID}" '/KULAN-BOOT-REPORT-BEGIN/{buf=""; r=1} r{buf=buf $0 "\n"} r && /KULAN-BOOT-REPORT-END/{r=0; if (index(buf, id)) {printf "%s", buf; exit}}' <<<"${LOG}")"
+fi
 if [[ -n "${SECOND}" ]] && grep -qx 'desktop_user=kulan' <<<"${SECOND}"; then
 	result pass "Start with TPM unlock" "the encrypted disk opened by itself and the desktop came up (${ELAPSED} s for both starts)"
 	UNLOCK="$(sed -n 's/^unlock=//p' <<<"${SECOND}")"
