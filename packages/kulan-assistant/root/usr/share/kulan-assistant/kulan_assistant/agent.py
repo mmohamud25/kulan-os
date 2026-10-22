@@ -23,9 +23,10 @@ from gi.repository import Gio, GLib
 from . import engine
 
 MAX_STEPS = 6
-SETTINGS_PAGES = ["wifi", "bluetooth", "sound", "focus", "parental-controls", "appearance", "desktop", "dock",
-                  "top-bar", "display", "battery", "storage", "login-items", "security", "privacy", "keyboard",
-                  "assistant", "prayer-times", "updates", "add-ons", "about"]
+SETTINGS_PAGES = ["wifi", "bluetooth", "sound", "focus", "notifications", "users", "parental-controls", "appearance",
+                  "desktop", "dock", "top-bar", "display", "battery", "storage", "login-items", "apps", "security",
+                  "privacy", "keyboard", "mouse", "accessibility", "assistant", "prayer-times", "date-time", "region",
+                  "updates", "add-ons", "about"]
 ACCENTS = ["teal", "blue", "green", "yellow", "orange", "red", "pink", "purple", "slate"]
 # where -> (GLib's special folder, its usual name when the system has none set)
 PLACES = {"home": ("", ""), "desktop": ("DESKTOP", "Desktop"), "documents": ("DOCUMENTS", "Documents"),
