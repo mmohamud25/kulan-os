@@ -1,7 +1,8 @@
 #!/bin/bash
 # Take the website's screenshots from a built Kulan OS ISO: boot the live
 # session in a virtual machine at 1920x1080, then capture the desktop, Kulan
-# Installer and Kulan Settings. Apps are opened through the QEMU guest agent
+# Installer (its demo mode: welcome, where to install, summary) and Kulan
+# Settings. Apps are opened through the QEMU guest agent
 # as the live session's user.
 #
 # Usage: ci/screenshots.sh <iso> [output-dir]
@@ -153,7 +154,10 @@ close_apps()
 time.sleep(3)
 shot("desktop")
 
-for name, cmd in (("installer", "/usr/bin/kulan-installer"),
+# The installer in demo mode: a sample Windows disk, never installs.
+for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
+                  ("installer-disk", "/usr/bin/kulan-installer --demo disk"),
+                  ("installer-summary", "/usr/bin/kulan-installer --demo summary"),
                   ("settings", "/usr/bin/kulan-settings")):
     if qga is None:
         break

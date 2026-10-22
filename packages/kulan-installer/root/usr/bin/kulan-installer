@@ -8,6 +8,10 @@ Advanced install (Calamares) is in the app grid. The work itself is done by
 
     kulan-installer              # the app
     kulan-installer --self-test  # build every page, then quit (for CI)
+    kulan-installer --demo [disk|account|summary]
+                                 # sample answers and a sample Windows disk,
+                                 # opened at that step; never installs (for
+                                 # the website's screenshots and guides)
 """
 from __future__ import annotations
 
@@ -144,10 +148,11 @@ def chassis() -> str:
 # --- the window ------------------------------------------------------------------------
 
 class Installer(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application, self_test: bool = False) -> None:
+    def __init__(self, app: Adw.Application, self_test: bool = False, demo: bool = False) -> None:
         super().__init__(application=app, title="Install Kulan OS")
         self.set_default_size(820, 640)
         self.self_test = self_test
+        self.demo = demo
         css = Gtk.CssProvider()
         css.load_from_string(STYLE)
         Gtk.StyleContext.add_provider_for_display(self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
@@ -246,7 +251,7 @@ class Installer(Adw.ApplicationWindow):
 
     # 3. disk
     def load_disks(self) -> None:
-        if self.self_test:
+        if self.self_test or self.demo:
             self.disk_info = {"firmware": "uefi", "disks": [
                 {"path": "/dev/nvme0n1", "size": 512 * GB, "model": "Samsung SSD 980", "removable": False,
                  "empty": False, "contents": ["Windows"], "windows": True, "table": "gpt",
@@ -483,7 +488,7 @@ class Installer(Adw.ApplicationWindow):
         page.set_can_pop(False)
         self.push(page)
         self.set_deletable(False)  # no closing half-way
-        if self.self_test:
+        if self.self_test or self.demo:
             return
         LOG.parent.mkdir(parents=True, exist_ok=True)
         self.log = open(LOG, "w", encoding="utf-8")
@@ -575,17 +580,37 @@ class Installer(Adw.ApplicationWindow):
 
 
 class App(Adw.Application):
-    def __init__(self, self_test: bool) -> None:
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE if self_test
+    def __init__(self, self_test: bool, demo: str | None = None) -> None:
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE if self_test or demo
                          else Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.self_test = self_test
+        self.demo = demo
         self.code = 0
 
     def do_activate(self) -> None:
-        window = self.props.active_window or Installer(self, self.self_test)
+        window = self.props.active_window or Installer(self, self.self_test, demo=bool(self.demo))
         window.present()
         if self.self_test:
             GLib.idle_add(self.walk, window)
+        elif self.demo and self.demo != "welcome":
+            GLib.idle_add(self.show_step, window)
+
+    def show_step(self, window: Installer) -> bool:
+        """Demo: fill in sample answers up to the chosen step (nothing is installed)."""
+        window.push(window.keyboard_page())
+        window.load_disks()
+        if self.demo in ("account", "summary"):
+            if window.encrypt_row.get_active():
+                window.disk_password.set_text("demo-password")
+                window.disk_password2.set_text("demo-password")
+            window.check_disk()
+            window.push(window.account_page())
+            window.full_name.set_text("Amina Yusuf")
+        if self.demo == "summary":
+            window.password.set_text("demo-password")
+            window.password2.set_text("demo-password")
+            window.check_account()
+        return GLib.SOURCE_REMOVE
 
     def walk(self, window: Installer) -> bool:
         """Go through every step with sample answers (no pkexec, no disks touched)."""
@@ -617,9 +642,17 @@ class App(Adw.Application):
 
 def main(argv: list[str]) -> int:
     self_test = "--self-test" in argv
-    if not self_test and not Path("/run/live/medium").is_dir() and os.environ.get("KULAN_INSTALLER_ANYWHERE") != "1":
+    demo = None
+    if "--demo" in argv:
+        i = argv.index("--demo")
+        demo = argv[i + 1] if i + 1 < len(argv) else "welcome"
+        if demo not in ("welcome", "disk", "account", "summary"):
+            print("Usage: kulan-installer --demo [welcome|disk|account|summary]", file=sys.stderr)
+            return 2
+    if not self_test and not demo and not Path("/run/live/medium").is_dir() \
+            and os.environ.get("KULAN_INSTALLER_ANYWHERE") != "1":
         print("Kulan Installer runs from the Kulan OS USB stick (the live session).", file=sys.stderr)
-    app = App(self_test)
+    app = App(self_test, demo)
     status = app.run([argv[0]])
     return status or app.code
 
