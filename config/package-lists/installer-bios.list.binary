@@ -1,0 +1,8 @@
+# Kulan OS: the boot loader for older PCs that start in BIOS (legacy) mode,
+# kept in the ISO's package pool for Kulan Installer and Calamares.
+# It conflicts with the UEFI boot loader (grub-efi-amd64), so it has a list
+# of its own: live-build downloads each list separately (see
+# installer.list.binary for the rest).
+#if ARCHITECTURES amd64
+grub-pc
+#endif

@@ -2,10 +2,13 @@
 # Kulan Installer and Calamares, so installing never needs the internet:
 # the boot loader for this kind of computer, and disk encryption's start-up
 # support. The live system itself doesn't use them.
+#
+# The PC boot loader for older (BIOS) computers, grub-pc, is in
+# installer-bios.list.binary: it conflicts with grub-efi-amd64, and
+# live-build resolves each list on its own, so they can't share a list.
 #if ARCHITECTURES amd64
 grub-efi-amd64
 grub-efi-amd64-signed
-grub-pc
 shim-signed
 #endif
 #if ARCHITECTURES arm64

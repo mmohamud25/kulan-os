@@ -82,6 +82,9 @@ FILES=(
 	etc/sysctl.d/60-kulan-hardening.conf
 	etc/calamares/modules/fstab.conf
 	var/lib/flatpak/overrides/global
+	usr/bin/kulan-installer
+	usr/lib/kulan/installer-engine
+	usr/share/applications/calamares-install-debian.desktop
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
