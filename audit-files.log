@@ -1,0 +1,10 @@
+Building Kulan Files 48.3-2+kulan1 for amd64
+W: Download is performed unsandboxed as root as file 'nautilus_48.3-2.dsc' couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
+libdistro-info-perl is not installed, Debian release names are not known.
+libdistro-info-perl is not installed, Ubuntu release names are not known.
+total 2272
+-rw-r--r-- 1 root root      14 Oct 22 04:29 VERSION
+-rw-r--r-- 1 root root   11580 Oct 22 04:29 gir1.2-nautilus-4.0_48.3-2+kulan1_amd64.deb
+-rw-r--r-- 1 root root   19948 Oct 22 04:29 libnautilus-extension4_48.3-2+kulan1_amd64.deb
+-rw-r--r-- 1 root root 1725896 Oct 22 04:29 nautilus-data_48.3-2+kulan1_all.deb
+-rw-r--r-- 1 root root  557896 Oct 22 04:29 nautilus_48.3-2+kulan1_amd64.deb

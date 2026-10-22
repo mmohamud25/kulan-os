@@ -1,0 +1,13 @@
+1792643531.048 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
+1792643531.457 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
+1792643531.618 CanSuspend
+1792643531.659 Inhibit "sleep" "GNOME Shell" "GNOME needs to save screen time data" "delay"
+1792643531.686 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
+1792643531.688 Inhibit "sleep" "UPower" "Pause device polling" "delay"
+1792643531.720 GetUser 1000
+1792643531.720 GetUser raised: can only concatenate str (not "dbus.UInt32") to str
+1792643532.453 Inhibit "sleep" "ModemManager" "ModemManager needs to reset devices" "delay"
+1792643572.082 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
+1792643834.312 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
+1792644312.733 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
+1792644574.449 GetAll /org/freedesktop/login1 org.freedesktop.login1.Manager
