@@ -1,3 +1,7 @@
 [functions.fleet]
 # Computers authenticate with their own key (checked in the function).
 verify_jwt = false
+
+[functions.fleet-admin]
+# Checks the dashboard session itself (/auth/v1/user) and fleet.admins.
+verify_jwt = false

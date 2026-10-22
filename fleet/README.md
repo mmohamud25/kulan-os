@@ -22,4 +22,15 @@ lock-screen, restart):
 
     insert into fleet.actions (device_id, type) values ('<device id>', 'install-updates');
 
-The dashboard (Vercel) comes later and will use the same tables.
+## Dashboard
+
+`dashboard/` is a static page for GitHub Pages (repository
+`kulan-fleet-dashboard`). It signs in with Supabase Auth (an emailed link)
+and talks only to the `fleet-admin` function, which allows emails listed in
+`fleet.admins`:
+
+    insert into fleet.admins (email) values ('admin@example.com');                 -- every organisation
+    insert into fleet.admins (email, organisation_id) values ('it@example.com', '<org id>');
+
+In Supabase > Authentication > URL Configuration, the dashboard's address
+must be the Site URL (or listed under Redirect URLs) for sign-in links.
