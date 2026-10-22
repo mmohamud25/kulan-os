@@ -164,6 +164,10 @@ jobs:
           pattern: kulan-files-amd64
           path: dist/files/
           merge-multiple: true
+      # A Kulan Files version the channel already has: test the channel's file
+      # (what installed systems get), see ci/use-channel-files.sh.
+      - name: Match the update channel's Kulan Files
+        run: ci/use-channel-files.sh dist/files
       - name: Install, check and remove in Debian 13
         run: |
           docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
@@ -247,6 +251,12 @@ jobs:
             cp -v "$deb" dist/debs/
           done
           rm -rf dist/files-arm64
+
+      # Never publish different bytes under a version the channel already
+      # has: installed systems would see it as a downgrade and stop updating.
+      - name: Keep the update channel's Kulan Files where the version is unchanged
+        if: steps.ready.outputs.ready == 'true'
+        run: ci/use-channel-files.sh dist/debs
 
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
@@ -334,6 +344,11 @@ jobs:
             cp -v "$deb" config/packages.chroot/
           done
           rm -rf dist/files-amd64
+
+      # The image build reads the update channel too: its Kulan Files and the
+      # image's must be the same files (see ci/use-channel-files.sh).
+      - name: Match the update channel's Kulan Files
+        run: ci/use-channel-files.sh config/packages.chroot
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships
       # with toolchains we don't use, so remove them first.
