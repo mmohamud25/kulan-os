@@ -82,6 +82,24 @@ if [ -f "${USERS}" ]; then
 	fi
 fi
 
+# Disk encryption: a mistyped password at start-up asks again, as often as
+# needed (tries=0), instead of giving up after three and leaving a text
+# console. Calamares copies these options into /etc/crypttab.
+FSTAB="${CAL}/modules/fstab.conf"
+if [ -f "${FSTAB}" ]; then
+	if grep -qE '^crypttabOptions:' "${FSTAB}"; then
+		if grep -qE '^crypttabOptions:.*tries=' "${FSTAB}"; then
+			sed -i -E '/^crypttabOptions:/ s|tries=[0-9]+|tries=0|' "${FSTAB}"
+		else
+			sed -i -E 's|^(crypttabOptions:[[:space:]]*)([^#[:space:]]+)|\1\2,tries=0|' "${FSTAB}"
+		fi
+	else
+		printf '\ncrypttabOptions: luks,tries=0\n' >> "${FSTAB}"
+	fi
+	grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${FSTAB}" ||
+		{ echo "E: failed to set the disk password retries" >&2; exit 1; }
+fi
+
 # The live session's account (made by adduser) and any made later with
 # adduser or useradd on the installed system use zsh too.
 if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
