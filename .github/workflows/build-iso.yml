@@ -100,10 +100,50 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Kulan Files: Debian 13's Nautilus with Kulan's patch, one build per
+  # architecture. Rebuilt when the patch or the script changes, or when Debian
+  # updates Nautilus (its version is part of the cache key).
+  files:
+    needs: plan
+    name: Kulan Files (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Which Nautilus Debian has
+        id: debian
+        run: |
+          VERSION="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh --version | tail -n 1)"
+          echo "Debian's Nautilus: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@v6
+        with:
+          path: dist/files
+          key: kulan-files-${{ matrix.arch }}-${{ steps.debian.outputs.version }}-${{ hashFiles('ci/build-nautilus.sh', 'packages-src/nautilus/**') }}
+      - name: Build Kulan Files in Debian 13
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh
+          sudo chown -R "$(id -u):$(id -g)" dist
+      - name: Check the packages
+        run: |
+          ls -l dist/files/
+          dpkg-deb --info dist/files/nautilus_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kulan-files-${{ matrix.arch }}
+          path: dist/files/*.deb
+          if-no-files-found: error
+          retention-days: 14
+
   # Installs the packages into a clean Debian 13 system with their real
   # dependencies, checks them, removes them. Gates publishing and ISOs.
   test-packages:
-    needs: [packages, engine]
+    needs: [packages, engine, files]
     # The engine for PCs is tested with a real model when it was built.
     if: ${{ !cancelled() && needs.packages.result == 'success' }}
     name: Test packages on Debian 13
@@ -119,6 +159,11 @@ jobs:
           pattern: kulan-engine-amd64
           path: dist/engine/
           merge-multiple: true
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: kulan-files-amd64
+          path: dist/files/
+          merge-multiple: true
       - name: Install, check and remove in Debian 13
         run: |
           docker run --rm -e GITHUB_STEP_SUMMARY=/build/summary.md \
@@ -131,7 +176,7 @@ jobs:
   # must already be online. Skipped until scripts/setup-update-channel.sh
   # has been run.
   publish:
-    needs: [test-packages, engine]
+    needs: [test-packages, engine, files]
     # Only runs that built both architectures publish: the channel is
     # rebuilt from scratch each time and must keep both engines.
     if: github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both'
@@ -178,6 +223,18 @@ jobs:
           name: kulan-engine-arm64
           path: dist/debs/
 
+      # Kulan Files for both architectures (nautilus-data is the same in both).
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-files-amd64
+          path: dist/debs/
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-files-arm64
+          path: dist/debs/
+
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
         env:
@@ -213,12 +270,13 @@ jobs:
           exit 1
 
   build:
-    needs: [plan, packages, engine, test-packages, publish]
+    needs: [plan, packages, engine, files, test-packages, publish]
     # Runs when publishing succeeded or was skipped (tags, channel not set up).
     if: >-
       !cancelled() &&
       needs.test-packages.result == 'success' &&
       needs.engine.result == 'success' &&
+      needs.files.result == 'success' &&
       (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
@@ -240,6 +298,12 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           name: kulan-engine-${{ matrix.arch }}
+          path: config/packages.chroot/
+
+      - name: Get Kulan Files
+        uses: actions/download-artifact@v7
+        with:
+          name: kulan-files-${{ matrix.arch }}
           path: config/packages.chroot/
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships

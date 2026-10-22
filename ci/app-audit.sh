@@ -30,6 +30,12 @@ mapfile -t LIST < <(grep -vE '^[[:space:]]*(#|$)' config/package-lists/kulan-des
 	grep -vxE 'kulan-.*|plymouth.*|spice-vdagent|qemu-guest-agent|linux-image.*')
 DEBS=(dist/debs/kulan-base_*.deb dist/debs/kulan-desktop-settings_*.deb dist/debs/kulan-settings_*.deb
 	dist/debs/kulan-update-center_*.deb dist/debs/kulan-welcome_*.deb dist/debs/kulan-assistant_*.deb)
+# Kulan Files (patched Nautilus), built here as the ISO build does.
+if bash ci/build-nautilus.sh >/tmp/audit-files.log 2>&1; then
+	DEBS+=(dist/files/*.deb)
+else
+	echo "::warning title=App audit::Kulan Files didn't build: $(grep -m 3 '::error' /tmp/audit-files.log | tr '\n' ' ' | cut -c1-400)"
+fi
 apt-get install -y -q "${DEBS[@]/#/./}" "${LIST[@]}" xvfb xauth imagemagick dbus-x11 xwayland sudo python3-dbusmock \
 	>/tmp/audit-install.log 2>&1 || { tail -n 30 /tmp/audit-install.log; echo "::error title=App audit::install failed"; exit 1; }
 # The installer as the ISO has it (Kulan branding, stylesheet and settings).

@@ -57,6 +57,11 @@
       <summary>Shortcut for Quick Note</summary>
       <description>Opens a note over whatever you're doing; it's saved as you type.</description>
     </key>
+    <key name="files-preview-pane" type="b">
+      <default>false</default>
+      <summary>Preview pane in Files</summary>
+      <description>Kulan Files shows the selected item on the right (Shift+Ctrl+P or the toolbar button switches it).</description>
+    </key>
     <key name="desktop-widgets" type="as">
       <default>['calendar', 'weather', 'prayer', 'notes']</default>
       <summary>Desktop widgets</summary>

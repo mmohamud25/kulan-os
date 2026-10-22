@@ -1,0 +1,1272 @@
+Description: Kulan Files: status bar, preview pane, Finder-style sidebar
+ - A status bar at the bottom of the window: the open folder's path on the
+   left ("Home › Documents › Projects"), and "12 items, 41 GB available" or
+   "3 of 12 selected (2.1 MB)" on the right (replacing the floating bar for
+   selections; it still shows while a folder loads).
+ - A preview pane on the right (Shift+Ctrl+P or the toolbar button) with a
+   large thumbnail, name, kind, Kulan tags, size, dates, location and Open;
+   remembered in org.kulan.desktop files-preview-pane when that exists.
+ - The sidebar in Favourites (Home, Recent, Starred, Desktop, bookmarks),
+   Locations (cloud, disks, Network, Trash) and Tags (one row per tag in
+   use, from ~/.local/share/kulan/tag-folders), with headings.
+Author: Kulan OS <https://github.com/mmohamud25/kulan-os>
+Forwarded: not-needed
+Last-Update: 2026-10-22
+
+diff --git a/src/gtk/nautilusgtkplacessidebar.c b/src/gtk/nautilusgtkplacessidebar.c
+index d1649e5..98b99b7 100644
+--- a/src/gtk/nautilusgtkplacessidebar.c
++++ b/src/gtk/nautilusgtkplacessidebar.c
+@@ -110,6 +110,7 @@ struct _NautilusGtkPlacesSidebar {
+ 
+   NautilusWindowSlot *window_slot;
+   GSignalGroup *slot_signal_group;
++  GFileMonitor *kulan_tags_monitor;
+ 
+   GtkWidget *swin;
+   GtkWidget *list_box;
+@@ -327,32 +328,103 @@ emit_drag_perform_drop (NautilusGtkPlacesSidebar *sidebar,
+   g_signal_emit (sidebar, places_sidebar_signals[DRAG_PERFORM_DROP], 0,
+                  dest_file, source_file_list, action);
+ }
++/* Kulan Files: the sidebar in three parts, as in the Finder:
++ *   Favourites - Home, Recent, Starred, Desktop and your folders (bookmarks)
++ *   Locations  - cloud accounts, disks and drives, Network and Trash
++ *   Tags       - one row for each colour tag in use
++ * kulan_rank() gives the order; rows of one rank keep GNOME's own order. */
++static int
++kulan_rank (GtkListBoxRow *row)
++{
++  NautilusGtkPlacesSectionType section_type;
++  g_autofree char *uri = NULL;
++
++  g_object_get (row, "section-type", &section_type, "uri", &uri, NULL);
++  switch (section_type)
++    {
++    case NAUTILUS_GTK_PLACES_SECTION_DEFAULT_LOCATIONS:
++      if (uri != NULL &&
++          (g_str_has_prefix (uri, SCHEME_TRASH ":") || g_str_has_prefix (uri, SCHEME_NETWORK_VIEW ":")))
++        return 4;
++      return 0;
++    case NAUTILUS_GTK_PLACES_SECTION_BOOKMARKS:
++      return 1;
++    case NAUTILUS_GTK_PLACES_SECTION_CLOUD:
++      return 2;
++    case NAUTILUS_GTK_PLACES_SECTION_MOUNTS:
++      return 3;
++    case NAUTILUS_GTK_PLACES_SECTION_KULAN_TAGS:
++      return 5;
++    case NAUTILUS_GTK_PLACES_SECTION_INVALID:
++    case NAUTILUS_GTK_PLACES_N_SECTIONS:
++    default:
++      return 6;
++    }
++}
++
++static const char *
++kulan_group_title (int rank)
++{
++  if (rank <= 1)
++    return _("Favourites");
++  if (rank <= 4)
++    return _("Locations");
++  if (rank == 5)
++    return _("Tags");
++  return NULL;
++}
++
+ static void
+ list_box_header_func (GtkListBoxRow *row,
+                       GtkListBoxRow *before,
+                       gpointer       user_data)
+ {
+-  NautilusGtkPlacesSectionType row_section_type;
+-  NautilusGtkPlacesSectionType before_section_type;
+-  GtkWidget *separator;
++  const char *title;
++  const char *before_title = NULL;
++  GtkWidget *heading;
+ 
+-  gtk_list_box_row_set_header (row, NULL);
++  title = kulan_group_title (kulan_rank (row));
++  if (before != NULL)
++    before_title = kulan_group_title (kulan_rank (before));
+ 
+-  g_object_get (row, "section-type", &row_section_type, NULL);
+-  if (before)
++  if (title == NULL || g_strcmp0 (title, before_title) == 0)
+     {
+-      g_object_get (before, "section-type", &before_section_type, NULL);
+-    }
+-  else
+-    {
+-      before_section_type = NAUTILUS_GTK_PLACES_SECTION_INVALID;
++      gtk_list_box_row_set_header (row, NULL);
++      return;
+     }
+ 
+-  if (before && before_section_type != row_section_type)
+-    {
+-      separator = gtk_separator_new (GTK_ORIENTATION_HORIZONTAL);
+-      gtk_list_box_row_set_header (row, separator);
+-    }
++  heading = gtk_list_box_row_get_header (row);
++  if (GTK_IS_LABEL (heading) && g_strcmp0 (gtk_label_get_text (GTK_LABEL (heading)), title) == 0)
++    return;
++
++  heading = g_object_new (GTK_TYPE_LABEL,
++                          "label", title,
++                          "accessible-role", GTK_ACCESSIBLE_ROLE_HEADING,
++                          NULL);
++  gtk_label_set_xalign (GTK_LABEL (heading), 0);
++  gtk_widget_add_css_class (heading, "kulan-sidebar-heading");
++  gtk_widget_add_css_class (heading, "heading");
++  gtk_widget_add_css_class (heading, "dim-label");
++  gtk_list_box_row_set_header (row, heading);
++}
++
++/* Kulan's tags code keeps a folder of links for each tag in use
++ * (~/.local/share/kulan/tag-folders/Red ...); each becomes a Tags row. */
++static const struct
++{
++  const char *id;
++  const char *name;
++} kulan_tags[] =
++{
++  { "red", N_("Red") }, { "orange", N_("Orange") }, { "yellow", N_("Yellow") },
++  { "green", N_("Green") }, { "blue", N_("Blue") }, { "purple", N_("Purple") },
++  { "grey", N_("Grey") },
++};
++
++static char *
++kulan_tag_folders_dir (void)
++{
++  return g_build_filename (g_get_user_data_dir (), "kulan", "tag-folders", NULL);
+ }
+ 
+ static GtkWidget*
+@@ -1075,6 +1147,31 @@ update_places (NautilusGtkPlacesSidebar *sidebar)
+   g_list_free_full (network_volumes, g_object_unref);
+   g_list_free_full (network_mounts, g_object_unref);
+ 
++  /* Kulan Files: tags */
++  {
++    g_autofree char *tags_dir = kulan_tag_folders_dir ();
++
++    for (guint i = 0; i < G_N_ELEMENTS (kulan_tags); i++)
++      {
++        g_autofree char *folder = g_build_filename (tags_dir, kulan_tags[i].name, NULL);
++        g_autofree char *icon_name = g_strconcat ("emblem-kulan-tag-", kulan_tags[i].id, NULL);
++        g_autofree char *tag_uri = NULL;
++        g_autoptr (GIcon) tag_icon = NULL;
++
++        if (!g_file_test (folder, G_FILE_TEST_IS_DIR))
++          continue;
++        tag_uri = g_filename_to_uri (folder, NULL, NULL);
++        if (tag_uri == NULL)
++          continue;
++        tag_icon = g_themed_icon_new (icon_name);
++        add_place (sidebar, NAUTILUS_GTK_PLACES_BUILT_IN,
++                   NAUTILUS_GTK_PLACES_SECTION_KULAN_TAGS,
++                   _(kulan_tags[i].name), tag_icon, NULL, tag_uri,
++                   NULL, NULL, NULL, NULL, 0,
++                   _("Files with this tag"));
++      }
++  }
++
+   /* We want this hidden by default, but need to do it after the show_all call */
+   nautilus_gtk_sidebar_row_hide (NAUTILUS_GTK_SIDEBAR_ROW (sidebar->new_bookmark_row), TRUE);
+ 
+@@ -1162,6 +1259,14 @@ check_valid_drop_target (NautilusGtkPlacesSidebar *sidebar,
+       return TRUE;
+     }
+ 
++  /* Kulan Files: a tag row lists tagged files; it isn't a place to put them. */
++  if (section_type == NAUTILUS_GTK_PLACES_SECTION_KULAN_TAGS)
++    {
++      g_free (uri);
++      g_clear_object (&dest_file);
++      return FALSE;
++    }
++
+   /* Disallow drops on recent:/// */
+   if (place_type == NAUTILUS_GTK_PLACES_BUILT_IN)
+     {
+@@ -3229,6 +3334,9 @@ list_box_sort_func (GtkListBoxRow *row1,
+   int index_1, index_2;
+   int retval = 0;
+ 
++  if (kulan_rank (row1) != kulan_rank (row2))
++    return kulan_rank (row1) - kulan_rank (row2);
++
+   g_object_get (row1,
+                 "label", &label_1,
+                 "place-type", &place_type_1,
+@@ -3452,6 +3560,18 @@ nautilus_gtk_places_sidebar_init (NautilusGtkPlacesSidebar *sidebar)
+                            G_CALLBACK (update_places), sidebar,
+                            G_CONNECT_SWAPPED);
+ 
++  /* Kulan Files: Tags rows come and go with the tag folders. */
++  {
++    g_autofree char *tags_dir = kulan_tag_folders_dir ();
++    g_autoptr (GFile) tags_file = g_file_new_for_path (tags_dir);
++
++    sidebar->kulan_tags_monitor = g_file_monitor_directory (tags_file, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
++    if (sidebar->kulan_tags_monitor != NULL)
++      g_signal_connect_object (sidebar->kulan_tags_monitor, "changed",
++                               G_CALLBACK (update_places), sidebar,
++                               G_CONNECT_SWAPPED);
++  }
++
+   g_signal_connect_object (nautilus_trash_monitor_get (), "trash-state-changed",
+                            G_CALLBACK (update_trash_icon), sidebar,
+                            G_CONNECT_SWAPPED);
+@@ -3620,6 +3740,9 @@ nautilus_gtk_places_sidebar_dispose (GObject *object)
+ 
+   g_clear_object (&sidebar->window_slot);
+   g_clear_object (&sidebar->slot_signal_group);
++  if (sidebar->kulan_tags_monitor != NULL)
++    g_file_monitor_cancel (sidebar->kulan_tags_monitor);
++  g_clear_object (&sidebar->kulan_tags_monitor);
+ 
+   g_clear_pointer (&sidebar->popover, gtk_widget_unparent);
+ 
+diff --git a/src/gtk/nautilusgtkplacessidebarprivate.h b/src/gtk/nautilusgtkplacessidebarprivate.h
+index 14df31d..f0b328c 100644
+--- a/src/gtk/nautilusgtkplacessidebarprivate.h
++++ b/src/gtk/nautilusgtkplacessidebarprivate.h
+@@ -64,6 +64,7 @@ typedef enum {
+   NAUTILUS_GTK_PLACES_SECTION_BOOKMARKS,
+   NAUTILUS_GTK_PLACES_SECTION_CLOUD,
+   NAUTILUS_GTK_PLACES_SECTION_MOUNTS,
++  NAUTILUS_GTK_PLACES_SECTION_KULAN_TAGS,
+   NAUTILUS_GTK_PLACES_N_SECTIONS
+ } NautilusGtkPlacesSectionType;
+ 
+diff --git a/src/meson.build b/src/meson.build
+index f5e2272..c92459d 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -86,6 +86,8 @@ libnautilus_sources = [
+   'nautilus-files-view-dnd.c',
+   'nautilus-files-view-dnd.h',
+   'nautilus-floating-bar.c',
++  'nautilus-kulan-preview.c',
++  'nautilus-kulan-preview.h',
+   'nautilus-floating-bar.h',
+   'nautilus-freedesktop-dbus.c',
+   'nautilus-freedesktop-dbus.h',
+diff --git a/src/nautilus-files-view.c b/src/nautilus-files-view.c
+index 10a29a2..d7f61a8 100644
+--- a/src/nautilus-files-view.c
++++ b/src/nautilus-files-view.c
+@@ -85,6 +85,7 @@
+ #include "nautilus-view.h"
+ #include "nautilus-view-model.h"
+ #include "nautilus-tracker-utilities.h"
++#include "nautilus-window.h"
+ 
+ /* Minimum starting update inverval */
+ #define UPDATE_INTERVAL_MIN 100
+@@ -160,6 +161,13 @@ typedef struct
+     NautilusListBase *list_base;
+ 
+     NautilusWindowSlot *slot;
++
++    /* Kulan Files: free space shown in the status bar */
++    GFile *kulan_free_location;
++    gint64 kulan_free_checked;
++    guint64 kulan_free_bytes;
++    gboolean kulan_free_known;
++    GCancellable *kulan_free_cancellable;
+     NautilusDirectory *directory;
+     NautilusFile *directory_as_file;
+     GFile *location;
+@@ -3520,9 +3528,113 @@ nautilus_files_view_finalize (GObject *object)
+     g_cancellable_cancel (priv->starred_cancellable);
+     g_clear_object (&priv->starred_cancellable);
+ 
++    g_cancellable_cancel (priv->kulan_free_cancellable);
++    g_clear_object (&priv->kulan_free_cancellable);
++    g_clear_object (&priv->kulan_free_location);
++
+     G_OBJECT_CLASS (nautilus_files_view_parent_class)->finalize (object);
+ }
+ 
++/* Kulan Files: free space of the open folder's disk, for the status bar.
++ * Asked again when the folder changes, or when files change after a few
++ * seconds; the answer redraws the status bar. */
++#define KULAN_FREE_SPACE_MAX_AGE (5 * G_USEC_PER_SEC)
++
++static void
++kulan_free_space_ready (GObject      *source,
++                        GAsyncResult *result,
++                        gpointer      user_data)
++{
++    NautilusFilesView *view;
++    NautilusFilesViewPrivate *priv;
++    g_autoptr (GFileInfo) info = NULL;
++    g_autoptr (GError) error = NULL;
++
++    info = g_file_query_filesystem_info_finish (G_FILE (source), result, &error);
++    if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
++    {
++        return;
++    }
++    view = NAUTILUS_FILES_VIEW (user_data);
++    priv = nautilus_files_view_get_instance_private (view);
++    priv->kulan_free_known = info != NULL &&
++                             g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE);
++    priv->kulan_free_bytes = priv->kulan_free_known ?
++                             g_file_info_get_attribute_uint64 (info, G_FILE_ATTRIBUTE_FILESYSTEM_FREE) : 0;
++    priv->kulan_free_checked = g_get_monotonic_time ();
++    schedule_update_status (view);
++}
++
++static void
++kulan_check_free_space (NautilusFilesView *view)
++{
++    NautilusFilesViewPrivate *priv = nautilus_files_view_get_instance_private (view);
++    GFile *location = nautilus_view_get_location (NAUTILUS_VIEW (view));
++    gboolean same = location != NULL && priv->kulan_free_location != NULL &&
++                    g_file_equal (location, priv->kulan_free_location);
++
++    if (location == NULL)
++    {
++        return;
++    }
++    if (same && g_get_monotonic_time () - priv->kulan_free_checked < KULAN_FREE_SPACE_MAX_AGE)
++    {
++        return;
++    }
++    if (!same)
++    {
++        priv->kulan_free_known = FALSE;
++        g_set_object (&priv->kulan_free_location, location);
++    }
++    /* Don't ask again while an answer is on its way. */
++    priv->kulan_free_checked = g_get_monotonic_time ();
++    g_cancellable_cancel (priv->kulan_free_cancellable);
++    g_clear_object (&priv->kulan_free_cancellable);
++    priv->kulan_free_cancellable = g_cancellable_new ();
++    g_file_query_filesystem_info_async (location, G_FILE_ATTRIBUTE_FILESYSTEM_FREE, G_PRIORITY_LOW,
++                                        priv->kulan_free_cancellable, kulan_free_space_ready, view);
++}
++
++static void
++kulan_show_status (NautilusFilesView *view,
++                   guint              selected,
++                   gboolean           size_known,
++                   goffset            size)
++{
++    NautilusFilesViewPrivate *priv = nautilus_files_view_get_instance_private (view);
++    GtkWidget *window = gtk_widget_get_ancestor (GTK_WIDGET (view), NAUTILUS_TYPE_WINDOW);
++    guint total = priv->model != NULL ? g_list_model_get_n_items (G_LIST_MODEL (priv->model)) : 0;
++    g_autoptr (GString) text = g_string_new (NULL);
++
++    if (window == NULL || priv->slot == NULL)
++    {
++        return;
++    }
++    kulan_check_free_space (view);
++
++    if (selected == 0)
++    {
++        g_string_printf (text, ngettext ("%'u item", "%'u items", total), total);
++        if (priv->kulan_free_known)
++        {
++            g_autofree char *free_text = g_format_size (priv->kulan_free_bytes);
++            /* Translators: "12 items, 41.3 GB available" */
++            g_string_append_printf (text, _(", %s available"), free_text);
++        }
++    }
++    else
++    {
++        /* Translators: "3 of 12 selected" */
++        g_string_printf (text, _("%'u of %'u selected"), selected, total);
++        if (size_known && size > 0)
++        {
++            g_autofree char *size_text = g_format_size (size);
++            g_string_append_printf (text, " (%s)", size_text);
++        }
++    }
++    nautilus_window_kulan_set_status (NAUTILUS_WINDOW (window), priv->slot, text->str);
++}
++
+ /**
+  * nautilus_files_view_display_selection_info:
+  *
+@@ -3755,7 +3867,10 @@ nautilus_files_view_display_selection_info (NautilusFilesView *view)
+     g_free (non_folder_item_count_str);
+     g_free (non_folder_counts_str);
+ 
+-    set_floating_bar_status (view, primary_status, detail_status);
++    /* Kulan Files: the status bar at the bottom of the window says this, so
++     * the floating bar only appears while a folder is loading. */
++    kulan_show_status (view, folder_count + non_folder_count, non_folder_size_known, non_folder_size);
++    set_floating_bar_status (view, NULL, NULL);
+ 
+     g_free (primary_status);
+     g_free (detail_status);
+diff --git a/src/nautilus-kulan-preview.c b/src/nautilus-kulan-preview.c
+new file mode 100644
+index 0000000..98abaeb
+--- /dev/null
++++ b/src/nautilus-kulan-preview.c
+@@ -0,0 +1,407 @@
++/* Kulan Files: the preview pane, showing the selected item like the Finder's
++ * preview column: a large thumbnail or icon, its name and kind, its tags,
++ * and size, dates and location, with Open and Share buttons.
++ *
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#include "nautilus-kulan-preview.h"
++
++#include <glib/gi18n.h>
++
++#include "nautilus-file.h"
++#include "nautilus-file-utilities.h"
++#include "nautilus-mime-actions.h"
++#include "nautilus-window.h"
++
++#define PREVIEW_SIZE 256
++#define TAGS_XATTR "xattr::xdg.tags"
++#define TAGS_METADATA "metadata::kulan-tags"
++
++struct _NautilusKulanPreview
++{
++    AdwBin parent_instance;
++
++    NautilusFile *file;
++    gulong changed_id;
++
++    GtkWidget *stack;
++    GtkWidget *picture;
++    GtkWidget *name;
++    GtkWidget *kind;
++    GtkWidget *tags;
++    GtkWidget *details;
++    GtkWidget *open_button;
++    GCancellable *tags_cancellable;
++};
++
++G_DEFINE_FINAL_TYPE (NautilusKulanPreview, nautilus_kulan_preview, ADW_TYPE_BIN)
++
++static const struct
++{
++    const char *id;
++    const char *name;
++} kulan_tags[] =
++{
++    { "red", N_("Red") }, { "orange", N_("Orange") }, { "yellow", N_("Yellow") },
++    { "green", N_("Green") }, { "blue", N_("Blue") }, { "purple", N_("Purple") },
++    { "grey", N_("Grey") },
++};
++
++static void
++clear_box (GtkWidget *box)
++{
++    GtkWidget *child;
++
++    while ((child = gtk_widget_get_first_child (box)) != NULL)
++    {
++        gtk_widget_unparent (child);
++    }
++}
++
++static void
++add_detail (NautilusKulanPreview *self,
++            const char           *label,
++            const char           *value)
++{
++    GtkWidget *row;
++    GtkWidget *key;
++    GtkWidget *text;
++
++    if (value == NULL || *value == '\0')
++    {
++        return;
++    }
++
++    row = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 12);
++    key = gtk_label_new (label);
++    gtk_widget_add_css_class (key, "dim-label");
++    gtk_label_set_xalign (GTK_LABEL (key), 0);
++    text = gtk_label_new (value);
++    gtk_label_set_xalign (GTK_LABEL (text), 1);
++    gtk_label_set_ellipsize (GTK_LABEL (text), PANGO_ELLIPSIZE_MIDDLE);
++    gtk_label_set_selectable (GTK_LABEL (text), TRUE);
++    gtk_widget_set_hexpand (text, TRUE);
++    gtk_widget_set_tooltip_text (text, value);
++    gtk_box_append (GTK_BOX (row), key);
++    gtk_box_append (GTK_BOX (row), text);
++    gtk_box_append (GTK_BOX (self->details), row);
++}
++
++/* Tags are read the way Kulan's tags code writes them: the "user.xdg.tags"
++ * extended attribute, or GIO metadata where a disk can't store those. */
++static void
++show_tags (NautilusKulanPreview *self,
++           const char           *raw)
++{
++    g_auto (GStrv) parts = NULL;
++
++    clear_box (self->tags);
++    gtk_widget_set_visible (self->tags, FALSE);
++    if (raw == NULL || *raw == '\0')
++    {
++        return;
++    }
++
++    parts = g_strsplit (raw, ",", -1);
++    for (guint i = 0; i < G_N_ELEMENTS (kulan_tags); i++)
++    {
++        for (guint j = 0; parts[j] != NULL; j++)
++        {
++            g_autofree char *word = g_ascii_strdown (g_strstrip (parts[j]), -1);
++
++            if (g_str_equal (word, kulan_tags[i].id) ||
++                (g_str_equal (word, "gray") && g_str_equal (kulan_tags[i].id, "grey")))
++            {
++                GtkWidget *chip = gtk_label_new (_(kulan_tags[i].name));
++                g_autofree char *css_class = g_strconcat ("kulan-tag-", kulan_tags[i].id, NULL);
++
++                gtk_widget_add_css_class (chip, "kulan-tag");
++                gtk_widget_add_css_class (chip, css_class);
++                gtk_box_append (GTK_BOX (self->tags), chip);
++                gtk_widget_set_visible (self->tags, TRUE);
++                break;
++            }
++        }
++    }
++}
++
++static void
++on_tags_queried (GObject      *source,
++                 GAsyncResult *result,
++                 gpointer      user_data)
++{
++    NautilusKulanPreview *self;
++    g_autoptr (GFileInfo) info = NULL;
++    g_autoptr (GError) error = NULL;
++    const char *raw;
++
++    info = g_file_query_info_finish (G_FILE (source), result, &error);
++    if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
++    {
++        return;
++    }
++    self = NAUTILUS_KULAN_PREVIEW (user_data);
++    if (info == NULL)
++    {
++        show_tags (self, NULL);
++        return;
++    }
++    raw = g_file_info_get_attribute_string (info, TAGS_XATTR);
++    if (raw == NULL || *raw == '\0')
++    {
++        raw = g_file_info_get_attribute_string (info, TAGS_METADATA);
++    }
++    show_tags (self, raw);
++}
++
++static void
++refresh (NautilusKulanPreview *self)
++{
++    g_autoptr (GdkPaintable) paintable = NULL;
++    g_autofree char *kind = NULL;
++    g_autofree char *size = NULL;
++    g_autofree char *created = NULL;
++    g_autofree char *modified = NULL;
++    g_autofree char *where = NULL;
++    g_autofree char *contents = NULL;
++    g_autoptr (GFile) location = NULL;
++    int scale;
++
++    if (self->file == NULL)
++    {
++        gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "empty");
++        return;
++    }
++    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "file");
++
++    scale = gtk_widget_get_scale_factor (GTK_WIDGET (self));
++    paintable = nautilus_file_get_icon_paintable (self->file, PREVIEW_SIZE, scale,
++                                                  NAUTILUS_FILE_ICON_FLAGS_USE_THUMBNAILS);
++    gtk_picture_set_paintable (GTK_PICTURE (self->picture), paintable);
++
++    gtk_label_set_text (GTK_LABEL (self->name), nautilus_file_get_display_name (self->file));
++    kind = nautilus_file_get_string_attribute (self->file, "detailed_type");
++    gtk_label_set_text (GTK_LABEL (self->kind), kind != NULL ? kind : "");
++
++    clear_box (self->details);
++    if (nautilus_file_is_directory (self->file))
++    {
++        guint count;
++        gboolean unreadable;
++
++        if (nautilus_file_get_directory_item_count (self->file, &count, &unreadable) && !unreadable)
++        {
++            contents = g_strdup_printf (ngettext ("%'u item", "%'u items", count), count);
++        }
++        add_detail (self, _("Contents"), contents);
++    }
++    else
++    {
++        size = nautilus_file_get_string_attribute (self->file, "size");
++        add_detail (self, _("Size"), size);
++    }
++    created = nautilus_file_get_string_attribute (self->file, "date_created");
++    modified = nautilus_file_get_string_attribute (self->file, "date_modified");
++    where = nautilus_file_get_string_attribute (self->file, "where");
++    add_detail (self, _("Created"), created);
++    add_detail (self, _("Modified"), modified);
++    add_detail (self, _("Where"), where);
++
++    g_cancellable_cancel (self->tags_cancellable);
++    g_clear_object (&self->tags_cancellable);
++    self->tags_cancellable = g_cancellable_new ();
++    location = nautilus_file_get_location (self->file);
++    show_tags (self, NULL);
++    if (location != NULL)
++    {
++        g_file_query_info_async (location, TAGS_XATTR "," TAGS_METADATA, G_FILE_QUERY_INFO_NONE,
++                                 G_PRIORITY_DEFAULT, self->tags_cancellable, on_tags_queried, self);
++    }
++}
++
++static void
++on_file_ready (NautilusFile *file,
++               gpointer      user_data)
++{
++    NautilusKulanPreview *self = NAUTILUS_KULAN_PREVIEW (user_data);
++
++    if (file == self->file)
++    {
++        refresh (self);
++    }
++}
++
++static void
++on_file_changed (NautilusFile         *file,
++                 NautilusKulanPreview *self)
++{
++    refresh (self);
++}
++
++static void
++drop_file (NautilusKulanPreview *self)
++{
++    if (self->file == NULL)
++    {
++        return;
++    }
++    nautilus_file_cancel_call_when_ready (self->file, on_file_ready, self);
++    g_clear_signal_handler (&self->changed_id, self->file);
++    nautilus_file_monitor_remove (self->file, self);
++    g_clear_pointer (&self->file, nautilus_file_unref);
++}
++
++void
++nautilus_kulan_preview_set_file (NautilusKulanPreview *self,
++                                 NautilusFile         *file)
++{
++    NautilusFileAttributes attributes;
++
++    g_return_if_fail (NAUTILUS_IS_KULAN_PREVIEW (self));
++
++    if (file == self->file)
++    {
++        return;
++    }
++    drop_file (self);
++    if (file != NULL)
++    {
++        self->file = nautilus_file_ref (file);
++        attributes = NAUTILUS_FILE_ATTRIBUTES_FOR_ICON |
++                     NAUTILUS_FILE_ATTRIBUTE_INFO |
++                     NAUTILUS_FILE_ATTRIBUTE_DIRECTORY_ITEM_COUNT;
++        /* Monitoring asks for thumbnails and item counts and keeps them
++         * current; "changed" redraws when they arrive. */
++        nautilus_file_monitor_add (self->file, self, attributes);
++        self->changed_id = g_signal_connect (self->file, "changed",
++                                             G_CALLBACK (on_file_changed), self);
++        nautilus_file_call_when_ready (self->file, attributes, on_file_ready, self);
++    }
++    refresh (self);
++}
++
++static void
++on_open_clicked (GtkButton            *button,
++                 NautilusKulanPreview *self)
++{
++    GtkRoot *root;
++    NautilusWindowSlot *slot = NULL;
++    g_autoptr (GFile) location = NULL;
++    g_autoptr (GFile) parent = NULL;
++    g_autofree char *parent_uri = NULL;
++
++    if (self->file == NULL)
++    {
++        return;
++    }
++    root = gtk_widget_get_root (GTK_WIDGET (self));
++    if (NAUTILUS_IS_WINDOW (root))
++    {
++        slot = nautilus_window_get_active_slot (NAUTILUS_WINDOW (root));
++    }
++    location = nautilus_file_get_location (self->file);
++    parent = g_file_get_parent (location);
++    parent_uri = parent != NULL ? g_file_get_uri (parent) : NULL;
++    nautilus_mime_activate_file (GTK_WINDOW (root), slot, self->file, parent_uri, 0);
++}
++
++static void
++nautilus_kulan_preview_dispose (GObject *object)
++{
++    NautilusKulanPreview *self = NAUTILUS_KULAN_PREVIEW (object);
++
++    drop_file (self);
++    g_cancellable_cancel (self->tags_cancellable);
++    g_clear_object (&self->tags_cancellable);
++
++    G_OBJECT_CLASS (nautilus_kulan_preview_parent_class)->dispose (object);
++}
++
++static void
++nautilus_kulan_preview_init (NautilusKulanPreview *self)
++{
++    GtkWidget *scrolled;
++    GtkWidget *box;
++    GtkWidget *empty;
++    GtkWidget *buttons;
++    GtkWidget *open;
++
++    gtk_widget_add_css_class (GTK_WIDGET (self), "kulan-preview");
++    gtk_widget_set_size_request (GTK_WIDGET (self), 220, -1);
++
++    self->stack = gtk_stack_new ();
++    adw_bin_set_child (ADW_BIN (self), self->stack);
++
++    empty = adw_status_page_new ();
++    adw_status_page_set_icon_name (ADW_STATUS_PAGE (empty), "view-reveal-symbolic");
++    adw_status_page_set_title (ADW_STATUS_PAGE (empty), _("No Preview"));
++    gtk_widget_add_css_class (empty, "compact");
++    gtk_stack_add_named (GTK_STACK (self->stack), empty, "empty");
++
++    box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 12);
++    gtk_widget_set_margin_top (box, 18);
++    gtk_widget_set_margin_bottom (box, 18);
++    gtk_widget_set_margin_start (box, 18);
++    gtk_widget_set_margin_end (box, 18);
++
++    self->picture = gtk_picture_new ();
++    gtk_picture_set_content_fit (GTK_PICTURE (self->picture), GTK_CONTENT_FIT_CONTAIN);
++    gtk_picture_set_can_shrink (GTK_PICTURE (self->picture), TRUE);
++    gtk_widget_set_size_request (self->picture, -1, 180);
++    gtk_widget_add_css_class (self->picture, "kulan-preview-picture");
++    gtk_box_append (GTK_BOX (box), self->picture);
++
++    self->name = gtk_label_new (NULL);
++    gtk_label_set_wrap (GTK_LABEL (self->name), TRUE);
++    gtk_label_set_wrap_mode (GTK_LABEL (self->name), PANGO_WRAP_WORD_CHAR);
++    gtk_label_set_justify (GTK_LABEL (self->name), GTK_JUSTIFY_CENTER);
++    gtk_label_set_selectable (GTK_LABEL (self->name), TRUE);
++    gtk_widget_add_css_class (self->name, "title-3");
++    gtk_box_append (GTK_BOX (box), self->name);
++
++    self->kind = gtk_label_new (NULL);
++    gtk_label_set_wrap (GTK_LABEL (self->kind), TRUE);
++    gtk_label_set_justify (GTK_LABEL (self->kind), GTK_JUSTIFY_CENTER);
++    gtk_widget_add_css_class (self->kind, "dim-label");
++    gtk_box_append (GTK_BOX (box), self->kind);
++
++    self->tags = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
++    gtk_widget_set_halign (self->tags, GTK_ALIGN_CENTER);
++    gtk_widget_set_visible (self->tags, FALSE);
++    gtk_box_append (GTK_BOX (box), self->tags);
++
++    self->details = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
++    gtk_widget_add_css_class (self->details, "kulan-preview-details");
++    gtk_widget_set_margin_top (self->details, 6);
++    gtk_box_append (GTK_BOX (box), self->details);
++
++    buttons = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 8);
++    gtk_box_set_homogeneous (GTK_BOX (buttons), TRUE);
++    gtk_widget_set_margin_top (buttons, 6);
++    open = gtk_button_new_with_mnemonic (_("_Open"));
++    gtk_widget_add_css_class (open, "suggested-action");
++    gtk_widget_add_css_class (open, "pill");
++    g_signal_connect (open, "clicked", G_CALLBACK (on_open_clicked), self);
++    self->open_button = open;
++    gtk_box_append (GTK_BOX (buttons), open);
++    gtk_box_append (GTK_BOX (box), buttons);
++
++    scrolled = gtk_scrolled_window_new ();
++    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
++    gtk_scrolled_window_set_child (GTK_SCROLLED_WINDOW (scrolled), box);
++    gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "file");
++
++    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "empty");
++}
++
++static void
++nautilus_kulan_preview_class_init (NautilusKulanPreviewClass *klass)
++{
++    GObjectClass *object_class = G_OBJECT_CLASS (klass);
++    GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (klass);
++
++    object_class->dispose = nautilus_kulan_preview_dispose;
++    gtk_widget_class_set_css_name (widget_class, "kulan-preview");
++    gtk_widget_class_set_accessible_role (widget_class, GTK_ACCESSIBLE_ROLE_GROUP);
++}
+diff --git a/src/nautilus-kulan-preview.h b/src/nautilus-kulan-preview.h
+new file mode 100644
+index 0000000..0103f5f
+--- /dev/null
++++ b/src/nautilus-kulan-preview.h
+@@ -0,0 +1,22 @@
++/* Kulan Files: the preview pane (Shift+Ctrl+P), showing the selected item.
++ *
++ * SPDX-License-Identifier: GPL-3.0-or-later
++ */
++
++#pragma once
++
++#include <adwaita.h>
++
++#include "nautilus-types.h"
++
++G_BEGIN_DECLS
++
++#define NAUTILUS_TYPE_KULAN_PREVIEW (nautilus_kulan_preview_get_type ())
++G_DECLARE_FINAL_TYPE (NautilusKulanPreview, nautilus_kulan_preview, NAUTILUS, KULAN_PREVIEW, AdwBin)
++
++/* Show @file (a selected item, or the open folder when nothing is selected);
++ * %NULL empties the pane. */
++void nautilus_kulan_preview_set_file (NautilusKulanPreview *self,
++                                      NautilusFile         *file);
++
++G_END_DECLS
+diff --git a/src/nautilus-window.c b/src/nautilus-window.c
+index 5797763..74c48a3 100644
+--- a/src/nautilus-window.c
++++ b/src/nautilus-window.c
+@@ -48,6 +48,8 @@
+ #include "nautilus-file-operations.h"
+ #include "nautilus-file-undo-manager.h"
+ #include "nautilus-file-utilities.h"
++#include "nautilus-file.h"
++#include "nautilus-kulan-preview.h"
+ #include "nautilus-global-preferences.h"
+ #include "nautilus-metadata.h"
+ #include "nautilus-network-address-bar.h"
+@@ -107,6 +109,13 @@ struct _NautilusWindow
+ 
+     GtkWidget *network_address_bar;
+ 
++    /* Kulan Files: preview pane and status bar */
++    GtkWidget *preview_split;
++    GtkWidget *kulan_preview;
++    GtkWidget *kulan_status_path;
++    GtkWidget *kulan_status_info;
++    GSettings *kulan_settings;
++
+     guint sidebar_width_handler_id;
+ 
+     GQueue *tab_data_queue;
+@@ -276,10 +285,164 @@ action_show_current_location_menu (GSimpleAction *action,
+     nautilus_toolbar_show_current_location_menu (NAUTILUS_TOOLBAR (self->toolbar));
+ }
+ 
++#define KULAN_SCHEMA "org.kulan.desktop"
++#define KULAN_PREVIEW_KEY "files-preview-pane"
++#define KULAN_STATUS_KEY "kulan-status-text"
++
++/* "Home › Documents › Projects": where the open folder is, for the status bar. */
++static char *
++kulan_path_text (GFile *location)
++{
++    g_autoptr (GFile) home = g_file_new_for_path (g_get_home_dir ());
++    g_autoptr (GPtrArray) parts = g_ptr_array_new_with_free_func (g_free);
++    g_autoptr (GString) text = g_string_new (NULL);
++    g_autoptr (GFile) current = NULL;
++
++    if (location == NULL)
++    {
++        return g_strdup ("");
++    }
++    if (!g_file_is_native (location))
++    {
++        g_autoptr (NautilusFile) file = nautilus_file_get (location);
++        return g_strdup (nautilus_file_get_display_name (file));
++    }
++
++    current = g_object_ref (location);
++    while (current != NULL)
++    {
++        g_autoptr (GFile) parent = NULL;
++
++        if (g_file_equal (current, home))
++        {
++            g_ptr_array_add (parts, g_strdup (_("Home")));
++            break;
++        }
++        parent = g_file_get_parent (current);
++        if (parent == NULL)
++        {
++            g_ptr_array_add (parts, g_strdup (_("Computer")));
++            break;
++        }
++        g_ptr_array_add (parts, g_file_get_basename (current));
++        g_set_object (&current, parent);
++    }
++
++    for (gint i = (gint) parts->len - 1; i >= 0; i--)
++    {
++        g_string_append (text, g_ptr_array_index (parts, i));
++        if (i > 0)
++        {
++            g_string_append (text, "  ›  ");
++        }
++    }
++    return g_string_free (g_steal_pointer (&text), FALSE);
++}
++
++static void
++kulan_update_preview (NautilusWindow *window)
++{
++    NautilusWindowSlot *slot = nautilus_window_get_active_slot (window);
++    GList *selection;
++    NautilusFile *file = NULL;
++    g_autoptr (NautilusFile) folder = NULL;
++
++    if (window->kulan_preview == NULL)
++    {
++        return;
++    }
++    if (slot == NULL ||
++        !adw_overlay_split_view_get_show_sidebar (ADW_OVERLAY_SPLIT_VIEW (window->preview_split)))
++    {
++        nautilus_kulan_preview_set_file (NAUTILUS_KULAN_PREVIEW (window->kulan_preview), NULL);
++        return;
++    }
++    selection = nautilus_window_slot_get_selection (slot);
++    if (selection != NULL)
++    {
++        file = selection->data;
++    }
++    else if (nautilus_window_slot_get_location (slot) != NULL)
++    {
++        folder = nautilus_file_get (nautilus_window_slot_get_location (slot));
++        file = folder;
++    }
++    nautilus_kulan_preview_set_file (NAUTILUS_KULAN_PREVIEW (window->kulan_preview), file);
++}
++
++static void
++kulan_update_status (NautilusWindow *window)
++{
++    NautilusWindowSlot *slot = nautilus_window_get_active_slot (window);
++    g_autofree char *path = NULL;
++    const char *info = NULL;
++
++    if (window->kulan_status_path == NULL)
++    {
++        return;
++    }
++    if (slot != NULL)
++    {
++        path = kulan_path_text (nautilus_window_slot_get_location (slot));
++        info = g_object_get_data (G_OBJECT (slot), KULAN_STATUS_KEY);
++    }
++    gtk_label_set_text (GTK_LABEL (window->kulan_status_path), path != NULL ? path : "");
++    gtk_label_set_text (GTK_LABEL (window->kulan_status_info), info != NULL ? info : "");
++}
++
++void
++nautilus_window_kulan_set_status (NautilusWindow     *window,
++                                  NautilusWindowSlot *slot,
++                                  const char         *text)
++{
++    g_return_if_fail (NAUTILUS_IS_WINDOW (window));
++
++    if (slot == NULL)
++    {
++        return;
++    }
++    g_object_set_data_full (G_OBJECT (slot), KULAN_STATUS_KEY, g_strdup (text), g_free);
++    if (slot == nautilus_window_get_active_slot (window))
++    {
++        kulan_update_status (window);
++    }
++}
++
++static void
++on_slot_selection_changed (NautilusWindowSlot *slot,
++                           GParamSpec         *pspec,
++                           NautilusWindow     *window)
++{
++    if (nautilus_window_get_active_slot (window) == slot)
++    {
++        kulan_update_preview (window);
++    }
++}
++
++static void
++action_toggle_preview (GSimpleAction *action,
++                       GVariant      *state,
++                       gpointer       user_data)
++{
++    NautilusWindow *window = NAUTILUS_WINDOW (user_data);
++    gboolean show = g_variant_get_boolean (state);
++
++    g_simple_action_set_state (action, state);
++    adw_overlay_split_view_set_show_sidebar (ADW_OVERLAY_SPLIT_VIEW (window->preview_split), show);
++    if (window->kulan_settings != NULL &&
++        g_settings_get_boolean (window->kulan_settings, KULAN_PREVIEW_KEY) != show)
++    {
++        g_settings_set_boolean (window->kulan_settings, KULAN_PREVIEW_KEY, show);
++    }
++    kulan_update_preview (window);
++}
++
+ static void
+ on_location_changed (NautilusWindow *window)
+ {
+     nautilus_window_sync_location_widgets (window);
++    kulan_update_status (window);
++    kulan_update_preview (window);
+ }
+ 
+ static void
+@@ -357,6 +520,8 @@ connect_slot (NautilusWindow     *window,
+                               G_CALLBACK (update_cursor), window);
+     g_signal_connect (slot, "notify::location",
+                       G_CALLBACK (on_slot_location_changed), window);
++    g_signal_connect (slot, "notify::selection",
++                      G_CALLBACK (on_slot_selection_changed), window);
+ }
+ 
+ static void
+@@ -1105,6 +1270,7 @@ const GActionEntry win_entries[] =
+     { .name = "go-to-tab", .parameter_type = "i", .state = "0", .change_state = action_go_to_tab },
+     { .name = "restore-tab", .activate = action_restore_tab },
+     { .name = "toggle-sidebar", .activate = action_toggle_sidebar },
++    { .name = "toggle-preview", .state = "false", .change_state = action_toggle_preview },
+ };
+ 
+ static void
+@@ -1134,6 +1300,7 @@ nautilus_window_initialize_actions (NautilusWindow *window)
+     nautilus_application_set_accelerator (app, "win.current-location-menu", "F10");
+     nautilus_application_set_accelerator (app, "win.restore-tab", "<shift><control>t");
+     nautilus_application_set_accelerator (app, "win.toggle-sidebar", "F9");
++    nautilus_application_set_accelerator (app, "win.toggle-preview", "<shift><control>p");
+ 
+     /* Alt+N for the first 9 tabs */
+     for (i = 0; i < 9; ++i)
+@@ -1243,6 +1410,26 @@ nautilus_window_constructed (GObject *self)
+     /* Is required that the UI is constructed before initializating the actions, since
+      * some actions trigger UI widgets to show/hide. */
+     nautilus_window_initialize_actions (window);
++
++    /* Kulan Files: the preview pane stays open or closed as it was left. */
++    {
++        GSettingsSchemaSource *source = g_settings_schema_source_get_default ();
++        g_autoptr (GSettingsSchema) schema = NULL;
++
++        if (source != NULL)
++        {
++            schema = g_settings_schema_source_lookup (source, KULAN_SCHEMA, TRUE);
++        }
++        if (schema != NULL && g_settings_schema_has_key (schema, KULAN_PREVIEW_KEY))
++        {
++            window->kulan_settings = g_settings_new (KULAN_SCHEMA);
++            if (g_settings_get_boolean (window->kulan_settings, KULAN_PREVIEW_KEY))
++            {
++                g_action_group_change_action_state (G_ACTION_GROUP (window), "toggle-preview",
++                                                    g_variant_new_boolean (TRUE));
++            }
++        }
++    }
+ }
+ 
+ static void
+@@ -1264,8 +1451,12 @@ nautilus_window_dispose (GObject *object)
+     g_assert (window->slots == NULL);
+ 
+     g_clear_weak_pointer (&window->active_slot);
++    g_clear_object (&window->kulan_settings);
+ 
+     gtk_widget_dispose_template (GTK_WIDGET (window), NAUTILUS_TYPE_WINDOW);
++    window->kulan_preview = NULL;
++    window->kulan_status_path = NULL;
++    window->kulan_status_info = NULL;
+ 
+     G_OBJECT_CLASS (nautilus_window_parent_class)->dispose (object);
+ }
+@@ -1564,6 +1755,7 @@ nautilus_window_init (NautilusWindow *window)
+     g_type_ensure (NAUTILUS_TYPE_GTK_PLACES_SIDEBAR);
+     g_type_ensure (NAUTILUS_TYPE_PROGRESS_INDICATOR);
+     g_type_ensure (NAUTILUS_TYPE_SHORTCUT_MANAGER);
++    g_type_ensure (NAUTILUS_TYPE_KULAN_PREVIEW);
+     gtk_widget_init_template (GTK_WIDGET (window));
+ 
+     g_signal_connect (window, "notify::maximized",
+@@ -1690,6 +1882,10 @@ nautilus_window_class_init (NautilusWindowClass *class)
+     gtk_widget_class_bind_template_child (wclass, NautilusWindow, tab_view);
+     gtk_widget_class_bind_template_child (wclass, NautilusWindow, tab_bar);
+     gtk_widget_class_bind_template_child (wclass, NautilusWindow, network_address_bar);
++    gtk_widget_class_bind_template_child (wclass, NautilusWindow, preview_split);
++    gtk_widget_class_bind_template_child (wclass, NautilusWindow, kulan_preview);
++    gtk_widget_class_bind_template_child (wclass, NautilusWindow, kulan_status_path);
++    gtk_widget_class_bind_template_child (wclass, NautilusWindow, kulan_status_info);
+ 
+     signals[SLOT_ADDED] =
+         g_signal_new ("slot-added",
+diff --git a/src/nautilus-window.h b/src/nautilus-window.h
+index eaf64d8..52a5ae1 100644
+--- a/src/nautilus-window.h
++++ b/src/nautilus-window.h
+@@ -71,6 +71,12 @@ void nautilus_window_open_location_full               (NautilusWindow     *windo
+ 
+ void             nautilus_window_new_tab              (NautilusWindow    *window);
+ NautilusWindowSlot * nautilus_window_get_active_slot       (NautilusWindow *window);
++
++/* Kulan Files: the right side of the status bar ("12 items, 41 GB available")
++ * for a tab; shown while that tab is the active one. */
++void nautilus_window_kulan_set_status (NautilusWindow     *window,
++                                       NautilusWindowSlot *slot,
++                                       const char         *text);
+ void                 nautilus_window_set_active_slot       (NautilusWindow    *window,
+                                                             NautilusWindowSlot *slot);
+ GList *              nautilus_window_get_slots             (NautilusWindow *window);
+diff --git a/src/resources/style.css b/src/resources/style.css
+index d695d08..e4b4921 100644
+--- a/src/resources/style.css
++++ b/src/resources/style.css
+@@ -358,3 +358,46 @@ rubberband {
+ .toolbar.no-bottom-padding {
+   padding-bottom: 0px;
+ }
++
++/* Kulan Files ------------------------------------------------------------- */
++
++/* Status bar: where you are on the left, item count and free space right. */
++.kulan-status-bar {
++  min-height: 26px;
++  padding: 0 12px;
++  font-size: 0.86em;
++  border-top: 1px solid alpha(currentColor, 0.08);
++  background-color: alpha(currentColor, 0.025);
++}
++.kulan-status-bar label { color: alpha(currentColor, 0.72); }
++.kulan-status-bar .kulan-status-path { font-weight: 500; }
++
++/* Sidebar headings: Favourites, Locations, Tags. */
++.kulan-sidebar-heading {
++  margin: 14px 12px 4px 12px;
++  font-size: 0.78em;
++  font-weight: 700;
++}
++
++/* Preview pane. */
++kulan-preview {
++  border-left: 1px solid alpha(currentColor, 0.08);
++  background-color: alpha(currentColor, 0.02);
++}
++kulan-preview .kulan-preview-picture { border-radius: 12px; }
++kulan-preview .kulan-preview-details { font-size: 0.9em; }
++
++/* Tag chips, in the colours of Kulan's tag dots. */
++.kulan-tag {
++  padding: 2px 10px;
++  border-radius: 999px;
++  font-size: 0.85em;
++  font-weight: 600;
++}
++.kulan-tag-red { background-color: alpha(#ef4444, 0.16); color: #dc2626; }
++.kulan-tag-orange { background-color: alpha(#f97316, 0.16); color: #ea580c; }
++.kulan-tag-yellow { background-color: alpha(#eab308, 0.20); color: #a16207; }
++.kulan-tag-green { background-color: alpha(#22c55e, 0.16); color: #15803d; }
++.kulan-tag-blue { background-color: alpha(#3b82f6, 0.16); color: #2563eb; }
++.kulan-tag-purple { background-color: alpha(#a855f7, 0.16); color: #9333ea; }
++.kulan-tag-grey { background-color: alpha(#94a3b8, 0.22); color: #475569; }
+diff --git a/src/resources/ui/nautilus-toolbar.ui b/src/resources/ui/nautilus-toolbar.ui
+index 7468503..4d1b842 100644
+--- a/src/resources/ui/nautilus-toolbar.ui
++++ b/src/resources/ui/nautilus-toolbar.ui
+@@ -106,6 +106,14 @@
+             </child>
+           </object>
+         </child>
++        <child type="end">
++          <object class="GtkToggleButton" id="kulan_preview_button">
++            <property name="icon-name">sidebar-show-right-symbolic</property>
++            <property name="tooltip_text" translatable="yes">Preview (Shift+Ctrl+P)</property>
++            <property name="action-name">win.toggle-preview</property>
++            <property name="focus-on-click">false</property>
++          </object>
++        </child>
+         <child type="end">
+           <object class="NautilusViewControls">
+             <property name="visible" bind-source="NautilusToolbar" bind-property="show-view-controls" bind-flags="sync-create"/>
+diff --git a/src/resources/ui/nautilus-window.ui b/src/resources/ui/nautilus-window.ui
+index feffa93..7dc6b65 100644
+--- a/src/resources/ui/nautilus-window.ui
++++ b/src/resources/ui/nautilus-window.ui
+@@ -166,10 +166,51 @@
+                       </object>
+                     </child>
+                     <property name="content">
+-                      <object class="AdwTabView" id="tab_view">
+-                        <property name="menu-model">tab_menu_model</property>
++                      <object class="AdwOverlaySplitView" id="preview_split">
++                        <property name="sidebar-position">end</property>
++                        <property name="show-sidebar">False</property>
++                        <property name="enable-show-gesture">False</property>
++                        <property name="enable-hide-gesture">False</property>
++                        <property name="min-sidebar-width">220</property>
++                        <property name="max-sidebar-width">320</property>
++                        <property name="sidebar-width-fraction">0.28</property>
++                        <property name="content">
++                          <object class="AdwTabView" id="tab_view">
++                            <property name="menu-model">tab_menu_model</property>
++                          </object>
++                        </property>
++                        <property name="sidebar">
++                          <object class="NautilusKulanPreview" id="kulan_preview"/>
++                        </property>
+                       </object>
+                     </property>
++                    <child type="bottom">
++                      <object class="GtkBox" id="kulan_status_bar">
++                        <property name="spacing">12</property>
++                        <style>
++                          <class name="kulan-status-bar"/>
++                        </style>
++                        <child>
++                          <object class="GtkLabel" id="kulan_status_path">
++                            <property name="hexpand">True</property>
++                            <property name="xalign">0</property>
++                            <property name="ellipsize">start</property>
++                            <style>
++                              <class name="kulan-status-path"/>
++                            </style>
++                          </object>
++                        </child>
++                        <child>
++                          <object class="GtkLabel" id="kulan_status_info">
++                            <property name="xalign">1</property>
++                            <property name="ellipsize">end</property>
++                            <style>
++                              <class name="kulan-status-info"/>
++                            </style>
++                          </object>
++                        </child>
++                      </object>
++                    </child>
+                     <child type="bottom">
+                       <object class="NautilusNetworkAddressBar" id="network_address_bar">
+                         <property name="visible">False</property>

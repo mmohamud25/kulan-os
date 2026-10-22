@@ -65,6 +65,9 @@ APPS=(dist/debs/kulan-apps_*.deb)
 }
 # Kulan Assistant's engine (ci/build-engine.sh), when CI built it for PCs.
 ENGINE=(dist/engine/kulan-assistant-engine_*_amd64.deb)
+# Kulan Files (ci/build-nautilus.sh), when CI built it for PCs.
+FILES=(dist/files/*.deb)
+[[ -e "${FILES[0]:-}" ]] || FILES=()
 VERSION="$(cat dist/debs/VERSION)"
 
 # --- Start from the released version, as existing users do -----------------------
@@ -99,7 +102,7 @@ apt-get update -q >/dev/null 2>&1
 # and Debian's vendor logos can be checked; xvfb, xauth and dbus-x11 so Kulan
 # Settings can open every page on a virtual screen; appstream for the store
 # pages.
-if apt-get install -y -q "${DEBS[@]/#/./}" "${ENGINE[@]/#/./}" htop gnome-tour gdm3 desktop-base xvfb xauth dbus-x11 appstream \
+if apt-get install -y -q "${DEBS[@]/#/./}" "${ENGINE[@]/#/./}" "${FILES[@]/#/./}" htop gnome-tour gdm3 desktop-base xvfb xauth dbus-x11 appstream \
 	>/tmp/install.log 2>&1; then
 	result pass "Install" "kulan-base, kulan-desktop-settings, kulan-settings, kulan-welcome, kulan-update-center, kulan-assistant ${VERSION}${ENGINE:+ and the assistant engine} with Debian dependencies"
 else
@@ -265,6 +268,27 @@ check "Undo last update" "restores the newest pre-update point after saving the 
 	grep -q "Unattended-Upgrade \"0\"" "$D/pause" && grep -qE "Until: [0-9]+" "$D/pause"'
 check "Kulan Store" "GNOME Software shown as Kulan Store with its icon; Kulan picks in the catalogue" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Kulan Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml'
 check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
+check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I - <<'PY'
+import os, sys, tempfile
+home = tempfile.mkdtemp()
+os.environ["XDG_DATA_HOME"] = os.path.join(home, "data")
+sys.path.insert(0, "/usr/share/kulan/python")
+import kulan_tags as k
+a, b = os.path.join(home, "a.txt"), os.path.join(home, "b.txt")
+for p in (a, b):
+    open(p, "w").write("x")
+k.remember(a, ["red"]); k.remember(b, ["red", "blue"])
+red = k.TAG_FOLDERS / "Red"
+assert sorted(os.listdir(red)) == ["a.txt", "b.txt"] and os.readlink(red / "a.txt") == a
+k.remember(b, [])
+assert not (k.TAG_FOLDERS / "Blue").exists() and os.listdir(red) == ["a.txt"]
+PY
+if [[ ${#FILES[@]} -gt 0 ]]; then
+	NAUT="$(dpkg-query -W -f '${Version}' nautilus 2>/dev/null)"
+	check "Kulan Files" "Nautilus ${NAUT} with the status bar, preview pane and sidebar sections" bash -c "[[ '${NAUT}' == *+kulan* ]] && grep -aq kulan-status-bar /usr/bin/nautilus && grep -aq 'NautilusKulanPreview' /usr/bin/nautilus && grep -aq kulan-sidebar-heading /usr/bin/nautilus && grep -aq win.toggle-preview /usr/bin/nautilus"
+else
+	result skip "Kulan Files" "no Kulan Files package for PCs in this run"
+fi
 check "Calm file indexing" "file search indexing runs only when the computer is idle" grep -qx "CPUWeight=idle" /usr/lib/systemd/user/localsearch-3.service.d/50-kulan-idle.conf
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Restore point limits" "newest 2 update-time points kept, own ones never deleted, size recorded" bash -c '

@@ -24,6 +24,9 @@ NAMES = {tag: name for tag, name in TAGS}
 XATTR = "user.xdg.tags"
 METADATA = "metadata::kulan-tags"
 INDEX = Path(GLib.get_user_data_dir()) / "kulan" / "tags.json"
+# One folder of links per tag in use, named in English (Kulan Files shows
+# them, translated, under Tags in its sidebar).
+TAG_FOLDERS = Path(GLib.get_user_data_dir()) / "kulan" / "tag-folders"
 MAX_INDEX = 20000
 
 
@@ -119,6 +122,62 @@ def remember(path: str, tags: list[str]) -> None:
     else:
         return
     save_index(index)
+    sync_tag_folders(index)
+
+
+def _link_names(paths: list[str]) -> dict[str, str]:
+    """A link name for each path: its own name, or "name (2).txt" when two
+    tagged files share a name."""
+    names: dict[str, str] = {}
+    for path in sorted(paths):
+        base = os.path.basename(path.rstrip("/")) or path
+        stem, ext = os.path.splitext(base)
+        name, n = base, 2
+        while name in names:
+            name = f"{stem} ({n}){ext}"
+            n += 1
+        names[name] = path
+    return names
+
+
+def sync_tag_folders(index: dict[str, list[str]] | None = None) -> None:
+    """Make each tag's folder hold links to exactly the files with that tag,
+    and remove the folders of tags nobody uses. Only links are ever removed."""
+    if index is None:
+        index = load_index()
+    for tag, name in TAGS:
+        folder = TAG_FOLDERS / name
+        wanted = _link_names([p for p, tags in index.items() if tag in tags and os.path.lexists(p)])
+        try:
+            existing = {entry.name: entry for entry in os.scandir(folder)} if folder.is_dir() else {}
+        except OSError:
+            existing = {}
+        for entry_name, entry in existing.items():
+            if entry.is_symlink() and (entry_name not in wanted or os.readlink(entry.path) != wanted[entry_name]):
+                try:
+                    os.unlink(entry.path)
+                except OSError:
+                    pass
+        if not wanted:
+            try:
+                folder.rmdir()  # only when empty: anything else put there stays
+            except OSError:
+                pass
+            continue
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        for link_name, target in wanted.items():
+            link = folder / link_name
+            if os.path.islink(link) and os.readlink(link) == target:
+                continue
+            if os.path.lexists(link):
+                continue  # something that isn't Kulan's link: leave it
+            try:
+                os.symlink(target, link)
+            except OSError:
+                pass
 
 
 def find(tag: str) -> list[str]:
