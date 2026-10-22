@@ -306,6 +306,11 @@ if [[ -n "${SECOND}" ]] && grep -qx 'desktop_user=kulan' <<<"${SECOND}"; then
 	fi
 else
 	result fail "Start with TPM unlock" "no desktop after the restart within ${ELAPSED} s (waiting for a password?): $(tail -n 3 <<<"${LOG}" | tr '\n' ' ' | cut -c1-200)"
+	# Everything the console showed after the first start's report: the
+	# restart, the start-up image and any password prompt.
+	AFTER="$(awk '/KULAN-BOOT-REPORT-END/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' <<<"${LOG}" |
+		sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -cd '\11\12\40-\176' | grep -v '^[[:space:]]*$' | cut -c1-200 | tail -n 60)"
+	echo "::error title=TPM test: console after the restart::$(printf '%s' "${AFTER:-nothing at all on the console after the first start}" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
 fi
 summary
 exit "${FAILED}"
