@@ -223,17 +223,30 @@ jobs:
           name: kulan-engine-arm64
           path: dist/debs/
 
-      # Kulan Files for both architectures (nautilus-data is the same in both).
+      # Kulan Files for both architectures. The architecture-independent
+      # packages (nautilus-data) are built on both with the same version but
+      # not byte for byte the same, so only the PC build's copy is published.
+      # The ISOs use that same copy (see "Use the PC build's shared packages"):
+      # a different file under the same version made apt in the image build
+      # want to "downgrade" to the channel's copy, and stop.
+      - uses: actions/download-artifact@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          name: kulan-files-arm64
+          path: dist/files-arm64/
       - uses: actions/download-artifact@v7
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-files-amd64
           path: dist/debs/
-      - uses: actions/download-artifact@v7
+      - name: Add the Arm-only Kulan Files packages
         if: steps.ready.outputs.ready == 'true'
-        with:
-          name: kulan-files-arm64
-          path: dist/debs/
+        run: |
+          for deb in dist/files-arm64/*.deb; do
+            case "$deb" in *_all.deb) continue ;; esac
+            cp -v "$deb" dist/debs/
+          done
+          rm -rf dist/files-arm64
 
       - name: Build signed package repository
         if: steps.ready.outputs.ready == 'true'
@@ -305,6 +318,22 @@ jobs:
         with:
           name: kulan-files-${{ matrix.arch }}
           path: config/packages.chroot/
+
+      # The update channel carries the PC build's architecture-independent
+      # packages; the image must hold the very same files (see publish).
+      - name: Get the PC build's shared packages
+        if: matrix.arch != 'amd64'
+        uses: actions/download-artifact@v7
+        with:
+          name: kulan-files-amd64
+          path: dist/files-amd64/
+      - name: Use the PC build's shared packages
+        if: matrix.arch != 'amd64'
+        run: |
+          for deb in dist/files-amd64/*_all.deb; do
+            cp -v "$deb" config/packages.chroot/
+          done
+          rm -rf dist/files-amd64
 
       # A GNOME image needs ~15 GB of scratch space; the runner image ships
       # with toolchains we don't use, so remove them first.
