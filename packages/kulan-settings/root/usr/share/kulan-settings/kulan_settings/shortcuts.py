@@ -334,7 +334,9 @@ class ShortcutsDialog(Adw.PreferencesDialog):
                 values = [v for v in self.schema(other_schema).get_strv(other_key)
                           if parse(v)[1:] != parse(accel)[1:]]
                 self.schema(other_schema).set_strv(other_key, values)
-                self.labels[(other_schema, other_key)].set_accelerator(self.accel_of(other_schema, other_key))
+                other_label = self.labels.get((other_schema, other_key))  # hidden rows have none
+                if other_label is not None:
+                    other_label.set_accelerator(self.accel_of(other_schema, other_key))
                 self.toast(f"{readable(accel)} was for “{other_title}”, which is now off")
             gsettings.set_strv(key, [accel])
         self.labels[(schema, key)].set_accelerator(self.accel_of(schema, key))

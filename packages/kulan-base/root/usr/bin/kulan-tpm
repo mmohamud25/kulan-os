@@ -186,7 +186,10 @@ def turn_on() -> int:
         return 65
 
     say("Installing dracut and the TPM tools…")
-    r = run(["apt-get", "install", "-y", "-q", "dracut", "systemd-cryptsetup", "tpm2-tools"])
+    # Never stop to ask (it can run from Kulan Settings, with nobody at a terminal).
+    r = run(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confdef",
+             "-o", "Dpkg::Options::=--force-confold", "dracut", "systemd-cryptsetup", "tpm2-tools"],
+            env={"DEBIAN_FRONTEND": "noninteractive"}, input_text="")
     if r.returncode != 0:
         say("dracut couldn't be installed (is the computer online?): " + r.stderr.strip()[-300:])
         return 1

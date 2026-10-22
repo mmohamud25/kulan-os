@@ -327,12 +327,6 @@ class UsersPage(Page):
         auto = Adw.SwitchRow(title="Sign in automatically", active=bool(prop(user, "AutomaticLogin", False)))
         auto.connect("notify::active", lambda r, _p: self.set_flag(user, "SetAutomaticLogin", r.get_active()))
         row.add_row(auto)
-        reset = Adw.ActionRow(title="New password at next sign-in",
-                              subtitle="They choose a new password the next time they sign in", activatable=True)
-        reset.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        reset.connect("activated", lambda _r: call(user, "SetPasswordMode", GLib.Variant("(i)", (1,)),
-                                                   lambda e, _r: self.toast(e or f"{real} sets a new password next time")))
-        row.add_row(reset)
         remove = Adw.ActionRow(title="Remove this account…", activatable=True, css_classes=["error"])
         remove.connect("activated", lambda _r: self.remove_dialog(user, real))
         row.add_row(remove)

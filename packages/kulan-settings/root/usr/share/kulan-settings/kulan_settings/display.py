@@ -147,7 +147,11 @@ class DisplayPage(Page):
                 return
             chosen_how, chosen_screen, _label = uses[use_row.get_selected()]
             new_primary = chosen_screen or connectors[main_row.get_selected()]
-            new_sides = {c: screens.SIDES[r.get_selected()][0] for c, r in side_rows.items()}
+            if new_primary != primary:
+                # A new main screen: keep every screen where it is now, seen from the new one.
+                new_sides = screens.sides_around(self.state, new_primary)
+            else:
+                new_sides = {c: screens.SIDES[r.get_selected()][0] for c, r in side_rows.items()}
             try:
                 config = screens.layout_config(self.state, chosen_how, new_primary, new_sides)
             except ValueError as exc:

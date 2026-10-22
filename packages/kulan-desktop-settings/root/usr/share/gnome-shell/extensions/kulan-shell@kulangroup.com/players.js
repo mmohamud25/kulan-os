@@ -43,8 +43,11 @@ class Player extends Signals.EventEmitter {
                         }
                     });
             });
-            [this._root, this._player] = await Promise.all([
+            const [root, player] = await Promise.all([
                 make('org.mpris.MediaPlayer2'), make('org.mpris.MediaPlayer2.Player')]);
+            if (this._cancel.is_cancelled())
+                return; // destroyed while connecting
+            [this._root, this._player] = [root, player];
         } catch (e) {
             if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 logError(e, `Kulan Shell: media player ${this.busName}`);
@@ -152,6 +155,7 @@ export class Players extends Signals.EventEmitter {
     constructor() {
         super();
         this._players = new Map();
+        this._cancel = new Gio.Cancellable();
         this._bus = Gio.DBus.session;
         this._watchId = this._bus.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus',
             'NameOwnerChanged', '/org/freedesktop/DBus', null, Gio.DBusSignalFlags.NONE,
@@ -165,13 +169,16 @@ export class Players extends Signals.EventEmitter {
                     this._remove(name);
             });
         this._bus.call('org.freedesktop.DBus', '/org/freedesktop/DBus', 'org.freedesktop.DBus', 'ListNames',
-            null, new GLib.VariantType('(as)'), Gio.DBusCallFlags.NONE, -1, null, (bus, res) => {
+            null, new GLib.VariantType('(as)'), Gio.DBusCallFlags.NONE, -1, this._cancel, (bus, res) => {
                 try {
                     const [names] = bus.call_finish(res).deepUnpack();
+                    if (this._cancel.is_cancelled())
+                        return;
                     for (const name of names.filter(n => n.startsWith(PREFIX)))
                         this._add(name);
                 } catch (e) {
-                    logError(e, 'Kulan Shell: listing media players');
+                    if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                        logError(e, 'Kulan Shell: listing media players');
                 }
             });
     }
@@ -181,7 +188,7 @@ export class Players extends Signals.EventEmitter {
     }
 
     _add(name) {
-        if (this._players.has(name))
+        if (this._cancel.is_cancelled() || this._players.has(name))
             return;
         const player = new Player(name);
         player.connect('changed', () => this.emit('changed'));
@@ -198,6 +205,7 @@ export class Players extends Signals.EventEmitter {
     }
 
     destroy() {
+        this._cancel.cancel();
         if (this._watchId) {
             this._bus.signal_unsubscribe(this._watchId);
             this._watchId = 0;

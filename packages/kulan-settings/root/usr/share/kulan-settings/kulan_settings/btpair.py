@@ -122,13 +122,23 @@ class Agent:
             self.ask(f"Type this code on {name}", "Then press Enter on the device.", None, label, lambda _ok: None)
             invocation.return_value(None)
         elif method in ("RequestPinCode", "RequestPasskey"):
-            # Keyboards and older devices: make up a code for the person to type there.
+            # A keyboard: type the suggested code on it. A headset or speaker with a
+            # fixed PIN: type that PIN here (usually 0000, printed in its manual).
             code = f"{random.randint(0, 999999):06d}"
-            label = Gtk.Label(label=code, css_classes=["title-1", "numeric"])
-            self.ask(f"Type this code on {name}", "Then press Enter on the device, and Continue here.",
-                     "Continue", label,
-                     lambda ok: (invocation.return_value(GLib.Variant("(s)", (code,)) if method == "RequestPinCode"
-                                                         else GLib.Variant("(u)", (int(code),)))
-                                 if ok else self.reject(invocation)))
+            entry = Gtk.Entry(text=code, max_length=16, input_purpose=Gtk.InputPurpose.DIGITS,
+                              activates_default=True, xalign=0.5, css_classes=["title-2"])
+            entry.update_property([Gtk.AccessibleProperty.LABEL], ["Pairing code"])
+
+            def answered(ok: bool) -> None:
+                pin = entry.get_text().strip()
+                if not ok or not pin or (method == "RequestPasskey" and not pin.isdigit()):
+                    self.reject(invocation)
+                elif method == "RequestPinCode":
+                    invocation.return_value(GLib.Variant("(s)", (pin,)))
+                else:
+                    invocation.return_value(GLib.Variant("(u)", (int(pin) % 1000000,)))
+            self.ask(f"Pairing code for {name}",
+                     "For a keyboard: type this code on it and press Enter, then Continue here. For headphones or "
+                     "a speaker: type its own PIN here instead (often 0000).", "Continue", entry, answered)
         else:
             invocation.return_dbus_error("org.bluez.Error.Rejected", "Not supported")

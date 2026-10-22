@@ -139,7 +139,9 @@ printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=kulan\n' | sudo tee 
 # typed password) can open the disk. Reports to the serial console.
 sudo tee "${MNT}/usr/local/sbin/kulan-tpm-test-setup" >/dev/null <<EOF
 #!/bin/bash
-exec >/dev/ttyS0 2>&1
+# Also kept on /boot (not encrypted), so the test can read every line even
+# when the console output is cut short or mixed with kernel messages.
+exec > >(tee -a /boot/kulan-tpm-setup.log >/dev/ttyS0) 2>&1
 echo KULAN-TPM-SETUP-BEGIN
 kulan-tpm status --json
 printf '%s\n' '${PASSWORD}' | kulan-tpm on; echo "tpm_on_exit=\$?"
@@ -152,6 +154,7 @@ cryptsetup luksDump "\$(blkid -t UUID=${LUKS_UUID} -o device)" | grep -E '^\s+[0
 systemctl disable kulan-tpm-test-setup.service
 echo KULAN-TPM-SETUP-END
 sync
+sleep 1
 systemctl reboot
 EOF
 sudo chmod 755 "${MNT}/usr/local/sbin/kulan-tpm-test-setup"
@@ -248,8 +251,23 @@ PY
 	"${OUT}/screen.ppm" "${OUT}/screen.png" 2>/dev/null && rm -f "${OUT}/screen.ppm"
 
 # --- Results ---------------------------------------------------------------------------
+# The setup step's own log from /boot (see kulan-tpm-test-setup).
+BOOT_LOOP="$(sudo losetup -fP --show "${WORK}/disk.img" 2>/dev/null || true)"
+if [[ -n "${BOOT_LOOP}" ]]; then
+	sudo mkdir -p "${WORK}/bootpart"
+	if sudo mount -o ro "${BOOT_LOOP}p2" "${WORK}/bootpart" 2>/dev/null; then
+		# shellcheck disable=SC2024  # the copy belongs to this user, on purpose
+		sudo cat "${WORK}/bootpart/kulan-tpm-setup.log" > "${OUT}/setup.log" 2>/dev/null || true
+		sudo umount "${WORK}/bootpart"
+	fi
+	sudo losetup -d "${BOOT_LOOP}"
+fi
 LOG="$(tr -d '\r' < "${OUT}/serial.log")"
-SETUP="$(awk '/KULAN-TPM-SETUP-BEGIN/{f=1} f{print} /KULAN-TPM-SETUP-END/{exit}' <<<"${LOG}")"
+if [[ -s "${OUT}/setup.log" ]]; then
+	SETUP="$(tr -d '\r' < "${OUT}/setup.log")"
+else
+	SETUP="$(awk '/KULAN-TPM-SETUP-BEGIN/{f=1} f{print} /KULAN-TPM-SETUP-END/{exit}' <<<"${LOG}")"
+fi
 if [[ -z "${SETUP}" ]]; then
 	fail_now "First start" "the setup step never ran: $(grep -aiE 'crypt|gave up|ALERT|not exist|unable|kulan_crypt' <<<"${LOG}" | tail -n 6 | tr '\n' ' ' | cut -c1-400) | last: $(tail -n 2 <<<"${LOG}" | tr '\n' ' ' | cut -c1-120)"
 fi
@@ -261,7 +279,7 @@ fi
 if grep -qx 'tpm_on_exit=0' <<<"${SETUP}"; then
 	result pass "kulan-tpm on" "dracut installed, TPM key added and checked, start-up image rebuilt"
 else
-	result fail "kulan-tpm on" "$(grep -v '^slot\|^{\|^ \|^}' <<<"${SETUP}" | grep -v KULAN | tail -n 4 | tr '\n' ' ' | cut -c1-300)"
+	result fail "kulan-tpm on" "$(grep -v '^slot\|^{\|^ \|^}' <<<"${SETUP}" | grep -v KULAN | grep -v '^\s*$' | tail -n 8 | tr '\n' ' ' | cut -c1-600)"
 fi
 SLOTS="$(sed -n 's/^slot //p' <<<"${SETUP}" | tr '\n' ' ')"
 if grep -qx 'key_removed=0' <<<"${SETUP}" && grep -q 'tpm2-device=auto' <<<"${SETUP}" && grep -q ' none ' <<<"$(grep '^crypttab=' <<<"${SETUP}")"; then

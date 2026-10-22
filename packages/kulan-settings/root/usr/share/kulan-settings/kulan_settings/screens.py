@@ -164,6 +164,33 @@ def usual_mode(monitor: dict, current: dict | None) -> dict | None:
     return modes_for(monitor, sizes[0])[0] if sizes else None
 
 
+def sides_around(state: State, center: str) -> dict[str, str]:
+    """Where each active screen sits now, seen from the center screen."""
+    middle = state.logical_for(center)
+    if middle is None:
+        return {}
+    mode = state.current_mode(center) or {"width": 1920, "height": 1080}
+    cw, ch = logical_size(mode["width"], mode["height"], middle["scale"], middle["transform"], state.layout_mode)
+    sides = {}
+    for lm in state.logical:
+        if lm is middle:
+            continue
+        dx, dy = lm["x"] - middle["x"], lm["y"] - middle["y"]
+        if dx >= cw:
+            side = "right"
+        elif dx < 0 and abs(dx) >= abs(dy):
+            side = "left"
+        elif dy < 0:
+            side = "above"
+        elif dy >= ch:
+            side = "below"
+        else:
+            side = "right"
+        for c in lm["connectors"]:
+            sides[c] = side
+    return sides
+
+
 def arrangement(state: State) -> tuple[str, str, dict[str, str]]:
     """How the screens are used now: ("join"|"mirror"|"single", primary
     connector, {connector: side of the primary})."""
@@ -173,26 +200,7 @@ def arrangement(state: State) -> tuple[str, str, dict[str, str]]:
     primary = primary_lm["connectors"][0]
     if len(state.logical) == 1:
         return ("mirror" if len(primary_lm["connectors"]) > 1 else "single"), primary, {}
-    sides = {}
-    pmode = state.current_mode(primary) or {"width": 1920, "height": 1080}
-    pw, ph = logical_size(pmode["width"], pmode["height"], primary_lm["scale"], primary_lm["transform"],
-                          state.layout_mode)
-    for lm in state.logical:
-        if lm is primary_lm:
-            continue
-        dx, dy = lm["x"] - primary_lm["x"], lm["y"] - primary_lm["y"]
-        if dx >= pw:
-            side = "right"
-        elif dx < 0 and abs(dx) >= abs(dy):
-            side = "left"
-        elif dy < 0:
-            side = "above"
-        elif dy >= ph:
-            side = "below"
-        else:
-            side = "right"
-        for c in lm["connectors"]:
-            sides[c] = side
+    sides = sides_around(state, primary)
     return "join", primary, sides
 
 

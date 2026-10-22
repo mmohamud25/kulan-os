@@ -101,7 +101,8 @@ def add_enterprise(connection, method: str, identity: str, password: str, anonym
     if anonymous:
         eap.set_property(NM.SETTING_802_1X_ANONYMOUS_IDENTITY, anonymous)
     if domain:
-        # Check the server's certificate against the computer's trusted list.
+        # Check the server's certificate against the computer's trusted list,
+        # and that it belongs to this organisation.
         eap.set_property(NM.SETTING_802_1X_SYSTEM_CA_CERTS, True)
         eap.set_property(NM.SETTING_802_1X_DOMAIN_SUFFIX_MATCH, domain)
     connection.add_setting(eap)
@@ -131,6 +132,7 @@ class NetworkExtras:
         hidden.connect("activated", lambda _r: self.hidden_dialog())
         more.add(hidden)
         self.syncing = False
+        self.hotspot_password = ""
 
     # --- called by the Wi-Fi page ------------------------------------------------------
     @property
@@ -179,6 +181,9 @@ class NetworkExtras:
         password = entry_row("Password", password=True)
         anonymous = entry_row("Anonymous identity (if your IT team gave one)")
         domain = entry_row("Server domain (for example, radius.example.org)")
+        unchecked = Adw.SwitchRow(title="Connect without checking the server",
+                                  subtitle="Not safe: a fake network with the same name could learn your password. "
+                                           "Only if your IT team has no server domain to give")
 
         def go() -> None:
             connection = wifi_connection(ssid, hidden)
@@ -186,10 +191,12 @@ class NetworkExtras:
                            password.get_text(), anonymous.get_text().strip(), domain.get_text().strip())
             self.activate_new(connection, device, ap_path, ssid)
         form_dialog(self.page.window, f"Join “{ssid}”",
-                    "Your work or school’s Wi-Fi sign-in. With a server domain, the computer checks it’s really "
-                    "your network before sending the password.",
-                    [method, identity, password, anonymous, domain], "Join",
-                    lambda: bool(identity.get_text().strip() and password.get_text()), go)
+                    "Your work or school’s Wi-Fi sign-in. The server domain (from your IT team or your school’s "
+                    "Wi-Fi instructions) lets the computer check it’s really your network before sending the "
+                    "password.",
+                    [method, identity, password, anonymous, domain, unchecked], "Join",
+                    lambda: bool(identity.get_text().strip() and password.get_text()
+                                 and (domain.get_text().strip() or unchecked.get_active())), go)
 
     def hidden_dialog(self) -> None:
         device = self.page.wifi_device()
@@ -329,7 +336,8 @@ class NetworkExtras:
         if connection is not None and active is not None:
             wireless = connection.get_setting_wireless()
             name = (wireless.get_ssid().get_data() or b"").decode("utf-8", "replace") if wireless else ""
-            self.hotspot_details.set_subtitle(f"{name} · password shown when you turn it on")
+            self.hotspot_details.set_subtitle(f"{name} · password {self.hotspot_password}" if self.hotspot_password
+                                              else f"{name} · turn it off and on again to see a new password")
             self.hotspot_details.set_visible(True)
         else:
             self.hotspot_details.set_visible(False)
@@ -365,6 +373,7 @@ class NetworkExtras:
         self.client.add_and_activate_connection_async(
             connection, device, None, None,
             self.page.finish_quietly("add_and_activate_connection_finish", "Couldn’t start the hotspot"))
+        self.hotspot_password = password
         self.hotspot_details.set_subtitle(f"{name} · password {password}")
         self.hotspot_details.set_visible(True)
         self.page.toast("Hotspot starting (Wi-Fi disconnects from other networks while it’s on)")

@@ -62,6 +62,7 @@ class WallpaperDialog(Adw.Dialog):
         if not self.items:
             self.flow.append(Gtk.Label(label="No other wallpapers are installed", css_classes=["dim-label"]))
             return
+        self.loader = 0
         current = background.get_string("picture-uri-dark" if dark else "picture-uri")
         self.pictures: list[Gtk.Picture] = []
         for item in self.items:
@@ -81,10 +82,17 @@ class WallpaperDialog(Adw.Dialog):
         # Thumbnails load one at a time when the app is idle, so the dialog
         # opens at once even with large pictures.
         self.next = 0
-        GLib.idle_add(self.load_next)
+        self.loader = GLib.idle_add(self.load_next)
+        self.connect("closed", self.stop_loading)
+
+    def stop_loading(self, *_a) -> None:
+        if self.loader:
+            GLib.source_remove(self.loader)
+            self.loader = 0
 
     def load_next(self) -> bool:
         if self.next >= len(self.items):
+            self.loader = 0
             return GLib.SOURCE_REMOVE
         item = self.items[self.next]
         path = item["dark" if self.dark else "light"]

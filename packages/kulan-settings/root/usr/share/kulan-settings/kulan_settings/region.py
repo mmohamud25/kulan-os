@@ -16,6 +16,8 @@ from .users import Accounts, call, prop
 LOCALE_DATA = Path("/usr/share/i18n/locales")
 SUPPORTED = Path("/usr/share/i18n/SUPPORTED")
 TITLE = re.compile(r'^title\s+"(.*)"', re.M)
+# What the root helper accepts (update-run locale-add); offer nothing else.
+HELPER_NAME = re.compile(r"^[a-z]{2,3}_[A-Z]{2}\.UTF-8(@[a-z]+)?$")
 WORDY = re.compile(r"^(.*?)\s+(?:language\s+)?locale\s+for\s+(?:the\s+)?(.*?)\.?$", re.I)
 
 
@@ -65,7 +67,7 @@ def supported_locales() -> list[str]:
     # Only names that say UTF-8 ("so_SO.UTF-8"): the helper adds exactly
     # these, and they show up again in `locale -a` under the same name.
     names = [line.split()[0] for line in lines
-             if len(line.split()) == 2 and line.split()[1] == "UTF-8" and ".UTF-8" in line.split()[0]]
+             if len(line.split()) == 2 and line.split()[1] == "UTF-8" and HELPER_NAME.match(line.split()[0])]
     return sorted(set(names), key=lambda n: locale_label(n).lower())
 
 
