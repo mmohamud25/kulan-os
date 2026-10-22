@@ -25,6 +25,9 @@ KEXEC=/usr/sbin/kexec
 
 uses_fast_restart() {
 	[ "$(uname -m)" = aarch64 ] || return 1
+	# Not in the live session from the ISO: its start-up files are on the
+	# disc (/live), not in /boot, so a fast restart couldn't start it again.
+	grep -qw "boot=live" /proc/cmdline 2>/dev/null && return 1
 	[ -e "${OPT_OUT}" ] && return 1
 	[ -x "${KEXEC}" ] || return 1
 	case "$(systemd-detect-virt --vm 2>/dev/null)" in

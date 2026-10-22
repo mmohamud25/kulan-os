@@ -1,0 +1,44 @@
+name: Follow Debian updates
+
+# Kulan Files is Debian's Nautilus with Kulan's patch. When Debian updates
+# Nautilus (for example a security fix), its version becomes newer than the
+# one on the update channel and computers would go back to plain Files until
+# Kulan's is rebuilt. Every day this compares the two and, when Debian is
+# ahead, starts a full build of main, which rebuilds Kulan Files on top of
+# Debian's new version and publishes it.
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  check:
+    name: Is Debian's Nautilus newer?
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Compare versions
+        id: compare
+        run: |
+          DEBIAN="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh --version | tail -n 1)"
+          . ./kulan.conf
+          CHANNEL="$(curl -fsS "${KULAN_APT_URL}Packages" | awk '/^Package: nautilus$/ {p=1} p && /^Version:/ {print $2; exit}')"
+          echo "Debian: ${DEBIAN}  Kulan channel: ${CHANNEL:-none}"
+          if [ -z "${DEBIAN}" ]; then
+            echo "::error title=Debian updates::couldn't read Debian's Nautilus version"
+            exit 1
+          fi
+          case "${CHANNEL}" in
+            "${DEBIAN}"+kulan*) echo "rebuild=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "rebuild=true" >> "$GITHUB_OUTPUT"
+               echo "::notice title=Debian updates::Debian has Nautilus ${DEBIAN}; the channel has ${CHANNEL:-none}. Rebuilding." ;;
+          esac
+      - name: Start a build of main
+        if: steps.compare.outputs.rebuild == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run build-iso.yml --ref main -f arch=both
