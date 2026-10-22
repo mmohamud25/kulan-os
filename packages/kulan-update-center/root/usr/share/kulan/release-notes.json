@@ -33,7 +33,8 @@
       "Encrypted disks: if you mistype the disk password when the computer starts, it simply asks again instead of giving up after three tries",
       "Smaller, calmer icons: Files (64 px, about the Finder's size), the desktop, the dock and the app grid; each can still be made bigger in Kulan Settings or Files",
       "Kulan's red, yellow and green window buttons on more apps: apps from the Kulan Store (Flatpak) and Qt apps such as KeePassXC (they now open through XWayland, where GNOME draws their frame, kept sharp on high-resolution screens)",
-      "A new start-up screen: the six dots of the Kulan gathering walk in and meet, the centre lights up, and the ring gently breathes while the computer starts; the disk password is asked right under it"
+      "A new start-up screen: the six dots of the Kulan gathering walk in and meet, the centre lights up, and the ring gently breathes while the computer starts; the disk password is asked right under it",
+      "Apps reopen after a restart: the apps you had open come back when you sign in again, as on a Mac (switch it off in Kulan Settings > Desktop and windows)"
     ]
   },
   {

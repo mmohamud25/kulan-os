@@ -58,7 +58,7 @@ def folders_on(folders) -> bool:
 class DesktopPage(Page):
     title = "Desktop and windows"
     icon = "focus-windows-symbolic"
-    keywords = ("animation", "speed", "folders", "app grid", "hot corner", "workspaces", "windows")
+    keywords = ("animation", "speed", "folders", "app grid", "hot corner", "workspaces", "windows", "reopen", "restore apps", "restart", "resume")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -112,6 +112,12 @@ class DesktopPage(Page):
                 row.connect("notify::active", lambda r, _p, w=widget_id: self.set_widget(w, r.get_active()))
                 widgets.add(row)
                 self.widget_rows[widget_id] = row
+
+        if has_key(self.kulan, "reopen-apps"):
+            session = self.add_group("Restarting")
+            self.add_rows(session, switch_row(self.kulan, "reopen-apps", "Reopen apps after a restart",
+                                              "Apps that were open when the computer restarted or shut "
+                                              "down open again when you sign in"))
 
         motion = self.add_group("Motion")
         motion.add(choice_row("Animations", "Kulan’s default is a little quicker than GNOME’s",
@@ -183,7 +189,7 @@ class DesktopPage(Page):
         self.toast("App grid sorted from A to Z")
 
     def reset(self) -> None:
-        reset_keys(self.kulan, ["animation-speed", "desktop-widgets"])
+        reset_keys(self.kulan, ["animation-speed", "desktop-widgets", "reopen-apps"])
         reset_keys(self.interface, ["enable-animations", "enable-hot-corners"])
         reset_keys(self.folders, ["folder-children"])
         reset_keys(self.mutter, ["center-new-windows", "dynamic-workspaces"])

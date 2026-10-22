@@ -57,6 +57,11 @@
       <summary>Shortcut for Quick Note</summary>
       <description>Opens a note over whatever you're doing; it's saved as you type.</description>
     </key>
+    <key name="reopen-apps" type="b">
+      <default>true</default>
+      <summary>Reopen apps after a restart</summary>
+      <description>Apps that were open when the computer restarted or shut down open again at the next sign-in.</description>
+    </key>
     <key name="files-preview-pane" type="b">
       <default>false</default>
       <summary>Preview pane in Files</summary>

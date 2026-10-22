@@ -33,6 +33,7 @@ import {Spotlight} from './spotlight.js';
 import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
+import {ReopenApps} from './reopen.js';
 
 const APP_GRID_ICON_SIZE = 72;
 const STATUS_FILE = '/var/lib/kulan/updates.json';
@@ -433,6 +434,7 @@ export default class KulanShellExtension extends Extension {
         else
             this._appGridLayout = null;
         this._vmDisplay = new VmDisplayKeeper();
+        this._reopenApps = Main.sessionMode.isLocked ? null : new ReopenApps(this._settings);
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
             ? new DesktopWidgets(this._settings, () => this._quickNote?.open()) : null;
@@ -596,6 +598,8 @@ export default class KulanShellExtension extends Extension {
             this._appGridLayout.fixedIconSize = -1;
         this._appGridLayout = null;
         this._vmDisplay?.destroy();
+        this._reopenApps?.destroy();
+        this._reopenApps = null;
         this._vmDisplay = null;
         this._spotlight = null;
         this._widgets?.destroy();
