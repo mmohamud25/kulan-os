@@ -500,6 +500,7 @@ check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwa
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
+check "TPM unlock held back" "2.4 refuses kulan-tpm on and says it's coming in 2.5" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"available\"] is False and d[\"reasons\"][0] == \"TPM unlock is coming in Kulan OS 2.5\", d" && ! echo pw | kulan-tpm on >/dev/null 2>&1'
 check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
 # --- Fleet management (the computer's side, against a stand-in server) ----------------
 python3 ci/fleet-mock.py 18765 /tmp/fleet-log.json & FLEET_MOCK=$!

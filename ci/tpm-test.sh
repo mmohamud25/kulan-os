@@ -143,6 +143,8 @@ sudo tee "${MNT}/usr/local/sbin/kulan-tpm-test-setup" >/dev/null <<EOF
 # when the console output is cut short or mixed with kernel messages.
 exec > >(tee -a /boot/kulan-tpm-setup.log >/dev/ttyS0) 2>&1
 echo KULAN-TPM-SETUP-BEGIN
+# TPM unlock is held back for users in 2.4; this test keeps working on it.
+export KULAN_TPM_PREVIEW=1
 kulan-tpm status --json
 printf '%s\n' '${PASSWORD}' | kulan-tpm on; echo "tpm_on_exit=\$?"
 sed -i 's#^\(kulan_crypt [^ ]*\) /etc/kulan-test.key #\1 none #' /etc/crypttab

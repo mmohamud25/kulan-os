@@ -226,6 +226,9 @@ class SecurityPage(Page):
                 self.tpm_switch.set_subtitle("Couldn’t check")
                 return
             on = bool(data.get("on"))
+            # Held back until it's ready (kulan-tpm says "available": false);
+            # still shown when it's on, so it can be turned off.
+            self.tpm_group.set_visible(on or data.get("available", True) is not False)
             with self.tpm_switch.handler_block(self.tpm_handler):
                 self.tpm_switch.set_active(on)
             reasons = data.get("reasons") or []

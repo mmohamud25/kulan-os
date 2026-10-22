@@ -30,6 +30,11 @@ DRACUT_CONF = Path("/etc/dracut.conf.d/50-kulan-tpm.conf")
 CRYPTTAB = Path("/etc/crypttab")
 SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
 PCRS = "7"
+# Held back in 2.4: the dracut start-up image hasn't passed the restart test
+# yet, so "on" is refused and Kulan Settings hides the switch. Turning it off
+# still works. KULAN_TPM_PREVIEW=1 (the CI TPM test) allows it.
+PREVIEW = os.environ.get("KULAN_TPM_PREVIEW") == "1"
+COMING = "TPM unlock is coming in Kulan OS 2.5"
 TPM_OPTION = "tpm2-device=auto"
 
 
@@ -108,7 +113,7 @@ def status() -> dict:
             enrolled = json.loads(STATE_FILE.read_text()).get("on") is True
         except (OSError, ValueError):
             enrolled = False
-    reasons = []
+    reasons = [] if PREVIEW else [COMING]
     if not Path("/sys/firmware/efi").exists():
         reasons.append("This computer starts without UEFI")
     if not tpm2_present():
@@ -121,6 +126,7 @@ def status() -> dict:
         reasons.append("The disk uses LUKS1; TPM unlock needs LUKS2")
     return {
         "on": bool(enrolled),
+        "available": PREVIEW,
         "possible": not reasons,
         "reasons": reasons,
         "tpm2": tpm2_present(),

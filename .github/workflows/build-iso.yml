@@ -458,8 +458,13 @@ jobs:
       # Encrypted install with Secure Boot and an emulated TPM: turn TPM unlock
       # on, take every other key away, and check the next start opens the disk
       # by itself.
+      # TPM unlock is held back in 2.4 (kulan-tpm refuses "on" without
+      # KULAN_TPM_PREVIEW=1, which this test sets), so a failure here is
+      # reported but doesn't stop the build. Make it blocking again when
+      # TPM unlock ships.
       - name: TPM unlock test
         if: matrix.arch == 'amd64'
+        continue-on-error: true
         timeout-minutes: 60
         run: |
           sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk
