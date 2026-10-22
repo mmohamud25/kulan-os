@@ -113,7 +113,9 @@ sudo dd if=/dev/urandom of="${MNT}/etc/kulan-test.key" bs=64 count=1 status=none
 sudo chmod 0400 "${MNT}/etc/kulan-test.key"
 printf '%s' "${PASSWORD}" | sudo cryptsetup luksAddKey --key-file=- "${LOOP}p3" "${MNT}/etc/kulan-test.key" ||
 	fail_now "Encryption" "couldn't add the test key"
-printf 'kulan_crypt UUID=%s /etc/kulan-test.key luks,discard\n' "${LUKS_UUID}" | sudo tee "${MNT}/etc/crypttab" >/dev/null
+# "initramfs": update-initramfs runs in a chroot here, where cryptsetup's hook
+# reads the host's mounts and can't tell / is on this volume, so say it outright.
+printf 'kulan_crypt UUID=%s /etc/kulan-test.key luks,discard,initramfs\n' "${LUKS_UUID}" | sudo tee "${MNT}/etc/crypttab" >/dev/null
 # The key file goes into the start-up image (set once cryptsetup-initramfs,
 # which owns conf-hook, is installed below).
 echo 'UMASK=0077' | sudo tee "${MNT}/etc/initramfs-tools/conf.d/kulan-test-umask" >/dev/null
@@ -165,10 +167,19 @@ printf 'GRUB_TIMEOUT=0\nGRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT
 		in_root apt-get install -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
 			grub-efi-amd64 grub-efi-amd64-signed shim-signed cryptsetup-initramfs &&
 		echo 'KEYFILE_PATTERN="/etc/kulan-test.key"' | sudo tee -a "${MNT}/etc/cryptsetup-initramfs/conf-hook" >/dev/null &&
+		echo 'CRYPTSETUP=y' | sudo tee -a "${MNT}/etc/cryptsetup-initramfs/conf-hook" >/dev/null &&
 		in_root update-initramfs -u -k all &&
 		in_root grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot --removable --no-nvram &&
 		in_root update-grub
 } >>"${OUT}/install.log" 2>&1 || fail_now "Boot loader" "GRUB setup failed: $(grep -E 'error|E:' "${OUT}/install.log" | tail -n 3 | tr '\n' ' ' | cut -c1-300)"
+# The start-up image must know the volume and hold the key, or the first start
+# stops at an (initramfs) prompt.
+INITRD="$(find "${MNT}/boot" -maxdepth 1 -name 'initrd.img-*' -printf '%f\n' | sort -V | tail -n 1)"
+IN_INITRD="$(in_root lsinitramfs "/boot/${INITRD}" 2>/dev/null)"
+grep -q 'cryptroot/crypttab$' <<<"${IN_INITRD}" ||
+	fail_now "Start-up image" "no cryptroot/crypttab in ${INITRD:-the start-up image}; crypttab: $(sudo cat "${MNT}/etc/crypttab")"
+grep -q 'cryptroot/keyfiles/' <<<"${IN_INITRD}" ||
+	fail_now "Start-up image" "the test key isn't in ${INITRD}"
 result pass "Install" "encrypted (LUKS2) install with /boot apart, made bootable in $(( $(date +%s) - START )) s"
 
 sync
@@ -240,7 +251,7 @@ PY
 LOG="$(tr -d '\r' < "${OUT}/serial.log")"
 SETUP="$(awk '/KULAN-TPM-SETUP-BEGIN/{f=1} f{print} /KULAN-TPM-SETUP-END/{exit}' <<<"${LOG}")"
 if [[ -z "${SETUP}" ]]; then
-	fail_now "First start" "the setup step never ran ($(tail -n 3 <<<"${LOG}" | tr '\n' ' ' | cut -c1-200))"
+	fail_now "First start" "the setup step never ran: $(grep -aiE 'crypt|gave up|ALERT|not exist|unable|kulan_crypt' <<<"${LOG}" | tail -n 6 | tr '\n' ' ' | cut -c1-400) | last: $(tail -n 2 <<<"${LOG}" | tr '\n' ' ' | cut -c1-120)"
 fi
 if grep -q '"possible": true' <<<"${SETUP}"; then
 	result pass "Ready for TPM unlock" "UEFI, Secure Boot on, TPM 2.0 and a LUKS2 system disk found"
