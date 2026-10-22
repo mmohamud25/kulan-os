@@ -2,3 +2,12 @@
 @import url("../../adw-gtk3/gtk-3.0/gtk.css");
 @define-color accent_bg_color #3584e4;
 @define-color accent_color mix(@accent_bg_color, black, 0.17);
+@define-color window_bg_color #f9fafc;
+@define-color view_bg_color #ffffff;
+@define-color headerbar_bg_color #ffffff;
+@define-color headerbar_backdrop_color #f9fafc;
+@define-color sidebar_bg_color #e6ebf1;
+@define-color sidebar_backdrop_color #eff2f6;
+@define-color secondary_sidebar_bg_color #f0f3f7;
+@define-color dialog_bg_color #f9fafc;
+@define-color popover_bg_color #ffffff;

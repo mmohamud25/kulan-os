@@ -199,6 +199,51 @@ function installGtkStyle() {
     }
 }
 
+// The Kulan look (2.4) for GTK 4 / libadwaita apps: Kulan's navy and mist on
+// GNOME's surfaces, rounder windows, Manrope titles. Like the window buttons,
+// each user's gtk.css imports a copy kept next to it (Flatpak apps can read
+// that), refreshed at every sign-in. The import line is added once: someone
+// who deletes it keeps GNOME's own look.
+const GTK_LOOK_SOURCE = '/usr/share/kulan/gtk/look/gtk-4.0.css';
+const GTK_LOOK_COPY = 'kulan-look.css';
+const GTK_LOOK_IMPORT = `@import url("${GTK_LOOK_COPY}");`;
+const GTK_LOOK_COMMENT = "/* Kulan OS look. Delete this line to use GNOME's own colours. */";
+
+function installGtkLook() {
+    const dataDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan']);
+    const marker = GLib.build_filenamev([dataDir, 'gtk-look-v1']);
+    try {
+        const source = readText(GTK_LOOK_SOURCE);
+        if (source === null)
+            return;
+        const folder = GLib.build_filenamev([GLib.get_user_config_dir(), 'gtk-4.0']);
+        const path = GLib.build_filenamev([folder, 'gtk.css']);
+        const copy = GLib.build_filenamev([folder, GTK_LOOK_COPY]);
+        const current = readText(path) ?? '';
+        const firstTime = !GLib.file_test(marker, GLib.FileTest.EXISTS);
+        if (!firstTime && !current.includes(GTK_LOOK_IMPORT))
+            return; // turned off by the user
+        GLib.mkdir_with_parents(folder, 0o755);
+        if (readText(copy) !== source)
+            GLib.file_set_contents(copy, source);
+        if (!current.includes(GTK_LOOK_IMPORT)) {
+            // After the window buttons' import (imports must come first).
+            const lines = current.split('\n');
+            let at = 0;
+            lines.forEach((l, i) => {
+                if (l.trim().startsWith('@import') || l.trim() === GTK_COMMENT)
+                    at = i + 1;
+            });
+            lines.splice(at, 0, GTK_LOOK_COMMENT, GTK_LOOK_IMPORT);
+            GLib.file_set_contents(path, lines.join('\n').replace(/\n+$/, '') + '\n');
+        }
+        GLib.mkdir_with_parents(dataDir, 0o700);
+        GLib.file_set_contents(marker, '');
+    } catch (e) {
+        logError(e, 'Kulan Shell: could not set up the Kulan look for apps');
+    }
+}
+
 function launchApp(desktopId) {
     const app = Gio.DesktopAppInfo.new(desktopId);
     if (!app)
@@ -361,6 +406,7 @@ export default class KulanShellExtension extends Extension {
             migrateAppFolders();
             tidyAppGrid();
             installGtkStyle();
+            installGtkLook();
         }
 
         this._oldSlowDown = St.Settings.get().slow_down_factor;

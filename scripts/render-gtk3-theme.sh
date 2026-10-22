@@ -61,6 +61,18 @@ for ACCENT in "${!ACCENTS[@]}"; do
 		printf ':root {\n  --accent-bg-color: #%s;\n  --accent-color: color-mix(in srgb, #%s 83%%, %s);\n}\n' \
 			"${ACCENTS[${ACCENT}]}" "${ACCENTS[${ACCENT}]}" \
 			"$([[ "${VARIANT}" == dark ]] && echo white || echo black)" >> "${D}/gtk-4.0/gtk.css"
+		# The Kulan look (2.4): GNOME's surfaces in Kulan's navy (dark) or mist
+		# (light), the same colours libadwaita apps get from
+		# /usr/share/kulan/gtk/look/gtk-4.0.css (worked out there with CSS
+		# relative colours; GTK 3 needs them written out).
+		if [[ "${VARIANT}" == dark ]]; then
+			SURFACES="window_bg_color=#09182d view_bg_color=#051327 headerbar_bg_color=#15253a headerbar_backdrop_color=#09182d sidebar_bg_color=#15253a sidebar_backdrop_color=#0f1e34 secondary_sidebar_bg_color=#0f1e34 dialog_bg_color=#1d2d43 popover_bg_color=#1d2d43"
+		else
+			SURFACES="window_bg_color=#f9fafc view_bg_color=#ffffff headerbar_bg_color=#ffffff headerbar_backdrop_color=#f9fafc sidebar_bg_color=#e6ebf1 sidebar_backdrop_color=#eff2f6 secondary_sidebar_bg_color=#f0f3f7 dialog_bg_color=#f9fafc popover_bg_color=#ffffff"
+		fi
+		for PAIR in ${SURFACES}; do
+			printf '@define-color %s %s;\n' "${PAIR%%=*}" "${PAIR#*=}" >> "${D}/gtk-3.0/gtk.css"
+		done
 		printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=%s\nComment=adw-gtk3 with the %s accent, for Kulan OS\nEncoding=UTF-8\n\n[X-GNOME-Metatheme]\nGtkTheme=%s\n' \
 			"${NAME}" "${ACCENT}" "${NAME}" > "${D}/index.theme"
 	done

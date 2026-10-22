@@ -146,7 +146,8 @@ for needle in ("KulanMenu", "kulan-logo-symbolic", "installGtkStyle", "activateR
     assert needle in js, needle
 for f in ("/usr/share/icons/hicolor/scalable/apps/kulan-logo-symbolic.svg",
           "/usr/share/kulan/gtk/gtk-4.0.css", "/usr/share/kulan/gtk/gtk-3.0.css",
-          "/usr/share/kulan/gtk/dots/gtk-4.0.css", "/usr/share/kulan/gtk/dots/gtk-3.0.css"):
+          "/usr/share/kulan/gtk/dots/gtk-4.0.css", "/usr/share/kulan/gtk/dots/gtk-3.0.css",
+          "/usr/share/kulan/gtk/look/gtk-4.0.css"):
     assert os.path.getsize(f) > 0, f
 PY
 check "Cursor" "Bibata-Modern-Classic set and installed" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.interface cursor-theme)\" = \"'Bibata-Modern-Classic'\" && test -d /usr/share/icons/Bibata-Modern-Classic"
@@ -200,6 +201,8 @@ check "Boot speed" "network-wait startup step switched off once" test -e /var/li
 check "Firewall" "ufw enabled on first install" grep -qx 'ENABLED=yes' /etc/ufw/ufw.conf
 check "Auto updates" "Debian security + Kulan origins allowed" bash -c 'apt-config dump | grep -q "origin=Kulan OS" && apt-config dump | grep -q "label=Debian-Security"'
 check "Firefox privacy" "policies.json valid; Firefox uses the system (encrypted) DNS" python3 -c 'import json; p = json.load(open("/etc/firefox/policies/policies.json"))["policies"]; assert p["DNSOverHTTPS"] == {"Enabled": False, "Locked": True}'
+check "Kulan look for apps" "Kulan navy (dark) and mist (light) on GNOME's surfaces with Debian's GTK 4; Manrope installed" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 ci/check-gtk-look.py /usr/share/kulan/gtk/look/gtk-4.0.css 2>&1)"; rc=$?; echo "$out" | grep -E "^(light|dark|FAIL)" | head -n 6; test $rc = 0 && fc-list | grep -qi manrope'
+check "Kulan look for older apps" "the GTK 3 accent themes carry Kulan's navy and mist" bash -c 'grep -q "window_bg_color #09182d" /usr/share/themes/Kulan-teal-dark/gtk-3.0/gtk.css && grep -q "sidebar_bg_color #e6ebf1" /usr/share/themes/Kulan-teal/gtk-3.0/gtk.css'
 check "Firefox window buttons" "Kulan's round buttons loaded by Firefox's administrator configuration" bash -c 'grep -q "general.config.filename\", \"kulan.cfg\"" /usr/lib/firefox-esr/defaults/pref/kulan-autoconfig.js && grep -q "file:///usr/share/kulan/firefox/titlebar.css" /usr/lib/firefox-esr/kulan.cfg && grep -q "titlebar-close" /usr/share/kulan/firefox/titlebar.css && test "$(stat -c %U /usr/lib/firefox-esr/kulan.cfg)" = root'
 if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
