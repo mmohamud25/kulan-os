@@ -2,12 +2,12 @@
 Type=Application
 Name=Kulan Settings
 GenericName=System settings
-Comment=Appearance, dock, updates, add-ons and more for Kulan OS
+Comment=Wi-Fi, Bluetooth, sound, displays, appearance, updates and more for Kulan OS
 Exec=kulan-settings %U
 Icon=kulan-settings
 Terminal=false
 Categories=GNOME;GTK;Settings;DesktopSettings;
-Keywords=settings;preferences;appearance;dark;wallpaper;dock;top bar;updates;upgrade;restore;add-ons;login items;startup;night light;keyboard;about;kulan;
+Keywords=settings;preferences;wifi;wi-fi;network;bluetooth;sound;volume;battery;power;display;resolution;appearance;dark;wallpaper;dock;top bar;updates;upgrade;restore;add-ons;login items;startup;night light;keyboard;about;kulan;
 StartupNotify=true
 DBusActivatable=false
 Actions=updates;appearance;dock;

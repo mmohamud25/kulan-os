@@ -9,6 +9,8 @@ from .about import AboutPage
 from .addons import AddonsPage
 from .appearance import AppearancePage
 from .assistant import AssistantPage
+from .battery import BatteryPage
+from .bluetooth import BluetoothPage
 from .common import Helper, open_gnome_panel
 from .desktop import DesktopPage
 from .display import DisplayPage
@@ -20,19 +22,25 @@ from .loginitems import LoginItemsPage
 from .prayer import PrayerPage
 from .privacy import PrivacyPage
 from .security import SecurityPage
+from .sound import SoundPage
 from .storage import StoragePage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
+from .wifi import WifiPage
 
 APP_ID = "org.kulan.Settings"
 
 # Sidebar order: (id, page class). The id is what `kulan-settings <id>` opens.
 PAGES = [
+    ("wifi", WifiPage),
+    ("bluetooth", BluetoothPage),
+    ("sound", SoundPage),
+    ("battery", BatteryPage),
+    ("display", DisplayPage),
     ("appearance", AppearancePage),
     ("dock", DockPage),
     ("top-bar", TopBarPage),
     ("desktop", DesktopPage),
-    ("display", DisplayPage),
     ("keyboard", KeyboardPage),
     ("focus", FocusPage),
     ("assistant", AssistantPage),
@@ -49,12 +57,7 @@ PAGES = [
 
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
-    ("Wi-Fi", "network-wireless-symbolic", ("wifi",)),
     ("Network", "network-wired-symbolic", ("network",)),
-    ("Bluetooth", "bluetooth-active-symbolic", ("bluetooth",)),
-    ("Sound", "audio-speakers-symbolic", ("sound",)),
-    ("Displays", "video-display-symbolic", ("display",)),
-    ("Power", "battery-full-symbolic", ("power",)),
     ("Mouse and touchpad", "input-mouse-symbolic", ("mouse",)),
     ("Printers", "printer-symbolic", ("printers",)),
     ("Notifications", "org.gnome.Settings-notifications-symbolic|preferences-system-notifications-symbolic",

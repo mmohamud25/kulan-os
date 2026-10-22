@@ -26,7 +26,8 @@
       "Kulan Store: the app store has Kulan's name and icon, with Kulan picks of well-known apps; it no longer shows updates, which are all in Software Update",
       "Chromium add-on: a second browser for sites that work best in Chrome-type browsers, from Debian, with Kulan's privacy settings and ad blocking; Firefox stays the default",
       "Settings > Sound shows the alert sound (Click) instead of \"Unknown\"; Kulan's other sounds stay",
-      "Restart works in ARM virtual machines (UTM on Apple silicon): instead of freezing at \"Exiting boot services\", Restart goes straight into the new system (kexec). PCs keep that switched off as part of Kulan's kernel hardening"
+      "Restart works in ARM virtual machines (UTM on Apple silicon): instead of freezing at \"Exiting boot services\", Restart goes straight into the new system (kexec). PCs keep that switched off as part of Kulan's kernel hardening",
+      "Kulan Settings has its own Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays pages: join a network, connect headphones, pick speakers and microphone, change resolution, scale or rotation, and choose a power mode without leaving Kulan Settings"
     ]
   },
   {

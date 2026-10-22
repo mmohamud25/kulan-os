@@ -4,8 +4,8 @@ Architecture: all
 Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: gnome
 Priority: optional
-Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5)
-Recommends: gnome-control-center, kulan-desktop-settings (= @VERSION@)
+Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), gir1.2-nm-1.0
+Recommends: gnome-control-center, gnome-shell, upower, bluez, power-profiles-daemon, kulan-desktop-settings (= @VERSION@)
 Breaks: kulan-update-center (<< 2.2~)
 Replaces: kulan-update-center (<< 2.2~)
 Homepage: @HOME_URL@
@@ -17,5 +17,6 @@ Description: @NAME@ Settings
  .
  Software Update (formerly Update Center) is part of it: available
  updates, what's new, update history, automatic updates and restore points.
- Pages that belong to GNOME Settings (Wi-Fi, Bluetooth, sound, displays,
- users) are listed too and open there.
+ Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays
+ (resolution, scale, rotation) are built in. Pages that belong to GNOME
+ Settings (users, printers, sharing) are listed too and open there.
