@@ -27,8 +27,10 @@ SETTINGS_PAGES = ["wifi", "bluetooth", "sound", "focus", "parental-controls", "a
                   "top-bar", "display", "battery", "storage", "login-items", "security", "privacy", "keyboard",
                   "assistant", "prayer-times", "updates", "add-ons", "about"]
 ACCENTS = ["teal", "blue", "green", "yellow", "orange", "red", "pink", "purple", "slate"]
-PLACES = {"home": "", "desktop": "DESKTOP", "documents": "DOCUMENTS", "downloads": "DOWNLOAD",
-          "pictures": "PICTURES", "music": "MUSIC", "videos": "VIDEOS"}
+# where -> (GLib's special folder, its usual name when the system has none set)
+PLACES = {"home": ("", ""), "desktop": ("DESKTOP", "Desktop"), "documents": ("DOCUMENTS", "Documents"),
+          "downloads": ("DOWNLOAD", "Downloads"), "pictures": ("PICTURES", "Pictures"),
+          "music": ("MUSIC", "Music"), "videos": ("VIDEOS", "Videos")}
 DOCK_SIZES = {"small": 28, "medium": 34, "large": 44}
 TEXT_SIZES = {"normal": 1.0, "large": 1.2, "larger": 1.4}
 LOCK_MINUTES = [1, 2, 5, 10, 15, 30, 0]
@@ -76,7 +78,7 @@ def set_style(a: dict) -> Result:
     mode = a["mode"]
     kulan = _settings("org.kulan.desktop")
     undo_auto = None
-    if kulan is not None and kulan.settings_schema.has_key("automatic-style"):
+    if kulan is not None and kulan.props.settings_schema.has_key("automatic-style"):
         was = kulan.get_boolean("automatic-style")
         kulan.set_boolean("automatic-style", mode == "automatic")
         undo_auto = lambda: kulan.set_boolean("automatic-style", was)  # noqa: E731
@@ -121,11 +123,12 @@ def open_settings(a: dict) -> Result:
 
 
 def _place(where: str) -> Path:
-    special = PLACES.get(where, "")
+    special, usual = PLACES.get(where, ("", ""))
     if special:
         path = GLib.get_user_special_dir(getattr(GLib.UserDirectory, f"DIRECTORY_{special}"))
-        if path:
+        if path and Path(path) != Path.home():
             return Path(path)
+        return Path.home() / usual
     return Path.home()
 
 

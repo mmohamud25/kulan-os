@@ -1,10 +1,15 @@
 [Desktop Entry]
 Type=Application
 Name=Kulan Assistant
-Comment=Writing help, summaries and search that run on this computer
-Keywords=assistant;ai;writing;proofread;rewrite;summarise;summarize;translate;
-Exec=kulan-settings assistant
+Comment=Do it for me, writing help, summaries and search, all on this computer
+Keywords=assistant;ai;agent;do it for me;writing;proofread;rewrite;summarise;summarize;translate;
+Exec=kulan-assistant do
+Actions=settings;
 Icon=org.kulan.Assistant
 Categories=Utility;
 OnlyShowIn=GNOME;
 StartupNotify=true
+
+[Desktop Action settings]
+Name=Assistant Settings
+Exec=kulan-settings assistant
