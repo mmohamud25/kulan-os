@@ -27,7 +27,8 @@
       "Chromium add-on: a second browser for sites that work best in Chrome-type browsers, from Debian, with Kulan's privacy settings and ad blocking; Firefox stays the default",
       "Settings > Sound shows the alert sound (Click) instead of \"Unknown\"; Kulan's other sounds stay",
       "Restart works in ARM virtual machines (UTM on Apple silicon): instead of freezing at \"Exiting boot services\", Restart goes straight into the new system (kexec). PCs keep that switched off as part of Kulan's kernel hardening",
-      "Kulan Settings has its own Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays pages: join a network, connect headphones, pick speakers and microphone, change resolution, scale or rotation, and choose a power mode without leaving Kulan Settings"
+      "Kulan Settings has its own Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays pages: join a network, connect headphones, pick speakers and microphone, change resolution, scale or rotation, and choose a power mode without leaving Kulan Settings",
+      "In virtual machines the screen no longer shows \"Display output is not active\" after sitting idle: it goes dark and locks as usual, and a key press brings it back"
     ]
   },
   {

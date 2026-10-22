@@ -32,6 +32,7 @@ import {PrayerTimes} from './prayer.js';
 import {Spotlight} from './spotlight.js';
 import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
+import {VmDisplayKeeper} from './vmdisplay.js';
 
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
@@ -391,6 +392,7 @@ export default class KulanShellExtension extends Extension {
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
         this._spotlight = new Spotlight();
+        this._vmDisplay = new VmDisplayKeeper();
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
             ? new DesktopWidgets(this._settings, () => this._quickNote?.open()) : null;
@@ -550,6 +552,8 @@ export default class KulanShellExtension extends Extension {
         this._prayer?.destroy();
         this._prayer = null;
         this._spotlight?.destroy();
+        this._vmDisplay?.destroy();
+        this._vmDisplay = null;
         this._spotlight = null;
         this._widgets?.destroy();
         this._widgets = null;
