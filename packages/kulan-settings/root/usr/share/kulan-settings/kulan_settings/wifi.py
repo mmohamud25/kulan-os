@@ -217,7 +217,7 @@ class WifiPage(Page):
 
         self.wifi_group.set_visible(True)
         self.wifi_switch.handler_block_by_func(self.on_switch)
-        self.wifi_switch.set_active(enabled and hardware)
+        self.wifi_switch.set_active(enabled and hardware and device is not None)
         self.wifi_switch.handler_unblock_by_func(self.on_switch)
         self.wifi_switch.set_sensitive(device is not None and hardware)
         if device is None:
