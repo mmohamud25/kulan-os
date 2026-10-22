@@ -116,9 +116,11 @@ class SettingsWindow(Adw.ApplicationWindow):
         sidebar_box.append(Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER,
                                               child=self.sidebar_list))
         sidebar_view = Adw.ToolbarView()
+        # "Settings" here: next to the window buttons the full name gets cut
+        # off ("Kulan Setti…"); the window itself is still "Kulan Settings".
         sidebar_view.add_top_bar(Adw.HeaderBar())
         sidebar_view.set_content(sidebar_box)
-        sidebar = Adw.NavigationPage(title="Kulan Settings", child=sidebar_view)
+        sidebar = Adw.NavigationPage(title="Settings", child=sidebar_view)
 
         # Content
         self.content_title = Adw.WindowTitle()
