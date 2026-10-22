@@ -23,7 +23,10 @@ for DEB in ./*.deb; do
 	# packages only where they're installed now.
 	case "${PKG}" in
 		nautilus|nautilus-data|libnautilus-extension4|gir1.2-nautilus-4.0) WANT="${WANT} ${DEB}" ;;
-		*) dpkg-query -W -f '${Status}' "${PKG}" 2>/dev/null | grep -q "install ok installed" && WANT="${WANT} ${DEB}" ;;
+		# Installed now, or removed with its settings kept (as test1 did to
+		# kulan-devkit): put it back.
+		*) dpkg-query -W -f '${Status}' "${PKG}" 2>/dev/null | grep -qE "install ok installed|deinstall ok config-files" &&
+			WANT="${WANT} ${DEB}" ;;
 	esac
 done
 echo "Installing:$(for D in ${WANT}; do printf ' %s' "$(dpkg-deb -f "${D}" Package)"; done)"
