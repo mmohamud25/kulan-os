@@ -151,7 +151,7 @@ with `rm ~/kulan-os-signing-key-BACKUP.asc`.
 
 From then on, each push to `main` goes through four stages: build the Kulan packages,
 install and test them in a clean Debian 13 system, publish them to
-`https://mmohamud25.github.io/kulan-os/apt/`, then build and inspect the ISOs. A failure at
+`https://os.kulangroup.com/apt/`, then build and inspect the ISOs. A failure at
 any stage stops the later ones. ISOs built after setup include the channel; installed
 systems pick up updates in their daily automatic update, or right away from Update Center.
 

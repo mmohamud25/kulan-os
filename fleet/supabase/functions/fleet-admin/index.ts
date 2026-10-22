@@ -12,7 +12,7 @@ import postgres from "npm:postgres@3.4.5";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const ALLOWED_ORIGINS = (Deno.env.get("FLEET_DASHBOARD_ORIGINS") ?? "https://mmohamud25.github.io")
+const ALLOWED_ORIGINS = (Deno.env.get("FLEET_DASHBOARD_ORIGINS") ?? "https://os.kulangroup.com,https://mmohamud25.github.io")
   .split(",").map((o) => o.trim()).filter(Boolean);
 const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart"]);
 

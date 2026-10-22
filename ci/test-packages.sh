@@ -211,6 +211,9 @@ check "Kulan app icons" "the 2.4 icon family is in the Kulan icon theme and GTK 
 check "Firefox window buttons" "Kulan's round buttons loaded by Firefox's administrator configuration" bash -c 'grep -q "general.config.filename\", \"kulan.cfg\"" /usr/lib/firefox-esr/defaults/pref/kulan-autoconfig.js && grep -q "file:///usr/share/kulan/firefox/titlebar.css" /usr/lib/firefox-esr/kulan.cfg && grep -q "titlebar-close" /usr/share/kulan/firefox/titlebar.css && test "$(stat -c %U /usr/lib/firefox-esr/kulan.cfg)" = root'
 if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	check "Update channel" "kulan.sources + key present" test -s /usr/share/keyrings/kulan-archive-keyring.gpg
+	# An upgrade must move computers to this build's address (kulan.conf), even
+	# when the released version pointed somewhere else.
+	check "Update channel address" "kulan.sources uses ${CHANNEL}" grep -qx "URIs: ${CHANNEL}" /etc/apt/sources.list.d/kulan.sources
 fi
 
 # --- Update Center ------------------------------------------------------------------

@@ -282,7 +282,7 @@ jobs:
           . ./kulan.conf
           VERSION="$(cat dist/debs/VERSION)"
           for attempt in $(seq 1 30); do
-            if curl -fsS --max-time 20 "${KULAN_APT_URL}Packages" 2>/dev/null | grep -qx "Version: ${VERSION}"; then
+            if curl -fsSL --max-time 20 "${KULAN_APT_URL}Packages" 2>/dev/null | grep -qx "Version: ${VERSION}"; then
               echo "::notice title=Update channel::Live at ${KULAN_APT_URL} with ${VERSION}"
               exit 0
             fi

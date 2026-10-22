@@ -26,7 +26,7 @@ jobs:
         run: |
           DEBIAN="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh --version | tail -n 1)"
           . ./kulan.conf
-          CHANNEL="$(curl -fsS "${KULAN_APT_URL}Packages" | awk '/^Package: nautilus$/ {p=1} p && /^Version:/ {print $2; exit}')"
+          CHANNEL="$(curl -fsSL "${KULAN_APT_URL}Packages" | awk '/^Package: nautilus$/ {p=1} p && /^Version:/ {print $2; exit}')"
           echo "Debian: ${DEBIAN}  Kulan channel: ${CHANNEL:-none}"
           if [ -z "${DEBIAN}" ]; then
             echo "::error title=Debian updates::couldn't read Debian's Nautilus version"
