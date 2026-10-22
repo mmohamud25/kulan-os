@@ -193,6 +193,8 @@ for N in 1 2; do
 	else
 		result fail "${NAME}" "no desktop session (state $(field "${R}" state))"
 	fi
+	result info "${NAME}: slowest" "$(sed -n 's/^blame=//p' <<<"${R}" | head -n 5 | tr -s ' ' | paste -sd ';' -)"
+	result info "${NAME}: login screen waited on" "$(sed -n 's/^chain=//p' <<<"${R}" | head -n 6 | tr -s ' ' | paste -sd ';' -)"
 	if [[ -n "${FAILED_UNITS}" ]]; then
 		result fail "${NAME}: services" "failed: ${FAILED_UNITS}"
 	else

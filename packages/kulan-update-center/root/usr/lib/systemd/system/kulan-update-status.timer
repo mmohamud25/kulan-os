@@ -2,7 +2,9 @@
 Description=Refresh the Kulan Update Center status after start-up
 
 [Timer]
-OnBootSec=1min
+# Three minutes in: on a slow computer the first minute is still the desktop
+# loading, and this check (apt working out what's new) would slow it down.
+OnBootSec=3min
 
 [Install]
 WantedBy=timers.target

@@ -1,0 +1,32 @@
+#!/bin/sh
+# Kulan OS: mark the image's /etc and /var as up to date with /usr.
+#
+# systemd runs ldconfig, the hardware database rebuild, the journal catalogue
+# and sysusers at start-up whenever /usr looks newer than /etc/.updated or
+# /var/.updated (ConditionNeedsUpdate=). An image built in a chroot never runs
+# systemd-update-done, so the live USB (and every installed copy of it) did all
+# of that work at every start: ldconfig alone took 23 s on a 1-CPU, 2 GB test
+# machine. Everything is already current here, so write the files that say so.
+# After a later apt upgrade changes /usr, systemd does the work once, as usual.
+#
+# squashfs keeps whole-second times, so the stamp is in whole seconds too.
+set -eu
+
+ldconfig
+if command -v systemd-hwdb >/dev/null 2>&1; then
+	systemd-hwdb update || true
+fi
+if command -v journalctl >/dev/null 2>&1; then
+	journalctl --update-catalog || true
+fi
+
+SECS="$(stat -c %Y /usr)"
+for DIR in /etc /var; do
+	cat > "${DIR}/.updated" <<EOF
+# This file was created by systemd-update-done. Its only
+# purpose is to hold a timestamp of the time this directory
+# was updated. See man:ConditionNeedsUpdate=.
+TIMESTAMP_NSEC=${SECS}000000000
+EOF
+	touch -d "@${SECS}" "${DIR}/.updated"
+done

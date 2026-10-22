@@ -195,7 +195,13 @@ if [[ -z "${FAILED_UNITS// /}" ]]; then
 else
 	result fail "Services" "failed: ${FAILED_UNITS}"
 fi
+case "$(field needs_update)" in
+	no) result pass "Start-up work done in advance" "ldconfig, hardware database etc. skipped at start-up (done when the image was built)" ;;
+	yes) result fail "Start-up work done in advance" "ldconfig ran at start-up: /etc/.updated is missing or older than /usr" ;;
+	*) result info "Start-up work done in advance" "not reported" ;;
+esac
 result info "Slowest to start" "$(field blame | head -n 5 | tr -s ' ' | paste -sd ';' -)"
+result info "Login screen waited on" "$(field chain | head -n 6 | tr -s ' ' | paste -sd ';' -)"
 
 summary
 exit "${FAILED}"

@@ -2,10 +2,11 @@
 Description=Refresh the Kulan Update Center status
 After=local-fs.target
 
-# Started by kulan-update-status.timer a minute after start-up (and by apt's
+# Started by kulan-update-status.timer three minutes after start-up (and by apt's
 # hooks after every apt run), never in the way of the login screen.
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/kulan/update-status refresh
 Nice=10
 IOSchedulingClass=idle
+CPUSchedulingPolicy=idle

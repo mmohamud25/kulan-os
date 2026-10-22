@@ -34,7 +34,8 @@
       "Smaller, calmer icons: Files (64 px, about the Finder's size), the desktop, the dock and the app grid; each can still be made bigger in Kulan Settings or Files",
       "Kulan's red, yellow and green window buttons on more apps: apps from the Kulan Store (Flatpak) and Qt apps such as KeePassXC (they now open through XWayland, where GNOME draws their frame, kept sharp on high-resolution screens)",
       "A new start-up screen: the six dots of the Kulan gathering walk in and meet, the centre lights up, and the ring gently breathes while the computer starts; the disk password is asked right under it",
-      "Apps reopen after a restart: the apps you had open come back when you sign in again, as on a Mac (switch it off in Kulan Settings > Desktop and windows)"
+      "Apps reopen after a restart: the apps you had open come back when you sign in again, as on a Mac (switch it off in Kulan Settings > Desktop and windows)",
+      "Faster start-up on slower computers: work that used to be redone at every start (about 20 seconds on a 2 GB, 1-processor machine) is now done once when Kulan OS is built, and the update check waits until the desktop has finished loading"
     ]
   },
   {
