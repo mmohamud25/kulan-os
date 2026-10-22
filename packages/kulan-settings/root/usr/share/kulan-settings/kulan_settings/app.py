@@ -318,6 +318,11 @@ class KulanSettings(Adw.Application):
                     failures.append(f"{page_id}: old page still listening after a rebuild")
             except Exception as exc:  # noqa: BLE001 - report every page, then fail
                 failures.append(f"{page_id}: {exc!r}")
+        try:  # Software Update's plain-language grouping of updates
+            from . import updatelist
+            updatelist.self_test()
+        except AssertionError as exc:
+            failures.append(f"updates: grouping gave {exc}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

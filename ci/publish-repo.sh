@@ -69,6 +69,10 @@ cat > "${SITE}/index.html" <<EOF
 <p>This is the ${KULAN_NAME} update channel. It is used automatically by installed systems.</p>
 EOF
 touch "${SITE}/.nojekyll"
+# Every version's notes, read by Software Update when it offers a new version
+# (the installed notes only cover the installed one) and by the website.
+install -m 0644 "${ROOT}/packages/kulan-update-center/root/usr/share/kulan/release-notes.json" \
+	"${SITE}/release-notes.json"
 
 echo "Published $(grep -c '^Package:' Packages) packages, signed by ${FPR}:"
 grep -E '^(Package|Version):' Packages | paste - -

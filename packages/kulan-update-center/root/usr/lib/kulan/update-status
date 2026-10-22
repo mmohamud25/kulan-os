@@ -59,7 +59,34 @@ def available_updates() -> list[dict]:
                 "to": new,
                 "security": "security" in origin.lower(),
             })
+    add_sources(updates)
     return updates
+
+
+def add_sources(updates: list[dict]) -> None:
+    """Each package's source (so libssl3t64 and openssl show as one update) and
+    one-line summary, from dpkg's own records: quick, and needs no lock."""
+    names = [u["name"] for u in updates if u.get("from")]
+    if not names:
+        return
+    try:
+        out = subprocess.run(
+            ["dpkg-query", "-W", "-f", "${binary:Package}\t${source:Package}\t${binary:Summary}\n", *names],
+            capture_output=True, text=True, timeout=30, check=False,
+            env={**os.environ, "LC_ALL": "C.UTF-8"}).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    info = {}
+    for line in out.splitlines():
+        name, _s, rest = line.partition("\t")
+        source, _s, summary = rest.partition("\t")
+        info[name.split(":")[0]] = (source, summary)
+    for u in updates:
+        source, summary = info.get(u["name"], ("", ""))
+        if source:
+            u["source"] = source
+        if summary:
+            u["summary"] = summary
 
 
 def app_updates() -> list[dict]:
@@ -83,6 +110,7 @@ def app_updates() -> list[dict]:
             "security": False,
             "kind": "app" if parts[0] == "app" else "runtime",
             "ref": ref,
+            "id": parts[1],
         })
     return updates
 

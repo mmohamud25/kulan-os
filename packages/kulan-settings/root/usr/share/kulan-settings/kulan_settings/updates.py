@@ -8,14 +8,18 @@ Reads /var/lib/kulan/updates.json (kept current by apt's own hooks through
 /usr/lib/kulan/update-run through pkexec."""
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+import threading
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from . import updatelist
 from .common import Page, launch, os_release, plural, read_json
 
 STATUS_FILE = Path("/var/lib/kulan/updates.json")
@@ -25,6 +29,16 @@ RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 RESTORE_USAGE = Path("/var/lib/kulan/restore-points.json")  # written by /usr/lib/kulan/restore-points
 PREFS_FILE = Path(GLib.get_user_config_dir()) / "kulan" / "updates.ini"
 STALE_RUNNING_S = 3 * 3600
+# The Kulan OS website: each version's full notes (whats-new/#v2.4), and the
+# notes as JSON, read when a new version is offered (the installed notes only
+# cover the installed version). Same server as the updates themselves.
+SITE = "https://os.kulangroup.com"
+NOTES_JSON = f"{SITE}/release-notes.json"
+WHATS_NEW_SHOWN = 3
+
+
+def notes_url(version: str) -> str:
+    return f"{SITE}/whats-new/#v{version}"
 # What a restart finishes, in plain words (package name prefix -> words).
 RESTART_WORDS = [
     (("linux-image", "linux-signed"), "the Linux kernel"),
@@ -77,12 +91,23 @@ def history(limit: int = 8) -> list[dict]:
         if not changed:
             continue
         names = [p.split(":")[0].split(" ")[0] for chunk in changed for p in chunk.split("), ") if p.strip()]
+        # "kulan-base:all (2.3.2026…, 2.4.2026…)": a new Kulan OS version.
+        kulan_series = None
+        for chunk in changed:
+            for part in chunk.split("), "):
+                if part.startswith("kulan-base:") and "(" in part:
+                    versions = [v.strip(" )") for v in part.split("(", 1)[1].split(",")]
+                    old = updatelist.series(versions[0]) if len(versions) > 1 else None
+                    new = updatelist.series(versions[-1])
+                    if new and (old is None or new > old):
+                        kulan_series = f"{new[0]}.{new[1]}"
         try:
             stamp = datetime.strptime(" ".join(fields.get("End-Date", fields.get("Start-Date", "")).split()),
                                       "%Y-%m-%d %H:%M:%S").timestamp()
         except ValueError:
             stamp = 0
-        runs.append({"time": stamp, "packages": names, "automatic": "unattended" in fields.get("Commandline", "")})
+        runs.append({"time": stamp, "packages": names, "kulan_series": kulan_series,
+                     "automatic": "unattended" in fields.get("Commandline", "")})
         if len(runs) >= limit:
             break
     return runs
@@ -136,9 +161,12 @@ class UpdatesPage(Page):
         self.working = False
         self.available_rows: list[Gtk.Widget] = []
         self.history_rows: list[Gtk.Widget] = []
+        self.summary: dict = {}
+        self.remote_notes: dict[str, dict] = {}  # version -> {"title", "items"} from the website
+        self.notes_asked: set[str] = set()
 
         self.page.add(self.build_status_group())
-        self.available_group = self.add_group("Available updates")
+        self.available_group = self.add_group("Updates")
         self.page.add(self.build_whats_new())
         self.history_group = self.add_group("Recent updates")
         self.page.add(self.build_settings())
@@ -182,12 +210,18 @@ class UpdatesPage(Page):
         self.restart_button = Gtk.Button(label="Restart Now", css_classes=["suggested-action", "pill"],
                                          visible=False)
         self.restart_button.connect("clicked", lambda _b: self.restart())
+        self.notes_button = Gtk.Button(label="See What’s New", css_classes=["pill"], visible=False)
+        self.notes_button.connect("clicked", lambda _b: self.show_release_notes())
         self.check_button = Gtk.Button(label="Check for updates", css_classes=["pill"])
         self.check_button.connect("clicked", lambda _b: self.check())
         buttons.append(self.install_button)
         buttons.append(self.restart_button)
+        buttons.append(self.notes_button)
         buttons.append(self.check_button)
-        for widget in (self.status_icon, self.status_title, self.status_detail, self.progress, buttons):
+        self.status_subtitle = Gtk.Label(css_classes=["title-4"], wrap=True, justify=Gtk.Justification.CENTER,
+                                         visible=False)
+        for widget in (self.status_icon, self.status_title, self.status_subtitle, self.status_detail, self.progress,
+                       buttons):
             box.append(widget)
         group.add(box)
         return group
@@ -214,24 +248,50 @@ class UpdatesPage(Page):
         if self.working:
             return  # the running action owns the status area
         available = self.available()
-        security = sum(1 for u in available if u.get("security"))
+        self.summary = updatelist.summarize(available, self.release.get("VERSION_ID", ""))
+        new_version = self.summary.get("release")
+        security = len(self.summary.get("security", []))
         name = self.release.get("NAME", "Kulan OS")
         checked = when_text(self.status.get("checked") or 0)
         restart = self.restart_needed()
         # One main button at a time: installing comes first, restarting after.
         self.restart_button.set_visible(bool(restart) and not self.running() and not available)
+        self.status_subtitle.set_visible(False)
+        self.notes_button.set_visible(False)
+        self.status_icon.set_pixel_size(72)
+        self.check_button.set_css_classes(["pill"])
         if self.running():
             self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
             self.status_detail.set_label("Updates are being installed in the background. You can keep working.")
             self.install_button.set_visible(False)
+        elif new_version:
+            # A new Kulan OS version: the headline, Apple-style.
+            self.status_icon.set_from_icon_name("kulan-logo")
+            self.status_icon.set_pixel_size(96)
+            self.status_title.set_label(f"{name} {new_version}")
+            notes = self.remote_notes.get(new_version)
+            self.status_subtitle.set_label(notes.get("title", "") if notes else "A new version of Kulan OS")
+            self.status_subtitle.set_visible(True)
+            more = self.summary["count"] - 1
+            also = f"Also {plural(more, 'other update')}" + (
+                f", including {plural(security, 'security update')}" if security else "") + ". " if more else ""
+            self.status_detail.set_label(f"{also}You’ll be asked to restart when it’s done.")
+            self.install_button.set_label("Update Now")
+            self.install_button.set_visible(True)
+            self.notes_button.set_visible(True)
+            self.check_button.set_css_classes(["pill", "flat"])
+            self.fetch_notes(new_version)
         elif available:
+            count = self.summary["count"]
             self.status_icon.set_from_icon_name(
                 "software-update-urgent-symbolic" if security else "software-update-available-symbolic")
-            self.status_title.set_label(f"{plural(len(available), 'update')} available")
-            extra = f" · {plural(security, 'security fix', 'security fixes')}" if security else ""
-            self.status_detail.set_label(f"Last checked {checked}{extra}")
-            self.install_button.set_label(f"Install {plural(len(available), 'update')}")
+            self.status_title.set_label(f"{plural(count, 'update')} available")
+            extra = f"Includes {plural(security, 'security update')} · " if security else ""
+            words = restart_words([str(u.get("name", "")) for u in available])
+            after = f" · Restart afterwards for {words}" if words else ""
+            self.status_detail.set_label(f"{extra}Last checked {checked}{after}")
+            self.install_button.set_label("Install Now")
             self.install_button.set_visible(True)
         elif restart:
             self.status_icon.set_from_icon_name("system-reboot-symbolic")
@@ -267,24 +327,113 @@ class UpdatesPage(Page):
             self.available_group.remove(row)
         self.available_rows = []
         available = self.available()
+        summary = self.summary or updatelist.summarize(available, self.release.get("VERSION_ID", ""))
         self.available_group.set_visible(bool(available) and not self.running())
-        for update in available[:60]:
-            kind = update.get("kind")
-            if kind in ("app", "runtime"):
-                version = str(update.get("to") or "")
-                what = "App" if kind == "app" else "App component"
-                subtitle = f"{what} · {version}" if version else what
-                icon = "application-x-executable-symbolic" if kind == "app" else "package-x-generic-symbolic"
-            else:
-                subtitle = f"{update.get('from') or 'new'} → {update.get('to', '?')}"
-                icon = "package-x-generic-symbolic"
-            row = Adw.ActionRow(title=GLib.markup_escape_text(str(update.get("name", "?"))),
-                                subtitle=GLib.markup_escape_text(subtitle))
-            row.add_prefix(Gtk.Image(icon_name=icon))
-            if update.get("security"):
-                row.add_suffix(Gtk.Label(label="Security", css_classes=["warning", "caption-heading"]))
+        self.available_group.set_title("Also included" if summary.get("release") else "Updates")
+
+        def add(row: Gtk.Widget) -> None:
             self.available_group.add(row)
             self.available_rows.append(row)
+
+        for group in summary.get("security", []):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(group["title"]), subtitle="Security update")
+            row.add_prefix(Gtk.Image(icon_name="security-high-symbolic", css_classes=["warning"]))
+            add(row)
+        for app in summary.get("apps", []):
+            version = str(app.get("to") or "")
+            row = Adw.ActionRow(title=GLib.markup_escape_text(str(app.get("name", "App"))),
+                                subtitle=GLib.markup_escape_text(f"New version {version}" if version else "App update"))
+            icon = str(app.get("id") or "")
+            theme = Gtk.IconTheme.get_for_display(self.window.get_display())
+            row.add_prefix(Gtk.Image(icon_name=icon if icon and theme.has_icon(icon) else
+                                     "application-x-executable-symbolic", pixel_size=32))
+            add(row)
+        other = summary.get("other", [])
+        if other:
+            if len(other) == 1:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(other[0]["title"]), subtitle="Improvements and fixes")
+                row.add_prefix(Gtk.Image(icon_name="software-update-available-symbolic"))
+            else:
+                row = Adw.ExpanderRow(title="Other improvements",
+                                      subtitle=f"{plural(len(other), 'update')}: fixes and small changes")
+                row.add_prefix(Gtk.Image(icon_name="software-update-available-symbolic"))
+                for group in other:
+                    row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(group["title"])))
+            add(row)
+        debs = [u for u in available if u.get("kind") not in ("app", "runtime")]
+        if debs:
+            details = Adw.ExpanderRow(title="Technical details",
+                                      subtitle=f"{plural(len(debs), 'package')}, with version numbers")
+            details.add_prefix(Gtk.Image(icon_name="text-x-generic-symbolic"))
+            for update in debs[:80]:
+                details.add_row(Adw.ActionRow(
+                    title=GLib.markup_escape_text(str(update.get("name", "?"))),
+                    subtitle=GLib.markup_escape_text(f"{update.get('from') or 'new'} → {update.get('to', '?')}"),
+                    css_classes=["property"]))
+            add(details)
+
+    def fetch_notes(self, version: str) -> None:
+        """The new version's notes from the website, once, in the background."""
+        if version in self.notes_asked:
+            return
+        self.notes_asked.add(version)
+
+        def work() -> None:
+            try:
+                with urllib.request.urlopen(NOTES_JSON, timeout=8) as resp:  # noqa: S310 - fixed https URL
+                    data = json.loads(resp.read(512 * 1024).decode("utf-8"))
+                note = next((n for n in data if isinstance(n, dict) and n.get("version") == version), None)
+            except (OSError, ValueError, TypeError):
+                note = None
+            if note and isinstance(note.get("items"), list):
+                GLib.idle_add(self.notes_arrived, version, note)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def notes_arrived(self, version: str, note: dict) -> bool:
+        if not self.torn_down:
+            self.remote_notes[version] = {"title": str(note.get("title") or ""),
+                                          "items": [str(i) for i in note["items"]]}
+            self.render_status()
+        return GLib.SOURCE_REMOVE
+
+    @staticmethod
+    def note_row(item: str) -> Adw.ActionRow:
+        """A release-notes line: its headline in bold, the details under it."""
+        head, rest = updatelist.headline(item)
+        row = Adw.ActionRow(title=GLib.markup_escape_text(head), subtitle=GLib.markup_escape_text(rest),
+                            subtitle_lines=0, title_lines=0)
+        row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["accent"]))
+        return row
+
+    def open_url(self, url: str) -> None:
+        Gtk.UriLauncher.new(url).launch(self.window, None, None)
+
+    def show_release_notes(self) -> None:
+        version = self.summary.get("release")
+        if not version:
+            return
+        notes = self.remote_notes.get(version)
+        if not notes:
+            self.open_url(notes_url(version))  # offline in-app: the website has them
+            return
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(title=GLib.markup_escape_text(notes["title"] or f"Kulan OS {version}"))
+        for item in notes["items"]:
+            group.add(self.note_row(item))
+        page.add(group)
+        more = Adw.PreferencesGroup()
+        link = Adw.ActionRow(title="Learn more on the Kulan OS website", activatable=True)
+        link.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+        link.connect("activated", lambda _r: self.open_url(notes_url(version)))
+        more.add(link)
+        page.add(more)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(page)
+        dialog = Adw.Dialog(title=f"What’s New in Kulan OS {version}", content_width=640, content_height=640,
+                            child=view)
+        dialog.present(self.window)
 
     # --- what's new and history -------------------------------------------------
     def build_whats_new(self) -> Adw.PreferencesGroup:
@@ -298,10 +447,18 @@ class UpdatesPage(Page):
             title=f"What’s new in {note.get('title', 'Kulan OS')}" if note else "What’s new",
             description=f"Build {build}" if build and build != "local" else "",
         )
-        for item in (note or {}).get("items", []):
-            row = Adw.ActionRow(title=GLib.markup_escape_text(str(item)))
-            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["accent"]))
-            group.add(row)
+        items = (note or {}).get("items", [])
+        for item in items[:WHATS_NEW_SHOWN]:
+            group.add(self.note_row(str(item)))
+        if note and note.get("version"):
+            more = len(items) - WHATS_NEW_SHOWN
+            link = Adw.ActionRow(title="See everything that’s new" if more > 0 else "Learn more",
+                                 subtitle=f"{plural(more, 'more change')} on the Kulan OS website" if more > 0
+                                 else "On the Kulan OS website", activatable=True)
+            link.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+            version = str(note["version"])
+            link.connect("activated", lambda _r: self.open_url(notes_url(version)))
+            group.add(link)
         return group
 
     def render_history(self) -> None:
@@ -315,9 +472,10 @@ class UpdatesPage(Page):
             self.history_rows.append(row)
             return
         for run in runs:
-            how = "automatically" if run["automatic"] else ""
-            row = Adw.ExpanderRow(title=f"{plural(len(run['packages']), 'package')} updated {how}".strip(),
-                                  subtitle=when_text(run["time"]))
+            how = " · installed automatically" if run["automatic"] else ""
+            row = Adw.ExpanderRow(
+                title=GLib.markup_escape_text(updatelist.history_title(run["packages"], run.get("kulan_series"))),
+                subtitle=f"{when_text(run['time'])}{how}")
             for name in run["packages"][:40]:
                 row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name)))
             self.history_group.add(row)
@@ -458,7 +616,7 @@ class UpdatesPage(Page):
         self.window.helper.run(args, success, on_progress=progress, on_done=done)
 
     def on_busy(self, busy: bool) -> None:
-        for widget in (self.check_button, self.install_button):
+        for widget in (self.check_button, self.install_button, self.notes_button):
             widget.set_sensitive(not busy)
         if hasattr(self, "create_button"):
             self.create_button.set_sensitive(not busy and self.restore_on)
