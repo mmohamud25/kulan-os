@@ -64,11 +64,13 @@ gpgv --keyring "${KEYRING}" InRelease
 gpgv --keyring "${KEYRING}" Release.gpg Release
 
 install -m 0644 "${KEYRING}" "${REPO}/kulan-archive-keyring.gpg"
-cat > "${SITE}/index.html" <<EOF
-<!doctype html><meta charset="utf-8"><title>${KULAN_NAME} updates</title>
-<p>This is the ${KULAN_NAME} update channel. It is used automatically by installed systems.</p>
-EOF
+# The website (os.kulangroup.com) around the update channel.
+python3 "${ROOT}/ci/build-website.py" "${SITE}"
 touch "${SITE}/.nojekyll"
+# Every version's notes, read by Software Update when it offers a new version
+# (the installed notes only cover the installed one) and by the website.
+install -m 0644 "${ROOT}/packages/kulan-update-center/root/usr/share/kulan/release-notes.json" \
+	"${SITE}/release-notes.json"
 
 echo "Published $(grep -c '^Package:' Packages) packages, signed by ${FPR}:"
 grep -E '^(Package|Version):' Packages | paste - -

@@ -235,7 +235,13 @@ m.APP_UPDATES = fh.name
 got = m.app_updates()
 os.unlink(fh.name)
 assert got == [{"name": "Example", "from": "", "to": "2.0", "security": False, "kind": "app",
-                "ref": "app/org.example.App/x86_64/stable"}], got
+                "ref": "app/org.example.App/x86_64/stable", "id": "org.example.App"}], got
+# Debian updates carry their source package and summary (Software Update groups
+# libssl3t64 with openssl and names them in plain words).
+debs = [{"name": "dpkg", "from": "1", "to": "2", "security": False}, {"name": "no-such-package", "from": "1", "to": "2", "security": False}]
+m.add_sources(debs)
+assert debs[0].get("source") == "dpkg" and debs[0].get("summary"), debs
+assert "source" not in debs[1], debs
 PY
 check "Status refresh after start-up" "a timer a minute after start-up, not in the way of the login screen" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-update-status.timer && ! test -e /etc/systemd/system/multi-user.target.wants/kulan-update-status.service'
 check "Restart in ARM VMs" "fast restart only in ARM QEMU VMs; kexec hardening kept elsewhere" bash -c '

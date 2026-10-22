@@ -1,30 +1,44 @@
 """Software Update (formerly Update Center): every update in one place, for
-Debian, Kulan and apps (Flatpak), with progress, a restart prompt when one is
-needed, what's new, history, automatic updates and restore points. GNOME
-Software's own Updates page is turned off, so updates live only here.
+Debian, Kulan and apps (Flatpak). Minimal, like a phone's: Automatic Updates
+and Update History on top, then one centred status (up to date, a new Kulan
+OS version, other updates, installing, restart) with one action and More
+Details (the website for a Kulan OS version, a short sheet for the rest).
+GNOME Software's own Updates page is turned off, so updates live only here.
 
 Reads /var/lib/kulan/updates.json (kept current by apt's own hooks through
 /usr/lib/kulan/update-status) and /var/log/apt/history.log. Changes run
 /usr/lib/kulan/update-run through pkexec."""
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+import threading
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from . import updatelist
 from .common import Page, launch, os_release, plural, read_json
 
 STATUS_FILE = Path("/var/lib/kulan/updates.json")
 HISTORY_LOG = Path("/var/log/apt/history.log")
-RELEASE_NOTES = Path("/usr/share/kulan/release-notes.json")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 RESTORE_USAGE = Path("/var/lib/kulan/restore-points.json")  # written by /usr/lib/kulan/restore-points
 PREFS_FILE = Path(GLib.get_user_config_dir()) / "kulan" / "updates.ini"
 STALE_RUNNING_S = 3 * 3600
+# The Kulan OS website: each version's full notes (whats-new/#v2.4), and the
+# notes as JSON, read when a new version is offered (the installed notes only
+# cover the installed version). Same server as the updates themselves.
+SITE = "https://os.kulangroup.com"
+NOTES_JSON = f"{SITE}/release-notes.json"
+
+
+def notes_url(version: str) -> str:
+    return f"{SITE}/whats-new/#v{version}"
 # What a restart finishes, in plain words (package name prefix -> words).
 RESTART_WORDS = [
     (("linux-image", "linux-signed"), "the Linux kernel"),
@@ -77,12 +91,23 @@ def history(limit: int = 8) -> list[dict]:
         if not changed:
             continue
         names = [p.split(":")[0].split(" ")[0] for chunk in changed for p in chunk.split("), ") if p.strip()]
+        # "kulan-base:all (2.3.2026…, 2.4.2026…)": a new Kulan OS version.
+        kulan_series = None
+        for chunk in changed:
+            for part in chunk.split("), "):
+                if part.startswith("kulan-base:") and "(" in part:
+                    versions = [v.strip(" )") for v in part.split("(", 1)[1].split(",")]
+                    old = updatelist.series(versions[0]) if len(versions) > 1 else None
+                    new = updatelist.series(versions[-1])
+                    if new and (old is None or new > old):
+                        kulan_series = f"{new[0]}.{new[1]}"
         try:
             stamp = datetime.strptime(" ".join(fields.get("End-Date", fields.get("Start-Date", "")).split()),
                                       "%Y-%m-%d %H:%M:%S").timestamp()
         except ValueError:
             stamp = 0
-        runs.append({"time": stamp, "packages": names, "automatic": "unattended" in fields.get("Commandline", "")})
+        runs.append({"time": stamp, "packages": names, "kulan_series": kulan_series,
+                     "automatic": "unattended" in fields.get("Commandline", "")})
         if len(runs) >= limit:
             break
     return runs
@@ -126,22 +151,22 @@ class UpdatesPage(Page):
     title = "Software Update"
     icon = "software-update-available-symbolic"
     keywords = ("update", "updates", "upgrade", "security", "restore", "restore point", "timeshift", "what's new",
-                "automatic updates", "update center", "restart", "apps", "flatpak", "recovery")
+                "automatic updates", "update center", "restart", "apps", "flatpak", "recovery", "history")
 
     def __init__(self, window) -> None:
         super().__init__(window)
         self.prefs = Prefs()
         self.release = os_release()
         self.status: dict = {}
+        self.summary: dict = {}
         self.working = False
-        self.available_rows: list[Gtk.Widget] = []
-        self.history_rows: list[Gtk.Widget] = []
+        self.restore_on = RESTORE_CONFIG.exists() and shutil.which("timeshift") is not None
+        self.remote_notes: list[dict] = []  # every version's notes, from the website (newest first)
+        self.notes_fetched = False
+        self.dialog_rows: dict[str, Gtk.Widget] = {}  # rows of the open Automatic Updates sheet
 
+        self.page.add(self.build_top_group())
         self.page.add(self.build_status_group())
-        self.available_group = self.add_group("Available updates")
-        self.page.add(self.build_whats_new())
-        self.history_group = self.add_group("Recent updates")
-        self.page.add(self.build_settings())
 
         self.listen_busy(self.on_busy)
         self.reload_id = 0
@@ -168,37 +193,58 @@ class UpdatesPage(Page):
     def shown(self) -> None:
         self.reload()
 
-    # --- status ----------------------------------------------------------------
+    # --- layout ------------------------------------------------------------------
+    @staticmethod
+    def nav_row(title: str) -> tuple[Adw.ActionRow, Gtk.Label]:
+        row = Adw.ActionRow(title=title, activatable=True)
+        value = Gtk.Label(css_classes=["dim-label"])
+        row.add_suffix(value)
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        return row, value
+
+    def build_top_group(self) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup()
+        self.auto_nav, self.auto_value = self.nav_row("Automatic Updates")
+        self.auto_nav.connect("activated", lambda _r: self.show_settings())
+        group.add(self.auto_nav)
+        self.history_nav, self.history_value = self.nav_row("Update History")
+        self.history_nav.connect("activated", lambda _r: self.show_history())
+        group.add(self.history_nav)
+        return group
+
     def build_status_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup()
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=12, margin_bottom=6)
-        self.status_icon = Gtk.Image(pixel_size=72, icon_name="kulan-logo")
-        self.status_title = Gtk.Label(css_classes=["title-1"], wrap=True, justify=Gtk.Justification.CENTER)
-        self.status_detail = Gtk.Label(css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER)
-        self.progress = Gtk.ProgressBar(show_text=True, visible=False, margin_start=40, margin_end=40)
-        buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, margin_top=6)
-        self.install_button = Gtk.Button(css_classes=["suggested-action", "pill"], visible=False)
-        self.install_button.connect("clicked", lambda _b: self.install())
-        self.restart_button = Gtk.Button(label="Restart Now", css_classes=["suggested-action", "pill"],
-                                         visible=False)
-        self.restart_button.connect("clicked", lambda _b: self.restart())
-        self.check_button = Gtk.Button(label="Check for updates", css_classes=["pill"])
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=72, margin_bottom=24,
+                      halign=Gtk.Align.CENTER)
+        self.status_icon = Gtk.Image(pixel_size=64, icon_name="kulan-logo", margin_bottom=8, halign=Gtk.Align.CENTER)
+        self.status_title = Gtk.Label(css_classes=["title-2"], wrap=True, justify=Gtk.Justification.CENTER)
+        self.status_subtitle = Gtk.Label(css_classes=["title-4", "dim-label"], wrap=True,
+                                         justify=Gtk.Justification.CENTER)
+        self.status_detail = Gtk.Label(css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER,
+                                       max_width_chars=48, visible=False)
+        self.progress = Gtk.ProgressBar(show_text=True, visible=False, margin_top=8, width_request=320)
+        self.action_button = Gtk.Button(css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER,
+                                        margin_top=12, visible=False)
+        self.action_button.connect("clicked", lambda _b: self.on_action())
+        self.details_button = Gtk.Button(label="More Details", css_classes=["flat", "accent"],
+                                         halign=Gtk.Align.CENTER)
+        self.details_button.connect("clicked", lambda _b: self.more_details())
+        self.check_button = Gtk.Button(css_classes=["flat", "dim-label", "caption"], halign=Gtk.Align.CENTER,
+                                       margin_top=18)
         self.check_button.connect("clicked", lambda _b: self.check())
-        buttons.append(self.install_button)
-        buttons.append(self.restart_button)
-        buttons.append(self.check_button)
-        for widget in (self.status_icon, self.status_title, self.status_detail, self.progress, buttons):
+        for widget in (self.status_icon, self.status_title, self.status_subtitle, self.status_detail,
+                       self.progress, self.action_button, self.details_button, self.check_button):
             box.append(widget)
         group.add(box)
         return group
 
+    # --- state ---------------------------------------------------------------------
     def reload(self) -> bool:
         self.status = read_json(STATUS_FILE, {})
         if not isinstance(self.status, dict):
             self.status = {}
         self.render_status()
-        self.render_available()
-        self.render_history()
+        self.render_top()
         self.render_undo()
         return False
 
@@ -210,47 +256,97 @@ class UpdatesPage(Page):
         items = self.status.get("available")
         return [u for u in items if isinstance(u, dict)] if isinstance(items, list) else []
 
+    def paused(self) -> bool:
+        until = self.status.get("paused_until") or 0
+        return isinstance(until, (int, float)) and until > time.time()
+
+    def render_top(self) -> None:
+        self.auto_value.set_label("Paused" if self.paused() else ("On" if auto_updates_on() else "Off"))
+        runs = history(limit=1)
+        self.history_value.set_label(when_text(runs[0]["time"]) if runs and runs[0]["time"] else "")
+
     def render_status(self) -> None:
         if self.working:
             return  # the running action owns the status area
         available = self.available()
-        security = sum(1 for u in available if u.get("security"))
+        self.summary = updatelist.summarize(available, self.release.get("VERSION_ID", ""))
+        new_version = self.release_offered()
         name = self.release.get("NAME", "Kulan OS")
-        checked = when_text(self.status.get("checked") or 0)
+        current = self.release.get("VERSION_ID", "")
         restart = self.restart_needed()
-        # One main button at a time: installing comes first, restarting after.
-        self.restart_button.set_visible(bool(restart) and not self.running() and not available)
+        self.action = ""
+        self.status_icon.set_pixel_size(64)
+        self.status_detail.set_visible(False)
+        self.details_button.set_visible(True)
+        self.check_button.set_visible(True)
+        self.check_button.set_label(f"Last checked {when_text(self.status.get('checked') or 0)} · Check Now")
         if self.running():
             self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
-            self.status_detail.set_label("Updates are being installed in the background. You can keep working.")
-            self.install_button.set_visible(False)
+            self.status_subtitle.set_label("You can keep working.")
+            self.details_button.set_visible(False)
+            self.check_button.set_visible(False)
+        elif new_version:
+            # A new Kulan OS version: the headline, with its name from the website.
+            self.status_icon.set_from_icon_name("kulan-logo")
+            self.status_icon.set_pixel_size(88)
+            self.status_title.set_label(f"{name} {new_version}")
+            notes = self.note_for(new_version)
+            self.status_subtitle.set_label(notes["title"] if notes and notes.get("title") else "A new version")
+            self.action = "install"
         elif available:
+            count = self.summary["count"]
+            security = self.summary.get("security", [])
             self.status_icon.set_from_icon_name(
                 "software-update-urgent-symbolic" if security else "software-update-available-symbolic")
-            self.status_title.set_label(f"{plural(len(available), 'update')} available")
-            extra = f" · {plural(security, 'security fix', 'security fixes')}" if security else ""
-            self.status_detail.set_label(f"Last checked {checked}{extra}")
-            self.install_button.set_label(f"Install {plural(len(available), 'update')}")
-            self.install_button.set_visible(True)
+            self.status_title.set_label(f"{plural(count, 'update')} available")
+            self.status_subtitle.set_label(self.short_list() or "Improvements and fixes")
+            self.action = "install"
         elif restart:
             self.status_icon.set_from_icon_name("system-reboot-symbolic")
             self.status_title.set_label("Restart to finish updating")
             words = restart_words(restart)
-            self.status_detail.set_label(f"Updates to {words} take effect after a restart." if words
-                                         else "Some updates take effect after a restart.")
-            self.install_button.set_visible(False)
+            self.status_subtitle.set_label(f"For {words}" if words else f"{name} {current}")
+            self.details_button.set_visible(False)
+            self.action = "restart"
         else:
-            self.status_icon.set_from_icon_name("kulan-logo")
+            self.status_icon.set_from_icon_name("object-select-symbolic")
+            self.status_icon.set_pixel_size(40)
+            self.status_icon.set_css_classes(["kulan-update-done"])
             self.status_title.set_label(f"{name} is up to date")
-            self.status_detail.set_label(f"Last checked {checked}")
-            self.install_button.set_visible(False)
+            self.status_subtitle.set_label(f"{name} {current}".strip())
+        if self.action != "" or self.running():
+            self.status_icon.set_css_classes([])
+        labels = {"install": "Update Now" if new_version else "Install Now", "restart": "Restart Now"}
+        self.action_button.set_label(labels.get(self.action, ""))
+        self.action_button.set_visible(bool(self.action) and not self.running())
+        self.action_button.set_sensitive(not self.window.helper.busy)
+
+    def short_list(self) -> str:
+        """"Includes security fixes for Firefox and OpenSSL", "LibreOffice and 2 more"."""
+        security = [g["title"] for g in self.summary.get("security", [])]
+        others = [str(a.get("name", "")) for a in self.summary.get("apps", [])] + \
+            [g["title"] for g in self.summary.get("other", [])]
+
+        def join(names: list[str]) -> str:
+            if len(names) <= 2:
+                return " and ".join(names)
+            return f"{names[0]}, {names[1]} and {len(names) - 2} more"
+        if security:
+            return f"Includes security fixes for {join(security)}"
+        return join(others)
 
     def restart_needed(self) -> list[str]:
         items = self.status.get("restart_required")
         if not isinstance(items, list) or not Path("/run/kulan/restart-required").exists():
             return []  # the file lives in /run, so a restart clears it
         return [str(i) for i in items if isinstance(i, str)]
+
+    def on_action(self) -> None:
+        if self.action == "install":
+            self.install()
+        elif self.action == "restart":
+            self.restart()
 
     def restart(self) -> None:
         # GNOME's own restart dialog, so open apps can save their work first.
@@ -262,116 +358,183 @@ class UpdatesPage(Page):
         except GLib.Error as exc:
             self.toast(f"Couldn’t restart: {exc.message}")
 
-    def render_available(self) -> None:
-        for row in self.available_rows:
-            self.available_group.remove(row)
-        self.available_rows = []
-        available = self.available()
-        self.available_group.set_visible(bool(available) and not self.running())
-        for update in available[:60]:
-            kind = update.get("kind")
-            if kind in ("app", "runtime"):
-                version = str(update.get("to") or "")
-                what = "App" if kind == "app" else "App component"
-                subtitle = f"{what} · {version}" if version else what
-                icon = "application-x-executable-symbolic" if kind == "app" else "package-x-generic-symbolic"
-            else:
-                subtitle = f"{update.get('from') or 'new'} → {update.get('to', '?')}"
-                icon = "package-x-generic-symbolic"
-            row = Adw.ActionRow(title=GLib.markup_escape_text(str(update.get("name", "?"))),
-                                subtitle=GLib.markup_escape_text(subtitle))
-            row.add_prefix(Gtk.Image(icon_name=icon))
-            if update.get("security"):
-                row.add_suffix(Gtk.Label(label="Security", css_classes=["warning", "caption-heading"]))
-            self.available_group.add(row)
-            self.available_rows.append(row)
+    # --- More Details ------------------------------------------------------------------
+    def open_url(self, url: str) -> None:
+        Gtk.UriLauncher.new(url).launch(self.window, None, None)
 
-    # --- what's new and history -------------------------------------------------
-    def build_whats_new(self) -> Adw.PreferencesGroup:
-        notes = read_json(RELEASE_NOTES, [])
-        notes = notes if isinstance(notes, list) else []
-        current = self.release.get("VERSION_ID", "")
-        note = next((n for n in notes if isinstance(n, dict) and n.get("version") == current),
-                    notes[0] if notes and isinstance(notes[0], dict) else None)
-        build = self.release.get("BUILD_ID", "")
-        group = Adw.PreferencesGroup(
-            title=f"What’s new in {note.get('title', 'Kulan OS')}" if note else "What’s new",
-            description=f"Build {build}" if build and build != "local" else "",
-        )
-        for item in (note or {}).get("items", []):
-            row = Adw.ActionRow(title=GLib.markup_escape_text(str(item)))
-            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["accent"]))
+    def more_details(self) -> None:
+        """A Kulan OS version: its page on the website. Other updates: a short sheet."""
+        new_version = self.release_offered()
+        if new_version:
+            self.open_url(notes_url(new_version))
+        elif self.available():
+            self.show_update_list()
+        else:
+            self.open_url(notes_url(self.release.get("VERSION_ID", "")))
+
+    def sheet(self, title: str, page: Adw.PreferencesPage, height: int = 560) -> Adw.Dialog:
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(page)
+        dialog = Adw.Dialog(title=title, content_width=560, content_height=height, child=view)
+        dialog.present(self.window)
+        return dialog
+
+    def show_update_list(self) -> None:
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup()
+        for item in self.summary.get("security", []):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(item["title"]), subtitle="Security update")
+            row.add_prefix(Gtk.Image(icon_name="security-high-symbolic"))
             group.add(row)
-        return group
+        theme = Gtk.IconTheme.get_for_display(self.window.get_display())
+        for app in self.summary.get("apps", []):
+            icon = str(app.get("id") or "")
+            row = Adw.ActionRow(title=GLib.markup_escape_text(str(app.get("name", "App"))),
+                                subtitle=GLib.markup_escape_text(f"Version {app.get('to')}" if app.get("to")
+                                                                 else "App update"))
+            row.add_prefix(Gtk.Image(icon_name=icon if icon and theme.has_icon(icon) else
+                                     "application-x-executable-symbolic", pixel_size=32))
+            group.add(row)
+        for item in self.summary.get("other", []):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(item["title"]), subtitle="Improvements and fixes")
+            row.add_prefix(Gtk.Image(icon_name="software-update-available-symbolic"))
+            group.add(row)
+        page.add(group)
+        debs = [u for u in self.available() if u.get("kind") not in ("app", "runtime")]
+        if debs:
+            tech = Adw.PreferencesGroup()
+            details = Adw.ExpanderRow(title="Technical details", subtitle=plural(len(debs), "package"))
+            for update in debs[:80]:
+                details.add_row(Adw.ActionRow(
+                    title=GLib.markup_escape_text(str(update.get("name", "?"))),
+                    subtitle=GLib.markup_escape_text(f"{update.get('from') or 'new'} → {update.get('to', '?')}"),
+                    css_classes=["property"]))
+            tech.add(details)
+            page.add(tech)
+        self.sheet("Updates", page)
 
-    def render_history(self) -> None:
-        for row in self.history_rows:
-            self.history_group.remove(row)
-        self.history_rows = []
+    def release_offered(self) -> str | None:
+        """The Kulan OS version these updates bring, if they bring one: a new
+        major.minor from the packages themselves, or a point release (2.4.1)
+        named by the website's notes when Kulan's packages are updating."""
+        if self.summary.get("release"):
+            self.fetch_notes()
+            return self.summary["release"]
+        if not self.summary.get("kulan"):
+            return None
+        self.fetch_notes()
+        current = updatelist.version_tuple(self.release.get("VERSION_ID", ""))
+        newest = str(self.remote_notes[0].get("version", "")) if self.remote_notes else ""
+        same_series = updatelist.series(newest) == updatelist.series(self.release.get("VERSION_ID", ""))
+        if newest and same_series and updatelist.version_tuple(newest) > current:
+            return newest
+        return None
+
+    def note_for(self, version: str) -> dict | None:
+        return next((n for n in self.remote_notes if str(n.get("version")) == version), None)
+
+    def fetch_notes(self) -> None:
+        """Every version's notes from the website, once, in the background."""
+        if self.notes_fetched:
+            return
+        self.notes_fetched = True
+
+        def work() -> None:
+            try:
+                with urllib.request.urlopen(NOTES_JSON, timeout=8) as resp:  # noqa: S310 - fixed https URL
+                    data = json.loads(resp.read(512 * 1024).decode("utf-8"))
+            except (OSError, ValueError):
+                return
+            if isinstance(data, list):
+                notes = [{"version": str(n.get("version")), "title": str(n.get("title") or "")}
+                         for n in data if isinstance(n, dict) and n.get("version")]
+                GLib.idle_add(self.notes_arrived, notes)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def notes_arrived(self, notes: list[dict]) -> bool:
+        if not self.torn_down:
+            self.remote_notes = notes
+            self.render_status()
+        return GLib.SOURCE_REMOVE
+
+    # --- Update History ---------------------------------------------------------------
+    def show_history(self) -> None:
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup()
         runs = history()
         if not runs:
-            row = Adw.ActionRow(title="No updates installed yet")
-            self.history_group.add(row)
-            self.history_rows.append(row)
-            return
+            group.add(Adw.ActionRow(title="No updates installed yet"))
         for run in runs:
-            how = "automatically" if run["automatic"] else ""
-            row = Adw.ExpanderRow(title=f"{plural(len(run['packages']), 'package')} updated {how}".strip(),
-                                  subtitle=when_text(run["time"]))
+            how = " · automatically" if run["automatic"] else ""
+            row = Adw.ExpanderRow(
+                title=GLib.markup_escape_text(updatelist.history_title(run["packages"], run.get("kulan_series"))),
+                subtitle=f"{when_text(run['time'])}{how}")
             for name in run["packages"][:40]:
-                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name)))
-            self.history_group.add(row)
-            self.history_rows.append(row)
+                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name), css_classes=["property"]))
+            group.add(row)
+        page.add(group)
+        notes = Adw.PreferencesGroup()
+        link = Adw.ActionRow(title=f"What’s new in {self.release.get('NAME', 'Kulan OS')} "
+                                   f"{self.release.get('VERSION_ID', '')}".strip(), activatable=True)
+        link.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+        link.connect("activated", lambda _r: self.open_url(notes_url(self.release.get("VERSION_ID", ""))))
+        notes.add(link)
+        page.add(notes)
+        self.sheet("Update History", page)
 
-    # --- settings ----------------------------------------------------------------------
-    def build_settings(self) -> Adw.PreferencesGroup:
-        group = Adw.PreferencesGroup(title="Settings")
-        self.auto_row = Adw.SwitchRow(
+    # --- Automatic Updates ----------------------------------------------------------
+    def show_settings(self) -> None:
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup()
+        auto = Adw.SwitchRow(
             title="Install updates automatically",
-            subtitle="Debian, Kulan and app updates, including security fixes, install daily in the background",
+            subtitle="Security fixes, Kulan and app updates install in the background every day",
             active=auto_updates_on())
-        self.auto_handler = self.auto_row.connect("notify::active", self.on_auto_toggled)
-        group.add(self.auto_row)
+        handler = auto.connect("notify::active", self.on_auto_toggled)
+        auto.handler = handler
+        group.add(auto)
+        before = Adw.SwitchRow(
+            title="Create a restore point first",
+            subtitle="So an update can be undone if it causes trouble",
+            active=self.prefs.restore_before_install() and self.restore_on, sensitive=self.restore_on)
+        before.connect("notify::active", lambda row, _p: self.prefs.set_restore_before_install(row.get_active()))
+        group.add(before)
+        page.add(group)
 
-        restore_on = RESTORE_CONFIG.exists() and shutil.which("timeshift") is not None
-        self.restore_on = restore_on
-        self.restore_before_row = Adw.SwitchRow(
-            title="Create a restore point before installing",
-            subtitle="Lets you roll back if an update causes trouble",
-            active=self.prefs.restore_before_install() and restore_on, sensitive=restore_on)
-        self.restore_before_row.connect(
-            "notify::active", lambda row, _p: self.prefs.set_restore_before_install(row.get_active()))
-        group.add(self.restore_before_row)
-
-        restore_row = Adw.ActionRow(
+        restore = Adw.PreferencesGroup(title="Restore points")
+        points = Adw.ActionRow(
             title="Restore points",
-            subtitle="Daily, keeping the last 2 days and 1 week" if restore_on
+            subtitle="Daily, keeping the last 2 days and 1 week" if self.restore_on
             else "Set up automatically after you install Kulan OS")
         if shutil.which("timeshift"):
-            self.create_button = Gtk.Button(label="Create now", valign=Gtk.Align.CENTER, sensitive=restore_on)
-            self.create_button.connect("clicked", lambda _b: self.run(
+            create = Gtk.Button(label="Create Now", valign=Gtk.Align.CENTER, sensitive=self.restore_on)
+            create.connect("clicked", lambda _b: self.run(
                 ["restore-point"], "Creating a restore point…", "Restore point created"))
-            restore_row.add_suffix(self.create_button)
+            points.add_suffix(create)
             manage = Gtk.Button(label="Manage", valign=Gtk.Align.CENTER, css_classes=["flat"])
             manage.connect("clicked", lambda _b: launch("timeshift-gtk.desktop", self.toast))
-            restore_row.add_suffix(manage)
-        group.add(restore_row)
-
-        # Undo: back to the restore point taken before the last update.
-        self.undo_row = Adw.ActionRow(title="Undo the last update")
-        self.undo_button = Gtk.Button(label="Undo…", valign=Gtk.Align.CENTER)
-        self.undo_button.update_property([Gtk.AccessibleProperty.LABEL], ["Undo the last update"])
-        self.undo_button.connect("clicked", lambda _b: self.confirm_undo())
-        self.undo_row.add_suffix(self.undo_button)
-        group.add(self.undo_row)
-        self.pause_row = Adw.ActionRow(title="Automatic updates are paused",
-                                       css_classes=["warning"])
+            points.add_suffix(manage)
+        restore.add(points)
+        undo = Adw.ActionRow(title="Undo the last update")
+        undo_button = Gtk.Button(label="Undo…", valign=Gtk.Align.CENTER)
+        undo_button.update_property([Gtk.AccessibleProperty.LABEL], ["Undo the last update"])
+        undo_button.connect("clicked", lambda _b: self.confirm_undo())
+        undo.add_suffix(undo_button)
+        restore.add(undo)
+        pause = Adw.ActionRow(title="Automatic updates are paused", css_classes=["warning"])
         resume = Gtk.Button(label="Resume Now", valign=Gtk.Align.CENTER)
         resume.connect("clicked", lambda _b: self.window.helper.run(
             ["auto-on"], "Automatic updates on", on_done=lambda _ok: self.reload()))
-        self.pause_row.add_suffix(resume)
-        group.add(self.pause_row)
-        return group
+        pause.add_suffix(resume)
+        restore.add(pause)
+        page.add(restore)
+
+        self.dialog_rows = {"undo": undo, "pause": pause}
+        self.render_undo()
+        dialog = self.sheet("Automatic Updates", page, height=520)
+        dialog.connect("closed", lambda _d: self.dialog_rows.clear())
 
     def last_update_point(self) -> datetime | None:
         try:
@@ -381,17 +544,20 @@ class UpdatesPage(Page):
             return None
 
     def render_undo(self) -> None:
+        undo, pause = self.dialog_rows.get("undo"), self.dialog_rows.get("pause")
+        if undo is None or pause is None:
+            return
         when = self.last_update_point()
-        self.undo_row.set_visible(when is not None and self.restore_on)
+        undo.set_visible(when is not None and self.restore_on)
         if when is not None:
-            self.undo_row.set_subtitle(
-                f"Puts the system back to how it was before the update of {when.strftime('%-d %b, %H:%M')}. "
+            undo.set_subtitle(
+                f"Back to how things were before the update of {when.strftime('%-d %b, %H:%M')}. "
                 "Your own files aren’t touched. Kulan OS restarts to finish.")
-        until = self.status.get("paused_until") or 0
-        paused = isinstance(until, (int, float)) and until > time.time()
-        self.pause_row.set_visible(paused)
+        paused = self.paused()
+        pause.set_visible(paused)
         if paused:
-            self.pause_row.set_subtitle(
+            until = self.status.get("paused_until") or 0
+            pause.set_subtitle(
                 f"After undoing an update, until {datetime.fromtimestamp(until).strftime('%-d %b, %H:%M')}, "
                 "so the same updates don’t install again straight away")
 
@@ -417,9 +583,10 @@ class UpdatesPage(Page):
 
         def done(ok: bool) -> None:
             if not ok:  # put the switch back if the change didn't happen
-                row.handler_block(self.auto_handler)
+                row.handler_block(row.handler)
                 row.set_active(not wanted)
-                row.handler_unblock(self.auto_handler)
+                row.handler_unblock(row.handler)
+            self.render_top()
 
         self.window.helper.run(["auto-on" if wanted else "auto-off"],
                                "Automatic updates on" if wanted else "Automatic updates off", on_done=done)
@@ -430,7 +597,7 @@ class UpdatesPage(Page):
 
     def install(self) -> None:
         args = ["install"]
-        if self.restore_before_row.get_active():
+        if self.restore_on and self.prefs.restore_before_install():
             args.append("--restore-point")
         self.run(args, "Installing updates…", "Updates installed")
 
@@ -442,9 +609,12 @@ class UpdatesPage(Page):
         self.progress.set_fraction(0)
         self.progress.set_text(label)
         self.progress.set_visible(True)
+        self.status_icon.set_css_classes([])
         self.status_icon.set_from_icon_name("view-refresh-symbolic")
         self.status_title.set_label(label)
-        self.status_detail.set_label("You can keep working while this runs.")
+        self.status_subtitle.set_label("You can keep working while this runs.")
+        for widget in (self.action_button, self.details_button, self.check_button):
+            widget.set_visible(False)
 
         def progress(fraction: float, text: str) -> None:
             self.progress.set_fraction(fraction)
@@ -458,7 +628,5 @@ class UpdatesPage(Page):
         self.window.helper.run(args, success, on_progress=progress, on_done=done)
 
     def on_busy(self, busy: bool) -> None:
-        for widget in (self.check_button, self.install_button):
+        for widget in (self.check_button, self.action_button):
             widget.set_sensitive(not busy)
-        if hasattr(self, "create_button"):
-            self.create_button.set_sensitive(not busy and self.restore_on)

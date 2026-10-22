@@ -104,6 +104,8 @@ list.boxed-list { border-radius: 14px; }
 list.boxed-list > row:first-child { border-top-left-radius: 14px; border-top-right-radius: 14px; }
 list.boxed-list > row:last-child { border-bottom-left-radius: 14px; border-bottom-right-radius: 14px; }
 preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px; }
+.kulan-update-done { background-color: alpha(@window_fg_color, 0.55); color: @window_bg_color;
+  border-radius: 999px; padding: 18px; -gtk-icon-size: 40px; }
 """ + "".join(f".kulan-tile.tile-{pid} {{ background-color: {colour}; }}\n" for pid, colour in TILE_COLOURS.items()) \
     + f".kulan-tile.tile-external {{ background-color: {EXTERNAL_TILE}; }}\n"
 
@@ -318,6 +320,11 @@ class KulanSettings(Adw.Application):
                     failures.append(f"{page_id}: old page still listening after a rebuild")
             except Exception as exc:  # noqa: BLE001 - report every page, then fail
                 failures.append(f"{page_id}: {exc!r}")
+        try:  # Software Update's plain-language grouping of updates
+            from . import updatelist
+            updatelist.self_test()
+        except AssertionError as exc:
+            failures.append(f"updates: grouping gave {exc}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
