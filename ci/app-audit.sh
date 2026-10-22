@@ -205,9 +205,9 @@ for scheme in light dark; do
 		wait_s=7
 		case "$id" in *firefox*|*libreoffice*|*gimp*|*calamares*|*torbrowser*) wait_s=25 ;; esac
 		if [[ "$id" == *calamares* ]]; then
-			DISPLAY="${XWAYLAND:-$SCREEN}" setsid sudo -E calamares >/dev/null 2>&1 &
+			DISPLAY="${XWAYLAND:-$SCREEN}" setsid sudo -E calamares </dev/null >/dev/null 2>&1 &
 		else
-			DISPLAY="${XWAYLAND:-$SCREEN}" setsid bash -c "exec $exec" >/dev/null 2>&1 &
+			DISPLAY="${XWAYLAND:-$SCREEN}" setsid bash -c "exec $exec" </dev/null >/dev/null 2>&1 &
 		fi
 		APP=$!
 		sleep "$wait_s"
