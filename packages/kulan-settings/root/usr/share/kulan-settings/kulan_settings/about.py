@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, open_gnome_panel, os_release
+from .common import Page, os_release
 
 KULAN_CONF = Path("/usr/share/kulan/kulan.conf")
 
@@ -72,6 +73,64 @@ def storage() -> str:
         return "Unknown"
 
 
+def read_text(path: str) -> str:
+    try:
+        return Path(path).read_text(errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def hardware_model() -> str:
+    """"LENOVO ThinkPad X1 Carbon", from the firmware's own tables."""
+    vendor = read_text("/sys/class/dmi/id/sys_vendor")
+    product = read_text("/sys/class/dmi/id/product_version") if read_text(
+        "/sys/class/dmi/id/sys_vendor").upper() == "LENOVO" else ""
+    product = product or read_text("/sys/class/dmi/id/product_name")
+    if not product:
+        product = read_text("/proc/device-tree/model").rstrip("\x00")
+    junk = ("", "to be filled by o.e.m.", "system product name", "default string", "none")
+    if product.lower() in junk:
+        return ""
+    return product if not vendor or vendor.lower() in junk or product.lower().startswith(vendor.lower()) \
+        else f"{vendor} {product}"
+
+
+def graphics() -> str:
+    """The graphics chips (lspci), e.g. "Intel UHD Graphics 620"."""
+    try:
+        out = subprocess.run(["lspci", "-mm"], capture_output=True, text=True, timeout=5, check=False,
+                             env={**os.environ, "LC_ALL": "C"}).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    names = []
+    for line in out.splitlines():
+        parts = [p.strip('"') for p in re.findall(r'"[^"]*"', line)]
+        if len(parts) >= 3 and parts[0].startswith(("VGA", "3D", "Display")):
+            vendor = "AMD" if "AMD" in parts[1] else re.sub(r"\s*\[.*?\]|,? Inc\.?|Corporation|Corp\.", "",
+                                                            parts[1]).strip()
+            model = re.sub(r".*\[(.*)\].*", r"\1", parts[2]) if "[" in parts[2] else parts[2]
+            names.append(f"{vendor} {model}".strip())
+    return " · ".join(dict.fromkeys(names))
+
+
+def firmware() -> str:
+    version = read_text("/sys/class/dmi/id/bios_version")
+    date = read_text("/sys/class/dmi/id/bios_date")
+    kind = "UEFI" if os.path.isdir("/sys/firmware/efi") else "BIOS"
+    return f"{kind} {version}" + (f" ({date})" if date else "") if version else kind
+
+
+def desktop_version() -> str:
+    try:
+        out = subprocess.run(["gnome-shell", "--version"], capture_output=True, text=True, timeout=5,
+                             check=False).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        out = ""
+    session = os.environ.get("XDG_SESSION_TYPE", "")
+    session = {"wayland": "Wayland", "x11": "X11"}.get(session, session)
+    return ", ".join(x for x in (out, session) if x)
+
+
 class AboutPage(Page):
     title = "About Kulan OS"
     icon = "help-about-symbolic"
@@ -102,7 +161,13 @@ class AboutPage(Page):
                 ("Memory", memory()),
                 ("Storage", storage()),
                 ("Based on", f"Debian {release.get('VERSION', '').split('Debian ')[-1].rstrip(')') or 'GNU/Linux'}"),
-                ("Kernel", f"Linux {uname.release}")):
+                ("Kernel", f"Linux {uname.release} ({uname.machine})"),
+                ("Hardware model", hardware_model()),
+                ("Graphics", graphics()),
+                ("Firmware", firmware()),
+                ("Desktop", desktop_version())):
+            if not value:
+                continue
             row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(value), subtitle_selectable=True)
             row.add_css_class("property")
             details.add(row)
@@ -114,7 +179,6 @@ class AboutPage(Page):
         links = self.add_group()
         for title, action in (
                 ("Check for updates", lambda: self.window.show_page("updates")),
-                ("More system details", lambda: open_gnome_panel("system", "about")),
                 ("Kulan OS website", lambda: self.open_url(conf.get("KULAN_HOME_URL"))),
                 ("Get help", lambda: self.open_url(conf.get("KULAN_SUPPORT_URL")))):
             row = Adw.ActionRow(title=title, activatable=True)

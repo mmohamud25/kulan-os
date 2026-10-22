@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, choice_row, has_key, open_gnome_panel, settings, switch_row
+from .common import Page, choice_row, has_key, settings, switch_row
 
 UPOWER = "org.freedesktop.UPower"
 DISPLAY_DEVICE = "/org/freedesktop/UPower/devices/DisplayDevice"
@@ -106,12 +106,14 @@ class BatteryPage(Page):
                                 lambda: self.power.get_string("power-button-action"),
                                 lambda v: self.power.set_string("power-button-action", v)))
 
-        more = self.add_group()
-        row = Adw.ActionRow(title="More power settings", subtitle="Wi-Fi and Bluetooth power saving",
-                            activatable=True)
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: open_gnome_panel("power"))
-        more.add(row)
+        saving = self.add_group("Saving power")
+        self.add_rows(
+            saving,
+            switch_row(self.power, "power-saver-profile-on-low-battery", "Power saver when the battery is low",
+                       "Switches to Power saver by itself, and back when charging"),
+            switch_row(self.power, "ambient-enabled", "Automatic brightness",
+                       "Follows the light around you, on computers with a light sensor"),
+        )
 
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, UPOWER, DISPLAY_DEVICE,
                                   "org.freedesktop.UPower.Device", None, self.got_battery)

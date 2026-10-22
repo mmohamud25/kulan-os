@@ -5,7 +5,8 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from .common import KULAN_SCHEMA, Page, choice_row, has_key, open_gnome_panel, reset_keys, settings
+from .common import KULAN_SCHEMA, Page, choice_row, has_key, reset_keys, settings
+from .wallpapers import WallpaperDialog
 
 KULAN_WALLPAPER_LIGHT = "file:///usr/share/backgrounds/kulan/kulan-light.png"
 KULAN_WALLPAPER_DARK = "file:///usr/share/backgrounds/kulan/kulan-dark.png"
@@ -164,10 +165,10 @@ class AppearancePage(Page):
         choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
         choose.connect("clicked", lambda _b: self.choose_picture())
         own.add_suffix(choose)
-        more = Adw.ActionRow(title="More wallpapers", subtitle="GNOME’s wallpapers and colour backgrounds",
+        more = Adw.ActionRow(title="More wallpapers", subtitle="GNOME’s and other installed wallpapers",
                              activatable=True)
         more.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        more.connect("activated", lambda _r: open_gnome_panel("background"))
+        more.connect("activated", lambda _r: self.more_wallpapers())
         self.add_rows(wallpaper, *(r[0] for r in self.kulan_wallpaper_rows), own, more)
 
         windows = self.add_group("Window buttons", "Changes apply to apps as you open them.")
@@ -248,6 +249,13 @@ class AppearancePage(Page):
             self.background.set_string("picture-uri", light)
             self.background.set_string("picture-uri-dark", dark)
         self.toast(f"{title} wallpaper on")
+
+    def more_wallpapers(self) -> None:
+        if self.background is None:
+            return
+        dialog = WallpaperDialog(self.background, self.toast, Adw.StyleManager.get_default().get_dark())
+        dialog.connect("closed", lambda _d: self.shown())
+        dialog.present(self.window)
 
     def choose_picture(self) -> None:
         dialog = Gtk.FileDialog(title="Choose a wallpaper")
