@@ -475,6 +475,29 @@ check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
+# --- Fleet management (the computer's side, against a stand-in server) ----------------
+python3 ci/fleet-mock.py 18765 /tmp/fleet-log.json & FLEET_MOCK=$!
+sleep 1
+echo TEST-CODE | kulan-fleet join http://127.0.0.1:18765 >/tmp/fleet-join.log 2>&1
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet join" "joined with a one-time code; the key is root-only; anyone can see who manages it and what is shared" bash -c 'test "$(stat -c %a /etc/kulan/fleet.json)" = 600 && kulan-fleet status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"joined\"] and d[\"organisation\"] == \"Kulan Test Org\" and d[\"shared\"] and d[\"last_report\"], d"'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet report" "status with hardware, updates and compliance; refresh done, a disallowed action refused" python3 - <<'PY'
+import json
+log = json.load(open("/tmp/fleet-log.json"))
+paths = [(e["path"], e["authorised"], e["body"].get("status")) for e in log]
+reports = [e["body"] for e in log if e["path"] == "/v1/report"]
+assert len(reports) == 2, paths
+r = reports[0]
+assert r["hardware"]["memory_mb"] > 0 and r["kulan_version"] and r["compliance"]["total"] == 10, r
+assert ("/v1/actions/a1", True, "done") in paths and ("/v1/actions/a2", True, "failed") in paths, paths
+print(len(log), "requests")
+PY
+check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
+kulan-fleet leave >/tmp/fleet-leave.log 2>&1
+check "Fleet leave" "the server is told; key and status removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && grep -q /v1/leave /tmp/fleet-log.json'
+kill "${FLEET_MOCK}" 2>/dev/null
+
 # --- Compliance mode ------------------------------------------------------------------
 # Last before removal: turning it on installs auditd and libpam-pwquality and changes
 # this test system. The firewall can't be switched on in a container, so "on" may

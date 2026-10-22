@@ -1,8 +1,10 @@
 """About Kulan OS: version, build, this computer, links."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -73,7 +75,8 @@ def storage() -> str:
 class AboutPage(Page):
     title = "About Kulan OS"
     icon = "help-about-symbolic"
-    keywords = ("about", "version", "build", "system", "computer", "memory", "processor", "storage")
+    keywords = ("about", "version", "build", "system", "computer", "memory", "processor", "storage",
+                "organisation", "organization", "managed", "fleet", "company", "work")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -103,6 +106,10 @@ class AboutPage(Page):
             row.add_css_class("property")
             details.add(row)
 
+        self.org_group = self.add_group("Organisation")
+        self.org_rows: list[Gtk.Widget] = []
+        self.render_org()
+
         links = self.add_group()
         for title, action in (
                 ("Check for updates", lambda: self.window.show_page("updates")),
@@ -113,6 +120,86 @@ class AboutPage(Page):
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             row.connect("activated", lambda _r, a=action: a())
             links.add(row)
+
+    # --- fleet management -------------------------------------------------------------
+    def render_org(self) -> None:
+        for row in self.org_rows:
+            self.org_group.remove(row)
+        self.org_rows = []
+        fleet = Path("/usr/bin/kulan-fleet")
+        self.org_group.set_visible(fleet.exists())
+        if not fleet.exists():
+            return
+        try:
+            data = json.loads(Path("/var/lib/kulan/fleet-public.json").read_text())
+        except (OSError, ValueError):
+            data = {}
+        if data.get("joined"):
+            last = data.get("last_report")
+            when = time.strftime("%d %b %Y, %H:%M", time.localtime(last)) if last else "not yet"
+            head = Adw.ActionRow(title=GLib.markup_escape_text(f"Managed by {data.get('organisation', '')}"),
+                                 subtitle=GLib.markup_escape_text(
+                                     f"Reports to {data.get('server', '')} every hour · last report {when}"
+                                     + (f" · last problem: {data['last_error']}" if data.get("last_error") else "")))
+            head.add_prefix(Gtk.Image(icon_name="network-workgroup-symbolic"))
+            leave = Gtk.Button(label="Leave…", valign=Gtk.Align.CENTER)
+            leave.connect("clicked", lambda _b: self.leave_org())
+            head.add_suffix(leave)
+            shared = Adw.ExpanderRow(title="What is shared",
+                                     subtitle="Never files, browsing, messages or passwords")
+            for item in data.get("shared", []):
+                shared.add_row(Adw.ActionRow(title=GLib.markup_escape_text(str(item))))
+            shared.add_row(Adw.ActionRow(
+                title="What the organisation can ask this computer to do",
+                subtitle="Report now, install updates, turn compliance mode on, lock the screen, "
+                         "restart (with 5 minutes' notice)"))
+            rows = [head, shared]
+        else:
+            join = Adw.ActionRow(title="Join an organisation",
+                                 subtitle="For work or school computers: your IT team gives you a server address "
+                                          "and a one-time code", activatable=True)
+            join.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            join.connect("activated", lambda _r: self.join_org())
+            rows = [join]
+        for row in rows:
+            self.org_group.add(row)
+            self.org_rows.append(row)
+
+    def join_org(self) -> None:
+        dialog = Adw.AlertDialog(heading="Join an organisation",
+                                 body="This computer will report its status (model, updates, security checks) "
+                                      "every hour. Files, browsing and messages are never shared.")
+        server = Adw.EntryRow(title="Server address (https://…)")
+        code = Adw.PasswordEntryRow(title="One-time code")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(server)
+        box.append(code)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("join", "Join")
+        dialog.set_response_appearance("join", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("cancel")
+
+        def answered(_d, response: str) -> None:
+            if response != "join" or not server.get_text().strip() or not code.get_text().strip():
+                return
+            self.window.helper.run(["fleet-join", server.get_text().strip()], "Joined",
+                                   on_done=lambda _ok: self.render_org(), stdin=code.get_text().strip())
+
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def leave_org(self) -> None:
+        dialog = Adw.AlertDialog(heading="Leave the organisation?",
+                                 body="This computer stops reporting and forgets the organisation. Your "
+                                      "organisation may expect it to stay joined.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("leave", "Leave")
+        dialog.set_response_appearance("leave", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, r: r == "leave" and self.window.helper.run(
+            ["fleet-leave"], "Left the organisation", on_done=lambda _ok: self.render_org()))
+        dialog.present(self.window)
 
     def open_url(self, url: str | None) -> None:
         if not url:

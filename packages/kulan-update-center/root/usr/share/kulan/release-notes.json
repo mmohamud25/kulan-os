@@ -10,7 +10,8 @@
       "The lock screen's clock in Manrope, with a ringed photo and a cleaner password field",
       "One icon family: Kulan's apps and GNOME's apps share the same rounded square, gradient and white symbol",
       "Compliance mode (Kulan Settings > Security): one switch brings the computer to a security baseline checked against CIS Controls v8 and NIST SP 800-53, keeps the screen lock from being turned off, and saves a report to hand to an auditor or a client",
-      "TPM unlock (Kulan Settings > Security > Start-up): on computers with a TPM 2.0 chip and Secure Boot on, the encrypted disk opens by itself; the disk password is still asked if anything changed"
+      "TPM unlock (Kulan Settings > Security > Start-up): on computers with a TPM 2.0 chip and Secure Boot on, the encrypted disk opens by itself; the disk password is still asked if anything changed",
+      "Fleet management, the computer's side (Kulan Settings > About > Organisation): join your organisation with a one-time code; the computer reports its model, updates, compliance and TPM status every hour, never files, browsing or messages, and the organisation can only ask it to report, install updates, turn compliance mode on, lock the screen or restart"
     ]
   },
   {

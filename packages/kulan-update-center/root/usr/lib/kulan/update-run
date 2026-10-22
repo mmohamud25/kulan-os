@@ -17,6 +17,7 @@
 #   update-run firewall-on                turn the firewall on (block incoming)
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
+#   update-run fleet-join <server>|fleet-leave  join or leave an organisation (one-time code on stdin)
 #   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
 #   update-run set-hostname <name>        change the computer's name
 #   update-run clean-cache                remove downloaded update files
@@ -313,6 +314,16 @@ except (KeyError, OSError):
 os.replace(tmp, out)
 PY
 		;;
+	fleet-join)
+		[[ $# -eq 2 ]] || die "usage: update-run fleet-join <server> (one-time code on stdin)"
+		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
+		exec /usr/bin/kulan-fleet join "$2"
+		;;
+	fleet-leave)
+		[[ $# -eq 1 ]] || die "usage: update-run fleet-leave"
+		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
+		exec /usr/bin/kulan-fleet leave
+		;;
 	tpm-on|tpm-off)
 		[[ $# -eq 1 ]] || die "usage: update-run tpm-on|tpm-off (disk password on stdin)"
 		[[ -x /usr/bin/kulan-tpm ]] || die "TPM unlock isn't installed."
@@ -395,6 +406,6 @@ PY
 		fi
 		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-off|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
 		;;
 esac

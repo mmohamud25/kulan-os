@@ -15,6 +15,9 @@ case "$1" in
 		deb-systemd-helper purge kulan-oom-notice.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-kexec-guard.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fast-restart.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-fleet.timer >/dev/null 2>&1 || true
+		rm -f /etc/kulan/fleet.json
+		rmdir /etc/kulan 2>/dev/null || true
 		rm -rf /var/lib/kulan
 		;;
 	remove|abort-install|disappear)

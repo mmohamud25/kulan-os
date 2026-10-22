@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly status report to this computer's organisation (Kulan fleet)
+ConditionPathExists=/etc/kulan/fleet.json
+
+# Enabled by "kulan-fleet join", disabled by "kulan-fleet leave".
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target
