@@ -34,6 +34,7 @@ import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
 import {ReopenApps} from './reopen.js';
+import {LightEffects, ANIMATION_FACTOR} from './lighteffects.js';
 
 const APP_GRID_ICON_SIZE = 72;
 const STATUS_FILE = '/var/lib/kulan/updates.json';
@@ -434,6 +435,7 @@ export default class KulanShellExtension extends Extension {
         else
             this._appGridLayout = null;
         this._vmDisplay = new VmDisplayKeeper();
+        this._lightEffects = new LightEffects();
         this._reopenApps = Main.sessionMode.isLocked ? null : new ReopenApps(this._settings);
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
@@ -461,7 +463,10 @@ export default class KulanShellExtension extends Extension {
 
     _applySettings() {
         const speed = this._settings?.get_string('animation-speed') ?? 'normal';
-        St.Settings.get().slow_down_factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
+        const factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
+        // No graphics acceleration: every frame is drawn by the processor, so
+        // fewer of them (shorter animations) feel smoother.
+        St.Settings.get().slow_down_factor = this._lightEffects?.software ? factor * ANIMATION_FACTOR : factor;
         if (this._indicator) {
             this._indicator.allowed = this._settings?.get_boolean('update-indicator') ?? true;
             this._indicator.update(readStatus());
@@ -598,6 +603,8 @@ export default class KulanShellExtension extends Extension {
             this._appGridLayout.fixedIconSize = -1;
         this._appGridLayout = null;
         this._vmDisplay?.destroy();
+        this._lightEffects?.destroy();
+        this._lightEffects = null;
         this._reopenApps?.destroy();
         this._reopenApps = null;
         this._vmDisplay = null;

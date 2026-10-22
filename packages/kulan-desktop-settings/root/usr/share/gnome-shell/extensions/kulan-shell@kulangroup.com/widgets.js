@@ -162,12 +162,11 @@ class WeatherWidget {
             this.card.actor.visible = false;
             return;
         }
-        this.card.actor.visible = true;
-        if (!client.hasLocation) {
-            this.card.setTitle('Weather');
-            this.card.body.add_child(label('Choose a place in Weather', 'kulan-widget-muted', true));
+        // No place chosen yet: no card, rather than an empty one asking for
+        // setup on the desktop (Weather is still in the app grid).
+        this.card.actor.visible = client.hasLocation;
+        if (!client.hasLocation)
             return;
-        }
         const info = client.info;
         if (client.loading || !info || !info.is_valid()) {
             this.card.setTitle(info?.get_location_name?.() || 'Weather');
