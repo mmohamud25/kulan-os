@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
@@ -133,7 +134,35 @@ class Session:
         http(f"{SUPABASE_URL}/auth/v1/otp", {"email": email, "create_user": True})
 
     def verify(self, email: str, code: str) -> None:
-        self._take(http(f"{SUPABASE_URL}/auth/v1/verify", {"type": "email", "email": email, "token": code}))
+        """Takes the code from the email, or its sign-in link.
+
+        Supabase's built-in email has only a link (its text can be changed only with
+        your own mail server), so either works: the link copied from the email, or
+        the address the browser landed on after opening it.
+        """
+        code = code.strip()
+        if code.isdigit():
+            self._take(http(f"{SUPABASE_URL}/auth/v1/verify", {"type": "email", "email": email, "token": code}))
+            return
+        url = urllib.parse.urlsplit(code)
+        if url.scheme != "https" and not code.startswith("http://localhost"):
+            raise FleetError("Paste the 6-digit code, or the whole sign-in link from the email.")
+        fragment = urllib.parse.parse_qs(url.fragment)
+        query = urllib.parse.parse_qs(url.query)
+        if "error_description" in fragment or "error_description" in query:
+            raise FleetError((fragment.get("error_description") or query["error_description"])[0])
+        if "refresh_token" in fragment:
+            # The browser already used the link: swap its refresh token for our own session.
+            self._take(http(f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
+                            {"refresh_token": fragment["refresh_token"][0]}))
+        elif "token" in query and url.netloc == urllib.parse.urlsplit(SUPABASE_URL).netloc:
+            kind = (query.get("type") or ["magiclink"])[0]
+            self._take(http(f"{SUPABASE_URL}/auth/v1/verify", {"type": kind, "token_hash": query["token"][0]}))
+        else:
+            raise FleetError("That doesn't look like the sign-in link from the email.")
+        if email and self.email and self.email.lower() != email.lower():
+            self.sign_out()
+            raise FleetError(f"That link is for {self.email}, not {email}.")
 
     def token(self) -> str:
         if self.access_token and time.time() < self.expires:
@@ -249,10 +278,10 @@ class FleetWindow(Adw.ApplicationWindow):
                       halign=Gtk.Align.CENTER)
         rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         self.email_row = Adw.EntryRow(title="Email")
-        self.code_row = Adw.EntryRow(title="Code from the email", visible=False)
+        self.code_row = Adw.EntryRow(title="Code or sign-in link from the email", visible=False)
         rows.append(self.email_row)
         rows.append(self.code_row)
-        self.signin_button = Gtk.Button(label="Email me a code", css_classes=["suggested-action", "pill"],
+        self.signin_button = Gtk.Button(label="Email me a sign-in link", css_classes=["suggested-action", "pill"],
                                         halign=Gtk.Align.CENTER)
         self.signin_button.connect("clicked", lambda _b: self.signin_step())
         self.email_row.connect("entry-activated", lambda _r: self.signin_step())
@@ -280,7 +309,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 self.code_row.set_visible(True)
                 self.code_row.grab_focus()
                 self.signin_button.set_label("Sign in")
-                self.signin_note.set_label(f"We sent a code to {email}. It works once, for a short time.")
+                self.signin_note.set_label((f"We emailed {email}. Right-click “Sign in” in the email, choose Copy Link, "
+                                        "and paste it here. (Opened it already? Paste the address the browser went to.)"))
             self.background(lambda: self.session.send_code(email), sent)
             return
         code = self.code_row.get_text().strip()
@@ -299,7 +329,7 @@ class FleetWindow(Adw.ApplicationWindow):
         self.background(self.session.sign_out, lambda _r, _e: None)
         self.data = None
         self.code_row.set_visible(False)
-        self.signin_button.set_label("Email me a code")
+        self.signin_button.set_label("Email me a sign-in link")
         self.signin_note.set_label("Signed out.")
         self.stack.set_visible_child_name("signin")
 
