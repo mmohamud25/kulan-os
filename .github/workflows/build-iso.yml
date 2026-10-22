@@ -369,6 +369,24 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
           ci/boot-test.sh out/*.iso boot-test
 
+      # The same on a small computer: 2 GB of memory and one processor.
+      - name: Low-end boot test
+        if: matrix.arch == 'amd64'
+        env:
+          KULAN_BOOT_MEMORY: "2048"
+          KULAN_BOOT_CPUS: "1"
+          KULAN_BOOT_LABEL: Low-end boot test
+        run: ci/boot-test.sh out/*.iso boot-test-low-end
+
+      - name: Upload low-end boot test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: boot-test-low-end-amd64
+          path: boot-test-low-end/
+          retention-days: 14
+          if-no-files-found: ignore
+
       # Install the PC ISO onto a virtual disk, start it, restart it, and
       # check both starts reach the desktop.
       - name: Install test
