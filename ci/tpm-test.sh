@@ -114,8 +114,8 @@ sudo chmod 0400 "${MNT}/etc/kulan-test.key"
 printf '%s' "${PASSWORD}" | sudo cryptsetup luksAddKey --key-file=- "${LOOP}p3" "${MNT}/etc/kulan-test.key" ||
 	fail_now "Encryption" "couldn't add the test key"
 printf 'kulan_crypt UUID=%s /etc/kulan-test.key luks,discard\n' "${LUKS_UUID}" | sudo tee "${MNT}/etc/crypttab" >/dev/null
-sudo mkdir -p "${MNT}/etc/cryptsetup-initramfs"
-echo 'KEYFILE_PATTERN="/etc/kulan-test.key"' | sudo tee "${MNT}/etc/cryptsetup-initramfs/conf-hook" >/dev/null
+# The key file goes into the start-up image (set once cryptsetup-initramfs,
+# which owns conf-hook, is installed below).
 echo 'UMASK=0077' | sudo tee "${MNT}/etc/initramfs-tools/conf.d/kulan-test-umask" >/dev/null
 
 {
@@ -162,7 +162,9 @@ printf 'GRUB_TIMEOUT=0\nGRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT
 	sudo tee "${MNT}/etc/default/grub.d/zz-kulan-tpm-test.cfg" >/dev/null
 {
 	in_root apt-get update -q &&
-		in_root apt-get install -y -q grub-efi-amd64 grub-efi-amd64-signed shim-signed cryptsetup-initramfs &&
+		in_root apt-get install -y -q -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+			grub-efi-amd64 grub-efi-amd64-signed shim-signed cryptsetup-initramfs &&
+		echo 'KEYFILE_PATTERN="/etc/kulan-test.key"' | sudo tee -a "${MNT}/etc/cryptsetup-initramfs/conf-hook" >/dev/null &&
 		in_root update-initramfs -u -k all &&
 		in_root grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot --removable --no-nvram &&
 		in_root update-grub
