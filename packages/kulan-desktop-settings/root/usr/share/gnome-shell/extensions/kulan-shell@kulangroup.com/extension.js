@@ -34,6 +34,7 @@ import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
 
+const APP_GRID_ICON_SIZE = 72;
 const STATUS_FILE = '/var/lib/kulan/updates.json';
 const KULAN_SCHEMA = 'org.kulan.desktop';
 const RELOAD_DELAY_MS = 400;
@@ -392,6 +393,12 @@ export default class KulanShellExtension extends Extension {
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
         this._spotlight = new Spotlight();
+        // A calmer app grid: 72-pixel icons instead of GNOME's 96.
+        this._appGridLayout = Main.overview._overview?.controls?._appDisplay?._grid?.layoutManager ?? null;
+        if (this._appGridLayout && this._appGridLayout.fixedIconSize === -1)
+            this._appGridLayout.fixedIconSize = APP_GRID_ICON_SIZE;
+        else
+            this._appGridLayout = null;
         this._vmDisplay = new VmDisplayKeeper();
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
@@ -552,6 +559,9 @@ export default class KulanShellExtension extends Extension {
         this._prayer?.destroy();
         this._prayer = null;
         this._spotlight?.destroy();
+        if (this._appGridLayout)
+            this._appGridLayout.fixedIconSize = -1;
+        this._appGridLayout = null;
         this._vmDisplay?.destroy();
         this._vmDisplay = null;
         this._spotlight = null;
