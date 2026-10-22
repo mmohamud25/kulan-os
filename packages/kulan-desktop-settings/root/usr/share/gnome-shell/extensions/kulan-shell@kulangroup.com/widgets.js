@@ -58,8 +58,10 @@ function label(text, styleClass, wrap = false) {
 
 // One card: a button with a title row and a body that each widget fills.
 class Card {
-    constructor(title, icon, onClick) {
+    constructor(title, icon, onClick, kind = '') {
         this.actor = new St.Button({style_class: 'kulan-widget', reactive: true, can_focus: false, x_expand: false});
+        if (kind)
+            this.actor.add_style_class_name(`kulan-card-${kind}`); // e.g. the note's paper colour
         this._box = new St.BoxLayout({vertical: true, style_class: 'kulan-widget-box', x_expand: true});
         const head = new St.BoxLayout({style_class: 'kulan-widget-head'});
         head.add_child(new St.Icon({icon_name: icon, style_class: 'kulan-widget-icon'}));
@@ -87,7 +89,7 @@ class Card {
 
 class CalendarWidget {
     constructor() {
-        this.card = new Card('Calendar', 'x-office-calendar-symbolic', () => launchApp('org.gnome.Calendar.desktop'));
+        this.card = new Card('Calendar', 'x-office-calendar-symbolic', () => launchApp('org.gnome.Calendar.desktop'), 'calendar');
         this._source = null;
         try {
             this._source = new Calendar.DBusEventSource();
@@ -140,7 +142,7 @@ class CalendarWidget {
 
 class WeatherWidget {
     constructor() {
-        this.card = new Card('Weather', 'weather-few-clouds-symbolic', () => this._client?.activateApp());
+        this.card = new Card('Weather', 'weather-few-clouds-symbolic', () => this._client?.activateApp(), 'weather');
         this._client = null;
         try {
             this._client = new Weather.WeatherClient();
@@ -198,7 +200,7 @@ class PrayerWidget {
     constructor(settings) {
         this._settings = settings;
         this._interface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
-        this.card = new Card('Prayer Times', 'preferences-system-time-symbolic', () => launch(['kulan-settings', 'prayer-times']));
+        this.card = new Card('Prayer Times', 'preferences-system-time-symbolic', () => launch(['kulan-settings', 'prayer-times']), 'prayer');
         this.update();
     }
 
@@ -253,7 +255,7 @@ class PrayerWidget {
 
 class NotesWidget {
     constructor(openNote) {
-        this.card = new Card('Note', 'document-edit-symbolic', openNote);
+        this.card = new Card('Note', 'document-edit-symbolic', openNote, 'note');
         this._monitor = null;
         try {
             this._monitor = Gio.File.new_for_path(NOTE_FILE).monitor_file(Gio.FileMonitorFlags.NONE, null);
