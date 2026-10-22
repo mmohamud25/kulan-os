@@ -199,11 +199,12 @@ for N in 1 2; do
 		result pass "${NAME}: services" "none failed"
 	fi
 done
-BOOTS="$(field "$(report 2)" boots)"
-if [[ "${COUNT}" -ge 2 && "${BOOTS:-0}" -ge 2 ]]; then
+ID1="$(field "$(report 1)" boot_id)"
+ID2="$(field "$(report 2)" boot_id)"
+if [[ "${COUNT}" -ge 2 && -n "${ID1}" && -n "${ID2}" && "${ID1}" != "${ID2}" ]]; then
 	result pass "Restart" "the installed system restarted and came back to the desktop (${ELAPSED} s for both starts)"
 elif [[ "${COUNT}" -ge 2 ]]; then
-	result fail "Restart" "two reports but the journal shows ${BOOTS:-?} start(s)"
+	result fail "Restart" "two reports but not from two different starts (${ID1:-?} / ${ID2:-?})"
 fi
 summary
 exit "${FAILED}"
