@@ -1,0 +1,3 @@
+[functions.fleet]
+# Computers authenticate with their own key (checked in the function).
+verify_jwt = false
