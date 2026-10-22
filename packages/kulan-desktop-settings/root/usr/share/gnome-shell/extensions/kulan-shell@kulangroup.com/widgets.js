@@ -9,6 +9,7 @@
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
+import GWeather from 'gi://GWeather?version=4.0';
 import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
@@ -101,6 +102,20 @@ class CalendarWidget {
     }
 
     update() {
+        // requestRange() can emit 'changed' straight away, which calls update()
+        // again in the middle of this one; without the guard both runs add
+        // their rows ("Nothing else today" twice).
+        if (this._updating)
+            return;
+        this._updating = true;
+        try {
+            this._update();
+        } finally {
+            this._updating = false;
+        }
+    }
+
+    _update() {
         const now = GLib.DateTime.new_now_local();
         this.card.setTitle(now.format('%A').toUpperCase());
         this.card.clear();
@@ -140,6 +155,39 @@ class CalendarWidget {
     }
 }
 
+// The place the person chose ("Columbus"), not the weather station that
+// reports for it ("Columbus Metropolitan Airport").
+function placeName(info) {
+    try {
+        const place = info.get_location();
+        const name = place?.get_city_name() || place?.get_name();
+        if (name)
+            return name;
+    } catch (e) {
+        // Older GWeather: fall through to the station's name.
+    }
+    return info.get_location_name() || 'Weather';
+}
+
+// "Partly cloudy", "Light rain"... or, when the station doesn't say, how warm
+// it feels; never "Unknown".
+function skyText(info) {
+    try {
+        const [hasConditions] = info.get_value_conditions();
+        if (hasConditions)
+            return info.get_conditions();
+        const [hasSky] = info.get_value_sky();
+        if (hasSky)
+            return info.get_sky();
+        const [hasApparent] = info.get_value_apparent(GWeather.TemperatureUnit.DEFAULT);
+        if (hasApparent)
+            return `Feels like ${info.get_apparent().replace(/\s+/g, '')}`;
+    } catch (e) {
+        logError(e, 'Kulan Shell: weather details');
+    }
+    return '';
+}
+
 class WeatherWidget {
     constructor() {
         this.card = new Card('Weather', 'weather-few-clouds-symbolic', () => this._client?.activateApp(), 'weather');
@@ -171,17 +219,18 @@ class WeatherWidget {
             return;
         const info = client.info;
         if (client.loading || !info || !info.is_valid()) {
-            this.card.setTitle(info?.get_location_name?.() || 'Weather');
+            this.card.setTitle(info ? placeName(info) : 'Weather');
             this.card.body.add_child(label(client.loading ? 'Loading…' : 'Not available right now', 'kulan-widget-muted'));
             return;
         }
-        this.card.setTitle(info.get_location_name() || 'Weather');
+        this.card.setTitle(placeName(info));
         const row = new St.BoxLayout({style_class: 'kulan-widget-weather'});
         row.add_child(new St.Icon({icon_name: info.get_symbolic_icon_name(), style_class: 'kulan-widget-weather-icon'}));
         row.add_child(label(info.get_temp_summary().replace(/\s+/g, ''), 'kulan-widget-big'));
         this.card.body.add_child(row);
-        const sky = info.get_conditions();
-        this.card.body.add_child(label(sky && sky !== '-' ? sky : info.get_sky(), 'kulan-widget-detail'));
+        const detail = skyText(info);
+        if (detail)
+            this.card.body.add_child(label(detail, 'kulan-widget-detail'));
     }
 
     tick() {
