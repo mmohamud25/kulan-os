@@ -6,12 +6,14 @@ import sys
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .about import AboutPage
+from .accessibility import AccessibilityPage
 from .addons import AddonsPage
 from .appearance import AppearancePage
 from .assistant import AssistantPage
 from .battery import BatteryPage
 from .bluetooth import BluetoothPage
 from .common import Helper, open_gnome_panel
+from .dateandtime import DateTimePage
 from .desktop import DesktopPage
 from .display import DisplayPage
 from .family import FamilyPage
@@ -19,6 +21,8 @@ from .dock import DockPage
 from .focus import FocusPage
 from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
+from .mouse import MousePage
+from .notifications import NotificationsPage
 from .prayer import PrayerPage
 from .privacy import PrivacyPage
 from .security import SecurityPage
@@ -40,6 +44,7 @@ PAGES = [
     # Sound and attention
     ("sound", SoundPage),
     ("focus", FocusPage),
+    ("notifications", NotificationsPage),
     ("parental-controls", FamilyPage),
     # How it looks
     ("appearance", AppearancePage),
@@ -56,25 +61,28 @@ PAGES = [
     ("privacy", PrivacyPage),
     # Input and helpers
     ("keyboard", KeyboardPage),
+    ("mouse", MousePage),
+    ("accessibility", AccessibilityPage),
     ("assistant", AssistantPage),
     ("prayer-times", PrayerPage),
     # This computer
+    ("date-time", DateTimePage),
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
     ("about", AboutPage),
 ]
-GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "updates"}
+GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-time"}
 
 # Each page's tile colour in the sidebar (2.4 look): a white symbol on a
 # rounded square, like a Mac's System Settings.
 TILE_COLOURS = {
     "wifi": "#0d9488", "bluetooth": "#3b82f6",
-    "sound": "#ef4444", "focus": "#8b5cf6", "parental-controls": "#f97316",
+    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8",
     "security": "#0f766e", "privacy": "#2563eb",
-    "keyboard": "#64748b", "assistant": "#7c3aed", "prayer-times": "#d97706",
-    "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
+    "keyboard": "#64748b", "mouse": "#64748b", "accessibility": "#2563eb", "assistant": "#7c3aed", "prayer-times": "#d97706",
+    "date-time": "#0ea5e9", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
 }
 EXTERNAL_TILE = "#94a3b8"
 
@@ -97,19 +105,13 @@ preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
     ("Network", "network-wired-symbolic", ("network",)),
-    ("Mouse and touchpad", "input-mouse-symbolic", ("mouse",)),
     ("Printers", "printer-symbolic", ("printers",)),
-    ("Notifications", "org.gnome.Settings-notifications-symbolic|preferences-system-notifications-symbolic",
-     ("notifications",)),
     ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
     ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
-    ("Accessibility", "org.gnome.Settings-accessibility-symbolic|preferences-desktop-accessibility-symbolic",
-     ("universal-access",)),
     ("Apps", "view-app-grid-symbolic", ("applications",)),
     ("Users", "system-users-symbolic", ("system", "users")),
     ("Language and region", "org.gnome.Settings-region-symbolic|preferences-desktop-locale-symbolic",
      ("system", "region")),
-    ("Date and time", "preferences-system-time-symbolic", ("system", "datetime")),
 ]
 
 
