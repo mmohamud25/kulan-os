@@ -481,7 +481,7 @@ export default class KulanShellExtension extends Extension {
         this._liveText = new LiveText(this._assistant);
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
-        this._askKulan = new AskKulan();
+        this._askKulan = new AskKulan({dictation: this._dictation, liveText: this._liveText});
         // "Ask Kulan" in the search bar opens the Ask Kulan panel with the words.
         this._spotlight = new Spotlight(text => this._askKulan?.open(text, true));
         // A calmer app grid: 72-pixel icons instead of GNOME's 96.
@@ -527,9 +527,33 @@ export default class KulanShellExtension extends Extension {
             this._indicator.allowed = this._settings?.get_boolean('update-indicator') ?? true;
             this._indicator.update(readStatus());
         }
+        this._syncAskButton();
         this._syncSession();
         this._syncStyle();
         this._syncFocus();
+    }
+
+    // Ask Kulan's button in the top bar (Kulan Settings › Top bar), when
+    // Kulan Assistant is installed.
+    _syncAskButton() {
+        const schema = this._settings?.settings_schema;
+        const want = this._askKulan && (!schema?.has_key('ask-button') || this._settings.get_boolean('ask-button')) &&
+            GLib.file_test('/usr/share/dbus-1/services/org.kulan.Assistant.Ask.service', GLib.FileTest.EXISTS);
+        if (want && !this._askButton) {
+            this._askButton = new PanelMenu.Button(0.0, 'Ask Kulan', true);
+            this._askButton.add_child(new St.Icon({
+                gicon: Gio.ThemedIcon.new_from_names(['org.kulan.Assistant-symbolic', 'kulan-logo-symbolic']),
+                style_class: 'system-status-icon',
+            }));
+            this._askButton.connect('button-press-event', () => {
+                this._askKulan?.toggle();
+                return Clutter.EVENT_STOP;
+            });
+            Main.panel.addToStatusArea(`${this.uuid}-ask`, this._askButton, 1, 'right');
+        } else if (!want && this._askButton) {
+            this._askButton.destroy();
+            this._askButton = null;
+        }
     }
 
     // Kulan's own shortcuts, read from org.kulan.desktop (an older schema
@@ -655,6 +679,8 @@ export default class KulanShellExtension extends Extension {
         this._prayer?.destroy();
         this._prayer = null;
         this._spotlight?.destroy();
+        this._askButton?.destroy();
+        this._askButton = null;
         this._askKulan?.destroy();
         this._askKulan = null;
         if (this._appGridLayout)

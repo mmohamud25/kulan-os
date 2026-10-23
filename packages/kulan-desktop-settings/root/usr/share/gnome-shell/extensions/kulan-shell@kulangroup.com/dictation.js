@@ -31,11 +31,19 @@ export class Dictation {
         this._cancelled = false;
     }
 
-    async toggle() {
+    get isRecording() {
+        return this._recorder !== null;
+    }
+
+    // onText: where the words go (Ask Kulan); without it, they're typed into
+    // the window that was in front. onEnd: called when it's over, either way.
+    async toggle(onText = null, onEnd = null) {
         if (this._recorder) {
             await this._stop(true);
             return;
         }
+        this._onText = onText;
+        this._onEnd = onEnd;
         if (this._busy)
             return;
         if (!this._assistant?.installed) {
@@ -131,6 +139,8 @@ export class Dictation {
         this._hideIndicator();
         this._removeFile(this._file);
         this._window = null;
+        this._onText = null;
+        this._ended();
         Main.notify(TITLE, message);
     }
 
@@ -185,7 +195,10 @@ export class Dictation {
                 return;
             }
             this._hideIndicator();
-            await this._assistant._paste(this._window, `${text} `);
+            if (this._onText)
+                this._onText(text);
+            else
+                await this._assistant._paste(this._window, `${text} `);
         } catch (e) {
             logError(e, 'Kulan Shell: dictation');
             Main.notify(TITLE, 'Couldn’t finish the dictation.');
@@ -193,8 +206,16 @@ export class Dictation {
             this._hideIndicator();
             this._removeFile(file);
             this._window = null;
+            this._onText = null;
             this._busy = false;
+            this._ended();
         }
+    }
+
+    _ended() {
+        const onEnd = this._onEnd;
+        this._onEnd = null;
+        onEnd?.();
     }
 
     destroy() {

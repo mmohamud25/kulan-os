@@ -4,6 +4,8 @@
 // computer (the kulan-assistant package's Ask service, over the session bus).
 // Anything that changes the computer is shown first and waits for Do it, and
 // most things can be undone. Escape or the shortcut again closes it.
+// Beside the question: speak it instead of typing (Dictation), or read text
+// on the screen (Live Text) to ask about it, such as an error message.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -37,7 +39,11 @@ const SHELL_INTERFACE = `
 const SHELL_PATH = '/org/kulan/Shell/Ask';
 
 export class AskKulan {
-    constructor() {
+    // dictation, liveText: Kulan Shell's Dictation and Live Text, for the
+    // microphone and screen-text buttons (optional).
+    constructor({dictation = null, liveText = null} = {}) {
+        this._dictation = dictation;
+        this._liveText = liveText;
         this._backdrop = null;
         this._grab = null;
         this._cancellable = null;
@@ -110,7 +116,18 @@ export class AskKulan {
         });
 
         this._body = new St.BoxLayout({vertical: true, style_class: 'kulan-ask-body', x_expand: true});
-        this._panel.add_child(this._entry);
+        const top = new St.BoxLayout({x_expand: true, style_class: 'kulan-ask-top'});
+        top.add_child(this._entry);
+        if (this._dictation) {
+            this._micButton = this._iconButton('audio-input-microphone-symbolic', 'Speak your question',
+                () => this._speak());
+            top.add_child(this._micButton);
+        }
+        if (this._liveText) {
+            top.add_child(this._iconButton('edit-select-all-symbolic', 'Ask about text on the screen (an error, say)',
+                () => this._readScreen()));
+        }
+        this._panel.add_child(top);
         this._panel.add_child(this._body);
         this._backdrop.add_child(this._panel);
         this._backdrop.connect('button-press-event', (_a, event) => {
@@ -176,6 +193,50 @@ export class AskKulan {
         this.close();
         this._dbus?.unexport();
         this._dbus = null;
+    }
+
+    _iconButton(iconName, label, onClick) {
+        const button = new St.Button({
+            style_class: 'kulan-ask-icon-button', can_focus: true, accessible_name: label,
+            child: new St.Icon({icon_name: iconName, icon_size: 18}), y_align: Clutter.ActorAlign.CENTER,
+        });
+        button.connect('clicked', onClick);
+        return button;
+    }
+
+    // Speak instead of typing: press again (or the button) to finish; the
+    // words go into the question and are asked.
+    _speak() {
+        if (!this._dictation)
+            return;
+        const listening = this._dictation.isRecording;
+        let heard = false;
+        this._dictation.toggle(text => {
+            heard = true;
+            if (this.isOpen && text)
+                this.open(text.trim(), true);
+        }, () => {
+            this._micButton?.remove_style_pseudo_class('checked');
+            if (!heard && this.isOpen)
+                this._showExamples(); // nothing heard: the notice says why
+        });
+        if (!listening && this._dictation.isRecording) {
+            this._micButton?.add_style_pseudo_class('checked');
+            this._clear();
+            this._addText('Listening… press the microphone again when you’ve finished.', 'kulan-ask-thinking');
+        } else if (listening) {
+            this._micButton?.remove_style_pseudo_class('checked');
+            this._thinking('Writing what you said');
+        }
+    }
+
+    // Read text on the screen: the panel steps aside while you pick the
+    // area, then comes back with the text to ask about.
+    _readScreen() {
+        if (!this._liveText)
+            return;
+        this.close();
+        this._liveText.start(text => this.open(`Explain this: ${text.slice(0, 450)}`, true));
     }
 
     // --- keys -----------------------------------------------------------------

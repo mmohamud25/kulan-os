@@ -22,7 +22,9 @@ class TopBarPage(Page):
                       switch_row(self.kulan, "kulan-menu", "Kulan menu",
                                  "The logo at the top left: About, Settings, Lock, Restart, Shut Down"),
                       switch_row(self.kulan, "update-indicator", "Update icon",
-                                 "Shown while updates are waiting or installing"))
+                                 "Shown while updates are waiting or installing"),
+                      switch_row(self.kulan, "ask-button", "Ask Kulan button",
+                                 "Opens Ask Kulan (also Shift+Super+Space), when Kulan Assistant is installed"))
 
         clock = self.add_group("Clock")
         self.add_rows(clock,
@@ -39,7 +41,7 @@ class TopBarPage(Page):
         self.add_reset(self.reset)
 
     def reset(self) -> None:
-        reset_keys(self.kulan, ["kulan-menu", "update-indicator"])
+        reset_keys(self.kulan, ["kulan-menu", "update-indicator", "ask-button"])
         reset_keys(self.interface, CLOCK_KEYS)
         self.window.reload_page(self)
         self.toast("Top bar reset to Kulan defaults")
