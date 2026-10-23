@@ -6,7 +6,11 @@ here reaches main or the update channel until he says "release it".
 ## Moved from 2.6
 - A Kulan Store in Kulan's look: apps from Flathub and Debian in one place,
   with Kulan's own picks; installs and updates through the existing update
-  services (no new ways in).
+  services (no new ways in). Kulan's own apps listed there too, starting
+  with Kulan Fleet: Store listings (name, summary, icon, screenshot) in the
+  packages, Kulan's download server publishing them (AppStream), and a
+  build test that the Store finds and installs Kulan Fleet. Add-ons keeps
+  listing it as well.
 - A native Sharing page in Kulan Settings (remote desktop, files, media).
   Until then, GNOME Settings' Sharing stays linked from Kulan Settings.
 - Security: signed, measured start-up files (unified kernel images) so
