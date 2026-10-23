@@ -25,8 +25,12 @@ const MAX_PER_SOURCE = 3;
 const PANEL_WIDTH = 680;
 const SUPER = Clutter.ModifierType.SUPER_MASK | Clutter.ModifierType.MOD4_MASK;
 
+// Kulan Assistant's "Ask Kulan" search result: its id is this, then the words.
+const ASK_PREFIX = 'kulan-ask:';
+
 export class Spotlight {
-    constructor() {
+    constructor(askKulan = null) {
+        this._askKulan = askKulan;
         this._backdrop = null;
         this._grab = null;
         this._timer = 0;
@@ -370,7 +374,9 @@ export class Spotlight {
         const terms = this._terms;
         this.close();
         try {
-            if (provider.id === 'applications') {
+            if (this._askKulan && String(meta.id).startsWith(ASK_PREFIX)) {
+                this._askKulan(String(meta.id).slice(ASK_PREFIX.length));
+            } else if (provider.id === 'applications') {
                 if (meta.id.endsWith('.desktop'))
                     Shell.AppSystem.get_default().lookup_app(meta.id)?.activate();
                 else

@@ -169,6 +169,21 @@ for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
     close_apps()
     time.sleep(3)
 
+# Ask Kulan, opened the way the Activities search result opens it (the
+# shortcut needs a real keyboard): empty, then with a question. The live
+# system has no model yet, so the answer says how to get one.
+ASK = ("gdbus call --session --dest org.gnome.Shell --object-path /org/kulan/Shell/Ask "
+       "--method org.kulan.Shell.Ask.Open %s")
+if qga is not None:
+    run(SESSION % (ASK % "''"), wait=False)
+    time.sleep(4)
+    shot("ask-kulan")
+    run(SESSION % (ASK % "'Why is my computer slow?'"), wait=False)
+    time.sleep(8)
+    shot("ask-kulan-answer")
+    run(SESSION % ASK.replace("Open %s", "Close"), wait=False)
+    time.sleep(2)
+
 # --- Speed: how long each everyday app takes to show its window ----------------
 # Opened twice: the first time (nothing in memory yet) and again. "Shown" is
 # the first screen with a new window on it, compared with the screen before,

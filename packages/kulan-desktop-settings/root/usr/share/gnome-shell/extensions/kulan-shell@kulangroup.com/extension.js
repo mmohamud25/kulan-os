@@ -30,6 +30,7 @@ import {Dictation} from './dictation.js';
 import {LiveText} from './livetext.js';
 import {PrayerTimes} from './prayer.js';
 import {Spotlight} from './spotlight.js';
+import {AskKulan} from './askkulan.js';
 import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
@@ -56,6 +57,7 @@ const SHORTCUTS = {
     'writing-tools-shortcut': ext => ext._assistant?.writingTools(),
     'dictation-shortcut': ext => ext._dictation?.toggle(),
     'quick-note-shortcut': ext => ext._quickNote?.toggle(),
+    'ask-shortcut': ext => ext._askKulan?.toggle(),
     'clipboard-history-shortcut': ext => {
         if (ext._clipboard)
             ext._clipboard.show();
@@ -442,6 +444,7 @@ export default class KulanShellExtension extends Extension {
                 this._clipboard?.clear(); // nothing copied survives a lock
                 this._dictation?.destroy(); // and nothing is recorded while locked
                 this._spotlight?.close();
+                this._askKulan?.close();
                 this._quickNote?.close();
             }
         });
@@ -473,7 +476,9 @@ export default class KulanShellExtension extends Extension {
         this._liveText = new LiveText(this._assistant);
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
-        this._spotlight = new Spotlight();
+        this._askKulan = new AskKulan();
+        // "Ask Kulan" in the search bar opens the Ask Kulan panel with the words.
+        this._spotlight = new Spotlight(text => this._askKulan?.open(text, true));
         // A calmer app grid: 72-pixel icons instead of GNOME's 96.
         this._appGridLayout = Main.overview._overview?.controls?._appDisplay?._grid?.layoutManager ?? null;
         if (this._appGridLayout && this._appGridLayout.fixedIconSize === -1)
@@ -645,6 +650,8 @@ export default class KulanShellExtension extends Extension {
         this._prayer?.destroy();
         this._prayer = null;
         this._spotlight?.destroy();
+        this._askKulan?.destroy();
+        this._askKulan = null;
         if (this._appGridLayout)
             this._appGridLayout.fixedIconSize = -1;
         this._appGridLayout = null;

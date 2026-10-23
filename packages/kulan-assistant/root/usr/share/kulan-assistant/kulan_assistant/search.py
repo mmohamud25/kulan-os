@@ -318,10 +318,18 @@ class Provider:
 
 
 def ask_kulan(text: str) -> None:
-    """Open Kulan Assistant's window with the request: it answers a question,
-    or plans the steps for something to do (nothing happens until Do it)."""
+    """Open Ask Kulan with the words: the panel in the desktop (Kulan Shell)
+    when it's there, else Kulan Assistant's window. Either answers a question,
+    or shows the plan for something to do (nothing happens until Do it)."""
     if not text:
         return
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        bus.call_sync("org.gnome.Shell", "/org/kulan/Shell/Ask", "org.kulan.Shell.Ask", "Open",
+                      GLib.Variant("(s)", (text[:500],)), None, Gio.DBusCallFlags.NO_AUTO_START, 3000, None)
+        return
+    except GLib.Error:
+        pass  # an older Kulan Shell, or none: the window
     try:
         subprocess.Popen(["/usr/bin/kulan-assistant", "do", text], start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

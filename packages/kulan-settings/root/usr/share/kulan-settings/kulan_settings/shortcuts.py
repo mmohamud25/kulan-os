@@ -23,6 +23,7 @@ CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/
 SHORTCUTS = [
     ("Kulan", [
         ("Search apps, files and settings", KULAN_SCHEMA, "search-shortcut"),
+        ("Ask Kulan (Kulan Assistant)", KULAN_SCHEMA, "ask-shortcut"),
         ("Quick Note", KULAN_SCHEMA, "quick-note-shortcut"),
         ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
         ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
