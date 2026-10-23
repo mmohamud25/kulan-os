@@ -4,7 +4,14 @@ The cloud side of fleet management, on Supabase (project `kulan-fleet`,
 us-east-2). Computers talk to it with `/usr/bin/kulan-fleet` (kulan-base).
 
 - `supabase/functions/fleet/index.ts`: the Edge Function, protocol v1:
-  `POST …/functions/v1/fleet/v1/{enrol,report,actions/<id>,leave}`.
+  `POST …/functions/v1/fleet/v1/{enrol,report,actions/<id>,leave}`. Each
+  report is answered with waiting actions and the organisation's policy;
+  once a day a report carries the computer's apps (names and versions).
+- `supabase/functions/fleet-admin/index.ts`: for the Kulan Fleet app and the
+  dashboard (signed-in admins only): overview with alerts, policy, apps,
+  activity log, join codes and actions, including erase.
+- `supabase/functions/countme/index.ts`: the anonymous weekly count of Kulan
+  OS computers (`stats` schema; totals only).
 - `supabase/migrations/`: the private `fleet` schema (organisations, join
   codes, devices, reports, actions). Not exposed through the Data API; RLS
   on with no policies, so the API roles can't read anything.
@@ -21,6 +28,24 @@ Queue an action for a computer (refresh, install-updates, compliance-on,
 lock-screen, restart):
 
     insert into fleet.actions (device_id, type) values ('<device id>', 'install-updates');
+
+## Fleet v2 (Kulan OS 2.6)
+
+- **Policy** per organisation (`fleet.organisations.policy`): `auto_updates`,
+  `firewall`, `screen_lock_minutes` (1-60, a locked setting on the computer;
+  compliance mode's stricter one wins) and `require_encryption` (reported
+  only). Computers apply it at each report and say, per item, whether it's met.
+- **Alerts** (worked out by fleet-admin from the last reports): not seen for 3
+  days, security updates waiting, firewall off, not encrypted when required,
+  disk under 10% free, compliance checks failing, a policy item not met.
+- **Erase** a lost or stolen computer: only when its user allowed it on that
+  computer (Kulan Settings › About › Organisation, or when joining) and its
+  disk is encrypted; the admin types the computer's name to confirm. The
+  computer destroys the encrypted partition's keys (`cryptsetup luksErase`)
+  and switches off.
+- **Activity log** (`fleet.audit`): who changed the policy, made join codes or
+  asked a computer to do something, and when.
+- Hourly reports older than 90 days are pruned.
 
 ## Dashboard
 

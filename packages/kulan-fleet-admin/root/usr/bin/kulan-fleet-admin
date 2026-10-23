@@ -5,8 +5,10 @@ Signs in to the kulan-fleet Supabase project with an email and a one-time
 code (no password), keeps the session in the GNOME keyring, and talks only
 to the fleet-admin function, which shows nothing unless the signed-in email
 is on the fleet's admin list. Everything the computers report comes from
-the fleet server; nothing here can run commands on them beyond the five
-actions Kulan OS allows.
+the fleet server; nothing here can run commands on them beyond the actions
+Kulan OS allows. Erasing a computer only works when its own user allowed it
+there and its disk is encrypted, and needs the computer's name typed to
+confirm. Every change is kept in the organisation's activity log.
 
   kulan-fleet-admin              open the app
   kulan-fleet-admin --self-test  build every page with sample data (no network)
@@ -45,6 +47,14 @@ ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
            ("lock-screen", "Lock the screen", "system-lock-screen-symbolic"),
            ("restart", "Restart (5 minutes' notice)", "system-reboot-symbolic")]
 ACTION_LABEL = {a: t for a, t, _i in ACTIONS}
+ACTION_LABEL["erase"] = "Erase"
+SCREEN_LOCK = [(0, "Not set"), (2, "After 2 minutes"), (5, "After 5 minutes"), (10, "After 10 minutes"),
+               (15, "After 15 minutes"), (30, "After 30 minutes")]
+POLICY_LABEL = {"auto_updates": "Automatic updates", "firewall": "Firewall", "screen_lock_minutes": "Screen lock",
+                "require_encryption": "Disk encryption"}
+ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update-urgent-symbolic",
+              "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
+              "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic"}
 STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "done", "failed": "failed"}
 TIMEOUT = 30
 
@@ -214,6 +224,10 @@ def ago(iso: str | None) -> str:
         return f"{round(s / 3600)} h ago"
     days = round(s / 86400)
     return f"{days} day{'s' if days != 1 else ''} ago"
+
+
+def yes_no(value, yes: str = "yes", no: str = "no") -> str:
+    return "–" if value is None else yes if value else no
 
 
 def tag(text: str, kind: str) -> Gtk.Label:
@@ -437,6 +451,69 @@ class FleetWindow(Adw.ApplicationWindow):
         self.groups.append(g)
         return g
 
+    def policy_group(self, org: dict) -> None:
+        policy = dict(org.get("policy") or {})
+        group = self.add_group("Policy", "Every computer in the organisation keeps to this, from its next report. "
+                                         "Encryption can't be switched on from afar: computers without it show "
+                                         "an alert.")
+        rows = {}
+        for key, subtitle in (("auto_updates", "Updates install by themselves, with a restore point first"),
+                              ("firewall", "Block connections from outside")):
+            row = Adw.SwitchRow(title=POLICY_LABEL[key], subtitle=subtitle, active=bool(policy.get(key)))
+            group.add(row)
+            rows[key] = row
+        lock = Adw.ComboRow(title=POLICY_LABEL["screen_lock_minutes"], subtitle="Locks when not used; users can't "
+                            "turn it off", model=Gtk.StringList.new([t for _m, t in SCREEN_LOCK]))
+        minutes = int(policy.get("screen_lock_minutes") or 0)
+        lock.set_selected(next((i for i, (m, _t) in enumerate(SCREEN_LOCK) if m == minutes), 0))
+        group.add(lock)
+        enc = Adw.SwitchRow(title="Require disk encryption", subtitle="Computers without it show an alert",
+                            active=bool(policy.get("require_encryption")))
+        group.add(enc)
+        rows["require_encryption"] = enc
+
+        def changed(*_a) -> None:
+            new = {key: True for key, row in rows.items() if row.get_active()}
+            mins = SCREEN_LOCK[lock.get_selected()][0]
+            if mins:
+                new["screen_lock_minutes"] = mins
+            if new == {k: v for k, v in policy.items() if v}:
+                return
+            if self.data and self.data.get("sample"):
+                org["policy"] = new
+                return
+
+            def done(result, error):
+                if error:
+                    self.toast(error)
+                    self.render_org()  # back to what's saved
+                    return
+                org["policy"] = result.get("policy", new)
+                policy.clear()
+                policy.update(org["policy"])
+                self.toast("Policy saved: computers apply it at their next report")
+            self.background(lambda: self.session.call({"op": "set-policy", "organisation_id": org["id"],
+                                                        "policy": new}), done)
+        for row in rows.values():
+            row.connect("notify::active", changed)
+        lock.connect("notify::selected", changed)
+
+    def alerts_group(self, org: dict) -> None:
+        alerts = [a for a in (self.data or {}).get("alerts", []) if a.get("organisation_id") == org["id"]]
+        group = self.add_group("Needs attention", None if alerts else "Nothing: every computer looks fine.")
+        devices = {d["id"]: d for d in (self.data or {}).get("devices", [])}
+        for a in alerts[:30]:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("hostname") or "Computer"),
+                                subtitle=GLib.markup_escape_text(a.get("text", "")), activatable=True)
+            row.add_prefix(Gtk.Image(icon_name=ALERT_ICON.get(a.get("kind"), "dialog-warning-symbolic")))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            dev = devices.get(a.get("device_id"))
+            if dev:
+                row.connect("activated", lambda _r, d=dev: self.open_device(d))
+            group.add(row)
+        if len(alerts) > 30:
+            group.add(Adw.ActionRow(title=f"And {len(alerts) - 30} more"))
+
     def render_org(self) -> None:
         self.clear()
         data = self.data or {}
@@ -468,6 +545,7 @@ class FleetWindow(Adw.ApplicationWindow):
             card.append(Gtk.Label(label=text, xalign=0, css_classes=["dim-label"], wrap=True))
             stats.append(card)
         head.add(stats)
+        self.alerts_group(org)
 
         group = self.add_group("Computers", "Reports arrive every hour. Select a computer for its details.")
         if not devices:
@@ -488,6 +566,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 row.set_opacity(0.55)
             row.connect("activated", lambda _r, dev=d: self.open_device(dev))
             group.add(row)
+
+        self.policy_group(org)
 
         add = self.add_group("Add computers",
                              "On each computer: Kulan Settings → About → Organisation → Join an organisation.")
@@ -511,11 +591,18 @@ class FleetWindow(Adw.ApplicationWindow):
         ids = {d["id"] for d in devices}
         acts = [a for a in data.get("actions", []) if a["device_id"] in ids][:15]
         history = self.add_group("Recent requests")
+        log = Adw.ActionRow(title="Activity log", subtitle="Who changed the policy, made join codes or asked "
+                            "computers to do something, and when", activatable=True)
+        log.add_prefix(Gtk.Image(icon_name="document-open-recent-symbolic"))
+        log.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        log.connect("activated", lambda _r: self.open_log(org))
+        history.add(log)
         if not acts:
             history.add(Adw.ActionRow(title="Nothing asked yet"))
         for a in acts:
             row = Adw.ActionRow(title=GLib.markup_escape_text(f"{ACTION_LABEL.get(a['type'], a['type'])} · {names.get(a['device_id'], '')}"),
-                                subtitle=GLib.markup_escape_text(" · ".join(x for x in (ago(a.get("created_at")), a.get("detail") or "") if x)))
+                                subtitle=GLib.markup_escape_text(" · ".join(x for x in (ago(a.get("created_at")), a.get("requested_by") or "",
+                                                                                       a.get("detail") or "") if x)))
             row.add_suffix(tag(STATUS_LABEL.get(a["status"], a["status"]),
                                {"done": "good", "failed": "bad"}.get(a["status"], "dim")))
             history.add(row)
@@ -536,10 +623,30 @@ class FleetWindow(Adw.ApplicationWindow):
                              ("Disk", f"{hw.get('disk_free_gb')} GB free of {hw.get('disk_total_gb')} GB"
                               if hw.get("disk_total_gb") else "–"),
                              ("Last report", ago(d.get("last_seen"))), ("Joined", ago(d.get("enrolled_at"))),
-                             ("TPM unlock", "on" if (d.get("tpm") or {}).get("on") else "off" if d.get("tpm") else "–")):
+                             ("TPM unlock", "on" if (d.get("tpm") or {}).get("on") else "off" if d.get("tpm") else "–"),
+                             ("Disk encryption", yes_no((d.get("state") or {}).get("encrypted"))),
+                             ("Firewall", yes_no((d.get("state") or {}).get("firewall"), "on", "off")),
+                             ("Automatic updates", yes_no((d.get("state") or {}).get("auto_updates"), "on", "off"))):
             row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(str(value)), subtitle_selectable=True)
             row.add_css_class("property")
             info.add(row)
+        status = d.get("policy_status") or {}
+        if status:
+            pol = Adw.PreferencesGroup(title="Policy")
+            page.add(pol)
+            for key, value in status.items():
+                row = Adw.ActionRow(title=POLICY_LABEL.get(key, key))
+                row.add_suffix(tag("met" if value == "met" else "not met", "good" if value == "met" else "bad"))
+                pol.add(row)
+        apps = Adw.PreferencesGroup()
+        page.add(apps)
+        apps_row = Adw.ActionRow(title="Apps", subtitle=f"{d.get('app_count') or 0} · sent {ago(d.get('apps_at'))}"
+                                 if d.get("apps_at") else "Not sent yet (once a day)", activatable=bool(d.get("apps_at")))
+        apps_row.add_prefix(Gtk.Image(icon_name="view-app-grid-symbolic"))
+        if d.get("apps_at"):
+            apps_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            apps_row.connect("activated", lambda _r: self.open_apps(d))
+        apps.add(apps_row)
         if not d.get("left_at"):
             ask = Adw.PreferencesGroup(title="Ask it to", description="The computer does it at its next report "
                                                                        "(within the hour, or now with Report now).")
@@ -549,6 +656,20 @@ class FleetWindow(Adw.ApplicationWindow):
                 row.add_prefix(Gtk.Image(icon_name=icon))
                 row.connect("activated", lambda _r, k=kind: self.send_action(d, k))
                 ask.add(row)
+            st = d.get("state") or {}
+            lost = Adw.PreferencesGroup(title="If it’s lost or stolen")
+            page.add(lost)
+            erase = Adw.ActionRow(title="Erase this computer", activatable=bool(st.get("erase_allowed") and st.get("encrypted")),
+                                  subtitle="Makes everything on its disk unreadable, for good, and switches it off"
+                                  if st.get("erase_allowed") and st.get("encrypted") else
+                                  "Not possible: its disk isn’t encrypted" if st.get("erase_allowed") else
+                                  "Not possible: the person using it hasn’t allowed it (Kulan Settings › About › "
+                                  "Organisation on that computer)", subtitle_lines=0)
+            erase.add_prefix(Gtk.Image(icon_name="edit-delete-symbolic"))
+            if st.get("erase_allowed") and st.get("encrypted"):
+                erase.add_css_class("error")
+                erase.connect("activated", lambda _r: self.ask_erase(d))
+            lost.add(erase)
         controls = Adw.PreferencesGroup(title="Compliance", description="Loading the latest report…")
         page.add(controls)
 
@@ -572,6 +693,84 @@ class FleetWindow(Adw.ApplicationWindow):
             done({"report": self.data.get("sample_report")}, None)
         else:
             self.background(lambda: self.session.call({"op": "report", "device_id": d["id"]}), done)
+
+    def push_list(self, title: str, description: str) -> Adw.PreferencesGroup:
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title=title, child=view))
+        group = Adw.PreferencesGroup(title=title, description=description)
+        page.add(group)
+        return group
+
+    def open_apps(self, d: dict) -> None:
+        group = self.push_list(f"Apps on {d.get('hostname') or 'this computer'}", "Loading…")
+
+        def done(result, error):
+            if error:
+                group.set_description(error)
+                return
+            apps = sorted((result or {}).get("apps") or [], key=lambda a: (a.get("source") != "flatpak", a.get("name", "").lower()))
+            group.set_description(f"{len(apps)} apps and programs someone chose to install · sent {ago((result or {}).get('apps_at'))}")
+            for a in apps[:1000]:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("name", "")),
+                                    subtitle=GLib.markup_escape_text(a.get("version", "")))
+                row.add_suffix(tag("Flatpak" if a.get("source") == "flatpak" else "Debian", "dim"))
+                group.add(row)
+        if self.data and self.data.get("sample"):
+            done({"apps": self.data.get("sample_apps", []), "apps_at": d.get("apps_at")}, None)
+        else:
+            self.background(lambda: self.session.call({"op": "apps", "device_id": d["id"]}), done)
+
+    def open_log(self, org: dict) -> None:
+        group = self.push_list("Activity log", "Loading…")
+
+        def done(result, error):
+            if error:
+                group.set_description(error)
+                return
+            entries = (result or {}).get("entries") or []
+            group.set_description("The last 100 changes, newest first." if entries else "Nothing changed yet.")
+            for e in entries:
+                what = e.get("what", "")
+                if what.startswith("asked: "):
+                    what = f"asked {e.get('hostname') or 'a computer'} to {ACTION_LABEL.get(what[7:], what[7:]).lower()}"
+                row = Adw.ActionRow(title=GLib.markup_escape_text(f"{e.get('email', '')} {what}"),
+                                    subtitle=GLib.markup_escape_text(ago(e.get("at"))))
+                group.add(row)
+        if self.data and self.data.get("sample"):
+            done({"entries": self.data.get("sample_log", [])}, None)
+        else:
+            self.background(lambda: self.session.call({"op": "log", "organisation_id": org["id"]}), done)
+
+    def ask_erase(self, d: dict) -> Adw.AlertDialog:
+        name = d.get("hostname") or ""
+        dialog = Adw.AlertDialog(heading=f"Erase {name}?",
+                                 body="At its next report it makes everything on its disk unreadable, for good, and "
+                                      "switches off. Nobody can undo this or get the files back. To confirm, type "
+                                      "the computer’s name.")
+        entry = Adw.EntryRow(title=f"Type {name}")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("erase", "Erase")
+        dialog.set_response_appearance("erase", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_enabled("erase", False)
+        dialog.set_default_response("cancel")
+        entry.connect("changed", lambda e: dialog.set_response_enabled("erase", bool(name) and e.get_text().strip() == name))
+
+        def answered(_d, response):
+            if response != "erase" or entry.get_text().strip() != name:
+                return
+            self.background(lambda: self.session.call({"op": "action", "device_id": d["id"], "type": "erase",
+                                                        "confirm": entry.get_text().strip()}),
+                            lambda _r, error: (self.toast(error) if error else
+                                               (self.toast(f"{name} will be erased at its next report"), self.reload())))
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
 
     def send_action(self, d: dict, kind: str) -> None:
         def go() -> None:
@@ -646,16 +845,31 @@ def sample() -> dict:
                 for i, (t, s, c, n) in enumerate([("Disk encryption", "pass", "3.6", "SC-28"),
                                                   ("Firewall", "fail", "4.5", "SC-7")], 1)]
     return {"sample": True, "email": "admin@kulan.example", "global": True,
-            "organisations": [{"id": org, "name": "Kulan Cyber Advisory"}],
+            "organisations": [{"id": org, "name": "Kulan Cyber Advisory",
+                               "policy": {"auto_updates": True, "screen_lock_minutes": 5, "require_encryption": True}}],
             "devices": [{"id": "d1", "organisation_id": org, "hostname": "kca-laptop-01", "kulan_version": "2.4",
                          "os": "Kulan OS 2.4", "last_seen": iso(1800), "enrolled_at": iso(86400 * 9),
                          "updates": {"waiting": 0, "security": 0}, "tpm": {"on": True}, "compliance_passed": 10,
                          "compliance_total": 10, "compliance_mode": "on",
                          "hardware": {"vendor": "Lenovo", "model": "ThinkPad T14", "memory_mb": 16384,
-                                      "disk_total_gb": 512, "disk_free_gb": 301}},
+                                      "disk_total_gb": 512, "disk_free_gb": 301},
+                         "state": {"encrypted": True, "firewall": True, "auto_updates": True, "erase_allowed": True},
+                         "policy_status": {"auto_updates": "met", "screen_lock_minutes": "met", "require_encryption": "met"},
+                         "app_count": 2, "apps_at": iso(3600)},
                         {"id": "d2", "organisation_id": org, "hostname": "kca-desk-02", "kulan_version": "2.4",
                          "last_seen": iso(5 * 3600), "updates": {"waiting": 6, "security": 2}, "tpm": {"on": False},
-                         "compliance_passed": 8, "compliance_total": 10, "hardware": {"vendor": "Dell"}}],
+                         "compliance_passed": 8, "compliance_total": 10, "hardware": {"vendor": "Dell"},
+                         "state": {"encrypted": False, "firewall": False, "auto_updates": False, "erase_allowed": False},
+                         "policy_status": {"auto_updates": "not met", "require_encryption": "not met"}}],
+            "alerts": [{"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "updates",
+                        "text": "2 security updates waiting"},
+                       {"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "encryption",
+                        "text": "Not encrypted, and the organisation requires it"}],
+            "sample_apps": [{"name": "org.gimp.GIMP", "version": "3.0", "source": "flatpak"},
+                            {"name": "firefox-esr", "version": "128.3", "source": "debian"}],
+            "sample_log": [{"email": "admin@kulan.example", "what": "changed the policy", "at": iso(600)},
+                           {"email": "admin@kulan.example", "what": "asked: install-updates", "hostname": "kca-desk-02",
+                            "at": iso(120)}],
             "actions": [{"id": "a1", "device_id": "d2", "type": "install-updates", "status": "pending",
                          "created_at": iso(120)}],
             "sample_report": {"compliance": {"passed": 1, "total": 2, "baseline": "Kulan OS baseline 1",
@@ -685,7 +899,14 @@ class FleetApp(Adw.Application):
             def check() -> bool:
                 try:
                     win.open_device(win.data["devices"][0])
+                    win.open_apps(win.data["devices"][0])
                     win.nav.pop()
+                    win.nav.pop()
+                    win.open_device(win.data["devices"][1])
+                    win.nav.pop()
+                    win.open_log(win.data["organisations"][0])
+                    win.nav.pop()
+                    win.ask_erase(win.data["devices"][0]).force_close()
                     win.org_id = None
                     win.render_org()
                     print("Kulan Fleet: every page built")

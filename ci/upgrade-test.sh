@@ -174,7 +174,8 @@ if [ ! -e "${STATE}/updated" ]; then
 	/usr/lib/kulan/update-run install --restore-point >"${STATE}/install.out" 2>"${STATE}/install.err"
 	say "install=$? $(( $(date +%s) - START ))"
 	tail -n 12 "${STATE}/install.err" | sed 's/^/KULAN-UPGRADE: installlog=/' > "${OUT}"
-	grep -iE "restore|timeshift" "${STATE}/install.err" | tail -n 6 | sed 's/^/KULAN-UPGRADE: restorelog=/' > "${OUT}"
+	# What the restore point step said (timeshift's own words), up to the skip.
+	grep -B 14 "Restore point skipped" "${STATE}/install.err" | sed 's/^/KULAN-UPGRADE: restorelog=/' > "${OUT}"
 	if grep -q "Restore point skipped" "${STATE}/install.err"; then say "restorepoint=skipped"; else say "restorepoint=made"; fi
 	say "restart_required=$(paste -sd ' ' /run/kulan/restart-required 2>/dev/null)"
 	touch "${STATE}/updated"
@@ -276,7 +277,7 @@ else
 fi
 case "$(say_field restorepoint)" in
 	made) result pass "Restore point" "taken before installing, as Software Update does" ;;
-	skipped) result fail "Restore point" "skipped before the update: $(sed -n 's/^KULAN-UPGRADE: restorelog=//p' <<<"${LOG}" | tail -n 4 | paste -sd ' ' - | cut -c1-400)" ;;
+	skipped) result fail "Restore point" "skipped before the update: $(sed -n 's/^KULAN-UPGRADE: restorelog=//p' <<<"${LOG}" | grep -v '^pmstatus' | tail -n 12 | paste -sd ' ' - | cut -c1-900)" ;;
 esac
 RESTART="$(say_field restart_required)"
 [[ -n "${RESTART}" ]] && result info "Restart needed for" "${RESTART}"

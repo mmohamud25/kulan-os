@@ -21,7 +21,8 @@
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
-#   update-run fleet-join <server>|fleet-leave  join or leave an organisation (one-time code on stdin)
+#   update-run fleet-join <server> [--allow-erase]|fleet-leave  join or leave an organisation (one-time code on stdin)
+#   update-run fleet-allow-erase on|off   let the organisation erase this computer if it's lost
 #   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
 #   update-run set-hostname <name>        change the computer's name
 #   update-run locale-add <locale>        add a language (one listed in /usr/share/i18n/SUPPORTED)
@@ -412,9 +413,15 @@ os.replace(tmp, out)
 PY
 		;;
 	fleet-join)
-		[[ $# -eq 2 ]] || die "usage: update-run fleet-join <server> (one-time code on stdin)"
+		[[ $# -eq 2 || ( $# -eq 3 && "$3" == --allow-erase ) ]] ||
+			die "usage: update-run fleet-join <server> [--allow-erase] (one-time code on stdin)"
 		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
-		exec /usr/bin/kulan-fleet join "$2"
+		exec /usr/bin/kulan-fleet join "${@:2}"
+		;;
+	fleet-allow-erase)
+		[[ $# -eq 2 && ( "$2" == on || "$2" == off ) ]] || die "usage: update-run fleet-allow-erase on|off"
+		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
+		exec /usr/bin/kulan-fleet allow-erase "$2"
 		;;
 	fleet-leave)
 		[[ $# -eq 1 ]] || die "usage: update-run fleet-leave"

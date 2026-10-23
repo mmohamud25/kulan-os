@@ -4,8 +4,9 @@
   fleet-mock.py PORT LOG.json      (runs until killed)
 
 Accepts the one-time code TEST-CODE, gives out a device ID and key, answers
-the first report with a "refresh" and an action Kulan OS doesn't allow
-("run-command"), and writes every request it gets to LOG.json.
+the first report with a "refresh", an action Kulan OS doesn't allow
+("run-command") and an "erase" this computer hasn't allowed, always sends
+the organisation's policy, and writes every request it gets to LOG.json.
 """
 import json
 import sys
@@ -13,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 PORT, LOG = int(sys.argv[1]), sys.argv[2]
 TOKEN = "test-device-key"
+POLICY = {"auto_updates": True, "firewall": True, "screen_lock_minutes": 5, "require_encryption": True,
+          "run_script": "rm -rf /"}  # an unknown key: ignored by the computer
 seen = []
 reports = 0
 
@@ -45,8 +48,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(401, {"error": "no key"})
         if self.path == "/v1/report":
             reports += 1
-            actions = [{"id": "a1", "type": "refresh"}, {"id": "a2", "type": "run-command"}] if reports == 1 else []
-            return self.reply(200, {"actions": actions})
+            actions = ([{"id": "a1", "type": "refresh"}, {"id": "a2", "type": "run-command"},
+                        {"id": "a3", "type": "erase"}] if reports == 1 else [])
+            return self.reply(200, {"actions": actions, "policy": POLICY})
         return self.reply(200, {})
 
 

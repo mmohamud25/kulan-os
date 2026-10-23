@@ -2,14 +2,17 @@
 """Kulan OS fleet management, the computer's side.
 
   kulan-fleet status [--json]          joined or not, and what is shared (no root needed)
-  kulan-fleet join SERVER              join an organisation; the one-time code on stdin (root)
+  kulan-fleet join SERVER [--allow-erase]  join an organisation; the one-time code on stdin (root)
   kulan-fleet report                   send this computer's status now (root; hourly by timer)
+  kulan-fleet allow-erase on|off       let the organisation erase this computer if it's lost (root)
   kulan-fleet leave                    stop reporting and forget the organisation (root)
 
 A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
-OS version, kernel), whether it's up to date, and its compliance and TPM
-status. Never files, names of files, browsing, messages or passwords.
+OS version, kernel), whether it's up to date, its compliance and TPM status,
+whether the disk is encrypted and the firewall on, and once a day the names
+and versions of its apps. Never files, names of files, browsing, messages or
+passwords.
 
 The server can only answer with these actions, nothing else:
   refresh          report again now
@@ -17,6 +20,16 @@ The server can only answer with these actions, nothing else:
   compliance-on    turn compliance mode on
   lock-screen      lock the screen now
   restart          restart in 5 minutes, with a notice to whoever is using it
+  erase            make the disk unreadable and switch off: only when this
+                   computer's user allowed it (allow-erase on) and the disk is
+                   encrypted (its keys are destroyed; nothing can be recovered)
+
+And with the organisation's policy, which this computer keeps to:
+  auto_updates          automatic updates on
+  firewall              firewall on
+  screen_lock_minutes   lock the screen after this many idle minutes (locked
+                        setting; compliance mode's stricter one wins)
+  require_encryption    reported only: encryption can't be switched on from afar
 
 The protocol (JSON over HTTPS, version 1):
   POST {server}/v1/enrol   {code, hostname, os, kulan_version}
@@ -44,10 +57,18 @@ from pathlib import Path
 CONFIG = Path("/etc/kulan/fleet.json")            # secret (token): root only
 PUBLIC = Path("/var/lib/kulan/fleet-public.json")  # what anyone may see
 UPDATES = Path("/var/lib/kulan/updates.json")
-ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart")
+POLICY_PUBLIC = Path("/var/lib/kulan/fleet-policy.json")  # the policy kept to, for Kulan Settings
+APPS_SENT = Path("/var/lib/kulan/fleet-apps-sent")
+POLICY_DCONF = Path("/etc/dconf/db/local.d/40-kulan-fleet")       # before compliance (50): its stricter
+POLICY_LOCKS = Path("/etc/dconf/db/local.d/locks/40-kulan-fleet")  # settings win where both set one
+DCONF_DB = Path("/etc/dconf/db/local")
+ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase")
 SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version and kernel",
           "Waiting updates and whether a restart is needed", "Compliance mode results", "TPM unlock on or off",
+          "Disk encryption and firewall on or off", "Names and versions of installed apps (once a day)",
           "Host name and when it last started"]
+APPS_EVERY_S = 24 * 3600
+MAX_APPS = 3000
 TIMEOUT = 30
 
 
@@ -175,6 +196,72 @@ def tool_json(argv: list[str]):
         return None
 
 
+def firewall_on() -> bool:
+    try:
+        enabled = "ENABLED=yes" in Path("/etc/ufw/ufw.conf").read_text().split()
+    except OSError:
+        return False
+    return enabled and run(["systemctl", "is-active", "ufw"]).stdout.strip() == "active"
+
+
+def auto_updates_on() -> bool:
+    return 'Unattended-Upgrade "1"' in run(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"]).stdout
+
+
+def root_crypt_devices() -> list[str]:
+    """The LUKS devices under / (the disk's encrypted partition), if any."""
+    source = run(["findmnt", "-no", "SOURCE", "/"]).stdout.strip()
+    if not source:
+        return []
+    devices = []
+    for line in run(["lsblk", "-s", "-pno", "NAME,TYPE,FSTYPE", source]).stdout.splitlines():
+        parts = line.split()
+        name = parts[0].lstrip("└─├│ ") if parts else ""
+        if len(parts) >= 3 and parts[-1] == "crypto_LUKS" and name.startswith("/dev/"):
+            devices.append(name)
+    return devices
+
+
+def encrypted() -> bool:
+    source = run(["findmnt", "-no", "SOURCE", "/"]).stdout.strip()
+    return bool(source) and "crypt" in run(["lsblk", "-s", "-no", "TYPE", source]).stdout.split()
+
+
+def state(config: dict) -> dict:
+    return {"encrypted": encrypted(), "firewall": firewall_on(), "auto_updates": auto_updates_on(),
+            "erase_allowed": bool(config.get("allow_erase")), "screen_lock_minutes": screen_lock_minutes()}
+
+
+def screen_lock_minutes() -> int:
+    try:
+        for line in POLICY_DCONF.read_text().splitlines():
+            if line.startswith("idle-delay="):
+                return int(line.split()[-1]) // 60
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
+def apps() -> list[dict]:
+    """Installed apps: Flatpak apps and the Debian packages someone chose (not
+    every library). Names and versions only."""
+    found = []
+    r = run(["flatpak", "list", "--system", "--app", "--columns=application,version"]) if shutil.which("flatpak") else None
+    for line in (r.stdout.splitlines() if r and r.returncode == 0 else []):
+        parts = line.split("\t")
+        if parts and parts[0].strip():
+            found.append({"name": parts[0].strip(), "version": parts[1].strip() if len(parts) > 1 else "",
+                          "source": "flatpak"})
+    manual = run(["apt-mark", "showmanual"]).stdout.split()
+    if manual:
+        q = run(["dpkg-query", "-W", "-f", "${Package}\t${Version}\n", *manual[:MAX_APPS]])
+        for line in q.stdout.splitlines():
+            name, _, version = line.partition("\t")
+            if name:
+                found.append({"name": name, "version": version, "source": "debian"})
+    return found[:MAX_APPS]
+
+
 def status_report(device_id: str) -> dict:
     updates = read_json(UPDATES, {})
     waiting = updates.get("available", []) if isinstance(updates, dict) else []
@@ -205,7 +292,73 @@ def status_report(device_id: str) -> dict:
                          for c in compliance.get("controls", []) if isinstance(c, dict)],
         },
         "tpm": None if tpm is None else {"on": tpm.get("on"), "possible": tpm.get("possible")},
+        "state": state(read_json(CONFIG, {})),
+        "policy_status": read_json(POLICY_PUBLIC, {}).get("status", {}),
     }
+
+
+# --- the organisation's policy --------------------------------------------------------------
+def clean_policy(raw) -> dict:
+    """Only the policy keys Kulan OS knows, with sensible values."""
+    if not isinstance(raw, dict):
+        return {}
+    policy = {key: True for key in ("auto_updates", "firewall", "require_encryption") if raw.get(key) is True}
+    minutes = raw.get("screen_lock_minutes")
+    if isinstance(minutes, int) and not isinstance(minutes, bool) and 1 <= minutes <= 60:
+        policy["screen_lock_minutes"] = minutes
+    return policy
+
+
+def set_screen_lock(minutes: int) -> bool:
+    """Lock after `minutes` idle (and lock it, so it stays); 0 takes it away."""
+    if minutes:
+        text = ("# Set by your organisation (Kulan fleet policy).\n"
+                f"[org/gnome/desktop/session]\nidle-delay=uint32 {minutes * 60}\n\n"
+                "[org/gnome/desktop/screensaver]\nlock-enabled=true\nlock-delay=uint32 0\n")
+        locks = "/org/gnome/desktop/session/idle-delay\n/org/gnome/desktop/screensaver/lock-enabled\n"
+        try:
+            # Already set, and dconf's database was rebuilt after it was written.
+            if POLICY_DCONF.read_text() == text and DCONF_DB.stat().st_mtime >= POLICY_DCONF.stat().st_mtime:
+                return True
+        except OSError:
+            pass
+        POLICY_LOCKS.parent.mkdir(parents=True, exist_ok=True)
+        if not POLICY_DCONF.exists() or POLICY_DCONF.read_text() != text:
+            POLICY_DCONF.write_text(text)
+            POLICY_LOCKS.write_text(locks)
+    elif POLICY_DCONF.exists() or POLICY_LOCKS.exists():
+        POLICY_DCONF.unlink(missing_ok=True)
+        POLICY_LOCKS.unlink(missing_ok=True)
+    else:
+        return True
+    return run(["dconf", "update"]).returncode == 0
+
+
+def apply_policy(raw) -> dict:
+    """Keep to the policy; say, per item, whether it's met."""
+    policy = clean_policy(raw)
+    status = {}
+    if policy.get("auto_updates"):
+        if not auto_updates_on():
+            run(["/usr/lib/kulan/update-run", "auto-on"])
+        status["auto_updates"] = "met" if auto_updates_on() else "not met"
+    if policy.get("firewall"):
+        if not firewall_on():
+            run(["/usr/lib/kulan/update-run", "firewall-on"], timeout=120)
+        status["firewall"] = "met" if firewall_on() else "not met"
+    minutes = policy.get("screen_lock_minutes", 0)
+    ok = set_screen_lock(minutes)
+    if minutes:
+        status["screen_lock_minutes"] = "met" if ok else "not met"
+    if policy.get("require_encryption"):
+        status["require_encryption"] = "met" if encrypted() else "not met"
+    write_json(POLICY_PUBLIC, {"policy": policy, "status": status, "applied": int(time.time())}, 0o644)
+    return status
+
+
+def remove_policy() -> None:
+    set_screen_lock(0)
+    POLICY_PUBLIC.unlink(missing_ok=True)
 
 
 # --- actions ------------------------------------------------------------------------------
@@ -221,11 +374,32 @@ def do_action(kind: str) -> tuple[bool, str]:
     if kind == "lock-screen":
         r = run(["loginctl", "lock-sessions"])
         return r.returncode == 0, "screen locked" if r.returncode == 0 else r.stderr.strip()[:200]
+    if kind == "erase":
+        return erase()
     if kind == "restart":
         org = read_json(CONFIG, {}).get("organisation", "Your organisation")
         r = run(["shutdown", "-r", "+5", f"{org} is restarting this computer in 5 minutes to finish updates."])
         return r.returncode == 0, "restart in 5 minutes" if r.returncode == 0 else r.stderr.strip()[:200]
     return False, "not an action Kulan OS allows"
+
+
+def erase() -> tuple[bool, str]:
+    """Make the disk unreadable: destroy every key of the encrypted partition
+    under /, then switch off. Only when this computer's user allowed it."""
+    if not read_json(CONFIG, {}).get("allow_erase"):
+        return False, "not allowed on this computer (Kulan Settings > About > Organisation)"
+    devices = root_crypt_devices()
+    if not devices:
+        return False, "this computer's disk isn't encrypted, so it can't be erased from afar"
+    return True, f"erasing {len(devices)} encrypted partition(s) and switching off"
+
+
+def erase_now() -> None:
+    """The erase itself, after the server has been told (afterwards nothing can report)."""
+    for device in root_crypt_devices():
+        run(["cryptsetup", "luksErase", "--batch-mode", device], timeout=120)
+    run(["sync"])
+    run(["systemctl", "poweroff", "--force", "--force"])
 
 
 # --- commands -------------------------------------------------------------------------------
@@ -243,10 +417,11 @@ def publish(config: dict | None, last_report: int | None = None, error: str | No
         "last_error": error,
         "shared": SHARED,
         "actions": list(ALLOWED_ACTIONS),
+        "allow_erase": bool(config.get("allow_erase")),
     }, 0o644)
 
 
-def join(server: str) -> int:
+def join(server: str, allow_erase: bool = False) -> int:
     need_root()
     try:
         server = check_server(server)
@@ -270,7 +445,7 @@ def join(server: str) -> int:
         return 1
     config = {"server": server, "device_id": device_id, "token": token,
               "organisation": str(reply.get("organisation", "")).strip()[:80] or urllib.parse.urlsplit(server).hostname,
-              "since": int(time.time())}
+              "since": int(time.time()), "allow_erase": allow_erase}
     write_json(CONFIG, config, 0o600)
     publish(config)
     run(["systemctl", "enable", "--now", "kulan-fleet.timer"])
@@ -285,14 +460,30 @@ def report() -> int:
         say("This computer hasn't joined an organisation")
         return 3
     server, token, device_id = config["server"], config["token"], config["device_id"]
+    erasing = False
     for _round in range(3):  # "refresh" asks for another report straight away; at most three
+        body = status_report(device_id)
+        # The apps once a day (or when the list hasn't been sent yet).
         try:
-            reply = post(server, "/v1/report", status_report(device_id), token)
+            apps_due = time.time() - APPS_SENT.stat().st_mtime > APPS_EVERY_S
+        except OSError:
+            apps_due = True
+        if apps_due:
+            body["apps"] = apps()
+        try:
+            reply = post(server, "/v1/report", body, token)
         except RuntimeError as e:
             publish(config, error=str(e))
             say(f"Report not sent: {e}")
             return 1
         publish(config, last_report=int(time.time()))
+        if apps_due:
+            APPS_SENT.parent.mkdir(parents=True, exist_ok=True)
+            APPS_SENT.touch()
+        if "policy" in reply:
+            status = apply_policy(reply.get("policy"))
+            if status:
+                say("Policy: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in status.items()))
         again = False
         for action in reply.get("actions", [])[:10]:
             if not isinstance(action, dict):
@@ -303,6 +494,7 @@ def report() -> int:
             else:
                 ok, detail = do_action(kind)
             again = again or kind == "refresh"
+            erasing = erasing or (kind == "erase" and ok)
             if action_id:
                 try:
                     post(server, f"/v1/actions/{urllib.parse.quote(action_id, safe='')}",
@@ -310,9 +502,27 @@ def report() -> int:
                 except RuntimeError:
                     pass
             say(f"{kind}: {'done' if ok else 'failed'} ({detail})")
+        if erasing:
+            say("Erasing this computer, as the organisation asked")
+            erase_now()
+            return 0
         if not again:
             break
     say("Report sent")
+    return 0
+
+
+def allow_erase(value: str) -> int:
+    need_root()
+    config = read_json(CONFIG, None)
+    if not config:
+        say("This computer hasn't joined an organisation")
+        return 3
+    config["allow_erase"] = value == "on"
+    write_json(CONFIG, config, 0o600)
+    publish(config)
+    say("The organisation may erase this computer if it's lost" if config["allow_erase"]
+        else "The organisation can't erase this computer")
     return 0
 
 
@@ -326,6 +536,8 @@ def leave() -> int:
             say(f"The server wasn't told ({e}); this computer stops reporting anyway")
     run(["systemctl", "disable", "--now", "kulan-fleet.timer"])
     CONFIG.unlink(missing_ok=True)
+    remove_policy()  # automatic updates and the firewall stay as they are
+    APPS_SENT.unlink(missing_ok=True)
     publish(None)
     say("Left the organisation: nothing is reported any more")
     return 0
@@ -350,8 +562,10 @@ def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         return status("--json" in argv[2:])
-    if command == "join" and len(argv) == 3:
-        return join(argv[2])
+    if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]):
+        return join(argv[2], allow_erase=len(argv) == 4)
+    if command == "allow-erase" and argv[2:] in (["on"], ["off"]):
+        return allow_erase(argv[2])
     if command == "report":
         return report()
     if command == "leave":

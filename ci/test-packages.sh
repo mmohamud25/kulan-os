@@ -640,9 +640,48 @@ assert r["hardware"]["memory_mb"] > 0 and r["kulan_version"] and r["compliance"]
 assert ("/v1/actions/a1", True, "done") in paths and ("/v1/actions/a2", True, "failed") in paths, paths
 print(len(log), "requests")
 PY
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet v2 report" "encryption, firewall and update state; the apps once (names and versions only); erase refused when not allowed" python3 - <<'PY'
+import json
+log = json.load(open("/tmp/fleet-log.json"))
+reports = [e["body"] for e in log if e["path"] == "/v1/report"]
+first, second = reports[0], reports[1]
+assert set(first["state"]) >= {"encrypted", "firewall", "auto_updates", "erase_allowed"} and first["state"]["erase_allowed"] is False, first["state"]
+apps = first.get("apps")
+assert apps and all(set(a) == {"name", "version", "source"} and a["source"] in ("debian", "flatpak") for a in apps), apps[:3]
+assert any(a["name"].startswith("kulan-") for a in apps), [a["name"] for a in apps][:20]
+assert "apps" not in second, "apps sent again within the day"
+erase = [e["body"] for e in log if e["path"] == "/v1/actions/a3"]
+assert erase and erase[0]["status"] == "failed" and "not allowed" in erase[0]["detail"], erase
+print(len(apps), "apps")
+PY
+check "Fleet policy" "screen lock after 5 minutes (locked), automatic updates and firewall kept on, encryption reported; unknown policy keys ignored" python3 - <<'PY'
+import json
+from pathlib import Path
+assert "idle-delay=uint32 300" in Path("/etc/dconf/db/local.d/40-kulan-fleet").read_text().splitlines()
+assert "/org/gnome/desktop/session/idle-delay" in Path("/etc/dconf/db/local.d/locks/40-kulan-fleet").read_text().splitlines()
+d = json.load(open("/var/lib/kulan/fleet-policy.json"))
+p, s = d["policy"], d["status"]
+assert "run_script" not in p and p["screen_lock_minutes"] == 5, p
+assert s["screen_lock_minutes"] == "met" and s["require_encryption"] == "not met", s
+assert set(s) == {"auto_updates", "firewall", "screen_lock_minutes", "require_encryption"}, s
+PY
+check "Fleet erase" "allowed only by this computer's user, and only on an encrypted disk" python3 -I - <<'PY'
+import importlib.machinery, importlib.util, subprocess
+assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode == 0
+loader = importlib.machinery.SourceFileLoader("kf", "/usr/bin/kulan-fleet")
+spec = importlib.util.spec_from_loader("kf", loader); kf = importlib.util.module_from_spec(spec); loader.exec_module(kf)
+assert kf.read_json(kf.CONFIG, {})["allow_erase"] is True
+ok, detail = kf.erase()
+assert not ok and "isn't encrypted" in detail, detail  # the test container's disk isn't
+kf.root_crypt_devices = lambda: ["/dev/fake-luks"]
+assert kf.erase()[0] is True
+assert subprocess.run(["kulan-fleet", "allow-erase", "off"], capture_output=True).returncode == 0
+assert kf.erase() == (False, "not allowed on this computer (Kulan Settings > About > Organisation)")
+PY
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
-check "Fleet leave" "the server is told; key and status removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && grep -q /v1/leave /tmp/fleet-log.json'
+check "Fleet leave" "the server is told; key, status and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/40-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).

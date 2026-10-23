@@ -65,6 +65,8 @@ dialog::backdrop { background: rgba(7,20,40,.45); }
 pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--side); border-radius: 10px; padding: 12px; max-height: 60vh; overflow: auto; }
 .logo { width: 26px; height: 26px; }
 @media (max-width: 640px) { header { padding: 12px 16px; } .hide-sm { display: none; } }
+.alerts { margin: 0; padding-left: 18px; }
+.alerts li { margin: 4px 0; }
 </style>
 </head>
 <body>
@@ -108,6 +110,11 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
     </div>
 
     <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Needs attention</h3>
+      <ul id="alerts" class="alerts"></ul>
+    </div>
+
+    <div class="card">
       <div class="row" style="margin-bottom: 8px">
         <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Computers</h3>
       </div>
@@ -116,6 +123,19 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
           <thead><tr><th>Computer</th><th>Kulan OS</th><th>Last report</th><th>Compliance</th><th>Updates</th><th class="hide-sm">TPM unlock</th><th>Ask it to…</th></tr></thead>
           <tbody id="devices"></tbody>
         </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Policy</h3>
+      <p class="sub">Every computer keeps to this from its next report. Encryption can't be switched on from afar: computers without it show an alert.</p>
+      <div class="row" id="policy">
+        <label><input type="checkbox" id="p-auto"> Automatic updates</label>
+        <label><input type="checkbox" id="p-firewall"> Firewall</label>
+        <label><input type="checkbox" id="p-encryption"> Require disk encryption</label>
+        <label class="small" for="p-lock">Screen lock</label>
+        <select id="p-lock"><option value="0">Not set</option><option value="2">After 2 minutes</option><option value="5">After 5 minutes</option><option value="10">After 10 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option></select>
+        <button id="p-save">Save policy</button>
       </div>
     </div>
 
@@ -147,6 +167,15 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
         </table>
       </div>
     </div>
+    <div class="card">
+      <div class="row"><h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Activity log</h3><button id="log-load" style="margin-left: auto">Show</button></div>
+      <div class="table-wrap hidden" id="log-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
+          <tbody id="log"></tbody>
+        </table>
+      </div>
+    </div>
     <p id="app-msg" class="small error" role="status"></p>
   </section>
 </main>
@@ -168,7 +197,7 @@ const FLEET_SERVER = `${SUPABASE_URL}/functions/v1/fleet`;
 const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"],
                  ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
                  ["restart", "Restart (5 min notice)"]];
-const LABEL = Object.fromEntries(ACTIONS);
+const LABEL = { ...Object.fromEntries(ACTIONS), erase: "Erase" };
 
 const supabase = createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { flowType: "pkce", detectSessionInUrl: true } });
 const $ = (id) => document.getElementById(id);
@@ -238,6 +267,16 @@ function render() {
   $("s-compliant").textContent = active.filter((d) => d.compliance_total && d.compliance_passed === d.compliance_total).length;
   $("s-security").textContent = active.filter((d) => (d.updates?.security || 0) > 0).length;
 
+  const alerts = (data.alerts || []).filter((a) => a.organisation_id === org);
+  $("alerts").replaceChildren(...(alerts.length ? alerts.slice(0, 50).map((a) => el("li", {},
+    el("b", {}, a.hostname || "Computer"), ` · ${a.text}`)) : [el("li", { class: "small" }, "Nothing: every computer looks fine.")]));
+  const policy = data.organisations.find((o) => o.id === org)?.policy || {};
+  $("p-auto").checked = !!policy.auto_updates;
+  $("p-firewall").checked = !!policy.firewall;
+  $("p-encryption").checked = !!policy.require_encryption;
+  $("p-lock").value = String(policy.screen_lock_minutes || 0);
+  $("policy").classList.toggle("hidden", !org);
+
   const rows = devices.map((d) => {
     const comp = d.compliance_total == null ? el("span", { class: "tag dim" }, "unknown")
       : el("span", { class: `tag ${d.compliance_passed === d.compliance_total ? "good" : "warn"}` },
@@ -249,11 +288,17 @@ function render() {
     const tpm = d.tpm == null ? "–" : d.tpm.on ? el("span", { class: "tag good" }, "on") : el("span", { class: "tag dim" }, d.tpm.possible ? "off" : "not possible");
     const pick = el("select", { "aria-label": `Ask ${d.hostname || "this computer"} to` },
       el("option", { value: "" }, "Choose…"), ...ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
+    if (d.state?.erase_allowed && d.state?.encrypted) pick.append(el("option", { value: "erase" }, "Erase (if lost or stolen)…"));
     const go = el("button", { onclick: async () => {
       if (!pick.value) return;
       if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Whoever is using it gets 5 minutes' notice.`)) return;
+      let confirmName;
+      if (pick.value === "erase") {
+        confirmName = prompt(`Erase ${d.hostname}? At its next report it makes everything on its disk unreadable, for good, and switches off. Nobody can undo this. Type the computer's name to confirm:`);
+        if (!confirmName || confirmName.trim() !== d.hostname) { $("app-msg").textContent = "Not erased: the name didn't match."; return; }
+      }
       go.disabled = true;
-      try { await api({ op: "action", device_id: d.id, type: pick.value }); await load(); }
+      try { await api({ op: "action", device_id: d.id, type: pick.value, confirm: confirmName }); await load(); }
       catch (e) { $("app-msg").textContent = e.message; go.disabled = false; }
     } }, "Send");
     const name = el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openReport(d); } }, d.hostname || "(no name)");
@@ -290,6 +335,12 @@ async function openReport(d) {
         el("td", {}, el("span", { class: `tag ${c.status === "pass" ? "good" : c.status === "fail" ? "bad" : "dim"}` }, c.status)),
         el("td", { class: "small" }, `CIS ${c.cis} · NIST ${c.nist}`)))));
     }
+    if (d.apps_at) {
+      const { apps } = await api({ op: "apps", device_id: d.id });
+      parts.push(el("h4", {}, `Apps (${apps.length}, sent ${ago(d.apps_at)})`),
+        el("table", {}, ...apps.slice(0, 1000).map((a) => el("tr", {}, el("td", {}, a.name), el("td", { class: "small" }, a.version),
+          el("td", {}, el("span", { class: "tag dim" }, a.source === "flatpak" ? "Flatpak" : "Debian"))))));
+    }
     parts.push(el("h4", {}, "Full report"), el("pre", {}, JSON.stringify(report, null, 2)));
     $("report-body").replaceChildren(...parts);
   } catch (e) {
@@ -298,6 +349,21 @@ async function openReport(d) {
 }
 
 $("report-close").addEventListener("click", () => $("report-dialog").close());
+$("p-save").addEventListener("click", async () => {
+  const policy = { auto_updates: $("p-auto").checked, firewall: $("p-firewall").checked,
+                   require_encryption: $("p-encryption").checked, screen_lock_minutes: Number($("p-lock").value) };
+  try { await api({ op: "set-policy", organisation_id: $("org").value, policy }); $("app-msg").textContent = "Policy saved."; await load(); }
+  catch (e) { $("app-msg").textContent = e.message; }
+});
+$("log-load").addEventListener("click", async () => {
+  try {
+    const { entries } = await api({ op: "log", organisation_id: $("org").value });
+    $("log").replaceChildren(...(entries.length ? entries.map((e) => el("tr", {}, el("td", {}, ago(e.at)), el("td", {}, e.email),
+      el("td", {}, e.what.startsWith("asked: ") ? `asked ${e.hostname || "a computer"}: ${LABEL[e.what.slice(7)] || e.what.slice(7)}` : e.what)))
+      : [el("tr", {}, el("td", { colspan: "3", class: "empty" }, "Nothing changed yet."))]));
+    $("log-wrap").classList.remove("hidden");
+  } catch (e) { $("app-msg").textContent = e.message; }
+});
 $("org").addEventListener("change", render);
 $("refresh").addEventListener("click", load);
 $("signout").addEventListener("click", async () => { await supabase.auth.signOut(); show(false); });
