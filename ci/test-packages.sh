@@ -298,6 +298,15 @@ check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764)
 	[ "$(grep -c "^allow proto .* from .* to any port 1714:1764 comment Kulan Phone link$" /tmp/ufw-on.log)" = 12 ] || { cat /tmp/ufw-on.log; exit 1; }
 	grep -q "from 192.168.0.0/16" /tmp/ufw-on.log && ! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
 	[ "$(grep -c "^--force delete allow proto .* from .* to any port 1714:1764$" "$log")" = 12 ] || { cat "$log"; exit 1; }'
+check "Free-space check before updates" "reads apt's plan (apt answers no and exits 1) into one number, and stops when the disk is too full" bash -c '
+	space() { bash -c "set -euo pipefail; APT_LOCK=(-o DPkg::Lock::Timeout=60); die() { echo \"die: \$*\"; exit 3; }
+		eval \"\$(sed -n \"/^check_space() {/,/^}/p\" /usr/lib/kulan/update-run)\"
+		$1
+		check_space install $2 && echo ok"; }
+	for pkg in hello cowsay sl figlet; do dpkg -s "$pkg" >/dev/null 2>&1 || break; done
+	apt-get -o Debug::NoLocking=1 --assume-no install "$pkg" 2>/dev/null | grep -q "^Need to get" || { echo "apt plans no download for $pkg"; exit 1; }
+	out="$(space "" "$pkg" 2>&1)"; [ "$(tail -n 1 <<<"$out")" = ok ] && ! grep -q "syntax error" <<<"$out" || { echo "normal: $out" | tr "\n" " "; exit 1; }
+	out="$(space "df() { printf \"Avail\\n1000\\n\"; }" "$pkg" 2>&1)"; grep -q "^die: Not enough free space" <<<"$out" || { echo "full disk: $out" | tr "\n" " "; exit 1; }'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"

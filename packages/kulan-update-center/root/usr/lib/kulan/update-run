@@ -84,8 +84,10 @@ repair_dpkg() {
 # Room to download and install the updates (and to work), on the disks apt
 # uses. Says how much is needed when there isn't enough.
 check_space() {
-	local need
-	need="$(apt-get "${APT_LOCK[@]}" -o Debug::NoLocking=1 --assume-no "$@" 2>/dev/null | python3 -I -c '
+	local plan need
+	# apt exits non-zero when it answers "no" itself: keep its plan anyway.
+	plan="$(apt-get "${APT_LOCK[@]}" -o Debug::NoLocking=1 --assume-no "$@" 2>/dev/null || true)"
+	need="$(python3 -I -c '
 import re, sys
 units = {"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9}
 need = 0
@@ -97,7 +99,8 @@ for line in sys.stdin:
     if m:
         need += float(m.group(1).replace(",", "")) * units.get(m.group(2), 1)
 print(int(need))
-' || echo 0)"
+' <<<"${plan}" 2>/dev/null || true)"
+	[[ "${need}" =~ ^[0-9]+$ ]] || need=0
 	local margin=$((500 * 1000 * 1000)) dir avail
 	for dir in /var/cache/apt/archives /usr; do
 		avail="$(df --output=avail -B1 "${dir}" 2>/dev/null | tail -n 1 | tr -dc 0-9)"

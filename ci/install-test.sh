@@ -212,6 +212,20 @@ elif [[ -n "${RP}" ]]; then
 else
 	result info "Restore point" "not reported"
 fi
+UP="$(field "$(report 1)" updatepoint)"
+if [[ "${UP}" =~ ^0\ 1\  ]] || [[ "${UP}" == "0 1" ]]; then
+	result pass "Restore point before updates" "taken the way Software Update takes it before installing updates"
+elif [[ -n "${UP}" ]]; then
+	result fail "Restore point before updates" "not taken: ${UP}"
+else
+	result info "Restore point before updates" "not reported"
+fi
+SPACE="$(field "$(report 1)" spacecheck)"
+if [[ "${SPACE}" == ok ]]; then
+	result pass "Free-space check" "Software Update's check before installing reads apt's plan without errors"
+elif [[ -n "${SPACE}" ]]; then
+	result fail "Free-space check" "${SPACE}"
+fi
 ID1="$(field "$(report 1)" boot_id)"
 ID2="$(field "$(report 2)" boot_id)"
 if [[ "${COUNT}" -ge 2 && -n "${ID1}" && -n "${ID2}" && "${ID1}" != "${ID2}" ]]; then
