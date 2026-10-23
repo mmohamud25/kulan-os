@@ -21,6 +21,9 @@ case "$1" in
 		deb-systemd-helper purge kulan-update-status.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-update-status.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-app-updates.timer >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-countme.timer >/dev/null 2>&1 || true
+		rm -rf /var/lib/kulan-countme
+		rm -f /etc/kulan/no-countme
 		rm -f /var/lib/kulan/app-updates.tsv /var/lib/kulan/restore-points.json
 		rm -f /var/lib/kulan/updates.json /var/lib/kulan/security-checkup.json \
 			/etc/apt/apt.conf.d/53kulan-auto-upgrades-user /etc/systemd/resolved.conf.d/60-kulan-dns.conf

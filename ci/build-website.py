@@ -95,7 +95,7 @@ def page(path: str, title: str, description: str, body: str, script: str = "") -
 <footer>
 <div class="wrap">
 <span>© 2026 {e(C.get("KULAN_PUBLISHER", "Kulan Group Ltd"))} · Kulan means “gathering” in Somali</span>
-<nav aria-label="Footer"><a href="/help/#security">Security</a><a href="/help/#privacy">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
+<nav aria-label="Footer"><a href="/help/#security">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
 </div>
 </footer>
 {script}
@@ -374,7 +374,7 @@ def help_page() -> str:
 <section class="band" id="faq"><div class="wrap narrow"><div class="head"><h2>Common questions</h2></div><div class="faq">{items}</div><p class="muted" id="no-match" hidden style="margin-top:12px">No question matches that. Try other words, or email us.</p></div></section>
 <section class="wrap"><div class="grid">
 <div class="outline stack" id="security"><h3>Security</h3><p class="muted" style="font-size:15px">Every update is signed with Kulan’s key (<a href="/apt/kulan-archive-keyring.gpg">download the key</a>). Found a security problem? Tell us privately at <a href="mailto:{SECURITY}">{SECURITY}</a>.</p></div>
-<div class="outline stack" id="privacy"><h3>Privacy</h3><p class="muted" style="font-size:15px">No ads, no tracking and no account. {e(NAME)} goes online for updates from os.kulangroup.com and for the things you use, like the weather widget and Firefox. Kulan Assistant runs on your computer, and nothing you type in it leaves it.</p></div>
+<div class="outline stack" id="privacy"><h3>Privacy</h3><p class="muted" style="font-size:15px">No ads, no tracking and no account. {e(NAME)} goes online for updates from os.kulangroup.com and for the things you use, like the weather widget and Firefox. Once a week it’s counted anonymously, and you can switch that off. Kulan Assistant runs on your computer, and nothing you type in it leaves it. <a href="/privacy/">Read the privacy policy</a>.</p></div>
 <div class="outline stack" id="contact"><h3>Still stuck?</h3><p class="muted" style="font-size:15px">Email <a href="mailto:{SUPPORT}">{SUPPORT}</a> with your {e(NAME)} version (Kulan Settings › About) and what happened.</p></div>
 </div></section>"""
     script = """<script>
@@ -396,6 +396,50 @@ def help_page() -> str:
     return page("/help/", "Help", f"Answers to common questions about {NAME}, and how to contact us.", body, script)
 
 
+def privacy() -> str:
+    sections = [
+        ("The short version", f"""<p>{e(NAME)} doesn’t track you. There are no ads, no accounts and no advertising
+IDs, and it never sends what you do on your computer, your files, or what you type. The only thing it sends about
+itself is an anonymous weekly count, described below, which you can switch off.</p>"""),
+        ("The anonymous weekly count", f"""<p>To know roughly how many computers run {e(NAME)}, and which versions
+to keep supporting, each installed computer is counted once a week. It sends exactly three things:</p>
+<ul><li>the {e(NAME)} version, like 2.6;</li><li>whether it’s a PC (amd64) or a Mac or other Arm computer
+(arm64);</li><li>roughly how long it’s been installed: under a week, under a month, under six months, or
+longer.</li></ul>
+<p>There’s no ID, name, account, serial number or hardware detail, and nothing about how you use the computer. The
+server only adds one to that week’s total for that version, kind of computer and age, so no week can be linked to
+another, or to a computer or a person. Computers started from the USB stick (the live session) aren’t counted.</p>
+<p>The count is received by our server provider, Supabase. Like any web server, it sees the internet address a
+request comes from while answering it; {e(NAME)}’s counting service doesn’t store addresses or the time of the
+request, only the weekly totals.</p>
+<p>It’s on unless you switch it off: in the Setup Assistant when you first start, or any time in
+<strong>Kulan Settings › Privacy › Count this computer, anonymously</strong>, where <strong>What’s sent</strong> shows
+the exact report. The code that sends it is <a href="https://github.com/{REPO}/blob/main/packages/kulan-update-center/root/usr/lib/kulan/countme">open
+for anyone to read</a>, and so is <a href="https://github.com/{REPO}/blob/main/fleet/supabase/functions/countme/index.ts">the
+code that receives it</a>.</p>"""),
+        ("What else goes online", f"""<ul><li><strong>Updates</strong>: deb.debian.org, security.debian.org and
+os.kulangroup.com, to check for and download updates; Flathub for app updates.</li>
+<li><strong>The clock</strong>: a Debian time server.</li>
+<li><strong>Encrypted DNS</strong>: Quad9, Mullvad or Cloudflare for Families, only if you turn it on.</li>
+<li><strong>Organisations</strong>: if your computer is added to an organisation (Kulan Settings › About ›
+Organisation), it reports its status to that organisation, and the organisation can see it. Leaving stops it.</li>
+<li><strong>Apps</strong>: apps you use, like Firefox or the weather, connect to their own services under their
+own policies.</li></ul>
+<p>Kulan Assistant runs entirely on your computer. Dictation and Live Text too. Nothing you say, type or show
+them leaves it.</p>"""),
+        ("This website and downloads", f"""<p>This website has no cookies, ads or tracking scripts. It’s hosted on
+GitHub Pages, and the downloads come from GitHub, which counts how many times each file is downloaded; GitHub’s
+own <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">privacy
+statement</a> covers that.</p>"""),
+        ("Questions", f"""<p>Email <a href="mailto:{SUPPORT}">{SUPPORT}</a>. If this policy changes, the change is
+listed in <a href="/whats-new/">What’s new</a> with the release that brings it.</p>"""),
+    ]
+    parts = "".join(f'<section class="stack"><h2>{e(title)}</h2>{text}</section>' for title, text in sections)
+    body = f"""<section class="wrap narrow stack"><h1>Privacy policy</h1><p class="lead">What {e(NAME)} sends, and
+what it never does.</p><p class="muted">For {e(NAME)} {e(VERSION)} and later.</p>{parts}</section>"""
+    return page("/privacy/", "Privacy policy", f"What {NAME} sends, and what it never does.", body)
+
+
 def not_found() -> str:
     body = """<section class="wrap stack"><h1>Page not found</h1><p class="lead">That page isn’t here. Try the <a href="/">home page</a> or <a href="/help/">Help</a>.</p></section>"""
     return page("/404", "Page not found", "Page not found.", body)
@@ -412,7 +456,7 @@ def main(argv: list[str]) -> int:
               f"aren't for {VERSION}", file=sys.stderr)
         return 1
     pages = {"index.html": home(notes), "download/index.html": download(), "install/index.html": install(),
-             "whats-new/index.html": whats_new(notes), "help/index.html": help_page(), "404.html": not_found()}
+             "whats-new/index.html": whats_new(notes), "help/index.html": help_page(), "privacy/index.html": privacy(), "404.html": not_found()}
     for rel, text in pages.items():
         target = out / rel
         target.parent.mkdir(parents=True, exist_ok=True)

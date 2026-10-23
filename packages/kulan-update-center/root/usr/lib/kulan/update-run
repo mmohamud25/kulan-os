@@ -15,6 +15,7 @@
 #   update-run addon-remove <id>          remove an add-on listed in addons.json
 #   update-run security-checkup           run Lynis; summary in /var/lib/kulan/security-checkup.json
 #   update-run firewall-on                turn the firewall on (block incoming)
+#   update-run countme-on|countme-off     the anonymous weekly count on or off (/usr/lib/kulan/countme)
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
@@ -437,6 +438,21 @@ PY
 		[[ $# -eq 1 ]] || die "usage: update-run compliance-off"
 		[[ -x /usr/bin/kulan-compliance ]] || die "Compliance mode isn't installed."
 		/usr/bin/kulan-compliance off 1>&2
+		;;
+	countme-on)
+		[[ $# -eq 1 ]] || die "usage: update-run countme-on"
+		rm -f /etc/kulan/no-countme
+		if [[ -d /run/systemd/system ]]; then
+			systemctl enable --now kulan-countme.timer 1>&2 || true
+		fi
+		;;
+	countme-off)
+		[[ $# -eq 1 ]] || die "usage: update-run countme-off"
+		mkdir -p /etc/kulan
+		echo "# The anonymous weekly count is off (Kulan Settings > Privacy)." > /etc/kulan/no-countme
+		if [[ -d /run/systemd/system ]]; then
+			systemctl disable --now kulan-countme.timer 1>&2 || true
+		fi
 		;;
 	firewall-on)
 		[[ $# -eq 1 ]] || die "usage: update-run firewall-on"

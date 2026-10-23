@@ -24,7 +24,7 @@ graphical installer. It builds for **ARM64** (Apple Silicon Macs in UTM) and **x
 | Developer kit | Optional, one click in the Welcome app: Git, Python (pip, venv), build tools, Docker and Docker Compose, curl |
 | App store | GNOME Software with Debian packages and Flathub |
 | Security | Firewall on at boot (blocks incoming, allows outgoing) with a settings app; automatic daily updates; disk encryption ticked by default in the installer; Tor Browser launcher on PCs |
-| Privacy | No telemetry; Wi-Fi hides your device's hardware address; Firefox blocks trackers and sends no usage data; old trash and temporary files are cleared after 30 days |
+| Privacy | No tracking (only an anonymous weekly count of computers, which you can switch off); Wi-Fi hides your device's hardware address; Firefox blocks trackers and sends no usage data; old trash and temporary files are cleared after 30 days |
 | Backups | Deja Dup (back up to a drive or cloud storage) |
 | Updates | The Kulan update channel: your own signed package repository, so installed systems get Kulan fixes and new versions through normal updates. Older installs upgrade themselves to the latest version |
 | Build number | Each ISO is named with its build, e.g. `kulan-os-2.1-build9-arm64.iso`; Settings > About and Update Center show it too |

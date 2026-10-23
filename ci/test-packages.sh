@@ -228,6 +228,33 @@ check "Restore point before automatic updates" "apt hook present; outside an aut
 check "Restart after automatic updates" "a new kernel from automatic updates shows as restart needed" bash -c 'mkdir -p /run && echo linux-image-test > /run/reboot-required.pkgs && touch /run/reboot-required && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); assert \"linux-image-test\" in d[\"restart_required\"], d[\"restart_required\"]"; ok=$?; rm -f /run/reboot-required /run/reboot-required.pkgs; /usr/lib/kulan/update-status refresh; exit $ok'
 check "A failing setup step can't block updates" "when one of Kulan's desktop setup steps fails, kulan-desktop-settings still configures (a warning, not a failure)" bash -c 'h=/usr/lib/kulan/boot-splash-setup; cp -p "$h" /tmp/splash.bak && printf "#!/bin/sh\necho simulated failure >&2\nexit 1\n" > "$h"; out="$(/var/lib/dpkg/info/kulan-desktop-settings.postinst configure 2>&1)"; rc=$?; cp -p /tmp/splash.bak "$h"; /var/lib/dpkg/info/kulan-desktop-settings.postinst configure >/dev/null 2>&1; echo "$out" | grep "^W: kulan-desktop-settings" | head -n 2; echo "postinst exit: $rc"; [ "$rc" -eq 0 ] && echo "$out" | grep -q "boot-splash-setup.* runs again at the next update"'
 check "Firmware updates" "device firmware from fwupd shows in Software Update" bash -c 'printf "{\"Devices\": [{\"Name\": \"Test Dock\", \"DeviceId\": \"abc\", \"Version\": \"1.0\", \"Releases\": [{\"Version\": \"1.1\", \"Summary\": \"Fixes\"}]}]}" > /var/lib/kulan/firmware-updates.json && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); f = [u for u in d[\"available\"] if u.get(\"kind\") == \"firmware\"]; assert f and f[0][\"name\"] == \"Test Dock\" and f[0][\"to\"] == \"1.1\", f"; ok=$?; rm -f /var/lib/kulan/firmware-updates.json; /usr/lib/kulan/update-status refresh; exit $ok'
+check "Anonymous count" "countme's own tests: exactly version, PC or Mac, and rough age; once a week; off means nothing is sent" /usr/lib/kulan/countme self-test
+check "Anonymous count on by default" "weekly count timer enabled, its own user, no off file" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-countme.timer && getent passwd kulan-countme >/dev/null && test ! -e /etc/kulan/no-countme && grep -qx "ConditionPathExists=!/etc/kulan/no-countme" /usr/lib/systemd/system/kulan-countme.service'
+check "What the count sends" "only version, PC or Mac and age; the version matches Kulan OS" python3 -c '
+import json, subprocess
+d = json.loads(subprocess.run(["/usr/lib/kulan/countme", "show"], capture_output=True, text=True, check=True).stdout)
+vid = [l.split("=", 1)[1].strip("\"") for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]
+assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age"}, d
+assert d["sends"]["version"] == ".".join(vid.split(".")[:2]) and d["sends"]["arch"] in ("amd64", "arm64") and d["sends"]["age"] == 1, d
+assert d["to"].startswith("https://"), d'
+check "Count off switch" "update-run countme-off stops the count; countme-on brings it back" bash -c '/usr/lib/kulan/update-run countme-off && test -e /etc/kulan/no-countme && /usr/lib/kulan/countme send | grep -q "switched off" && /usr/lib/kulan/update-run countme-on && test ! -e /etc/kulan/no-countme'
+check "Count reaches the server" "a real HTTP POST with only the three fields (to a local test server)" python3 -I - <<'PY2'
+import http.server, importlib.machinery, importlib.util, json, threading
+got = []
+class H(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        got.append((self.headers.get("Content-Type"), json.loads(self.rfile.read(int(self.headers["Content-Length"]))),
+                    self.headers.get("Cookie")))
+        self.send_response(204); self.end_headers()
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+loader = importlib.machinery.SourceFileLoader("countme", "/usr/lib/kulan/countme")
+spec = importlib.util.spec_from_loader("countme", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+m.send({"version": "2.6", "arch": "amd64", "age": 2}, url=f"http://127.0.0.1:{srv.server_port}/countme/v1")
+assert got == [("application/json", {"version": "2.6", "arch": "amd64", "age": 2}, None)], got
+srv.shutdown()
+PY2
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
@@ -616,7 +643,7 @@ if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-upda
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
-	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi

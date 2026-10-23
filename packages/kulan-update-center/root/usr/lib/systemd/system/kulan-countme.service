@@ -1,0 +1,41 @@
+[Unit]
+Description=Count this computer, anonymously (Kulan OS version, PC or Mac, rough install age)
+Documentation=file:///usr/lib/kulan/countme
+# Off in Kulan Settings > Privacy (update-run countme-off).
+ConditionPathExists=!/etc/kulan/no-countme
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/countme send
+Nice=10
+IOSchedulingClass=idle
+# Its own user; it keeps only two dates, in /var/lib/kulan-countme (readable,
+# so Kulan Settings can show exactly what's sent).
+User=kulan-countme
+Group=kulan-countme
+StateDirectory=kulan-countme
+StateDirectoryMode=0755
+UMask=0022
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
