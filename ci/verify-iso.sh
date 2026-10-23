@@ -96,6 +96,7 @@ POOL_KB="$(xorriso -indev "${ISO}" -du /pool 2>/dev/null | awk 'END { print $1 }
 result info "Size breakdown" "live system $(( $(stat -c %s "${WORK}/fs.squashfs") / 1048576 )) MB, offline-install pool $(( ${POOL_KB:-0} / 1024 )) MB; biggest installed: $(awk 'BEGIN{RS=""} {p=""; s=0; n=split($0, l, "\n"); for (i=1;i<=n;i++) { if (l[i] ~ /^Package: /) p=substr(l[i],10); if (l[i] ~ /^Installed-Size: /) s=substr(l[i],17) } print s, p }' "${R}/var/lib/dpkg/status" 2>/dev/null | sort -rn | head -n 15 | awk '{ printf "%s%s %d MB", (NR>1?", ":""), $2, $1/1024 }')"
 
 [[ -f "${R}/var/lib/dpkg/status" ]] && result info "Why the biggest are there" "$(python3 "$(dirname "$0")/why-installed.py" "${R}/var/lib/dpkg/status" 15)"
+[[ -f "${R}/var/lib/dpkg/status" ]] && result info "Download weight" "what the biggest packages add to the ISO (compressed): $(python3 "$(dirname "$0")/package-weight.py" "${WORK}/fs.squashfs" "${R}/var/lib/dpkg/status" 20)"
 
 # shellcheck disable=SC2317  # called through check()
 installed() { # installed <package>
