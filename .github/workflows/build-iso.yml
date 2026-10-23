@@ -313,9 +313,15 @@ jobs:
       !cancelled() && (inputs.arch || 'both') != 'arm64' &&
       needs.test-packages.result == 'success' &&
       needs.engine.result == 'success' && needs.files.result == 'success'
-    name: Upgrade test (previous release to this build)
+    name: Upgrade test (${{ matrix.from }} release to this build)
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    # The last two releases: computers that skipped one update jump straight
+    # to this build, so that path is tested too.
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [previous, older]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v7
@@ -338,13 +344,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Real releases only (test builds are pre-releases), newest first.
+          INDEX=0; [ "${{ matrix.from }}" = older ] && INDEX=1
+          TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" \
+            -q "[.[] | select(.draft == false and .prerelease == false)] | sort_by(.published_at) | reverse | .[${INDEX}].tag_name // empty")"
+          [ -n "${TAG}" ] || { echo "::error::no ${{ matrix.from }} release found"; exit 1; }
           mkdir -p previous
-          gh release download --repo "$GITHUB_REPOSITORY" -D previous \
+          gh release download "${TAG}" --repo "$GITHUB_REPOSITORY" -D previous \
             --pattern kulan-os-amd64.iso --pattern SHA256SUMS --pattern SHA256SUMS.sig
           cd previous
           gpgv --keyring ../packages/kulan-archive-keyring.gpg SHA256SUMS.sig SHA256SUMS
           grep ' kulan-os-amd64.iso$' SHA256SUMS | sha256sum -c -
-          echo "::notice title=Upgrade test::from $(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)"
+          echo "::notice title=Upgrade test (${{ matrix.from }})::from ${TAG}"
 
       - name: Upgrade test
         run: |
@@ -359,7 +370,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: upgrade-test-amd64
+          name: upgrade-test-amd64-${{ matrix.from }}
           path: upgrade-test/
           retention-days: 14
           if-no-files-found: ignore
