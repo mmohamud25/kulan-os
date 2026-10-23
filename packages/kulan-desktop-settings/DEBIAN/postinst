@@ -47,10 +47,25 @@ splash_logo() {
 	ln -sfn /usr/share/kulan/vendor-logos/logo-text-version-64.png "${SPLASH_LOGO}"
 }
 
+# Only Bibata Modern Classic is used: drop the other variants' cursor pictures
+# (already installed ones; /etc/dpkg/dpkg.cfg.d/kulan-lean keeps them out of
+# later updates).
+lean_cursors() {
+	[ -e /usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr ] || return 0
+	for DIR in /usr/share/icons/Bibata-*/cursors; do
+		case "${DIR}" in
+			/usr/share/icons/Bibata-Modern-Classic/cursors) ;;
+			*) [ -d "${DIR}" ] && find "${DIR}" -mindepth 1 \( -type f -o -type l \) -delete ;;
+		esac
+	done
+	return 0
+}
+
 case "$1" in
 	configure)
 		vendor_logos
 		splash_logo
+		lean_cursors
 		apply
 		# Most-used apps read into memory after sign-in (kulan-prewarm), for
 		# every account; "systemctl --user disable kulan-prewarm.timer" opts out.

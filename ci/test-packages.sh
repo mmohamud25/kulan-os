@@ -462,6 +462,7 @@ check "Package names" "add-on and security packages exist in Debian 13" bash -c 
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
+check "Cursor files" "only Bibata Modern Classic's cursors are kept (the dpkg rule and postinst)" bash -c 'test -e /usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr && test -f /etc/dpkg/dpkg.cfg.d/kulan-lean && test -z "$(find /usr/share/icons/Bibata-* -path "*/cursors/*" ! -path "/usr/share/icons/Bibata-Modern-Classic/*" \( -type f -o -type l \) 2>/dev/null | head -n 1)" && apt-get install -y -q --reinstall bibata-cursor-theme >/dev/null 2>&1 && test -e /usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr && test -z "$(find /usr/share/icons/Bibata-* -path "*/cursors/*" ! -path "/usr/share/icons/Bibata-Modern-Classic/*" \( -type f -o -type l \) 2>/dev/null | head -n 1)"'
 check "Upgrade path" "kulan-desktop-settings pulls in kulan-update-center, kulan-settings and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-settings && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
 
 # --- Welcome app against Debian's real GTK and libadwaita ------------------------------

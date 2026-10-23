@@ -1,0 +1,5 @@
+# Kulan OS: keep only the cursor theme Kulan OS uses (Bibata Modern Classic).
+# The other five Bibata variants' cursor pictures are about 145 MB and can't
+# be chosen in Kulan Settings. Their theme files stay, so nothing breaks.
+path-exclude=/usr/share/icons/Bibata-*/cursors/*
+path-include=/usr/share/icons/Bibata-Modern-Classic/cursors/*
