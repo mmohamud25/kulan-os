@@ -157,7 +157,12 @@ class Session:
         your own mail server), so either works: the link copied from the email, or
         the address the browser landed on after opening it.
         """
-        code = code.strip()
+        # Phones and mail apps add line breaks or spaces, and copying from the
+        # address bar can drop "http://" (or keep only the part after "#").
+        code = "".join(code.split())
+        if not code.isdigit() and "://" not in code and "refresh_token=" in code:
+            code = "http://localhost/" + ("" if code.startswith("#") or "/" in code.split("#")[0] else "#") + \
+                (code.split("/", 1)[1] if "/" in code.split("#")[0] else code)
         if code.isdigit():
             self._take(http(f"{SUPABASE_URL}/auth/v1/verify", {"type": "email", "email": email, "token": code}))
             return
