@@ -80,6 +80,7 @@ FILES=(
 	etc/NetworkManager/conf.d/80-kulan-privacy.conf
 	etc/alternatives/vendor-logos
 	etc/sysctl.d/60-kulan-hardening.conf
+	etc/xdg/gnome-mimeapps.list
 	etc/calamares/modules/fstab.conf
 	var/lib/flatpak/overrides/global
 	usr/bin/kulan-installer
@@ -149,6 +150,8 @@ else
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter
+check "Default apps" "photos open in Image Viewer, PDFs in Document Viewer, text in Text Editor (every default app is in the ISO)" bash -c 'f="$1/etc/xdg/gnome-mimeapps.list"; grep -qx "image/jpeg=org.gnome.Loupe.desktop" "$f" && grep -qx "application/pdf=org.gnome.Evince.desktop" "$f" && grep -qx "text/plain=org.gnome.TextEditor.desktop" "$f" || exit 1; for app in $(sed -n "s/^[^#][^=]*=//p" "$f" | sort -u); do grep -q "squashfs-root/usr/share/applications/${app}\$" "$2" || { echo "missing ${app}"; exit 1; }; done' _ "${R}" "${WORK}/listing"
+check "Clock sync" "systemd-timesyncd installed, so the time is set from the internet" installed systemd-timesyncd
 check "Firmware updates" "fwupd installed (BIOS, dock and device firmware in Software Update)" installed fwupd
 check "Live Text languages" "English and Arabic text recognition" bash -c "$(declare -f installed); R='${R}'; installed tesseract-ocr-eng && installed tesseract-ocr-ara"
 check "Cursor files" "Bibata Modern Classic cursors present, the unused variants' left out" bash -c "grep -q 'squashfs-root/usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr\$' '${WORK}/listing' && ! grep -E 'squashfs-root/usr/share/icons/Bibata-[^/]+/cursors/' '${WORK}/listing' | grep -qv '/Bibata-Modern-Classic/'"

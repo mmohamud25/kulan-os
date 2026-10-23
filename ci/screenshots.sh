@@ -169,6 +169,16 @@ for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
     close_apps()
     time.sleep(3)
 
+# Where the account picture comes from (Settings › Users showed Debian's
+# logo): AccountsService's IconFile for the live user, and any face files.
+if qga is not None:
+    face = run("U=$(id -nu 1000); gdbus call --system --dest org.freedesktop.Accounts --object-path "
+               "/org/freedesktop/Accounts/User1000 --method org.freedesktop.DBus.Properties.Get "
+               "org.freedesktop.Accounts.User IconFile 2>&1; ls -la /var/lib/AccountsService/icons/ "
+               "/home/$U/.face* /etc/skel/.face* 2>&1; grep -rl Icon /var/lib/AccountsService/users/ 2>/dev/null "
+               "| xargs -r cat 2>/dev/null")
+    print("::notice title=Account picture::" + " | ".join(line.strip() for line in face.splitlines() if line.strip())[:900])
+
 # Every Kulan Settings page as it really looks in the live session (with
 # its network, sound, display and account services), for reviewing the
 # insides of the app; saved as settings-<page>.png.

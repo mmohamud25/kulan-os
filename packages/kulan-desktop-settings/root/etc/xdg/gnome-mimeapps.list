@@ -1,0 +1,56 @@
+# Kulan OS: the apps that open each kind of file, before GNOME guesses
+# (it picked Firefox for photos and GIMP for PDFs). Your own choices in
+# Kulan Settings › Default apps (~/.config/mimeapps.list) always come first.
+[Default Applications]
+image/jpeg=org.gnome.Loupe.desktop
+image/png=org.gnome.Loupe.desktop
+image/gif=org.gnome.Loupe.desktop
+image/webp=org.gnome.Loupe.desktop
+image/bmp=org.gnome.Loupe.desktop
+image/tiff=org.gnome.Loupe.desktop
+image/heif=org.gnome.Loupe.desktop
+image/heic=org.gnome.Loupe.desktop
+image/avif=org.gnome.Loupe.desktop
+image/svg+xml=org.gnome.Loupe.desktop
+image/x-icon=org.gnome.Loupe.desktop
+image/jxl=org.gnome.Loupe.desktop
+image/x-portable-pixmap=org.gnome.Loupe.desktop
+application/pdf=org.gnome.Evince.desktop
+application/x-bzpdf=org.gnome.Evince.desktop
+application/x-gzpdf=org.gnome.Evince.desktop
+application/x-xzpdf=org.gnome.Evince.desktop
+application/postscript=org.gnome.Evince.desktop
+image/vnd.djvu=org.gnome.Evince.desktop
+application/x-cbz=org.gnome.Evince.desktop
+application/x-cbr=org.gnome.Evince.desktop
+text/plain=org.gnome.TextEditor.desktop
+text/markdown=org.gnome.TextEditor.desktop
+text/x-log=org.gnome.TextEditor.desktop
+text/csv=org.gnome.TextEditor.desktop
+application/json=org.gnome.TextEditor.desktop
+text/x-python=org.gnome.TextEditor.desktop
+application/x-shellscript=org.gnome.TextEditor.desktop
+text/x-csrc=org.gnome.TextEditor.desktop
+text/x-chdr=org.gnome.TextEditor.desktop
+application/xml=org.gnome.TextEditor.desktop
+text/xml=org.gnome.TextEditor.desktop
+audio/mpeg=vlc.desktop
+audio/x-vorbis+ogg=vlc.desktop
+audio/ogg=vlc.desktop
+audio/flac=vlc.desktop
+audio/x-wav=vlc.desktop
+audio/mp4=vlc.desktop
+audio/x-m4a=vlc.desktop
+audio/aac=vlc.desktop
+audio/opus=vlc.desktop
+video/mp4=vlc.desktop
+video/x-matroska=vlc.desktop
+video/webm=vlc.desktop
+video/quicktime=vlc.desktop
+video/x-msvideo=vlc.desktop
+video/mpeg=vlc.desktop
+video/x-ogm+ogg=vlc.desktop
+x-scheme-handler/http=firefox-esr.desktop
+x-scheme-handler/https=firefox-esr.desktop
+text/html=firefox-esr.desktop
+application/xhtml+xml=firefox-esr.desktop

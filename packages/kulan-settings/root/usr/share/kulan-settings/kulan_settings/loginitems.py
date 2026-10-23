@@ -50,6 +50,37 @@ def shown_in_gnome(keyfile: GLib.KeyFile) -> bool:
         return True
 
 
+def program(keyfile: GLib.KeyFile) -> str:
+    """The program an entry runs (its first word, without the folder)."""
+    try:
+        argv = GLib.shell_parse_argv(get(keyfile, "Exec"))[1]
+    except GLib.Error:
+        return ""
+    while argv and (argv[0] == "env" or "=" in argv[0]):
+        argv = argv[1:]
+    return Path(argv[0]).name if argv else ""
+
+
+def is_session_part(keyfile: GLib.KeyFile) -> bool:
+    try:
+        keys = set(keyfile.get_keys("Desktop Entry")[0])
+    except GLib.Error:
+        return True
+    return bool(keys & {"X-GNOME-Autostart-Phase", "X-GNOME-AutoRestart", "X-GNOME-HiddenUnderSystemd",
+                        "X-GNOME-Provides"})
+
+
+def visible_programs() -> set[str]:
+    """The programs of the apps shown in the app grid."""
+    names = set()
+    for info in Gio.AppInfo.get_all():
+        if info.should_show():
+            exe = info.get_executable() or ""
+            if exe:
+                names.add(Path(exe).name)
+    return names
+
+
 def enabled(keyfile: GLib.KeyFile) -> bool:
     return not get_bool(keyfile, "Hidden", False) and get_bool(keyfile, "X-GNOME-Autostart-enabled", True)
 
@@ -83,10 +114,16 @@ class LoginItemsPage(Page):
             keyfile = read_entry(path)
             if keyfile is not None:
                 found[path.name] = (keyfile, path.name not in found)
+        apps = visible_programs()
         items = []
         for name, (keyfile, user_added) in found.items():
             if get_bool(keyfile, "NoDisplay", False) or not shown_in_gnome(keyfile):
                 continue  # system services, not apps people choose
+            # The system's own entries only when they're an app from the app
+            # grid: background services (the SSH agent, the tray watcher,
+            # parts of the desktop itself) aren't login items to choose.
+            if not user_added and (is_session_part(keyfile) or program(keyfile) not in apps):
+                continue
             if user_added or get(keyfile, "Name"):
                 items.append((name, keyfile, user_added))
         return sorted(items, key=lambda item: get(item[1], "Name", item[0]).lower())
