@@ -69,9 +69,10 @@ Supabase, privacy policy page), lighter mode, the small fixes, the Backups
 page, Phone link, Fleet v2 (server live), more Ask Kulan actions with the
 top-bar, microphone and read-the-screen buttons. Version is 2.6, with
 release notes.
-Proposed for 2.7 (asked Mohamud): Kulan Store, the native Sharing page (GNOME
-Settings' Sharing stays linked), signed start-up files, the signing key,
-NVIDIA/Broadcom, and the sleep, dual-boot and restore tests.
+Moved to 2.7 with Mohamud (docs/plan-2.7.md): Kulan Store, the native
+Sharing page (GNOME Settings' Sharing stays linked), signed start-up files,
+the signing key, NVIDIA/Broadcom, the sleep, dual-boot and restore tests,
+and downloads on Cloudflare R2.
 
 ## Order (proposed)
 1. Upgrade test 2.5 → 2.6 (protects everyone already on 2.5).
