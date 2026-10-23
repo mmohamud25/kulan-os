@@ -51,6 +51,24 @@ sleep 5 # let the session settle
 	# How an encrypted disk was opened (TPM unlock test): systemd-cryptsetup's own words.
 	echo "unlock=$(journalctl -b -o cat -t systemd-cryptsetup 2>/dev/null | grep -m1 -iE 'tpm2|token' | cut -c1-200)"
 	echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+	# Kulan's sandboxed services still do their job: the status service
+	# itself, and app updates' lookup under the same sandbox settings (the
+	# service skips the live session, so it's run through systemd-run).
+	systemctl start kulan-update-status.service 2>/dev/null
+	echo "statusservice=$(systemctl show -P Result kulan-update-status.service 2>/dev/null) $(stat -c %Y /var/lib/kulan/updates.json 2>/dev/null)"
+	UNIT=/usr/lib/systemd/system/kulan-app-updates.service
+	if [ -f "${UNIT}" ] && command -v systemd-run >/dev/null 2>&1; then
+		PROPS="$(mktemp)"
+		sed -n '/^\[Service\]/,/^\[/p' "${UNIT}" |
+			grep -E '^(Protect|Private|Restrict|Lock|SystemCall|NoNew|Capability|ReadWrite)' > "${PROPS}"
+		set --
+		while IFS= read -r PROP; do
+			set -- "$@" -p "${PROP}"
+		done < "${PROPS}"
+		rm -f "${PROPS}"
+		OUTPUT="$(timeout 120 systemd-run --wait --collect --pipe --quiet "$@" /usr/lib/kulan/app-updates list 2>&1)"
+		echo "appsandbox=$? $(printf '%s' "${OUTPUT}" | grep -iE 'read-only|permission denied|operation not permitted' | head -n 1 | cut -c1-150)"
+	fi
 	if command -v flatpak >/dev/null 2>&1; then
 		if timeout 60 flatpak remote-ls --system --updates --columns=ref,name,version >/dev/null 2>/tmp/kulan-flatpak.err; then
 			echo "appupdates=ok"

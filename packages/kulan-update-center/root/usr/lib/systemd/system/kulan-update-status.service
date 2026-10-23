@@ -10,3 +10,27 @@ ExecStart=/usr/lib/kulan/update-status refresh
 Nice=10
 IOSchedulingClass=idle
 CPUSchedulingPolicy=idle
+# Sandboxed: it only reads what's installed and writes its status file (and
+# lifts the pause after an undo). No network, no home folders, no changes
+# to the system.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kulan /var/cache/apt /etc/apt/apt.conf.d
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN
+# Hardening that can't get in the way of what it does.
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+ProtectKernelLogs=yes
+ProtectClock=yes

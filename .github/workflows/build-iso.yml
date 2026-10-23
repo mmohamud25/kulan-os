@@ -191,6 +191,10 @@ jobs:
       needs.test-packages.result == 'success' && needs.build.result == 'success'
     name: Publish updates
     runs-on: ubuntu-24.04
+    # Never at the same time as the weekly re-sign (resign-channel.yml).
+    concurrency:
+      group: update-channel
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
@@ -390,10 +394,19 @@ jobs:
           { echo '### Last 60 lines of build.log'; echo '```'; tail -n 60 build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inspect ISO
+        env:
+          KULAN_SAVE_STATUS: ${{ runner.temp }}/dpkg-status
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q xorriso squashfs-tools initramfs-tools-core zstd
           ci/verify-iso.sh out/*.iso "${{ matrix.arch }}"
+
+      # Known vulnerabilities in the ISO's Debian packages (Debian's security
+      # tracker). A serious one Debian has already fixed fails the build.
+      - name: Known vulnerabilities
+        run: |
+          sudo apt-get install -y -q debsecan
+          ci/vuln-scan.sh "${{ runner.temp }}/dpkg-status"
 
       - name: Upload ISO
         uses: actions/upload-artifact@v6

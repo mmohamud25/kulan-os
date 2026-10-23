@@ -1,0 +1,62 @@
+name: Re-sign the update channel
+
+# The update channel's signed index says how long it's good for (Valid-Until,
+# three weeks; see ci/publish-repo.sh), so nobody can keep a computer on an
+# old channel to hold back fixes. Every week this signs what the channel
+# serves now again, unchanged: each package is checked against the current
+# signed index first. Releases sign it too, whenever they publish.
+on:
+  schedule:
+    - cron: "41 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never at the same time as a release publishing the channel.
+concurrency:
+  group: update-channel
+  cancel-in-progress: false
+
+jobs:
+  resign:
+    name: Re-sign the update channel
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Re-sign what the channel serves
+        env:
+          KULAN_APT_SIGNING_KEY: ${{ secrets.KULAN_APT_SIGNING_KEY }}
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q apt-utils gnupg xz-utils
+          ci/publish-repo.sh --from-channel
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/
+
+      - id: deploy
+        uses: actions/deploy-pages@v5
+
+      - name: Check the new index is live
+        run: |
+          . ./kulan.conf
+          WANT="$(sed -n 's/^Valid-Until: //p' site/apt/Release)"
+          for attempt in $(seq 1 30); do
+            if curl -fsSL --max-time 20 "${KULAN_APT_URL}Release" 2>/dev/null | grep -qx "Valid-Until: ${WANT}"; then
+              echo "::notice title=Update channel::re-signed; good until ${WANT}"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error title=Update channel::the re-signed index isn't live after 10 minutes"
+          exit 1

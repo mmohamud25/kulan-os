@@ -90,6 +90,10 @@ FILES=(
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
 R="${WORK}/root"
+# The package list, for the vulnerability scan (ci/vuln-scan.sh).
+if [[ -n "${KULAN_SAVE_STATUS:-}" && -f "${R}/var/lib/dpkg/status" ]]; then
+	cp "${R}/var/lib/dpkg/status" "${KULAN_SAVE_STATUS}"
+fi
 
 # Where the size goes: the live system (compressed), the offline-install pool,
 # and the biggest installed packages (uncompressed), to keep the ISO small.

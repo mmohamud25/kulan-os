@@ -189,6 +189,20 @@ else
 	result info "App updates" "couldn't list app updates: ${APPS:-not reported} (no network in the test machine?)"
 fi
 
+STATUS_SVC="$(field statusservice)"
+if [[ "${STATUS_SVC}" == success\ [0-9]* ]]; then
+	result pass "Sandboxed status service" "kulan-update-status ran inside its sandbox and wrote the status"
+elif [[ -n "${STATUS_SVC}" ]]; then
+	result fail "Sandboxed status service" "kulan-update-status: ${STATUS_SVC}"
+fi
+APP_SB="$(field appsandbox)"
+if [[ "${APP_SB}" == 0* ]]; then
+	result pass "Sandboxed app updates" "app updates' lookup works inside its sandbox"
+elif grep -qiE 'read-only|permission denied|not permitted' <<<"${APP_SB}"; then
+	result fail "Sandboxed app updates" "the sandbox gets in the way: ${APP_SB}"
+elif [[ -n "${APP_SB}" ]]; then
+	result info "Sandboxed app updates" "lookup didn't finish (no network in the test machine?): ${APP_SB}"
+fi
 FAILED_UNITS="$(field failed | tr '\n' ' ')"
 if [[ -z "${FAILED_UNITS// /}" ]]; then
 	result pass "Services" "no failed services (system state: $(field state))"
