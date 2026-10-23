@@ -421,12 +421,13 @@ SH
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Apps ready after sign-in" "kulan-prewarm timer on for every account; skips the live session and low memory" bash -c 'test -L /etc/systemd/user/timers.target.wants/kulan-prewarm.timer && sh -n /usr/lib/kulan/prewarm && grep -q "run/live/medium" /usr/lib/kulan/prewarm && grep -qx "IOSchedulingClass=idle" /usr/lib/systemd/user/kulan-prewarm.service'
 # shellcheck disable=SC2016  # expanded by the inner python
-check "One search" "Kulan Settings' search finds its pages and GNOME's (Printers, Sharing); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
+check "One search" "Kulan Settings' search finds its pages (Printers too) and GNOME's (Sharing); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("sp", "/usr/lib/kulan/settings-search-provider")
 spec = importlib.util.spec_from_loader("sp", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
 pages = m.load_pages()
-assert m.search(pages, ["printer"]) == ["gnome:printers"], m.search(pages, ["printer"])
+assert m.search(pages, ["printer"]) == ["printers"], m.search(pages, ["printer"])
+assert m.search(pages, ["sharing"]) == ["gnome:sharing"], m.search(pages, ["sharing"])
 assert "appearance" in m.search(pages, ["dark", "mode"]) and "wifi" in m.search(pages, ["wi-fi"])
 sys.path.insert(0, "/usr/share/kulan-assistant")
 from kulan_assistant import search
