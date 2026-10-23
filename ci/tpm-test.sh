@@ -157,7 +157,10 @@ systemctl disable kulan-tpm-test-setup.service
 echo KULAN-TPM-SETUP-END
 sync
 sleep 1
-systemctl reboot
+# Past GNOME's shutdown inhibitor: when the desktop session is already up,
+# a plain "systemctl reboot" from a service is refused, and the test then
+# waited for a restart that never came.
+systemctl reboot --check-inhibitors=no || { echo "reboot_exit=\$?"; sync; systemctl reboot --force; }
 EOF
 sudo chmod 755 "${MNT}/usr/local/sbin/kulan-tpm-test-setup"
 printf '[Unit]\nDescription=Kulan TPM test: turn TPM unlock on, then restart\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/kulan-tpm-test-setup\n\n[Install]\nWantedBy=multi-user.target\n' |

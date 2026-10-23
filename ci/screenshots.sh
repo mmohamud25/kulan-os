@@ -184,14 +184,25 @@ def changed(before, now) -> bool:
     diff = ImageChops.difference(before, now).point(lambda v: 255 if v > 40 else 0)
     return diff.histogram()[255] > 320 * 172 * 0.04
 
-def time_open(cmd: str, limit: float = 40.0):
+def change(before, now) -> float:
+    diff = ImageChops.difference(before, now).point(lambda v: 255 if v > 40 else 0)
+    return diff.histogram()[255] / (320 * 172)
+
+def time_open(cmd: str, label: str, limit: float = 40.0):
     before = grab()
     start = time.monotonic()
     run(SESSION % cmd, wait=False)
+    most = 0.0
     while time.monotonic() - start < limit:
-        if changed(before, grab()):
+        now = grab()
+        most = max(most, change(before, now))
+        if most > 0.04:
             return round(time.monotonic() - start, 2)
         time.sleep(0.05)
+    # Not seen: keep what the screen showed, and what was running, to find out why.
+    shot("speed-" + label.lower().replace(" ", "-"))
+    print(f"::warning title=Speed: {label}::no new window within {limit:.0f} s (largest change {most:.3f}); "
+          f"running: {run('ps -eo comm | sort -u | tr \"\\n\" \" \"')[:400]}")
     return None
 
 APPS = (("Files", "nautilus --new-window", "pkill -x nautilus"),
@@ -203,7 +214,7 @@ if qga is not None:
     for label, cmd, stop in APPS:
         times = []
         for _ in range(2):
-            times.append(time_open(cmd))
+            times.append(time_open(cmd, label))
             time.sleep(3)
             run(stop + "; sleep 3")
             time.sleep(2)
