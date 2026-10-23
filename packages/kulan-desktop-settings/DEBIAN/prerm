@@ -5,6 +5,7 @@ case "$1" in
 	remove|deconfigure)
 		# Debian's own logos (desktop-base) take over again, if installed.
 		update-alternatives --quiet --remove vendor-logos /usr/share/kulan/vendor-logos || true
+		systemctl --global disable kulan-prewarm.timer >/dev/null 2>&1 || true
 		;;
 esac
 

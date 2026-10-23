@@ -13,6 +13,16 @@ SYSTEM = ("You are Kulan Assistant, a writing helper built into Kulan OS. You ru
           "computer. Do exactly the task asked. Reply with the result only: no greeting, no explanation of what "
           "you changed, no quotation marks around it, unless the task asks for an explanation.")
 
+# Questions asked in the Terminal (kulan ask, kulan why): a different job,
+# so different instructions.
+TERMINAL_SYSTEM = (
+    "You are Kulan Assistant, built into Kulan OS, a desktop Linux based on Debian 13 with GNOME 48, zsh in the "
+    "Ptyxis Terminal, apt for software and Flatpak for apps. You run entirely on this person's computer and "
+    "cannot see their screen, files or the internet, and you have not run anything. Answer briefly and "
+    "practically. When a command helps, put each one on its own line, exactly as it should be typed, for Debian "
+    "(apt, not dnf or brew), and say when it needs sudo. Prefer Kulan Settings for anything it can do. If you "
+    "aren't sure, say so instead of guessing.")
+
 # Long documents are cut to fit the model's context window, leaving room for
 # the instructions and the reply. Counted in the model's own tokens when the
 # engine is running (Chinese or Amharic use far more tokens per character
@@ -48,6 +58,7 @@ class Task:
     instruction: str    # what the model is asked; {language} is filled in
     max_tokens: int = 1024
     replaces: bool = True  # the result can replace the selected text
+    system: str = ""       # instructions other than the writing helper's
 
 
 TASKS = [
@@ -75,6 +86,14 @@ TASKS = [
     Task("explain", "Explain", "dialog-question-symbolic",
          "Explain the text below in simple words, in {language}: what it says and anything that may be unclear "
          "(terms, numbers, abbreviations).", max_tokens=700, replaces=False),
+    Task("answer", "Ask", "dialog-question-symbolic",
+         "Answer this question, in {language} unless it is asked in another language.", max_tokens=700,
+         replaces=False, system=TERMINAL_SYSTEM),
+    Task("terminal-error", "Why did this fail?", "dialog-warning-symbolic",
+         "A command typed in the Terminal failed. Say in two or three sentences, in {language}, the most likely "
+         "reasons (from the command and its exit code: 127 means not found, 126 not allowed to run, 1 and 2 "
+         "usually a wrong argument or a missing file, 130 stopped with Ctrl+C), then how to fix or check it.",
+         max_tokens=500, replaces=False, system=TERMINAL_SYSTEM),
 ]
 EXAMPLES = {
     "proofread": [("i has went to the libary yesterday, but its was closed so we goes home to early.",
@@ -113,7 +132,7 @@ def messages_for(task_id: str, text: str) -> list[dict]:
     t = task(task_id)
     text = fit(text.strip())
     instruction = t.instruction.format(language=target_language())
-    messages = [{"role": "system", "content": SYSTEM}]
+    messages = [{"role": "system", "content": t.system or SYSTEM}]
     # Small models follow a worked example far better than a description.
     for example_in, example_out in EXAMPLES.get(task_id, []):
         messages += [{"role": "user", "content": f"{instruction}\n\n<text>\n{example_in}\n</text>"},

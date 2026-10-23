@@ -1,6 +1,6 @@
 #!/bin/bash
 # Turn dist/debs/*.deb into a signed apt repository in site/apt/, ready for
-# GitHub Pages. Installed Kulan OS systems read it via
+# GitHub Pages (or, with --from-channel, re-sign what the channel serves). Installed Kulan OS systems read it via
 # /etc/apt/sources.list.d/kulan.sources (a "flat" repository: Suites: ./).
 #
 # Needs: apt-utils (apt-ftparchive), gnupg; the armored private signing key
@@ -20,7 +20,33 @@ for TOOL in apt-ftparchive gpg gpgv xz gzip; do
 done
 : "${KULAN_APT_SIGNING_KEY:?KULAN_APT_SIGNING_KEY is not set}"
 KEYRING="${ROOT}/packages/kulan-archive-keyring.gpg"
+# How long a signed index is good for. apt refuses an older one, so nobody
+# can keep a computer on an old (but genuinely signed) channel to hold back
+# fixes. The channel is re-signed every week (resign-channel.yml), so three
+# weeks leaves room for a missed run.
+VALID_S=$((21 * 24 * 3600))
 [[ -f "${KEYRING}" ]] || { echo "::error::${KEYRING} missing; run scripts/setup-update-channel.sh" >&2; exit 1; }
+
+# --from-channel: re-sign what the update channel serves now (the weekly
+# re-sign, so the index's Valid-Until never runs out between releases).
+# Every package is checked against the signed index before it's used.
+if [[ "${1:-}" == "--from-channel" ]]; then
+	DEBS="$(mktemp -d)"
+	URL="${KULAN_APT_URL%/}"
+	curl -fsSL --retry 3 -o "${DEBS}/InRelease" "${URL}/InRelease"
+	gpgv --keyring "${KEYRING}" --output "${DEBS}/Release" "${DEBS}/InRelease"
+	curl -fsSL --retry 3 -o "${DEBS}/Packages" "${URL}/Packages"
+	WANT="$(awk '$1 ~ /^[0-9a-f]{64}$/ && $3 == "Packages" {print $1}' "${DEBS}/Release" | head -n 1)"
+	[[ "$(sha256sum "${DEBS}/Packages" | cut -d' ' -f1)" == "${WANT}" ]] ||
+		{ echo "::error::the channel's Packages doesn't match its signed index" >&2; exit 1; }
+	awk '/^Filename: /{f=$2} /^SHA256: /{print $2, f}' "${DEBS}/Packages" | while read -r SUM FILE; do
+		NAME="$(basename "${FILE}")"
+		[[ "${NAME}" =~ ^[A-Za-z0-9.+~_-]+\.deb$ ]] || { echo "::error::unexpected file name ${FILE}" >&2; exit 1; }
+		curl -fsSL --retry 3 -o "${DEBS}/${NAME}" "${URL}/${FILE#./}"
+		echo "${SUM}  ${DEBS}/${NAME}" | sha256sum -c --quiet - || { echo "::error::${NAME} doesn't match the index" >&2; exit 1; }
+	done
+	rm -f "${DEBS}/InRelease" "${DEBS}/Release" "${DEBS}/Packages"
+fi
 
 shopt -s nullglob
 FILES=("${DEBS}"/*.deb)
@@ -55,6 +81,7 @@ apt-ftparchive \
 	-o "APT::FTPArchive::Release::Suite=${KULAN_DEBIAN_SUITE}" \
 	-o "APT::FTPArchive::Release::Codename=${KULAN_DEBIAN_SUITE}" \
 	-o "APT::FTPArchive::Release::Description=${KULAN_NAME} updates" \
+	-o "APT::FTPArchive::Release::ValidTime=${VALID_S}" \
 	release . > Release
 gpg --batch --yes --local-user "${FPR}" --clearsign --output InRelease Release
 gpg --batch --yes --local-user "${FPR}" --armor --detach-sign --output Release.gpg Release

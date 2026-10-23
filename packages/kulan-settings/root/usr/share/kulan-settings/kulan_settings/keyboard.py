@@ -23,6 +23,7 @@ CAPS_OPTIONS = {"caps:none": "Does nothing", "caps:escape": "Escape", "ctrl:noca
 # key's current first binding, so changes made in GNOME Settings show here.
 SHORTCUTS = [
     ("Search apps, files and settings", KULAN_SCHEMA, "search-shortcut"),
+    ("Ask Kulan: ask or get something done (Kulan Assistant)", KULAN_SCHEMA, "ask-shortcut"),
     ("Screenshot of the whole screen", "org.gnome.shell.keybindings", "screenshot"),
     ("Screenshot of an area or a window", "org.gnome.shell.keybindings", "show-screenshot-ui"),
     ("Record the screen", "org.gnome.shell.keybindings", "show-screen-recording-ui"),
@@ -33,7 +34,7 @@ SHORTCUTS = [
     ("Dictation: start and stop (Kulan Assistant)", KULAN_SCHEMA, "dictation-shortcut"),
     ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
 ]
-KULAN_SHORTCUT_KEYS = ["search-shortcut", "search-style", "quick-note-shortcut", "live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
+KULAN_SHORTCUT_KEYS = ["search-shortcut", "search-style", "ask-shortcut", "quick-note-shortcut", "live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
                        "dictation-shortcut", "clipboard-history"]
 ASSISTANT = Path("/usr/bin/kulan-assistant")
 

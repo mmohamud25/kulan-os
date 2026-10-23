@@ -318,9 +318,31 @@
 .kulan-spotlight-row:hover { background-color: rgba(0, 0, 0, 0.05); }
 .kulan-spotlight-row:selected { background-color: #0d9488; color: #ffffff; }
 .kulan-spotlight-row:selected .kulan-spotlight-description { color: rgba(255, 255, 255, 0.85); }
+.kulan-spotlight-empty { padding: 10px 12px; color: rgba(0, 0, 0, 0.55); }
 .kulan-spotlight-row-box { spacing: 12px; }
 .kulan-spotlight-name { font-weight: 600; }
 .kulan-spotlight-description { font-size: 0.85em; color: rgba(0, 0, 0, 0.55); }
+
+/* Ask Kulan (Shift+Cmd+Space) */
+.kulan-ask-entry-icon { icon-size: 24px; padding-right: 6px; }
+.kulan-ask-body { spacing: 6px; padding: 6px 8px 4px; border-top: 1px solid rgba(0, 0, 0, 0.08); }
+.kulan-ask-reply { color: #1c2430; font-size: 1.05em; padding: 6px 4px; }
+.kulan-ask-thinking { color: rgba(0, 0, 0, 0.65); padding: 8px 4px; font-feature-settings: "tnum"; }
+.kulan-ask-note { color: rgba(0, 0, 0, 0.5); font-size: 0.85em; padding: 4px 4px 2px; }
+.kulan-ask-step { padding: 6px 8px; border-radius: 10px; color: #1c2430; }
+.kulan-ask-step-title { font-weight: 600; }
+.kulan-ask-step-icon { icon-size: 18px; color: rgba(0, 0, 0, 0.65); }
+.kulan-ask-ok .kulan-ask-step-icon { color: #14b8a6; }
+.kulan-ask-warning .kulan-ask-step-icon { color: #b45309; }
+.kulan-ask-file:hover, .kulan-ask-file:focus { background-color: rgba(0, 0, 0, 0.05); }
+.kulan-ask-chips { padding: 4px 0; }
+.kulan-ask-chip { padding: 6px 12px; border-radius: 999px; background-color: #eef2f6; border: 1px solid rgba(0, 0, 0, 0.12); color: #1c2430; font-size: 0.9em; }
+.kulan-ask-chip:hover, .kulan-ask-chip:focus { border-color: #14b8a6; }
+.kulan-ask-buttons { spacing: 8px; padding-top: 8px; }
+.kulan-ask-button { padding: 7px 16px; border-radius: 10px; border: 1px solid rgba(0, 0, 0, 0.12); color: #1c2430; background-color: transparent; }
+.kulan-ask-button:hover, .kulan-ask-button:focus { background-color: rgba(0, 0, 0, 0.05); }
+.kulan-ask-button-primary { background-color: #2dd4bf; border-color: #2dd4bf; color: #04201d; font-weight: 600; }
+.kulan-ask-button-primary:hover, .kulan-ask-button-primary:focus { background-color: #5eead4; border-color: #5eead4; }
 
 /* Desktop widgets (top left of the desktop) */
 .kulan-widgets { spacing: 14px; }

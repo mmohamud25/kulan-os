@@ -146,8 +146,10 @@ def shot(name):
         print(f"::warning title=Screenshots::{name} wasn't captured")
 
 def close_apps():
-    # Close only the apps this script and the live session opened.
-    run("pkill -x kulan-welcome; pkill -f /usr/bin/kulan-installer; pkill -f /usr/bin/kulan-settings; sleep 2")
+    # Close only the apps this script and the live session opened. The [/]
+    # keeps each pattern from matching the shell running these very commands
+    # (its own command line contains them), which pkill would kill first.
+    run("pkill -x kulan-welcome; pkill -f '[/]usr/bin/kulan-installer'; pkill -f '[/]usr/bin/kulan-settings'; sleep 2")
 
 time.sleep(25)  # let the welcome app, widgets and weather settle
 close_apps()
@@ -166,5 +168,127 @@ for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
     shot(name)
     close_apps()
     time.sleep(3)
+
+# Where the account picture comes from (Settings › Users showed Debian's
+# logo): AccountsService's IconFile for the live user, and any face files.
+if qga is not None:
+    face = run("U=$(id -nu 1000); gdbus call --system --dest org.freedesktop.Accounts --object-path "
+               "/org/freedesktop/Accounts/User1000 --method org.freedesktop.DBus.Properties.Get "
+               "org.freedesktop.Accounts.User IconFile 2>&1; ls -la /var/lib/AccountsService/icons/ "
+               "/home/$U/.face* /etc/skel/.face* 2>&1; grep -rl Icon /var/lib/AccountsService/users/ 2>/dev/null "
+               "| xargs -r cat 2>/dev/null")
+    print("::notice title=Account picture::" + " | ".join(line.strip() for line in face.splitlines() if line.strip())[:900])
+
+# Every Kulan Settings page as it really looks in the live session (with
+# its network, sound, display and account services), for reviewing the
+# insides of the app; saved as settings-<page>.png.
+PAGES = ("wifi bluetooth printers sound focus notifications users parental-controls appearance desktop dock "
+         "top-bar display battery storage login-items apps security privacy keyboard mouse accessibility "
+         "assistant prayer-times date-time region updates add-ons about").split()
+if qga is not None:
+    for page in PAGES:
+        run(SESSION % f"/usr/bin/kulan-settings {page}", wait=False)
+        time.sleep(6)
+        shot(f"settings-{page}")
+        run("pkill -f '[/]usr/bin/kulan-settings'; sleep 1")
+        time.sleep(1)
+
+# Ask Kulan, opened the way the Activities search result opens it (the
+# shortcut needs a real keyboard): empty, then with a question. The live
+# system has no model yet, so the answer says how to get one.
+ASK = ("gdbus call --session --dest org.gnome.Shell --object-path /org/kulan/Shell/Ask "
+       "--method org.kulan.Shell.Ask.Open %s")
+if qga is not None:
+    run(SESSION % (ASK % "''"), wait=False)
+    time.sleep(4)
+    shot("ask-kulan")
+    run(SESSION % (ASK % "'Why is my computer slow?'"), wait=False)
+    time.sleep(8)
+    shot("ask-kulan-answer")
+    run(SESSION % ASK.replace("Open %s", "Close"), wait=False)
+    time.sleep(2)
+
+# --- Speed: how long each everyday app takes to show its window ----------------
+# Opened twice: the first time (nothing in memory yet) and again. "Shown" is
+# the first screen with a new window on it, compared with the screen before,
+# ignoring the top bar (its clock changes).
+from PIL import ImageChops
+
+def grab():
+    ppm = os.path.join(out, "_speed.ppm")
+    qmp_call("screendump", filename=os.path.abspath(ppm))
+    img = Image.open(ppm).convert("L")
+    w, h = img.size
+    return img.crop((0, int(h * 0.06), w, int(h * 0.92))).resize((320, 172))
+
+def changed(before, now) -> bool:
+    diff = ImageChops.difference(before, now).point(lambda v: 255 if v > 40 else 0)
+    return diff.histogram()[255] > 320 * 172 * 0.04
+
+def change(before, now) -> float:
+    diff = ImageChops.difference(before, now).point(lambda v: 255 if v > 40 else 0)
+    return diff.histogram()[255] / (320 * 172)
+
+def time_open(cmd: str, label: str, limit: float = 40.0):
+    before = grab()
+    start = time.monotonic()
+    run(SESSION % cmd, wait=False)
+    most = 0.0
+    while time.monotonic() - start < limit:
+        now = grab()
+        most = max(most, change(before, now))
+        if most > 0.04:
+            return round(time.monotonic() - start, 2)
+        time.sleep(0.05)
+    # Not seen: keep what the screen showed, and what was running, to find out why.
+    shot("speed-" + label.lower().replace(" ", "-"))
+    print(f"::warning title=Speed: {label}::no new window within {limit:.0f} s (largest change {most:.3f}); "
+          f"running: {run('ps -eo comm | sort -u | tr \"\\n\" \" \"')[:400]}")
+    return None
+
+# (label, command, which processes to stop: pkill/pgrep arguments). Firefox's
+# main process is named plain "firefox-esr" (only its helpers have the full
+# path), so it's matched by name.
+APPS = (("Files", "nautilus --new-window", "-x nautilus"),
+        ("Terminal", "ptyxis --new-window", "-x ptyxis"),
+        ("Kulan Settings", "/usr/bin/kulan-settings", "-f '[/]usr/bin/kulan-settings'"),
+        ("Firefox", "firefox-esr --new-window about:blank", "-x firefox-esr"))
+
+def stop_app(label: str, which: str):
+    # Ask it to quit; if it's still there after a few seconds, make it. A window
+    # left open would make the next opening look like hardly any change.
+    left = run(f"pkill {which}; for i in 1 2 3 4 5 6; do sleep 1; pgrep {which} >/dev/null || break; done; "
+               f"if pgrep {which} >/dev/null; then pkill -9 {which}; sleep 1; echo forced; fi")
+    if "forced" in (left or ""):
+        print(f"::notice title=Speed: {label}::didn't quit when asked; stopped it")
+
+speed = {}
+if qga is not None:
+    for label, cmd, which in APPS:
+        times = []
+        for _ in range(2):
+            times.append(time_open(cmd, label))
+            time.sleep(3)
+            stop_app(label, which)
+            time.sleep(2)
+        speed[label] = {"first": times[0], "again": times[1]}
+        print(f"Speed: {label} first {times[0]} s, again {times[1]} s")
+with open(os.path.join(out, "speed.json"), "w") as fh:
+    json.dump(speed, fh, indent=2)
+try:
+    os.remove(os.path.join(out, "_speed.ppm"))
+except OSError:
+    pass
+PY
+# How long the live session took to start (systemd's own count, from the
+# boot report on the serial console).
+STARTUP="$(tr -d '\r' < "${WORK}/serial.log" | sed -n 's/^time=Startup finished in .* = \([0-9.]*\)s.*$/\1/p' | head -n 1)"
+python3 - "${OUT}/speed.json" "${STARTUP:-}" <<'PY'
+import json, sys
+path, startup = sys.argv[1], sys.argv[2]
+data = json.load(open(path)) if startup is not None else {}
+if startup:
+    data["Start-up"] = {"seconds": float(startup)}
+json.dump(data, open(path, "w"), indent=2)
 PY
 ls -l "${OUT}"

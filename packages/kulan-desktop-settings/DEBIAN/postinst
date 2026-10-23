@@ -1,8 +1,18 @@
 #!/bin/sh
 set -e
 
+# Kulan's desktop defaults, logos and boot splash are extras on top of a
+# working system: if one of these steps fails (a broken schema from another
+# package, a full disk), say so and carry on, so the package still installs.
+# Otherwise apt would refuse every later update, security fixes included,
+# until the problem was fixed by hand. The next update runs them again; the
+# ISO build and package tests check what they set.
+soft() {
+	"$@" || echo "W: kulan-desktop-settings: \"$*\" didn't finish; it runs again at the next update" >&2
+}
+
 apply() {
-	/usr/lib/kulan/desktop-setup
+	soft /usr/lib/kulan/desktop-setup
 }
 
 # Debian's "vendor-logos": the logo shown by Debian's login screen defaults
@@ -40,19 +50,66 @@ splash_logo() {
 		return 0
 	fi
 	if [ -z "${DIVERTED_BY}" ]; then
+		# Only replace Plymouth's logo once its own copy is safely set aside.
 		dpkg-divert --package kulan-desktop-settings --add --rename \
-			--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
+			--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}" || return 1
 	fi
-	mkdir -p /usr/share/plymouth
+	mkdir -p /usr/share/plymouth || return 1
 	ln -sfn /usr/share/kulan/vendor-logos/logo-text-version-64.png "${SPLASH_LOGO}"
+}
+
+# The picture new accounts start with: Kulan's, not Debian's logo (which
+# desktop-base puts in /etc/skel/.face). Debian's is kept aside, and put
+# back if this package is removed. Accounts whose picture is still Debian's
+# logo get Kulan's; a picture someone chose is left alone.
+SKEL_FACE=/etc/skel/.face
+KULAN_FACE=/usr/share/kulan/faces/kulan.png
+account_picture() {
+	[ -f "${KULAN_FACE}" ] || return 0
+	DIVERTED_BY="$(dpkg-divert --listpackage "${SKEL_FACE}")"
+	if [ -n "${DIVERTED_BY}" ] && [ "${DIVERTED_BY}" != kulan-desktop-settings ]; then
+		return 0
+	fi
+	if [ -z "${DIVERTED_BY}" ]; then
+		dpkg-divert --package kulan-desktop-settings --add --rename \
+			--divert "${SKEL_FACE}.debian" "${SKEL_FACE}" || return 1
+	fi
+	cp "${KULAN_FACE}" "${SKEL_FACE}.kulan-new" && chmod 0644 "${SKEL_FACE}.kulan-new" &&
+		mv -f "${SKEL_FACE}.kulan-new" "${SKEL_FACE}" || return 1
+	[ -f "${SKEL_FACE}.debian" ] || return 0
+	for FACE in /home/*/.face; do
+		if [ -f "${FACE}" ] && [ ! -L "${FACE}" ] && cmp -s "${FACE}" "${SKEL_FACE}.debian"; then
+			cat "${KULAN_FACE}" > "${FACE}" # keeps its owner
+		fi
+	done
+	return 0
+}
+
+# Only Bibata Modern Classic is used: drop the other variants' cursor pictures
+# (already installed ones; /etc/dpkg/dpkg.cfg.d/kulan-lean keeps them out of
+# later updates).
+lean_cursors() {
+	[ -e /usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr ] || return 0
+	for DIR in /usr/share/icons/Bibata-*/cursors; do
+		case "${DIR}" in
+			/usr/share/icons/Bibata-Modern-Classic/cursors) ;;
+			*) [ -d "${DIR}" ] && find "${DIR}" -mindepth 1 \( -type f -o -type l \) -delete ;;
+		esac
+	done
+	return 0
 }
 
 case "$1" in
 	configure)
-		vendor_logos
-		splash_logo
+		soft vendor_logos
+		soft splash_logo
+		soft lean_cursors
+		soft account_picture
 		apply
-		/usr/lib/kulan/boot-splash-setup
+		# Most-used apps read into memory after sign-in (kulan-prewarm), for
+		# every account; "systemctl --user disable kulan-prewarm.timer" opts out.
+		systemctl --global enable kulan-prewarm.timer >/dev/null 2>&1 || true
+		soft /usr/lib/kulan/boot-splash-setup
 		# Rebuild the initramfs so the boot splash change takes effect.
 		if command -v update-initramfs >/dev/null 2>&1; then
 			dpkg-trigger --no-await update-initramfs || true

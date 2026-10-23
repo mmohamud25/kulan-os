@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.5",
+    "title": "Ask Kulan, a faster desktop and a more powerful Terminal",
+    "items": [
+      "Ask Kulan: press Shift+Cmd+Space (Shift+Windows key+Space on a PC) and ask anything, or say what you'd like done. It answers from what it can see on this computer (\"why is my laptop slow?\"), tidies Downloads or the Desktop into folders, sets reminders that come even after a restart, fixes Wi-Fi and sound, checks what's using space and changes settings. It shows you first and waits for Do it, and most things can be undone. Kulan Assistant runs on this computer: nothing you type leaves it",
+      "Apps ready sooner: a couple of minutes after you sign in, while the computer is idle, Kulan OS gets Firefox, Files, Terminal and Kulan Settings ready, so the first time you open them is as quick as the next. Only with memory to spare, never on battery, and the memory is given back whenever anything needs it",
+      "A more powerful Terminal: Ctrl+R searches everything you've typed before, Ctrl+T finds a file, \"z\" jumps to folders you use, nicer file listings with eza, and ripgrep, fd, bat and btop built in",
+      "One search: Cmd+Space finds apps, files, every setting (printers and sharing too, with nothing listed twice) and sums, and its last result, Ask Kulan, opens Ask Kulan with what you typed",
+      "The kulan command: kulan info shows this computer at a glance, kulan update installs updates, kulan doctor checks for common problems and says how to fix them, and kulan settings opens any page",
+      "Ask Kulan Assistant in the Terminal: ask how to do something with kulan ask, and after a command fails press Alt+K to hear why and how to fix it. It runs on this computer",
+      "Missing commands: type one that isn't installed and the Terminal says which package has it",
+      "Printers in Kulan Settings: see each printer and what it's doing, pick the default, print a test page, pause it or cancel waiting pages, and add a printer found on your network or plugged in, without drivers for most modern printers",
+      "TPM unlock (Kulan Settings › Security › Start-up): on computers with a TPM 2.0 chip and Secure Boot on, type a short PIN at start-up instead of the long disk password, and the chip locks itself after repeated wrong guesses. The disk password still works whenever the chip says no"
+    ]
+  },
+  {
     "version": "2.4.1",
     "title": "A simpler Software Update",
     "items": [

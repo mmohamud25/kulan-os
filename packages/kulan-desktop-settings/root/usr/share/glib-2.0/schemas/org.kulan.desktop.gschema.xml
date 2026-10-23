@@ -77,6 +77,11 @@
       <summary>Shortcut for search</summary>
       <description>Opens the search bar (or Activities, depending on search-style).</description>
     </key>
+    <key name="ask-shortcut" type="as">
+      <default>['&lt;Shift&gt;&lt;Super&gt;space']</default>
+      <summary>Shortcut for Ask Kulan</summary>
+      <description>Opens Ask Kulan over whatever you're doing: ask a question, or say what you'd like done (needs Kulan Assistant).</description>
+    </key>
     <key name="search-style" type="s">
       <choices><choice value='spotlight'/><choice value='activities'/></choices>
       <default>'spotlight'</default>

@@ -13,6 +13,10 @@
 # only the TPM can open the disk (or someone typing the password, and nobody
 # does). kulan.boot-report reports the desktop and how the disk was opened.
 #
+# With KULAN_TPM_TEST_PIN=<pin>, TPM unlock is turned on with that start-up
+# PIN (kulan-tpm on --pin), and the test types it at the second start, on the
+# virtual keyboard, the way a person would.
+#
 # Usage: ci/tpm-test.sh <iso> [output-dir]      (runs commands with sudo)
 # Needs: qemu-system-x86, ovmf, swtpm, swtpm-tools, cryptsetup, squashfs-tools,
 #        xorriso, dosfstools, fdisk
@@ -22,6 +26,13 @@ ISO="${1:?usage: $0 <iso> [output-dir]}"
 OUT="${2:-tpm-test}"
 WAIT_S="${KULAN_TPM_WAIT:-1500}"
 PASSWORD="kulan-disk-test-pw"
+PIN="${KULAN_TPM_TEST_PIN:-}"
+[[ -z "${PIN}" || "${PIN}" =~ ^[0-9]{4,12}$ ]] || { echo "KULAN_TPM_TEST_PIN must be 4 to 12 digits" >&2; exit 2; }
+if [[ -n "${PIN}" ]]; then
+	TPM_ON="printf '%s\\n%s\\n' '${PASSWORD}' '${PIN}' | kulan-tpm on --pin"
+else
+	TPM_ON="printf '%s\\n' '${PASSWORD}' | kulan-tpm on"
+fi
 mkdir -p "${OUT}"
 OUT="$(cd "${OUT}" && pwd)"
 WORK="$(mktemp -d)"
@@ -143,10 +154,9 @@ sudo tee "${MNT}/usr/local/sbin/kulan-tpm-test-setup" >/dev/null <<EOF
 # when the console output is cut short or mixed with kernel messages.
 exec > >(tee -a /boot/kulan-tpm-setup.log >/dev/ttyS0) 2>&1
 echo KULAN-TPM-SETUP-BEGIN
-# TPM unlock is held back for users in 2.4; this test keeps working on it.
-export KULAN_TPM_PREVIEW=1
 kulan-tpm status --json
-printf '%s\n' '${PASSWORD}' | kulan-tpm on; echo "tpm_on_exit=\$?"
+${TPM_ON}; echo "tpm_on_exit=\$?"
+echo "tpm_pin=\$(kulan-tpm status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["pin"])')"
 sed -i 's#^\(kulan_crypt [^ ]*\) /etc/kulan-test.key #\1 none #' /etc/crypttab
 cryptsetup luksRemoveKey "\$(blkid -t UUID=${LUKS_UUID} -o device)" /etc/kulan-test.key; echo "key_removed=\$?"
 rm -f /etc/kulan-test.key /etc/cryptsetup-initramfs/conf-hook
@@ -157,7 +167,10 @@ systemctl disable kulan-tpm-test-setup.service
 echo KULAN-TPM-SETUP-END
 sync
 sleep 1
-systemctl reboot
+# Past GNOME's shutdown inhibitor: when the desktop session is already up,
+# a plain "systemctl reboot" from a service is refused, and the test then
+# waited for a restart that never came.
+systemctl reboot --check-inhibitors=no || { echo "reboot_exit=\$?"; sync; systemctl reboot --force; }
 EOF
 sudo chmod 755 "${MNT}/usr/local/sbin/kulan-tpm-test-setup"
 printf '[Unit]\nDescription=Kulan TPM test: turn TPM unlock on, then restart\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/kulan-tpm-test-setup\n\n[Install]\nWantedBy=multi-user.target\n' |
@@ -223,20 +236,48 @@ qemu-system-x86_64 "${ACCEL[@]}" -m 4096 -smp 2 -machine q35,smm=on \
 	-netdev user,id=net0 -device virtio-net-pci,netdev=net0 -device virtio-rng-pci &
 QEMU_PID=$!
 
-reports() {
-	local n
-	n="$(grep -c "KULAN-BOOT-REPORT-END" "${OUT}/serial.log" 2>/dev/null)"
-	echo "${n:-0}"
+# The second start's report is the first one after the kernel's "reboot:
+# Restarting system" line. (The first start may or may not report before the
+# setup step restarts it, so counting reports or boot_ids isn't reliable.)
+second_report() {
+	tr -d '\r' < "${OUT}/serial.log" 2>/dev/null |
+		awk '/reboot: Restarting system/ {after=1; next} after && /KULAN-BOOT-REPORT-BEGIN/ {r=1; buf=""}
+			r {buf=buf $0 "\n"} r && /KULAN-BOOT-REPORT-END/ {printf "%s", buf; exit}'
 }
-# The first start reports too (before or after the setup step); the second
-# start's report is the one that counts.
-# Each start's report carries its boot_id; the setup step restarts the
-# computer, so a second boot_id means the second start has reported. (The
-# setup step's own lines can be cut short on the console as it restarts.)
-boot_ids() { tr -d '\r' < "${OUT}/serial.log" 2>/dev/null | sed -n 's/^.*boot_id=\([0-9a-f-]*\).*$/\1/p' | awk '!seen[$0]++'; }
+# Types the PIN and Enter on the VM's keyboard.
+type_pin() {
+	python3 - "${WORK}/qmp.sock" "${PIN}" <<'PY' || true
+import json, socket, sys
+sock = socket.socket(socket.AF_UNIX); sock.settimeout(20); sock.connect(sys.argv[1])
+f = sock.makefile("rw")
+def call(cmd, **args):
+    f.write(json.dumps({"execute": cmd, "arguments": args} if args else {"execute": cmd}) + "\n"); f.flush()
+    while True:
+        reply = json.loads(f.readline())
+        if "return" in reply or "error" in reply:
+            return reply
+json.loads(f.readline()); call("qmp_capabilities")
+for key in list(sys.argv[2]) + ["ret"]:
+    call("send-key", keys=[{"type": "qcode", "data": key}])
+PY
+}
+# With a PIN: once the second start asks for it (the prompt shows on the
+# serial console too), type it; if the prompt never shows there, type it a
+# few times at intervals after the restart.
+PIN_TYPED=0
+RESTARTED_AT=0
 while (( $(date +%s) - START < WAIT_S )); do
-	[[ "$(boot_ids | wc -l)" -ge 2 ]] && break
+	[[ -n "$(second_report)" ]] && break
 	kill -0 "${QEMU_PID}" 2>/dev/null || break
+	if [[ -n "${PIN}" ]] && grep -q 'reboot: Restarting system' "${OUT}/serial.log" 2>/dev/null; then
+		(( RESTARTED_AT )) || RESTARTED_AT=$(date +%s)
+		PROMPTS="$(tr -d '\r' < "${OUT}/serial.log" | awk '/reboot: Restarting system/{after=1} after && /TPM2 PIN|PIN for/ {n++} END {print n+0}')"
+		SINCE=$(( $(date +%s) - RESTARTED_AT ))
+		if (( PIN_TYPED < 6 )) && { (( PROMPTS > PIN_TYPED )) || (( SINCE > 60 + PIN_TYPED * 30 )); }; then
+			type_pin
+			PIN_TYPED=$((PIN_TYPED + 1))
+		fi
+	fi
 	sleep 5
 done
 ELAPSED=$(( $(date +%s) - START ))
@@ -282,7 +323,14 @@ else
 	result fail "Ready for TPM unlock" "kulan-tpm says no: $(grep -A4 '"reasons"' <<<"${SETUP}" | tr -s ' ' | tr '\n' ' ' | cut -c1-250)"
 fi
 if grep -qx 'tpm_on_exit=0' <<<"${SETUP}"; then
-	result pass "kulan-tpm on" "dracut installed, TPM key added and checked, start-up image rebuilt"
+	result pass "kulan-tpm on${PIN:+ --pin}" "dracut installed, TPM key added and checked${PIN:+ with the PIN}, start-up image rebuilt"
+	if [[ -n "${PIN}" ]]; then
+		if grep -qx 'tpm_pin=True' <<<"${SETUP}"; then
+			result pass "PIN required" "the TPM key slot needs the start-up PIN"
+		else
+			result fail "PIN required" "kulan-tpm says the key slot doesn't need a PIN: $(grep '^tpm_pin=' <<<"${SETUP}")"
+		fi
+	fi
 else
 	result fail "kulan-tpm on" "$(grep -v '^slot\|^{\|^ \|^}' <<<"${SETUP}" | grep -v KULAN | grep -v '^\s*$' | tail -n 8 | tr '\n' ' ' | cut -c1-600)"
 fi
@@ -292,14 +340,13 @@ if grep -qx 'key_removed=0' <<<"${SETUP}" && grep -q 'tpm2-device=auto' <<<"${SE
 else
 	result fail "Only TPM or password left" "$(grep -E '^(key_removed|dracut|crypttab)=' <<<"${SETUP}" | tr '\n' ' ')"
 fi
-# The second start's report: the block whose boot_id is the second one seen.
-SECOND_ID="$(boot_ids | sed -n 2p)"
-SECOND=""
-if [[ -n "${SECOND_ID}" ]]; then
-	SECOND="$(awk -v id="boot_id=${SECOND_ID}" '/KULAN-BOOT-REPORT-BEGIN/{buf=""; r=1} r{buf=buf $0 "\n"} r && /KULAN-BOOT-REPORT-END/{r=0; if (index(buf, id)) {printf "%s", buf; exit}}' <<<"${LOG}")"
-fi
+SECOND="$(second_report)"
 if [[ -n "${SECOND}" ]] && grep -qx 'desktop_user=kulan' <<<"${SECOND}"; then
-	result pass "Start with TPM unlock" "the encrypted disk opened by itself and the desktop came up (${ELAPSED} s for both starts)"
+	if [[ -n "${PIN}" ]]; then
+		result pass "Start with TPM unlock and a PIN" "the PIN was typed at start-up (${PIN_TYPED} time(s)), the disk opened and the desktop came up (${ELAPSED} s for both starts)"
+	else
+		result pass "Start with TPM unlock" "the encrypted disk opened by itself and the desktop came up (${ELAPSED} s for both starts)"
+	fi
 	UNLOCK="$(sed -n 's/^unlock=//p' <<<"${SECOND}")"
 	if [[ "${UNLOCK}" == *TPM2* ]]; then
 		result pass "Opened by the TPM" "${UNLOCK:0:200}"
@@ -308,9 +355,9 @@ if [[ -n "${SECOND}" ]] && grep -qx 'desktop_user=kulan' <<<"${SECOND}"; then
 	fi
 else
 	result fail "Start with TPM unlock" "no desktop after the restart within ${ELAPSED} s (waiting for a password?): $(tail -n 3 <<<"${LOG}" | tr '\n' ' ' | cut -c1-200)"
-	# Everything the console showed after the first start's report: the
-	# restart, the start-up image and any password prompt.
-	AFTER="$(awk '/KULAN-BOOT-REPORT-END/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' <<<"${LOG}" |
+	# Everything the console showed after the restart: the start-up image and
+	# any password prompt (or, with no restart, what came last).
+	AFTER="$(awk '/reboot: Restarting system/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' <<<"${LOG}" |
 		sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -cd '\11\12\40-\176' | grep -v '^[[:space:]]*$' | cut -c1-200 | tail -n 60)"
 	echo "::error title=TPM test: console after the restart::$(printf '%s' "${AFTER:-nothing at all on the console after the first start}" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
 fi

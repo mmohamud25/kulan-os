@@ -92,6 +92,11 @@ class FleetError(Exception):
     pass
 
 
+class FleetOffline(FleetError):
+    """The server couldn't be reached (no internet, server down): not a reason
+    to forget the sign-in."""
+
+
 def http(url: str, body: dict | None, headers: dict | None = None) -> dict:
     request = urllib.request.Request(url, data=json.dumps(body or {}).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "apikey": PUBLISHABLE_KEY,
@@ -107,7 +112,8 @@ def http(url: str, body: dict | None, headers: dict | None = None) -> dict:
             message = None
         raise FleetError(message or f"The server said {e.code}") from e
     except (urllib.error.URLError, OSError) as e:
-        raise FleetError(f"Couldn't reach the fleet server: {getattr(e, 'reason', e)}") from e
+        raise FleetOffline("Couldn't reach the Kulan Fleet server. Check the internet connection, then try "
+                           f"again ({getattr(e, 'reason', e)})") from e
     try:
         return json.loads(text) if text.strip() else {}
     except ValueError as e:
@@ -172,6 +178,8 @@ class Session:
         try:
             self._take(http(f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
                             {"refresh_token": self.refresh_token}))
+        except FleetOffline:
+            raise  # offline: keep the sign-in for when the connection is back
         except FleetError:
             self.sign_out(local_only=True)
             raise FleetError("Your sign-in ran out; please sign in again")
@@ -370,10 +378,21 @@ class FleetWindow(Adw.ApplicationWindow):
         return split
 
     def reload(self) -> None:
+        first = self.data is None
+        if first:  # nothing to show yet: say it's loading, not a blank window
+            self.org_list.remove_all()
+            loading = Adw.ActionRow(title="Loading your organisations…")
+            loading.add_prefix(Gtk.Spinner(spinning=True))
+            self.org_list.append(loading)
+
         def done(result, error):
             if error:
                 if "sign in" in error.lower():
                     self.sign_out()
+                elif first:
+                    self.org_list.remove_all()
+                    self.org_list.append(Adw.ActionRow(title="Couldn’t load", subtitle=GLib.markup_escape_text(
+                        error + " Press Refresh to try again."), subtitle_lines=0))
                 self.toast(error)
                 return
             self.data = result

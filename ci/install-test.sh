@@ -15,7 +15,7 @@ set -uo pipefail
 
 ISO="${1:?usage: $0 <iso> [output-dir]}"
 OUT="${2:-install-test}"
-WAIT_S="${KULAN_INSTALL_WAIT:-900}"
+WAIT_S="${KULAN_INSTALL_WAIT:-1800}" # includes taking a first restore point
 mkdir -p "${OUT}"
 OUT="$(cd "${OUT}" && pwd)"
 WORK="$(mktemp -d)"
@@ -204,6 +204,14 @@ for N in 1 2; do
 		result pass "${NAME}: services" "none failed"
 	fi
 done
+RP="$(field "$(report 1)" restorepoint)"
+if [[ "${RP}" =~ ^success\ ([1-9][0-9]*)$ ]]; then
+	result pass "Restore point" "the sandboxed restore-points service took one (${BASH_REMATCH[1]} on the disk)"
+elif [[ -n "${RP}" ]]; then
+	result fail "Restore point" "the restore-points service didn't take one: ${RP}"
+else
+	result info "Restore point" "not reported"
+fi
 ID1="$(field "$(report 1)" boot_id)"
 ID2="$(field "$(report 2)" boot_id)"
 if [[ "${COUNT}" -ge 2 && -n "${ID1}" && -n "${ID2}" && "${ID1}" != "${ID2}" ]]; then

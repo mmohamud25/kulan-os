@@ -1,0 +1,8 @@
+[Unit]
+Description=Kulan OS: get your most-used apps ready, two minutes after you sign in
+
+[Timer]
+OnStartupSec=2min
+
+[Install]
+WantedBy=timers.target

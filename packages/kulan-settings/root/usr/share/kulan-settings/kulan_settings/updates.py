@@ -15,7 +15,6 @@ import shutil
 import subprocess
 import threading
 import time
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -441,6 +440,7 @@ class UpdatesPage(Page):
         self.notes_fetched = True
 
         def work() -> None:
+            import urllib.request  # only when a Kulan update is offered (keeps opening Settings quick)
             try:
                 with urllib.request.urlopen(NOTES_JSON, timeout=8) as resp:  # noqa: S310 - fixed https URL
                     data = json.loads(resp.read(512 * 1024).decode("utf-8"))
@@ -561,15 +561,24 @@ class UpdatesPage(Page):
                 f"After undoing an update, until {datetime.fromtimestamp(until).strftime('%-d %b, %H:%M')}, "
                 "so the same updates don’t install again straight away")
 
+    def updates_since(self, when: datetime) -> bool:
+        """Whether updates were installed after that restore point's update
+        (then undoing goes back further than the last update)."""
+        last = (self.status.get("last_run") or {}).get("time") or 0
+        # The update the restore point was made for ends a while after it.
+        return bool(last) and last > when.timestamp() + 6 * 3600
+
     def confirm_undo(self) -> None:
         when = self.last_update_point()
         if when is None:
             return
+        later = (" Updates installed since then, security fixes too, are undone as well; they install again "
+                 "in three days, or when you turn automatic updates back on.") if self.updates_since(when) else ""
         dialog = Adw.AlertDialog(
             heading="Undo the last update?",
             body=f"Kulan OS goes back to how it was before the update of {when.strftime('%-d %B at %H:%M')} and "
-                 "restarts. Save your work first. Your documents, photos and other files aren’t touched, and "
-                 "a restore point of how things are now is made first, so this can be undone too.")
+                 f"restarts.{later} Save your work first. Your documents, photos and other files aren’t touched, "
+                 "and a restore point of how things are now is made first, so this can be undone too.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("undo", "Undo and Restart")
         dialog.set_response_appearance("undo", Adw.ResponseAppearance.DESTRUCTIVE)

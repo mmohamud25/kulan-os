@@ -27,7 +27,7 @@ def language() -> str:
 
 def transcribe(audio: Path) -> str:
     if not WHISPER.exists():
-        raise engine.EngineError("The dictation engine isn't installed. Reinstall Kulan Assistant from Add-ons.")
+        raise engine.EngineError("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.")
     model_id = engine.usable_model("dictation")
     if model_id is None:
         raise engine.EngineError("No dictation model yet. Download one in Kulan Settings > Assistant.")

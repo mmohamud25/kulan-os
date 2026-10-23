@@ -9,3 +9,13 @@ Type=oneshot
 ExecStart=/usr/bin/kulan-fleet report
 Nice=10
 IOSchedulingClass=idle
+# On the network: only the address families it needs. (It runs the few
+# actions its organisation may ask for, such as installing updates, so the
+# system itself can't be read-only.)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Hardening that can't get in the way of what it does.
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+ProtectKernelLogs=yes
+ProtectClock=yes

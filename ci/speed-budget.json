@@ -1,0 +1,8 @@
+{
+  "_comment": "Seconds, in CI's virtual machine running the live session from the ISO (slower than an installed computer). A build that goes over fails the speed check. Tighten these as Kulan OS gets faster; never loosen one to make a build pass without knowing why it got slower.",
+  "Start-up": {"seconds": 60},
+  "Files": {"first": 8, "again": 4},
+  "Terminal": {"first": 6, "again": 3},
+  "Kulan Settings": {"first": 8, "again": 5},
+  "Firefox": {"first": 15, "again": 8}
+}

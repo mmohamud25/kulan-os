@@ -133,7 +133,7 @@ def add_swatch_style() -> None:
 class AppearancePage(Page):
     title = "Appearance"
     icon = "applications-graphics-symbolic"
-    keywords = ("dark", "light", "theme", "accent", "colour", "color", "wallpaper", "background", "buttons")
+    keywords = ("dark", "light", "dark mode", "light mode", "night mode", "theme", "accent", "colour", "color", "wallpaper", "background", "buttons")
 
     def __init__(self, window) -> None:
         super().__init__(window)

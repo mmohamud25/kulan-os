@@ -9,3 +9,10 @@ Type=oneshot
 ExecStart=/usr/lib/kulan/restore-points scheduled
 Nice=19
 IOSchedulingClass=idle
+# Hardening that can't get in the way of what it does.
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHome=read-only

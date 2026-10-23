@@ -4,6 +4,8 @@ sleeps. Charge comes from UPower; on desktops and VMs without a battery
 that part is hidden."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import Page, choice_row, has_key, settings, switch_row
@@ -56,6 +58,20 @@ def nearest(value: int, choices: list[tuple[int, str]]) -> str:
     return str(min(timed, key=lambda c: abs(c - value)))
 
 
+
+def can_hibernate() -> bool:
+    """Hibernating needs swap on a disk (Kulan OS uses compressed memory,
+    zram, which can't hold a hibernated system) at least as big as memory."""
+    try:
+        swaps = Path("/proc/swaps").read_text().splitlines()[1:]
+        meminfo = Path("/proc/meminfo").read_text()
+    except OSError:
+        return False
+    disk = sum(int(line.split()[2]) for line in swaps
+               if len(line.split()) >= 3 and "zram" not in line.split()[0] and line.split()[2].isdigit())
+    total = next((int(line.split()[1]) for line in meminfo.splitlines() if line.startswith("MemTotal:")), 0)
+    return bool(total) and disk >= total
+
 class BatteryPage(Page):
     title = "Battery and power"
     icon = "battery-good-symbolic"
@@ -100,20 +116,21 @@ class BatteryPage(Page):
         else:
             self.battery_sleep = None
         if has_key(self.power, "power-button-action"):
-            idle.add(choice_row("Power button", None,
-                                [("interactive", "Show the power off menu"), ("suspend", "Sleep"),
-                                 ("hibernate", "Hibernate"), ("nothing", "Do nothing")],
+            choices = [("interactive", "Show the power off menu"), ("suspend", "Sleep"), ("nothing", "Do nothing")]
+            if can_hibernate() or self.power.get_string("power-button-action") == "hibernate":
+                choices.insert(2, ("hibernate", "Hibernate"))
+            idle.add(choice_row("Power button", None, choices,
                                 lambda: self.power.get_string("power-button-action"),
                                 lambda v: self.power.set_string("power-button-action", v)))
 
-        saving = self.add_group("Saving power")
-        self.add_rows(
-            saving,
+        saving_rows = [row for row in (
             switch_row(self.power, "power-saver-profile-on-low-battery", "Power saver when the battery is low",
                        "Switches to Power saver by itself, and back when charging"),
             switch_row(self.power, "ambient-enabled", "Automatic brightness",
                        "Follows the light around you, on computers with a light sensor"),
-        )
+        ) if row is not None]
+        if saving_rows:  # no heading with nothing under it
+            self.add_rows(self.add_group("Saving power"), *saving_rows)
 
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, UPOWER, DISPLAY_DEVICE,
                                   "org.freedesktop.UPower.Device", None, self.got_battery)

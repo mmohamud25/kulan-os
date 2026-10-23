@@ -80,6 +80,7 @@ FILES=(
 	etc/NetworkManager/conf.d/80-kulan-privacy.conf
 	etc/alternatives/vendor-logos
 	etc/sysctl.d/60-kulan-hardening.conf
+	etc/xdg/gnome-mimeapps.list
 	etc/calamares/modules/fstab.conf
 	var/lib/flatpak/overrides/global
 	usr/bin/kulan-installer
@@ -89,6 +90,18 @@ FILES=(
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
 R="${WORK}/root"
+# The package list, for the vulnerability scan (ci/vuln-scan.sh).
+if [[ -n "${KULAN_SAVE_STATUS:-}" && -f "${R}/var/lib/dpkg/status" ]]; then
+	cp "${R}/var/lib/dpkg/status" "${KULAN_SAVE_STATUS}"
+fi
+
+# Where the size goes: the live system (compressed), the offline-install pool,
+# and the biggest installed packages (uncompressed), to keep the ISO small.
+POOL_KB="$(xorriso -indev "${ISO}" -du /pool 2>/dev/null | awk 'END { print $1 }' | tr -dc 0-9)"
+result info "Size breakdown" "live system $(( $(stat -c %s "${WORK}/fs.squashfs") / 1048576 )) MB, offline-install pool $(( ${POOL_KB:-0} / 1024 )) MB; biggest installed: $(awk 'BEGIN{RS=""} {p=""; s=0; n=split($0, l, "\n"); for (i=1;i<=n;i++) { if (l[i] ~ /^Package: /) p=substr(l[i],10); if (l[i] ~ /^Installed-Size: /) s=substr(l[i],17) } print s, p }' "${R}/var/lib/dpkg/status" 2>/dev/null | sort -rn | head -n 15 | awk '{ printf "%s%s %d MB", (NR>1?", ":""), $2, $1/1024 }')"
+
+[[ -f "${R}/var/lib/dpkg/status" ]] && result info "Why the biggest are there" "$(python3 "$(dirname "$0")/why-installed.py" "${R}/var/lib/dpkg/status" 15)"
+[[ -f "${R}/var/lib/dpkg/status" ]] && result info "Download weight" "what the biggest packages add to the ISO (compressed): $(python3 "$(dirname "$0")/package-weight.py" "${WORK}/fs.squashfs" "${R}/var/lib/dpkg/status" 20)"
 
 # shellcheck disable=SC2317  # called through check()
 installed() { # installed <package>
@@ -104,6 +117,7 @@ if [[ "${ARCH}" == arm64 ]]; then
 	check "Console on screen" "boot messages, splash and prompts on the screen, not only the serial port" bash -c "grep -q 'console=tty0' '${WORK}/grub.cfg' && grep -q 'plymouth.ignore-serial-consoles' '${WORK}/grub.cfg'"
 fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
+check "Account picture" "new accounts start with Kulan's picture, not Debian's logo" bash -c "grep -qx /etc/skel/.face '${R}/var/lib/dpkg/diversions' && grep -q 'squashfs-root/usr/share/kulan/faces/kulan.png\$' '${WORK}/listing'"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
 for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps kulan-assistant kulan-assistant-engine; do
 	VER="$(awk -v p="${PKG}" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" {match($0, /\nVersion: [^\n]+/); print substr($0, RSTART+10, RLENGTH-10)}' "${R}/var/lib/dpkg/status")"
@@ -129,7 +143,7 @@ if [[ "${ARCH}" == amd64 ]]; then
 	check "Laptop firmware" "Intel and AMD graphics, Wi-Fi, Bluetooth, sound and CPU microcode" bash -c "$(declare -f installed); R='${R}'; for p in firmware-intel-graphics firmware-amd-graphics firmware-iwlwifi firmware-realtek firmware-atheros firmware-mediatek firmware-sof-signed bluez-firmware intel-microcode amd64-microcode; do installed \$p || { echo \$p; exit 1; }; done"
 fi
 check "Compressed memory" "zram swap generator installed" installed systemd-zram-generator
-check "Terminal" "Ptyxis with zsh, suggestions and highlighting; new accounts use zsh" bash -c "$(declare -f installed); R='${R}'; installed ptyxis && installed zsh && installed zsh-autosuggestions && installed zsh-syntax-highlighting && grep -qx 'DSHELL=/bin/zsh' \"\${R}/etc/adduser.conf\" && grep -qE '(shell:|userShell:)[[:space:]]+/bin/zsh' \"\${R}/etc/calamares/modules/users.conf\" && grep -q kulan.zsh \"\${R}/etc/skel/.zshrc\""
+check "Terminal" "Ptyxis with zsh, suggestions, highlighting and the power tools; new accounts use zsh" bash -c "$(declare -f installed); R='${R}'; installed ptyxis && installed zsh && installed zsh-autosuggestions && installed zsh-syntax-highlighting && installed fzf && installed ripgrep && installed fd-find && installed bat && installed eza && installed zoxide && installed btop && grep -qx 'DSHELL=/bin/zsh' \"\${R}/etc/adduser.conf\" && grep -qE '(shell:|userShell:)[[:space:]]+/bin/zsh' \"\${R}/etc/calamares/modules/users.conf\" && grep -q kulan.zsh \"\${R}/etc/skel/.zshrc\""
 check "Restart in ARM VMs" "kexec-tools, fast-restart generator, and the kexec hardening moved to kulan-kexec-guard (enabled)" bash -c "$(declare -f installed has_path); R='${R}'; WORK='${WORK}'; installed kexec-tools && has_path usr/lib/systemd/system-generators/kulan-fast-restart && has_path etc/systemd/system/sysinit.target.wants/kulan-kexec-guard.service && has_path etc/systemd/system/multi-user.target.wants/kulan-fast-restart.service && ! grep -q '^kernel.kexec_load_disabled' \"\${R}/etc/sysctl.d/60-kulan-hardening.conf\" && grep -q '^kernel.kptr_restrict' \"\${R}/etc/sysctl.d/60-kulan-hardening.conf\""
 check "Disk password" "a mistyped disk password asks again (installer writes tries=0 to crypttab)" grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${R}/etc/calamares/modules/fstab.conf"
 check "Store apps' look" "Flatpak apps may read the GTK settings folders, for Kulan's window buttons" bash -c "grep -q 'xdg-config/gtk-4.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'xdg-config/gtk-3.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'QT_QPA_PLATFORM=xcb;wayland' '${R}/var/lib/flatpak/overrides/global'"
@@ -141,6 +155,12 @@ else
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter
+check "Default apps" "photos open in Image Viewer, PDFs in Document Viewer, text in Text Editor (every default app is in the ISO)" bash -c 'f="$1/etc/xdg/gnome-mimeapps.list"; grep -qx "image/jpeg=org.gnome.Loupe.desktop" "$f" && grep -qx "application/pdf=org.gnome.Evince.desktop" "$f" && grep -qx "text/plain=org.gnome.TextEditor.desktop" "$f" || exit 1; for app in $(sed -n "s/^[^#][^=]*=//p" "$f" | sort -u); do grep -q "squashfs-root/usr/share/applications/${app}\$" "$2" || { echo "missing ${app}"; exit 1; }; done' _ "${R}" "${WORK}/listing"
+check "Smaller download" "unused speech data, the all-language bundle, VLC translations, GNOME's wallpapers and other-language help left out; Kulan's wallpapers and English kept" bash -c "$(declare -f installed); R='${R}'; ! installed pocketsphinx-en-us && ! installed locales-all && ! installed vlc-l10n && ! grep -qE 'squashfs-root/usr/share/backgrounds/gnome/.+' '${WORK}/listing' && ! grep -qE 'squashfs-root/usr/share/help/(de|fr|es)/' '${WORK}/listing' && grep -q 'squashfs-root/usr/share/backgrounds/kulan/kulan-dark.png\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/locale/locale-archive\$' '${WORK}/listing'"
+check "Clock sync" "systemd-timesyncd installed, so the time is set from the internet" installed systemd-timesyncd
+check "Firmware updates" "fwupd installed (BIOS, dock and device firmware in Software Update)" installed fwupd
+check "Live Text languages" "English and Arabic text recognition" bash -c "$(declare -f installed); R='${R}'; installed tesseract-ocr-eng && installed tesseract-ocr-ara"
+check "Cursor files" "Bibata Modern Classic cursors present, the unused variants' left out" bash -c "grep -q 'squashfs-root/usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr\$' '${WORK}/listing' && ! grep -E 'squashfs-root/usr/share/icons/Bibata-[^/]+/cursors/' '${WORK}/listing' | grep -qv '/Bibata-Modern-Classic/'"
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then
 	check "Boot splash in initramfs" "kulan theme inside ${INITRD_PATH}" bash -c "lsinitramfs '${WORK}/initrd.img' | grep -q 'plymouth/themes/kulan/kulan.plymouth'"
@@ -174,6 +194,7 @@ else
 fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
+check "kulan command" "/usr/bin/kulan present (info, update, doctor, ask)" has_path usr/bin/kulan
 kulan_installer() {
 	test -x "${R}/usr/bin/kulan-installer" && test -x "${R}/usr/lib/kulan/installer-engine" &&
 		grep -qF "favorite-apps=['org.kulan.Installer.desktop'" "${R}/usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override" &&

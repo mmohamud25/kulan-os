@@ -175,17 +175,26 @@ jobs:
             debian:trixie bash ci/test-packages.sh
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
-  # Publishes the tested packages to the update channel before the ISOs are
-  # built: an ISO that includes the channel reads it during the build, so it
-  # must already be online. Skipped until scripts/setup-update-channel.sh
-  # has been run.
+  # Publishes the packages to the update channel only after everything has
+  # passed: the package tests, and both ISOs' checks, boot, low-end boot,
+  # install, TPM and speed tests. Installed computers update from the
+  # channel automatically, so nothing reaches them that hasn't been through
+  # every test. (The ISO build reads the channel already online - the
+  # previous release - so it doesn't need this build published first.)
+  # Skipped until scripts/setup-update-channel.sh has been run.
   publish:
-    needs: [test-packages, engine, files]
+    needs: [test-packages, engine, files, build]
     # Only runs that built both architectures publish: the channel is
     # rebuilt from scratch each time and must keep both engines.
-    if: github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both'
+    if: >-
+      github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both' && !cancelled() &&
+      needs.test-packages.result == 'success' && needs.build.result == 'success'
     name: Publish updates
     runs-on: ubuntu-24.04
+    # Never at the same time as the weekly re-sign (resign-channel.yml).
+    concurrency:
+      group: update-channel
+      cancel-in-progress: false
     permissions:
       contents: read
       pages: write
@@ -293,17 +302,17 @@ jobs:
           exit 1
 
   build:
-    needs: [plan, packages, engine, files, test-packages, publish]
-    # Runs when publishing succeeded or was skipped (tags, channel not set up).
+    needs: [plan, packages, engine, files, test-packages]
+    # Runs once the packages passed their tests; the update channel is only
+    # published after this (see publish).
     if: >-
       !cancelled() &&
       needs.test-packages.result == 'success' &&
       needs.engine.result == 'success' &&
-      needs.files.result == 'success' &&
-      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+      needs.files.result == 'success'
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
@@ -385,10 +394,19 @@ jobs:
           { echo '### Last 60 lines of build.log'; echo '```'; tail -n 60 build.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Inspect ISO
+        env:
+          KULAN_SAVE_STATUS: ${{ runner.temp }}/dpkg-status
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q xorriso squashfs-tools initramfs-tools-core zstd
           ci/verify-iso.sh out/*.iso "${{ matrix.arch }}"
+
+      # Known vulnerabilities in the ISO's Debian packages (Debian's security
+      # tracker). A serious one Debian has already fixed fails the build.
+      - name: Known vulnerabilities
+        run: |
+          sudo apt-get install -y -q debsecan
+          ci/vuln-scan.sh "${{ runner.temp }}/dpkg-status"
 
       - name: Upload ISO
         uses: actions/upload-artifact@v6
@@ -429,12 +447,20 @@ jobs:
         continue-on-error: true
         run: ci/screenshots.sh out/*.iso screenshots
 
+      # Start-up and app-opening times from the screenshot step, against
+      # ci/speed-budget.json: a build that got slower fails here.
+      - name: Speed check
+        if: matrix.arch == 'amd64'
+        run: ci/check-speed.py screenshots/speed.json
+
       - name: Upload website screenshots
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6
         with:
           name: screenshots-amd64
-          path: screenshots/*.png
+          path: |
+            screenshots/*.png
+            screenshots/speed.json
           retention-days: 14
           if-no-files-found: ignore
 
@@ -458,13 +484,8 @@ jobs:
       # Encrypted install with Secure Boot and an emulated TPM: turn TPM unlock
       # on, take every other key away, and check the next start opens the disk
       # by itself.
-      # TPM unlock is held back in 2.4 (kulan-tpm refuses "on" without
-      # KULAN_TPM_PREVIEW=1, which this test sets), so a failure here is
-      # reported but doesn't stop the build. Make it blocking again when
-      # TPM unlock ships.
       - name: TPM unlock test
         if: matrix.arch == 'amd64'
-        continue-on-error: true
         timeout-minutes: 60
         run: |
           sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk
@@ -476,6 +497,24 @@ jobs:
         with:
           name: tpm-test-amd64
           path: tpm-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # The same with a start-up PIN (the recommended way): the test types the
+      # PIN on the VM's keyboard at the second start.
+      - name: TPM unlock with a PIN test
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 60
+        env:
+          KULAN_TPM_TEST_PIN: "2468"
+        run: ci/tpm-test.sh out/*.iso tpm-pin-test
+
+      - name: Upload TPM unlock with a PIN test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: tpm-pin-test-amd64
+          path: tpm-pin-test/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -585,7 +624,7 @@ jobs:
         id: tests
         continue-on-error: true
         with:
-          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test}-amd64"
+          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test}-amd64"
           path: tests/
       - name: Commit to ci-diagnostics
         if: steps.tests.outcome == 'success'

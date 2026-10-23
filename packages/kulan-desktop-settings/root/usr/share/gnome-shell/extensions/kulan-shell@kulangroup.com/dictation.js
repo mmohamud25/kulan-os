@@ -38,10 +38,18 @@ export class Dictation {
         }
         if (this._busy)
             return;
-        if (!this._assistant?.enabled('dictation')) {
-            Main.notify(TITLE, this._assistant?.installed
-                ? 'Dictation is off. Turn it on in Kulan Settings > Assistant.'
-                : 'Dictation needs Kulan Assistant. Install it from Kulan Settings > Add-ons.');
+        if (!this._assistant?.installed) {
+            Main.notify(TITLE, 'Dictation needs Kulan Assistant. Turn it on in Kulan Settings › Add-ons.');
+            return;
+        }
+        if (!this._assistant.enabled('dictation')) {
+            this._assistant.notifyFix('Dictation is off. Turn it on in Kulan Settings › Assistant.', 'assistant');
+            return;
+        }
+        // Before recording, not after you've spoken.
+        if (!this._assistant.hasModel('dictation')) {
+            this._assistant.notifyFix('Dictation needs a speech model first: a free download, chosen once in ' +
+                'Kulan Settings › Assistant.', 'assistant');
             return;
         }
         const recorder = GLib.find_program_in_path('pw-record');
@@ -69,7 +77,7 @@ export class Dictation {
         const recording = this._recorder;
         recording.wait_async(null).then(() => {
             if (this._recorder === recording)
-                this._failed('Couldn’t record from the microphone. Check it in Settings > Sound.');
+                this._failed('Couldn’t record from the microphone. Check it in Kulan Settings › Sound.');
         }).catch(() => {});
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, MAX_SECONDS, () => {
             this._timer = 0;
@@ -153,7 +161,7 @@ export class Dictation {
                 return;
             const info = Gio.File.new_for_path(file).query_info('standard::size', Gio.FileQueryInfoFlags.NONE, null);
             if (info.get_size() < 16000) { // under half a second of sound
-                Main.notify(TITLE, 'Nothing was recorded. Check the microphone in Settings > Sound.');
+                Main.notify(TITLE, 'Nothing was recorded. Check the microphone in Kulan Settings › Sound.');
                 return;
             }
             this._label?.set_text('Writing what you said…');
@@ -173,7 +181,7 @@ export class Dictation {
                 return;
             }
             if (!text) {
-                Main.notify(TITLE, 'No speech heard. Check the microphone in Settings > Sound.');
+                Main.notify(TITLE, 'No speech heard. Check the microphone in Kulan Settings › Sound.');
                 return;
             }
             this._hideIndicator();

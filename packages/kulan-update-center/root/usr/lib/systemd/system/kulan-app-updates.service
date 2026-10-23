@@ -13,3 +13,18 @@ Type=oneshot
 ExecStart=/usr/lib/kulan/app-updates auto
 Nice=10
 IOSchedulingClass=idle
+# Sandboxed: Flatpak updates for everyone (system-wide apps in
+# /var/lib/flatpak). /usr, /boot and /etc stay read-only, home folders
+# out of reach.
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+# Hardening that can't get in the way of what it does.
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+ProtectKernelLogs=yes
+ProtectClock=yes
