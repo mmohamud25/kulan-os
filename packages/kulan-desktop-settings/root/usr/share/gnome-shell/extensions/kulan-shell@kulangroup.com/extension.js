@@ -550,6 +550,7 @@ export default class KulanShellExtension extends Extension {
                 return Clutter.EVENT_STOP;
             });
             Main.panel.addToStatusArea(`${this.uuid}-ask`, this._askButton, 1, 'right');
+            this._askButton.container.visible = !Main.sessionMode.isLocked;
         } else if (!want && this._askButton) {
             this._askButton.destroy();
             this._askButton = null;
@@ -755,6 +756,8 @@ export default class KulanShellExtension extends Extension {
             this._indicator.container.visible = unlocked;
         if (this._menu)
             this._menu.container.visible = unlocked && (this._settings?.get_boolean('kulan-menu') ?? true);
+        if (this._askButton)
+            this._askButton.container.visible = unlocked;
     }
 
     // apt writes the status file a few times in a row; reload once it settles.

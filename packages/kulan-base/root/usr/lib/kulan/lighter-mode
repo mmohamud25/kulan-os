@@ -12,13 +12,15 @@
 #   - compressed memory (zram) as big as the memory, as Fedora does, instead of
 #     half (from the next start).
 #
-#   lighter-mode apply           at start-up (kulan-lighter-mode.service)
+#   lighter-mode apply [--boot]  at start-up (kulan-lighter-mode.service, --boot:
+#                                remember what start-up chose, for Kulan Settings)
 #   lighter-mode status          JSON: on, choice (on|off|auto), memory
 #   lighter-mode set on|off|auto  (root) remember the choice and apply it
 set -uo pipefail
 
 CHOICE=/etc/kulan/lighter-mode
 FLAG=/run/kulan/lighter-mode
+AT_BOOT=/run/kulan/lighter-mode-at-boot  # on/off: what this start-up chose (file search and zram follow it)
 SEARCH_DROPIN=/run/systemd/user/localsearch-3.service.d/60-kulan-lighter.conf
 ZRAM_CONF=/etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf
 AUTO_BELOW_KIB=$((5 * 1024 * 1024))
@@ -75,15 +77,22 @@ apply() {
 status() {
 	local on=false
 	wanted && on=true
-	printf '{"on": %s, "choice": "%s", "memory_kib": %s, "auto_below_kib": %s, "active_now": %s}\n' \
+	local at_boot
+	at_boot="$({ cat "${AT_BOOT}"; } 2>/dev/null)"
+	printf '{"on": %s, "choice": "%s", "memory_kib": %s, "auto_below_kib": %s, "active_now": %s, "at_boot": %s}\n' \
 		"${on}" "$(choice)" "$(memory_kib || echo 0)" "${AUTO_BELOW_KIB}" \
-		"$([[ -e "${FLAG}" ]] && echo true || echo false)"
+		"$([[ -e "${FLAG}" ]] && echo true || echo false)" \
+		"$(case "${at_boot}" in on) echo true ;; off) echo false ;; *) echo null ;; esac)"
 }
 
 case "${1:-}" in
 	apply)
 		[[ ${EUID} -eq 0 ]] || { echo "lighter-mode apply: run as root" >&2; exit 1; }
 		apply
+		if [[ "${2:-}" == --boot ]]; then
+			mkdir -p "$(dirname "${AT_BOOT}")"
+			if wanted; then echo on > "${AT_BOOT}"; else echo off > "${AT_BOOT}"; fi
+		fi
 		;;
 	status)
 		status

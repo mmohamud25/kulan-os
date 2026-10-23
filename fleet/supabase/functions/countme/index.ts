@@ -3,8 +3,10 @@
 //   POST /countme/v1   {version: "2.6", arch: "amd64"|"arm64", age: 1-4}  -> 204
 //   GET  /countme/v1   totals for the last 12 weeks (anonymous already)
 //
-// Nothing about the sender is stored: not the address, not a time, not the
-// request. Each check-in only adds one to its week's total for that version,
+// This function stores nothing about the sender: not the address, not a
+// time, not the request. (Supabase's own request logs, kept for a short
+// time by the platform, can include the address; the privacy policy says
+// so.) Each check-in only adds one to its week's total for that version,
 // architecture and age. Anything else is refused, so nothing but those
 // totals can end up in the database. The platform's JWT check is off: the
 // computers have no account, and there's nothing private to protect here.

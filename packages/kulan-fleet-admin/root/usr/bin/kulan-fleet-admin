@@ -55,7 +55,8 @@ POLICY_LABEL = {"auto_updates": "Automatic updates", "firewall": "Firewall", "sc
 ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update-urgent-symbolic",
               "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
               "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic"}
-STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "done", "failed": "failed"}
+STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "done", "failed": "failed",
+                "cancelled": "cancelled", "expired": "expired"}
 TIMEOUT = 30
 
 CSS = """
@@ -605,6 +606,11 @@ class FleetWindow(Adw.ApplicationWindow):
                                                                                        a.get("detail") or "") if x)))
             row.add_suffix(tag(STATUS_LABEL.get(a["status"], a["status"]),
                                {"done": "good", "failed": "bad"}.get(a["status"], "dim")))
+            if a["status"] == "pending":
+                cancel = Gtk.Button(label="Cancel", valign=Gtk.Align.CENTER,
+                                    css_classes=["destructive-action"] if a["type"] == "erase" else [])
+                cancel.connect("clicked", lambda _b, act=a: self.cancel_action(act))
+                row.add_suffix(cancel)
             history.add(row)
 
     # --- one computer ---------------------------------------------------------------------------
@@ -693,6 +699,16 @@ class FleetWindow(Adw.ApplicationWindow):
             done({"report": self.data.get("sample_report")}, None)
         else:
             self.background(lambda: self.session.call({"op": "report", "device_id": d["id"]}), done)
+
+    def cancel_action(self, a: dict) -> None:
+        if self.data and self.data.get("sample"):
+            a["status"] = "cancelled"
+            self.render_org()
+            return
+        self.background(lambda: self.session.call({"op": "cancel-action", "action_id": a["id"]}),
+                        lambda _r, error: (self.toast(error) if error else
+                                           (self.toast(f"{ACTION_LABEL.get(a['type'], a['type'])} cancelled"),
+                                            self.reload())))
 
     def push_list(self, title: str, description: str) -> Adw.PreferencesGroup:
         page = Adw.PreferencesPage()
@@ -871,7 +887,8 @@ def sample() -> dict:
                            {"email": "admin@kulan.example", "what": "asked: install-updates", "hostname": "kca-desk-02",
                             "at": iso(120)}],
             "actions": [{"id": "a1", "device_id": "d2", "type": "install-updates", "status": "pending",
-                         "created_at": iso(120)}],
+                         "created_at": iso(120)},
+                        {"id": "a2", "device_id": "d1", "type": "erase", "status": "expired", "created_at": iso(86400 * 31)}],
             "sample_report": {"compliance": {"passed": 1, "total": 2, "baseline": "Kulan OS baseline 1",
                                              "controls": controls}}}
 
@@ -907,6 +924,8 @@ class FleetApp(Adw.Application):
                     win.open_log(win.data["organisations"][0])
                     win.nav.pop()
                     win.ask_erase(win.data["devices"][0]).force_close()
+                    win.cancel_action(win.data["actions"][0])
+                    assert win.data["actions"][0]["status"] == "cancelled"
                     win.org_id = None
                     win.render_org()
                     print("Kulan Fleet: every page built")

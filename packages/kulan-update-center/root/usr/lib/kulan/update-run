@@ -450,16 +450,27 @@ PY
 		;;
 	phone-link-on | phone-link-off)
 		[[ $# -eq 1 ]] || die "usage: update-run phone-link-on|phone-link-off"
-		# KDE Connect's ports (GSConnect speaks the same protocol): found and
-		# reached by phones on the same network only.
+		# KDE Connect's ports (GSConnect speaks the same protocol), from local
+		# networks only (home and office address ranges), never the internet.
 		command -v ufw >/dev/null 2>&1 || exit 0
-		for PROTO in udp tcp; do
-			if [[ "$1" == phone-link-on ]]; then
-				ufw allow 1714:1764/"${PROTO}" comment "Kulan Phone link" 1>&2
-			else
-				ufw --force delete allow 1714:1764/"${PROTO}" 1>&2 || true
-			fi
+		for NET in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fc00::/7 fe80::/10; do
+			for PROTO in udp tcp; do
+				if [[ "$1" == phone-link-on && "${NET}" == *:* ]]; then
+					# IPv6: only where the firewall handles IPv6 (IPV6=yes).
+					ufw allow proto "${PROTO}" from "${NET}" to any port 1714:1764 comment "Kulan Phone link" 1>&2 || true
+				elif [[ "$1" == phone-link-on ]]; then
+					ufw allow proto "${PROTO}" from "${NET}" to any port 1714:1764 comment "Kulan Phone link" 1>&2
+				else
+					ufw --force delete allow proto "${PROTO}" from "${NET}" to any port 1714:1764 >/dev/null 2>&1 || true
+				fi
+			done
 		done
+		# 2.6 test builds opened the ports to everyone: close that too.
+		if [[ "$1" == phone-link-off ]]; then
+			for PROTO in udp tcp; do
+				ufw --force delete allow 1714:1764/"${PROTO}" >/dev/null 2>&1 || true
+			done
+		fi
 		;;
 	lighter)
 		[[ $# -eq 2 ]] || die "usage: update-run lighter on|off|auto"

@@ -85,8 +85,8 @@ def lighter_text(status: dict) -> str:
                f"Off: this computer has {memory} of memory, plenty for the full effects.")
     else:
         now = "On." if status.get("on") else "Off."
-    if status.get("on") != status.get("active_now"):
-        now += " Applies fully after a restart."
+    if status.get("at_boot") is not None and status.get("on") != status.get("at_boot"):
+        now += " Effects change now; file search and compressed memory after a restart."
     return f"{what} {now}"
 
 

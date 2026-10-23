@@ -45,3 +45,9 @@ as $$
   delete from fleet.reports where received_at < now() - interval '90 days';
 $$;
 revoke all on function fleet.prune_reports() from public, anon, authenticated;
+
+-- An action can be cancelled while it waits, and an erase that waits more than
+-- 30 days expires (a lost computer found again doesn't erase itself weeks later).
+alter table fleet.actions drop constraint if exists actions_status_check;
+alter table fleet.actions add constraint actions_status_check
+  check (status in ('pending', 'sent', 'done', 'failed', 'cancelled', 'expired'));

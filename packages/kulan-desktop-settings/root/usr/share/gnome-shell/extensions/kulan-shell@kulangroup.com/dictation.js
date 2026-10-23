@@ -42,8 +42,6 @@ export class Dictation {
             await this._stop(true);
             return;
         }
-        this._onText = onText;
-        this._onEnd = onEnd;
         if (this._busy)
             return;
         if (!this._assistant?.installed) {
@@ -69,6 +67,10 @@ export class Dictation {
         GLib.mkdir_with_parents(dir, 0o700);
         this._file = GLib.build_filenamev([dir, `dictation-${GLib.random_int()}.wav`]);
         this._window = global.display.focus_window;
+        // Only now, after every reason not to record: an earlier dictation
+        // still writing out its words keeps its own destination.
+        this._onText = onText;
+        this._onEnd = onEnd;
         try {
             this._recorder = Gio.Subprocess.new(
                 [recorder, '--rate', '16000', '--channels', '1', '--format', 's16', this._file],

@@ -47,8 +47,9 @@ class PhonePage(Page):
                                      "send texts from the computer. Works best with Android; on iPhone, files "
                                      "and the clipboard.")
         self.switch = Adw.SwitchRow(title="Phone link",
-                                    subtitle="Lets phones on the same Wi-Fi find this computer. Only a phone you "
-                                             "pair can connect", subtitle_lines=0, active=self.enabled())
+                                    subtitle="Lets phones on the same home or office network find this "
+                                             "computer. Only a phone you pair can connect", subtitle_lines=0,
+                                    active=self.enabled())
         self.switch.connect("notify::active", self.on_switch)
         intro.add(self.switch)
 
@@ -116,8 +117,14 @@ class PhonePage(Page):
         if on == self.enabled():
             return
         if not on:
-            self.set_enabled(False)  # stop listening first, then close the ports
-            self.window.helper.run(["phone-link-off"], "Phone link off", on_done=lambda _ok: self.sync_switch())
+            # Close the ports first; only then stop the extension, so a
+            # cancelled password prompt never leaves ports open with the
+            # switch showing off.
+            def closed(ok: bool) -> None:
+                if ok:
+                    self.set_enabled(False)
+                self.sync_switch()
+            self.window.helper.run(["phone-link-off"], "Phone link off", on_done=closed)
             return
 
         def done(ok: bool) -> None:

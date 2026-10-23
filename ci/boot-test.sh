@@ -15,7 +15,9 @@ OUT="${2:-boot-test}"
 WAIT_S="${KULAN_BOOT_WAIT:-600}"
 # The low-end run (KULAN_BOOT_MEMORY=2048 KULAN_BOOT_CPUS=1) checks Kulan OS
 # still comes up on a small computer.
-MEMORY="${KULAN_BOOT_MEMORY:-4096}"
+# 6 GB: above lighter mode's 5 GB, so this run checks the full desktop; the
+# low-end run (2 GB) checks lighter mode.
+MEMORY="${KULAN_BOOT_MEMORY:-6144}"
 CPUS="${KULAN_BOOT_CPUS:-2}"
 LABEL="${KULAN_BOOT_LABEL:-Boot test}"
 mkdir -p "${OUT}"
@@ -206,17 +208,23 @@ fi
 LIGHT="$(field lighter)"
 if [[ -z "${LIGHT}" ]]; then
 	result info "Lighter mode" "not reported"
-elif (( MEMORY <= 4096 )); then
-	# 4 GB or less: on by itself, and file search at the lowest priority.
-	if [[ "${LIGHT}" == "on success search_nice=19 "* ]]; then
-		result pass "Lighter mode" "on by itself with ${MEMORY} MB; file search runs at the lowest priority"
-	else
-		result fail "Lighter mode" "expected on with ${MEMORY} MB, file search at priority 19: ${LIGHT}"
-	fi
-elif [[ "${LIGHT}" == "off success "* ]]; then
-	result pass "Lighter mode" "off with ${MEMORY} MB, as it should be"
 else
-	result fail "Lighter mode" "expected off with ${MEMORY} MB: ${LIGHT}"
+	# The memory the computer itself sees decides (lighter mode below 5 GB).
+	SEEN_KIB="$(sed -n 's/.*mem_kib=\([0-9]*\).*/\1/p' <<<"${LIGHT}")"
+	if [[ -z "${SEEN_KIB}" ]]; then
+		result fail "Lighter mode" "no memory size in the report: ${LIGHT}"
+	elif (( SEEN_KIB < 5 * 1024 * 1024 )); then
+		# On by itself, with file search set to the lowest priority.
+		if [[ "${LIGHT}" == "on success search_nice=19 "* ]]; then
+			result pass "Lighter mode" "on by itself with $(( SEEN_KIB / 1024 )) MB; file search set to the lowest priority"
+		else
+			result fail "Lighter mode" "expected on with $(( SEEN_KIB / 1024 )) MB, file search at priority 19: ${LIGHT}"
+		fi
+	elif [[ "${LIGHT}" == "off success "* ]]; then
+		result pass "Lighter mode" "off with $(( SEEN_KIB / 1024 )) MB: the full desktop"
+	else
+		result fail "Lighter mode" "expected off with $(( SEEN_KIB / 1024 )) MB: ${LIGHT}"
+	fi
 fi
 APP_SB="$(field appsandbox)"
 if [[ "${APP_SB}" == 0* ]]; then

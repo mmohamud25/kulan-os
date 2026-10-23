@@ -110,6 +110,10 @@ Deno.serve(async (req: Request) => {
                   os = coalesce(${text(body.os, 120)}, os),
                   kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version)
                 where id = ${dev.id}`;
+      // An erase still waiting after 30 days expires instead (the computer was found, say).
+      await sql`update fleet.actions set status = 'expired', finished_at = now()
+                where device_id = ${dev.id} and status = 'pending' and type = 'erase'
+                  and created_at < now() - interval '30 days'`;
       const actions = await sql`update fleet.actions set status = 'sent', sent_at = now()
                                 where id in (select id from fleet.actions where device_id = ${dev.id}
                                              and status = 'pending' order by created_at limit 10)

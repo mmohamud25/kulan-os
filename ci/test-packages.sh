@@ -288,6 +288,7 @@ check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764)
 	command -v ufw >/dev/null || apt-get install -y -q --no-install-recommends ufw >/dev/null 2>&1 || exit 1
 	/usr/lib/kulan/update-run phone-link-on >/dev/null 2>&1 || { echo "on failed"; exit 1; }
 	grep -q "1714:1764" /etc/ufw/user.rules && grep -q "Kulan Phone link" /etc/ufw/user.rules || { echo "ports not opened"; exit 1; }
+	grep -q -- "-s 192.168.0.0/16" /etc/ufw/user.rules && ! grep -E "dports? 1714:1764" /etc/ufw/user.rules | grep -vq -- "-s " || { echo "open beyond local networks"; exit 1; }
 	/usr/lib/kulan/update-run phone-link-off >/dev/null 2>&1 || { echo "off failed"; exit 1; }
 	! grep -q "1714:1764" /etc/ufw/user.rules /etc/ufw/user6.rules'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
@@ -658,8 +659,10 @@ PY
 check "Fleet policy" "screen lock after 5 minutes (locked), automatic updates and firewall kept on, encryption reported; unknown policy keys ignored" python3 - <<'PY'
 import json
 from pathlib import Path
-assert "idle-delay=uint32 300" in Path("/etc/dconf/db/local.d/40-kulan-fleet").read_text().splitlines()
-assert "/org/gnome/desktop/session/idle-delay" in Path("/etc/dconf/db/local.d/locks/40-kulan-fleet").read_text().splitlines()
+assert "idle-delay=uint32 300" in Path("/etc/dconf/db/local.d/60-kulan-fleet").read_text().splitlines()
+locks = Path("/etc/dconf/db/local.d/locks/60-kulan-fleet").read_text().splitlines()
+assert set(locks) == {"/org/gnome/desktop/session/idle-delay", "/org/gnome/desktop/screensaver/lock-enabled",
+                      "/org/gnome/desktop/screensaver/lock-delay", "/org/gnome/desktop/lockdown/disable-lock-screen"}, locks
 d = json.load(open("/var/lib/kulan/fleet-policy.json"))
 p, s = d["policy"], d["status"]
 assert "run_script" not in p and p["screen_lock_minutes"] == 5, p
@@ -673,15 +676,23 @@ loader = importlib.machinery.SourceFileLoader("kf", "/usr/bin/kulan-fleet")
 spec = importlib.util.spec_from_loader("kf", loader); kf = importlib.util.module_from_spec(spec); loader.exec_module(kf)
 assert kf.read_json(kf.CONFIG, {})["allow_erase"] is True
 ok, detail = kf.erase()
-assert not ok and "isn't encrypted" in detail, detail  # the test container's disk isn't
-kf.root_crypt_devices = lambda: ["/dev/fake-luks"]
-assert kf.erase()[0] is True
+assert not ok and "can't be erased from afar" in detail, detail  # the test container's disk isn't encrypted
+# Encrypted: every LUKS partition is erased, and only a full success counts.
+kf.disk_protection = lambda: (True, ["/dev/fake-luks1", "/dev/fake-luks2"], "")
+calls = []
+kf.run = lambda argv, timeout=60: (calls.append(argv), subprocess.CompletedProcess(argv, 1 if argv[-1].endswith("2") and fail else 0, "", "busy"))[1]
+fail = False
+assert kf.erase() == (True, "erased 2 encrypted partition(s); switching off")
+assert [c[:3] for c in calls] == [["cryptsetup", "luksErase", "--batch-mode"]] * 2, calls
+fail = True
+ok, detail = kf.erase()
+assert not ok and "erase failed on /dev/fake-luks2" in detail and "not switched off" in detail, detail
 assert subprocess.run(["kulan-fleet", "allow-erase", "off"], capture_output=True).returncode == 0
 assert kf.erase() == (False, "not allowed on this computer (Kulan Settings > About > Organisation)")
 PY
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
-check "Fleet leave" "the server is told; key, status and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/40-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
+check "Fleet leave" "the server is told; key, status and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).

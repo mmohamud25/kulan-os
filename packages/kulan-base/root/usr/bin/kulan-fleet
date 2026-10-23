@@ -55,12 +55,17 @@ import urllib.request
 from pathlib import Path
 
 CONFIG = Path("/etc/kulan/fleet.json")            # secret (token): root only
+LOCK = Path("/run/kulan/fleet.lock")
 PUBLIC = Path("/var/lib/kulan/fleet-public.json")  # what anyone may see
 UPDATES = Path("/var/lib/kulan/updates.json")
 POLICY_PUBLIC = Path("/var/lib/kulan/fleet-policy.json")  # the policy kept to, for Kulan Settings
 APPS_SENT = Path("/var/lib/kulan/fleet-apps-sent")
-POLICY_DCONF = Path("/etc/dconf/db/local.d/40-kulan-fleet")       # before compliance (50): its stricter
-POLICY_LOCKS = Path("/etc/dconf/db/local.d/locks/40-kulan-fleet")  # settings win where both set one
+# After compliance mode's 50-kulan-compliance, so this file decides; it holds
+# the stricter of the two screen locks (see set_screen_lock).
+POLICY_DCONF = Path("/etc/dconf/db/local.d/60-kulan-fleet")
+POLICY_LOCKS = Path("/etc/dconf/db/local.d/locks/60-kulan-fleet")
+OLD_POLICY_FILES = (Path("/etc/dconf/db/local.d/40-kulan-fleet"), Path("/etc/dconf/db/local.d/locks/40-kulan-fleet"))
+COMPLIANCE_DCONF = Path("/etc/dconf/db/local.d/50-kulan-compliance")
 DCONF_DB = Path("/etc/dconf/db/local")
 ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase")
 SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version and kernel",
@@ -208,23 +213,93 @@ def auto_updates_on() -> bool:
     return 'Unattended-Upgrade "1"' in run(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"]).stdout
 
 
-def root_crypt_devices() -> list[str]:
-    """The LUKS devices under / (the disk's encrypted partition), if any."""
-    source = run(["findmnt", "-no", "SOURCE", "/"]).stdout.strip()
-    if not source:
-        return []
-    devices = []
-    for line in run(["lsblk", "-s", "-pno", "NAME,TYPE,FSTYPE", source]).stdout.splitlines():
+# Kulan Installer's encrypted layout keeps these unencrypted: start-up files only, no personal files.
+NOT_DATA = ("/boot", "/boot/efi", "/efi")
+REMOVABLE = ("/media/", "/run/media/", "/mnt/")
+
+
+def _chain(device: str) -> list[dict] | None:
+    """device and everything it sits on (partitions, LVM, RAID, LUKS), flattened."""
+    try:
+        data = json.loads(run(["lsblk", "-J", "-s", "-p", "-o", "NAME,TYPE,FSTYPE", device]).stdout)
+    except ValueError:
+        return None
+    out: list[dict] = []
+
+    def walk(nodes) -> None:
+        for node in nodes or []:
+            if isinstance(node, dict):
+                out.append(node)
+                walk(node.get("children"))
+    walk(data.get("blockdevices") if isinstance(data, dict) else None)
+    return out or None
+
+
+def disk_protection() -> tuple[bool, list[str], str]:
+    """Whether everything personal on this computer's disks is encrypted.
+    Returns (all encrypted, the LUKS partitions holding it, why not). Every
+    mounted filesystem except the start-up ones and removable drives, every
+    swap that isn't compressed memory, and every LUKS partition in crypttab
+    count. One definition, for the report and for erasing."""
+    try:
+        mounts = json.loads(run(["findmnt", "-J", "-v", "--real", "-o", "SOURCE,TARGET"]).stdout)
+    except ValueError:
+        return False, [], "couldn't read what's mounted"
+    flat: list[dict] = []
+
+    def walk(nodes) -> None:
+        for node in nodes or []:
+            if isinstance(node, dict):
+                flat.append(node)
+                walk(node.get("children"))
+    walk(mounts.get("filesystems") if isinstance(mounts, dict) else None)
+    luks: set[str] = set()
+    checked = 0
+    for m in flat:
+        source, target = str(m.get("source") or ""), str(m.get("target") or "")
+        if not source.startswith("/dev/") or source.startswith("/dev/loop") or target in NOT_DATA \
+                or target.startswith(REMOVABLE):
+            continue
+        chain = _chain(source)
+        if chain is None:
+            return False, [], f"couldn't read the disk layout under {target}"
+        found = [n["name"] for n in chain if n.get("fstype") == "crypto_LUKS" and str(n.get("name", "")).startswith("/dev/")]
+        if not found:
+            return False, [], f"{target} isn't encrypted"
+        luks.update(found)
+        checked += 1
+    if not checked:
+        return False, [], "couldn't find the system disk"
+    for name in run(["swapon", "--noheadings", "--raw", "--show=NAME"]).stdout.split():
+        if name.startswith("/dev/zram"):
+            continue
+        chain = _chain(name) or []
+        if not any(n.get("type") == "crypt" for n in chain):
+            return False, [], f"swap {name} isn't encrypted"
+        luks.update(n["name"] for n in chain if n.get("fstype") == "crypto_LUKS")
+    # Encrypted partitions set to open at start-up (a separate /home, say).
+    try:
+        lines = Path("/etc/crypttab").read_text().splitlines()
+    except OSError:
+        lines = []
+    for line in lines:
         parts = line.split()
-        name = parts[0].lstrip("└─├│ ") if parts else ""
-        if len(parts) >= 3 and parts[-1] == "crypto_LUKS" and name.startswith("/dev/"):
-            devices.append(name)
-    return devices
+        if len(parts) < 2 or parts[0].startswith("#"):
+            continue
+        spec = parts[1]
+        if spec.startswith("UUID="):
+            dev = run(["blkid", "-U", spec[5:]]).stdout.strip()
+        elif spec.startswith("/dev/"):
+            dev = spec
+        else:
+            continue
+        if dev and run(["lsblk", "-dno", "FSTYPE", dev]).stdout.strip() == "crypto_LUKS":
+            luks.add(dev)
+    return True, sorted(luks), ""
 
 
 def encrypted() -> bool:
-    source = run(["findmnt", "-no", "SOURCE", "/"]).stdout.strip()
-    return bool(source) and "crypt" in run(["lsblk", "-s", "-no", "TYPE", source]).stdout.split()
+    return disk_protection()[0]
 
 
 def state(config: dict) -> dict:
@@ -309,24 +384,48 @@ def clean_policy(raw) -> dict:
     return policy
 
 
+def compliance_idle_seconds() -> int:
+    """Compliance mode's screen lock, if it's on (0 if not)."""
+    try:
+        for line in COMPLIANCE_DCONF.read_text().splitlines():
+            if line.startswith("idle-delay="):
+                return int(line.split()[-1])
+    except (OSError, ValueError):
+        pass
+    return 0
+
+
 def set_screen_lock(minutes: int) -> bool:
-    """Lock after `minutes` idle (and lock it, so it stays); 0 takes it away."""
+    """Lock after `minutes` idle, or compliance mode's time if that's
+    shorter, with every lock setting locked so it stays; 0 takes it away."""
+    removed_old = False
+    for old in OLD_POLICY_FILES:  # 2.6 test builds wrote these
+        if old.exists():
+            old.unlink()
+            removed_old = True
     if minutes:
+        seconds = minutes * 60
+        if compliance_idle_seconds():
+            seconds = min(seconds, compliance_idle_seconds())
         text = ("# Set by your organisation (Kulan fleet policy).\n"
-                f"[org/gnome/desktop/session]\nidle-delay=uint32 {minutes * 60}\n\n"
-                "[org/gnome/desktop/screensaver]\nlock-enabled=true\nlock-delay=uint32 0\n")
-        locks = "/org/gnome/desktop/session/idle-delay\n/org/gnome/desktop/screensaver/lock-enabled\n"
+                f"[org/gnome/desktop/session]\nidle-delay=uint32 {seconds}\n\n"
+                "[org/gnome/desktop/screensaver]\nlock-enabled=true\nlock-delay=uint32 0\n\n"
+                "[org/gnome/desktop/lockdown]\ndisable-lock-screen=false\n")
+        locks = ("/org/gnome/desktop/session/idle-delay\n/org/gnome/desktop/screensaver/lock-enabled\n"
+                 "/org/gnome/desktop/screensaver/lock-delay\n/org/gnome/desktop/lockdown/disable-lock-screen\n")
         try:
             # Already set, and dconf's database was rebuilt after it was written.
-            if POLICY_DCONF.read_text() == text and DCONF_DB.stat().st_mtime >= POLICY_DCONF.stat().st_mtime:
+            if not removed_old and POLICY_DCONF.read_text() == text and POLICY_LOCKS.read_text() == locks and \
+                    DCONF_DB.stat().st_mtime >= POLICY_DCONF.stat().st_mtime:
                 return True
         except OSError:
             pass
         POLICY_LOCKS.parent.mkdir(parents=True, exist_ok=True)
-        if not POLICY_DCONF.exists() or POLICY_DCONF.read_text() != text:
+        if not POLICY_DCONF.exists() or POLICY_DCONF.read_text() != text or \
+                not POLICY_LOCKS.exists() or POLICY_LOCKS.read_text() != locks:
             POLICY_DCONF.write_text(text)
             POLICY_LOCKS.write_text(locks)
-    elif POLICY_DCONF.exists() or POLICY_LOCKS.exists():
+    elif POLICY_DCONF.exists() or POLICY_LOCKS.exists() or removed_old:
         POLICY_DCONF.unlink(missing_ok=True)
         POLICY_LOCKS.unlink(missing_ok=True)
     else:
@@ -383,21 +482,36 @@ def do_action(kind: str) -> tuple[bool, str]:
     return False, "not an action Kulan OS allows"
 
 
-def erase() -> tuple[bool, str]:
-    """Make the disk unreadable: destroy every key of the encrypted partition
-    under /, then switch off. Only when this computer's user allowed it."""
+def erase_check() -> tuple[bool, list[str] | str]:
+    """Whether this computer may be erased now: (True, the LUKS partitions)
+    or (False, why not)."""
     if not read_json(CONFIG, {}).get("allow_erase"):
         return False, "not allowed on this computer (Kulan Settings > About > Organisation)"
-    devices = root_crypt_devices()
-    if not devices:
-        return False, "this computer's disk isn't encrypted, so it can't be erased from afar"
-    return True, f"erasing {len(devices)} encrypted partition(s) and switching off"
+    ok, devices, why = disk_protection()
+    if not ok or not devices:
+        return False, f"can't be erased from afar: {why or 'nothing encrypted found'}"
+    return True, devices
 
 
-def erase_now() -> None:
-    """The erase itself, after the server has been told (afterwards nothing can report)."""
-    for device in root_crypt_devices():
-        run(["cryptsetup", "luksErase", "--batch-mode", device], timeout=120)
+def erase() -> tuple[bool, str]:
+    """Make everything personal unreadable: destroy every key of every LUKS
+    partition holding it. The computer keeps running (the open partitions
+    stay open) long enough to report; then it switches off. If any partition
+    couldn't be erased, it says so and doesn't switch off."""
+    ok, devices = erase_check()
+    if not ok:
+        return False, str(devices)
+    failed = []
+    for device in devices:
+        r = run(["cryptsetup", "luksErase", "--batch-mode", device], timeout=120)
+        if r.returncode != 0:
+            failed.append(f"{device} ({(r.stderr.strip().splitlines() or ['error'])[-1][:80]})")
+    if failed:
+        return False, "erase failed on " + ", ".join(failed) + "; not switched off"
+    return True, f"erased {len(devices)} encrypted partition(s); switching off"
+
+
+def power_off() -> None:
     run(["sync"])
     run(["systemctl", "poweroff", "--force", "--force"])
 
@@ -485,7 +599,8 @@ def report() -> int:
             if status:
                 say("Policy: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in status.items()))
         again = False
-        for action in reply.get("actions", [])[:10]:
+        actions = reply.get("actions")
+        for action in (actions if isinstance(actions, list) else [])[:10]:
             if not isinstance(action, dict):
                 continue
             kind, action_id = str(action.get("type", "")), str(action.get("id", ""))
@@ -503,8 +618,8 @@ def report() -> int:
                     pass
             say(f"{kind}: {'done' if ok else 'failed'} ({detail})")
         if erasing:
-            say("Erasing this computer, as the organisation asked")
-            erase_now()
+            say("Erased, as the organisation asked: switching off")
+            power_off()
             return 0
         if not again:
             break
@@ -558,18 +673,31 @@ def status(as_json: bool) -> int:
     return 0
 
 
+def locked(fn):
+    """One kulan-fleet at a time (an hourly report never races a leave)."""
+    def wrapper(*args, **kwargs):
+        import fcntl
+        LOCK.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOCK, "w") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            return fn(*args, **kwargs)
+    return wrapper
+
+
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         return status("--json" in argv[2:])
+    if command in ("join", "report", "allow-erase", "leave"):
+        need_root()
     if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]):
-        return join(argv[2], allow_erase=len(argv) == 4)
+        return locked(join)(argv[2], allow_erase=len(argv) == 4)
     if command == "allow-erase" and argv[2:] in (["on"], ["off"]):
-        return allow_erase(argv[2])
+        return locked(allow_erase)(argv[2])
     if command == "report":
-        return report()
+        return locked(report)()
     if command == "leave":
-        return leave()
+        return locked(leave)()
     print(__doc__.split("\n\n")[1], file=sys.stderr)
     return 64
 

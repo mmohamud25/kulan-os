@@ -39,6 +39,16 @@ def when_text(stamp: str) -> str:
     return f"{when.day} {when:%B %Y}" if when.year != today.year else f"{when.day} {when:%B}"
 
 
+def on_system_disk(path: str) -> bool:
+    """Whether a folder is on the same disk as the system or the home folder."""
+    import os
+    try:
+        dev = os.stat(path).st_dev
+        return dev in (os.stat("/").st_dev, os.stat(GLib.get_home_dir()).st_dev)
+    except OSError:
+        return True
+
+
 def drives() -> list[tuple[str, str, str]]:
     """Disks you can back up to: (uuid, name, icon) of removable or extra
     disks that have a file system (USB drives, a second internal disk)."""
@@ -169,8 +179,11 @@ class BackupsPage(Page):
         labels = [name for _u, name, _i in self.places]
         folder = self.local.get_string("folder") if self.local is not None else ""
         labels.append(f"Folder: {folder}" if current == "local" and folder.startswith("/") else "A folder…")
-        if not self.places:
-            labels.insert(0, "Plug in a USB drive")
+        # Nothing chosen yet: say so first, rather than seem to have picked a drive.
+        chosen = (current == "drive" and chosen_uuid) or current == "local"
+        self.offset = 0 if chosen else 1
+        if not chosen:
+            labels.insert(0, "Choose…" if self.places else "Plug in a USB drive")
         self._filling = True  # what's selected here is the current setting, not a choice
         self.where_row.set_model(Gtk.StringList.new(labels))
         if current == "drive" and chosen_uuid:
@@ -187,7 +200,7 @@ class BackupsPage(Page):
         if self._filling:
             return
         index = row.get_selected()
-        offset = 0 if self.places else 1  # "Plug in a USB drive" comes first when there's none
+        offset = self.offset  # "Choose…" comes first while nothing is chosen
         if index == row.get_model().get_n_items() - 1:
             self.choose_folder()
             return
@@ -198,6 +211,7 @@ class BackupsPage(Page):
         self.drive.set_string("name", name)
         self.drive.set_string("icon", icon)
         self.deja.set_string("backend", "drive")
+        GLib.idle_add(lambda: (self.fill_places(), False)[1])  # the "Choose…" line goes
         self.toast(f"Backups go to {name}")
 
     def choose_folder(self) -> None:
@@ -210,12 +224,12 @@ class BackupsPage(Page):
                 self.fill_places()  # cancelled: back to what was chosen
                 return
             path = folder.get_path() if folder else None
-            home = GLib.get_home_dir()
             if not path:
                 self.fill_places()
                 return
-            if path == home or path.startswith(home + "/"):
-                self.toast("Choose a folder on another disk: a backup inside your home folder doesn’t protect it")
+            if on_system_disk(path):
+                self.toast("Choose a folder on another disk: a backup on this computer’s own disk doesn’t "
+                           "protect it")
                 self.fill_places()
                 return
             self.local.set_string("folder", path)

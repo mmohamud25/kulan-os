@@ -316,8 +316,13 @@ function render() {
   const acts = data.actions.filter((a) => ids.has(a.device_id)).map((a) =>
     el("tr", {}, el("td", {}, ago(a.created_at)), el("td", {}, names[a.device_id] || ""), el("td", {}, LABEL[a.type] || a.type),
        el("td", {}, el("span", { class: `tag ${a.status === "done" ? "good" : a.status === "failed" ? "bad" : "dim"}` },
-                     { pending: "waiting for the computer", sent: "sent", done: "done", failed: "failed" }[a.status] || a.status),
-          a.detail ? el("span", { class: "small" }, ` ${a.detail}`) : "")));
+                     { pending: "waiting for the computer", sent: "sent", done: "done", failed: "failed",
+                       cancelled: "cancelled", expired: "expired" }[a.status] || a.status),
+          a.detail ? el("span", { class: "small" }, ` ${a.detail}`) : "",
+          a.status === "pending" ? el("button", { style: "margin-left: 8px", onclick: async () => {
+            try { await api({ op: "cancel-action", action_id: a.id }); await load(); }
+            catch (e) { $("app-msg").textContent = e.message; }
+          } }, "Cancel") : "")));
   $("actions").replaceChildren(...(acts.length ? acts : [el("tr", {}, el("td", { colspan: "4", class: "empty" }, "Nothing asked yet."))]));
 }
 

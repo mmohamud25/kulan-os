@@ -9,7 +9,7 @@ Before=systemd-user-sessions.service display-manager.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/lib/kulan/lighter-mode apply
+ExecStart=/usr/lib/kulan/lighter-mode apply --boot
 
 [Install]
 WantedBy=multi-user.target

@@ -12,6 +12,7 @@
 //   POST {op: "new-code", organisation_id, hours, uses}    -> {code}          (shown once)
 //   POST {op: "set-policy", organisation_id, policy}       -> {policy}
 //   POST {op: "action", device_id, type, confirm?}         -> {id}
+//   POST {op: "cancel-action", action_id}                  -> {}              (only while it waits)
 //        "erase" needs confirm = the computer's name, and only works on a
 //        computer that's encrypted and whose user allowed it there.
 //
@@ -33,8 +34,10 @@ function cleanPolicy(value: unknown): Record<string, unknown> | null {
   for (const key of ["auto_updates", "firewall", "require_encryption"]) {
     if (v[key] === true) policy[key] = true;
   }
-  const minutes = Number(v.screen_lock_minutes);
-  if (Number.isInteger(minutes) && minutes >= 1 && minutes <= 60) policy.screen_lock_minutes = minutes;
+  const minutes = v.screen_lock_minutes;
+  if (typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 1 && minutes <= 60) {
+    policy.screen_lock_minutes = minutes;
+  }
   return policy;
 }
 
@@ -217,6 +220,17 @@ Deno.serve(async (req: Request) => {
                                 values (${id}, ${body.type}, ${email}) returning id`;
         await audit(org, id, `asked: ${body.type}`);
         return reply(200, { id: row.id });
+      }
+      case "cancel-action": {
+        const id = uuid(body.action_id);
+        const rows = id ? await sql`select a.device_id, a.type, d.organisation_id from fleet.actions a
+                                    join fleet.devices d on d.id = a.device_id where a.id = ${id}` : [];
+        if (!rows.length || !canOrg(rows[0].organisation_id)) return reply(404, { error: "no such request" });
+        const done = await sql`update fleet.actions set status = 'cancelled', finished_at = now()
+                               where id = ${id} and status = 'pending' returning id`;
+        if (!done.length) return reply(400, { error: "too late: the computer already has it" });
+        await audit(rows[0].organisation_id, rows[0].device_id, `cancelled: ${rows[0].type}`);
+        return reply(200, {});
       }
       default:
         return reply(400, { error: "unknown op" });

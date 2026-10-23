@@ -278,6 +278,7 @@ fi
 case "$(say_field restorepoint)" in
 	made) result pass "Restore point" "taken before installing, as Software Update does" ;;
 	skipped) result fail "Restore point" "skipped before the update: $(sed -n 's/^KULAN-UPGRADE: restorelog=//p' <<<"${LOG}" | grep -v '^pmstatus' | tail -n 12 | paste -sd ' ' - | cut -c1-900)" ;;
+	*) [[ -n "$(say_field install)" ]] && result fail "Restore point" "not reported by the updated computer" ;;
 esac
 RESTART="$(say_field restart_required)"
 [[ -n "${RESTART}" ]] && result info "Restart needed for" "${RESTART}"
