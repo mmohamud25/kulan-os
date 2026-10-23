@@ -371,8 +371,13 @@ class KulanUpdateIndicator extends PanelMenu.Button {
     }
 
     update(status) {
-        const available = Array.isArray(status?.available) ? status.available.length : 0;
-        const security = Number.isInteger(status?.security) ? status.security : 0;
+        // Counted the way Software Update counts them ("count", grouped by what
+        // people know), so both say the same number; raw counts from an
+        // older status file.
+        const raw = Array.isArray(status?.available) ? status.available.length : 0;
+        const available = Number.isInteger(status?.count) ? status.count : raw;
+        const security = Number.isInteger(status?.security_count) ? status.security_count
+            : Number.isInteger(status?.security) ? status.security : 0;
         const since = Number(status?.running_since) || 0;
         const running = status?.state === 'running' && Date.now() / 1000 - since < STALE_RUNNING_S;
 

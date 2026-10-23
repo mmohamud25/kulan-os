@@ -318,6 +318,7 @@
 .kulan-spotlight-row:hover { background-color: rgba(0, 0, 0, 0.05); }
 .kulan-spotlight-row:selected { background-color: #0d9488; color: #ffffff; }
 .kulan-spotlight-row:selected .kulan-spotlight-description { color: rgba(255, 255, 255, 0.85); }
+.kulan-spotlight-empty { padding: 10px 12px; color: rgba(0, 0, 0, 0.55); }
 .kulan-spotlight-row-box { spacing: 12px; }
 .kulan-spotlight-name { font-weight: 600; }
 .kulan-spotlight-description { font-size: 0.85em; color: rgba(0, 0, 0, 0.55); }

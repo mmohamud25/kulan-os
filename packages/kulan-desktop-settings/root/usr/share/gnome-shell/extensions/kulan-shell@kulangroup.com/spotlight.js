@@ -38,6 +38,7 @@ export class Spotlight {
         this._generation = 0;
         this._sections = [];
         this._rows = [];
+        this._pending = 0;
         this._selected = 0;
         this._userMoved = false;
         this._activatePending = false;
@@ -98,7 +99,7 @@ export class Spotlight {
             y: Math.round(monitor.height * 0.18),
         });
         this._entry = new St.Entry({
-            hint_text: 'Spotlight Search',
+            hint_text: 'Search apps, files and settings',
             can_focus: true,
             x_expand: true,
             style_class: 'kulan-spotlight-entry',
@@ -200,6 +201,7 @@ export class Spotlight {
         const cancellable = new Gio.Cancellable();
         this._cancellable = cancellable;
         this._sections = this._providers.map(() => null);
+        this._pending = this._providers.length;
         this._render();
 
         // Each source answers in its own time; results show as they come, in
@@ -222,6 +224,13 @@ export class Spotlight {
             } catch (e) {
                 if (!(e instanceof GLib.Error && e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)))
                     logError(e, `Kulan Shell: search source ${provider.id}`);
+            } finally {
+                // Every source has answered (or failed): "No results" can show.
+                if (generation === this._generation) {
+                    this._pending = Math.max(0, (this._pending ?? 1) - 1);
+                    if (this._pending === 0 && this._rows.length === 0)
+                        this._render();
+                }
             }
         });
     }
@@ -250,7 +259,16 @@ export class Spotlight {
             for (const meta of section.metas)
                 this._addRow(section.provider, meta);
         }
-        this._scroll.visible = this._rows.length > 0;
+        const text = this._entry?.get_text().trim() ?? '';
+        if (this._rows.length === 0 && text) {
+            // Still looking, or nothing found: say so instead of an empty panel.
+            const message = this._pending > 0 ? 'Searching…'
+                : `No results for “${text}”. Try other words, or ask Kulan Assistant with Shift+Super+Space.`;
+            const label = new St.Label({text: message, style_class: 'kulan-spotlight-empty'});
+            label.clutter_text.line_wrap = true;
+            this._results.add_child(label);
+        }
+        this._scroll.visible = this._rows.length > 0 || Boolean(text);
         if (!this._userMoved)
             this._selected = 0;
         this._select(Math.min(this._selected, this._rows.length - 1), false);

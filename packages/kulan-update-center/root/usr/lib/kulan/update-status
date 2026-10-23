@@ -204,6 +204,27 @@ def write_status(status: dict) -> None:
         raise
 
 
+def counted(updates: list[dict]) -> tuple[int, int]:
+    """(updates, security updates) as Software Update counts them: grouped by
+    what people know (all of Firefox's packages are one update), so the top
+    bar says the same number. Kulan Settings' own grouping when it's there."""
+    try:
+        sys.path.insert(0, "/usr/share/kulan-settings")
+        from kulan_settings import updatelist  # noqa: PLC0415 - optional, from kulan-settings
+        version = ""
+        with open("/etc/os-release", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VERSION_ID="):
+                    version = line.split("=", 1)[1].strip().strip('"')
+        summary = updatelist.summarize(updates, version)
+        return int(summary["count"]), len(summary["security"])
+    except Exception:  # noqa: BLE001 - kulan-settings missing or older: plain counts
+        return len(updates), sum(1 for u in updates if u.get("security"))
+    finally:
+        if sys.path and sys.path[0] == "/usr/share/kulan-settings":
+            sys.path.pop(0)
+
+
 def main(argv: list[str]) -> int:
     action = argv[1] if len(argv) > 1 else ""
     if action not in ("refresh", "running"):
@@ -219,11 +240,15 @@ def main(argv: list[str]) -> int:
         status["running_since"] = int(time.time())
     else:
         updates = available_updates() + app_updates()
+        count, security_count = counted(updates)
         status.update({
             "state": "idle",
             "checked": int(time.time()),
             "available": updates,
             "security": sum(1 for u in updates if u["security"]),
+            # What a person counts (Software Update and the top bar show these).
+            "count": count,
+            "security_count": security_count,
             "last_run": last_run(),
             "restart_required": restart_required(),
             "paused_until": paused_until(),
