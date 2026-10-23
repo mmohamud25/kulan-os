@@ -56,6 +56,18 @@ sleep 5 # let the session settle
 	# service skips the live session, so it's run through systemd-run).
 	systemctl start kulan-update-status.service 2>/dev/null
 	echo "statusservice=$(systemctl show -P Result kulan-update-status.service 2>/dev/null) $(stat -c %Y /var/lib/kulan/updates.json 2>/dev/null)"
+	# Kulan Shell really running in the person's desktop (state 1 = active;
+	# a JavaScript error shows as state 3 with the error).
+	SHELL_EXT=""
+	U="$(desktop_user)"
+	if [ -n "${U}" ]; then
+		UID_="$(id -u "${U}")"
+		SHELL_EXT="$(runuser -u "${U}" -- env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${UID_}/bus" \
+			timeout 10 gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
+			--method org.gnome.Shell.Extensions.GetExtensionInfo kulan-shell@kulangroup.com 2>&1 |
+			grep -oE "'(state|error)': <[^>]*>" | tr '\n' ' ' | cut -c1-300)"
+	fi
+	echo "kulanshell=${SHELL_EXT}"
 	# Lighter mode (on by itself under 5 GB): the flag, and file search
 	# really running at the lowest priority in the person's session.
 	LIGHT=off

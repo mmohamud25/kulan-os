@@ -117,7 +117,7 @@ class PrivacyPage(Page):
         self.name_row.add_css_class("property")
         rename = Gtk.Button(label="Make private", valign=Gtk.Align.CENTER,
                             tooltip_text="Use a name that doesn’t include yours, such as kulan-3fa9c2")
-        rename.connect("clicked", lambda _b: self.set_name(private_name()))
+        rename.connect("clicked", lambda _b: self.ask_name(private_name()))
         edit = Gtk.Button(icon_name="document-edit-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
                           tooltip_text="Choose a name")
         edit.update_property([Gtk.AccessibleProperty.LABEL], ["Choose a name"])
@@ -211,11 +211,14 @@ class PrivacyPage(Page):
     def shown(self) -> None:
         self.name_row.set_subtitle(GLib.markup_escape_text(current_name()))
 
-    def ask_name(self) -> None:
-        dialog = Adw.AlertDialog(heading="Computer name",
-                                 body="Letters, numbers and dashes. Avoid your own name: other devices on "
-                                      "the network can see it.")
-        entry = Gtk.Entry(text=current_name(), activates_default=True)
+    def ask_name(self, suggested: str | None = None) -> None:
+        """Choose a name; with suggested (Make private), a private one is filled in to confirm or change."""
+        body = ("Letters, numbers and dashes. Avoid your own name: other devices on the network can see it."
+                if suggested is None else
+                f"Other devices on the network will see this computer as “{suggested}” instead of "
+                f"“{current_name()}”. You can change it first.")
+        dialog = Adw.AlertDialog(heading="Make the name private" if suggested else "Computer name", body=body)
+        entry = Gtk.Entry(text=suggested or current_name(), activates_default=True)
         dialog.set_extra_child(entry)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("rename", "Rename")

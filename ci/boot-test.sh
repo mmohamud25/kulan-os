@@ -195,6 +195,14 @@ if [[ "${STATUS_SVC}" == success\ [0-9]* ]]; then
 elif [[ -n "${STATUS_SVC}" ]]; then
 	result fail "Sandboxed status service" "kulan-update-status: ${STATUS_SVC}"
 fi
+SHELL_EXT="$(field kulanshell)"
+if [[ "${SHELL_EXT}" == *"'state': <1.0>"* || "${SHELL_EXT}" == *"'state': <1>"* ]]; then
+	result pass "Kulan Shell" "running in the desktop (Spotlight, Ask Kulan, widgets, clipboard history)"
+elif [[ -n "${SHELL_EXT}" ]]; then
+	result fail "Kulan Shell" "not running: ${SHELL_EXT}"
+else
+	result info "Kulan Shell" "not reported"
+fi
 LIGHT="$(field lighter)"
 if [[ -z "${LIGHT}" ]]; then
 	result info "Lighter mode" "not reported"
