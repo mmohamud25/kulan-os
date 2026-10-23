@@ -75,3 +75,36 @@ ships first.
 
 ## Undecided
 - The assistant's name: Kulan Assistant, or something like Caawiye.
+
+## Status (23 October 2026)
+Decided with Mohamud: 2.5 is "Ask Kulan, and everything underneath made
+solid". Fleet v2 and the rest of the assistant actions move to 2.6.
+
+Done on kulan-os-2.5 (tested in CI, waiting for "release it"):
+- Ask Kulan panel (Shift+Cmd+Space) and service; actions: tidy Downloads or
+  the Desktop, reminders (listed and cancellable in Settings › Assistant),
+  fix Wi-Fi, fix sound, check storage; answers from this computer's facts.
+- Inspection of every app and the system (Oct 23), fixed:
+  - updates published only after every test; interrupted updates finished
+    first; space checked; lock waited for; restore point before automatic
+    updates; Undo warns about later updates; restart notice after
+    automatic updates; one update count everywhere; firmware updates (fwupd)
+  - a failing desktop setup step no longer blocks apt
+  - TPM unlock with a start-up PIN (recommended), tested in CI with a PIN
+  - assistant: readiness check with a button everywhere, no frozen window
+  - installer: next-to-Windows explained, keyboard test, background disk
+    scan, honest failures, failed partitions removed, Try Again keeps answers
+  - search "No results"; Fleet stays signed in offline; Setup Assistant
+    handoffs and claims; Hibernate only when possible; Live Text languages
+- Speed: apps warmed after sign-in; CI speed budget.
+- Terminal: power tools, kulan command, Alt+K, missing-command help.
+- Printers page; one search.
+
+Still to do for 2.5: trim the PC ISO under ~1.8 GB (measuring); review the
+real-desktop screenshots of every Settings page.
+
+Moved to 2.6: Fleet v2; more assistant actions (photos by date, duplicates,
+timers, to-dos, Bluetooth/printer fixes, backups); Sharing page; NVIDIA
+driver add-on with Secure Boot signing; Broadcom wl; an upgrade test from
+the previous release on an installed VM; sleep/wake and dual-boot tests;
+Valid-Until on the update channel (needs regular re-signing).
