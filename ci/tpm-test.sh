@@ -224,19 +224,16 @@ qemu-system-x86_64 "${ACCEL[@]}" -m 4096 -smp 2 -machine q35,smm=on \
 	-netdev user,id=net0 -device virtio-net-pci,netdev=net0 -device virtio-rng-pci &
 QEMU_PID=$!
 
-reports() {
-	local n
-	n="$(grep -c "KULAN-BOOT-REPORT-END" "${OUT}/serial.log" 2>/dev/null)"
-	echo "${n:-0}"
+# The second start's report is the first one after the kernel's "reboot:
+# Restarting system" line. (The first start may or may not report before the
+# setup step restarts it, so counting reports or boot_ids isn't reliable.)
+second_report() {
+	tr -d '\r' < "${OUT}/serial.log" 2>/dev/null |
+		awk '/reboot: Restarting system/ {after=1; next} after && /KULAN-BOOT-REPORT-BEGIN/ {r=1; buf=""}
+			r {buf=buf $0 "\n"} r && /KULAN-BOOT-REPORT-END/ {printf "%s", buf; exit}'
 }
-# The first start reports too (before or after the setup step); the second
-# start's report is the one that counts.
-# Each start's report carries its boot_id; the setup step restarts the
-# computer, so a second boot_id means the second start has reported. (The
-# setup step's own lines can be cut short on the console as it restarts.)
-boot_ids() { tr -d '\r' < "${OUT}/serial.log" 2>/dev/null | sed -n 's/^.*boot_id=\([0-9a-f-]*\).*$/\1/p' | awk '!seen[$0]++'; }
 while (( $(date +%s) - START < WAIT_S )); do
-	[[ "$(boot_ids | wc -l)" -ge 2 ]] && break
+	[[ -n "$(second_report)" ]] && break
 	kill -0 "${QEMU_PID}" 2>/dev/null || break
 	sleep 5
 done
@@ -293,12 +290,7 @@ if grep -qx 'key_removed=0' <<<"${SETUP}" && grep -q 'tpm2-device=auto' <<<"${SE
 else
 	result fail "Only TPM or password left" "$(grep -E '^(key_removed|dracut|crypttab)=' <<<"${SETUP}" | tr '\n' ' ')"
 fi
-# The second start's report: the block whose boot_id is the second one seen.
-SECOND_ID="$(boot_ids | sed -n 2p)"
-SECOND=""
-if [[ -n "${SECOND_ID}" ]]; then
-	SECOND="$(awk -v id="boot_id=${SECOND_ID}" '/KULAN-BOOT-REPORT-BEGIN/{buf=""; r=1} r{buf=buf $0 "\n"} r && /KULAN-BOOT-REPORT-END/{r=0; if (index(buf, id)) {printf "%s", buf; exit}}' <<<"${LOG}")"
-fi
+SECOND="$(second_report)"
 if [[ -n "${SECOND}" ]] && grep -qx 'desktop_user=kulan' <<<"${SECOND}"; then
 	result pass "Start with TPM unlock" "the encrypted disk opened by itself and the desktop came up (${ELAPSED} s for both starts)"
 	UNLOCK="$(sed -n 's/^unlock=//p' <<<"${SECOND}")"
@@ -309,9 +301,9 @@ if [[ -n "${SECOND}" ]] && grep -qx 'desktop_user=kulan' <<<"${SECOND}"; then
 	fi
 else
 	result fail "Start with TPM unlock" "no desktop after the restart within ${ELAPSED} s (waiting for a password?): $(tail -n 3 <<<"${LOG}" | tr '\n' ' ' | cut -c1-200)"
-	# Everything the console showed after the first start's report: the
-	# restart, the start-up image and any password prompt.
-	AFTER="$(awk '/KULAN-BOOT-REPORT-END/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' <<<"${LOG}" |
+	# Everything the console showed after the restart: the start-up image and
+	# any password prompt (or, with no restart, what came last).
+	AFTER="$(awk '/reboot: Restarting system/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' <<<"${LOG}" |
 		sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | tr -cd '\11\12\40-\176' | grep -v '^[[:space:]]*$' | cut -c1-200 | tail -n 60)"
 	echo "::error title=TPM test: console after the restart::$(printf '%s' "${AFTER:-nothing at all on the console after the first start}" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
 fi
