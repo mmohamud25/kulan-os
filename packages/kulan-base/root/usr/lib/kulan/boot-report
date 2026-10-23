@@ -56,6 +56,14 @@ sleep 5 # let the session settle
 	# service skips the live session, so it's run through systemd-run).
 	systemctl start kulan-update-status.service 2>/dev/null
 	echo "statusservice=$(systemctl show -P Result kulan-update-status.service 2>/dev/null) $(stat -c %Y /var/lib/kulan/updates.json 2>/dev/null)"
+	# On an installed system (the install test), once: a restore point
+	# through the sandboxed service, the way the daily timer takes one.
+	if grep -qw 'kulan.restart-test' /proc/cmdline && [ -f /usr/lib/systemd/system/kulan-restore-points.service ] &&
+		[ ! -e /var/lib/kulan/boot-report-restore-point ]; then
+		mkdir -p /var/lib/kulan && touch /var/lib/kulan/boot-report-restore-point
+		timeout 1200 systemctl start kulan-restore-points.service 2>/dev/null
+		echo "restorepoint=$(systemctl show -P Result kulan-restore-points.service 2>/dev/null) $(find /timeshift/snapshots -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
+	fi
 	UNIT=/usr/lib/systemd/system/kulan-app-updates.service
 	if [ -f "${UNIT}" ] && command -v systemd-run >/dev/null 2>&1; then
 		PROPS="$(mktemp)"

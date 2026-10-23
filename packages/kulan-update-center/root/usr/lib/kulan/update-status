@@ -35,6 +35,10 @@ def in_build_chroot() -> bool:
     """True while an ISO is being built (live-build runs apt in a chroot)."""
     if os.environ.get("KULAN_STATUS_FORCE") == "1":
         return False
+    # Started by systemd (its sandbox looks like a chroot to ischroot, but
+    # systemd never runs inside an ISO build).
+    if os.environ.get("INVOCATION_ID"):
+        return False
     try:
         return subprocess.run(["ischroot"], check=False).returncode == 0
     except OSError:

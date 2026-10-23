@@ -312,7 +312,7 @@ jobs:
       needs.files.result == 'success'
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}

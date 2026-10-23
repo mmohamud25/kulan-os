@@ -44,6 +44,9 @@ log() { echo "kulan restore-points: $*" >&2; }
 is_live_or_build() {
 	[[ "${KULAN_RESTORE_FORCE:-0}" == 1 ]] && return 1 # tests only
 	grep -qw 'boot=live' /proc/cmdline 2>/dev/null && return 0
+	# Started by systemd: never an ISO build (its sandbox looks like a chroot
+	# to ischroot).
+	[ -n "${INVOCATION_ID:-}" ] && return 1
 	ischroot 2>/dev/null && return 0
 	return 1
 }
