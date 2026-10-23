@@ -233,7 +233,7 @@ check "Anonymous count on by default" "weekly count timer enabled, its own user,
 check "What the count sends" "only version, PC or Mac and age; the version matches Kulan OS" python3 -c '
 import json, subprocess
 d = json.loads(subprocess.run(["/usr/lib/kulan/countme", "show"], capture_output=True, text=True, check=True).stdout)
-vid = [l.split("=", 1)[1].strip("\"") for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]
+vid = [l.split("=", 1)[1].strip().strip("\"") for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]
 assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age"}, d
 assert d["sends"]["version"] == ".".join(vid.split(".")[:2]) and d["sends"]["arch"] in ("amd64", "arm64") and d["sends"]["age"] == 1, d
 assert d["to"].startswith("https://"), d'
