@@ -11,6 +11,8 @@
   kulan-assistant search-provider                         the Activities search service (D-Bus)
   kulan-assistant ask-service                             Ask Kulan's service for the desktop (D-Bus)
   kulan-assistant reminder-fire ID                        show a reminder (run by its timer)
+  kulan-assistant reminders                               list reminders still to come, as JSON
+  kulan-assistant reminder-cancel ID                      cancel a reminder
   kulan-assistant self-test                               check the actions without a model
 
 TASK is one of: proofread, rewrite, friendly, professional, shorter, summary,
@@ -46,6 +48,9 @@ def main(argv: list[str]) -> int:
     sub.add_parser("ask-service", help="run Ask Kulan's service for the desktop (D-Bus activated)")
     fire = sub.add_parser("reminder-fire", help="show a reminder and clear it (run by its timer)")
     fire.add_argument("id")
+    sub.add_parser("reminders", help="list reminders still to come, as JSON")
+    cancel = sub.add_parser("reminder-cancel", help="cancel a reminder")
+    cancel.add_argument("id")
     sub.add_parser("self-test", help="check the actions without a model")
     do = sub.add_parser("do", help="\"Do it for me\": a window that plans Kulan actions and does them")
     do.add_argument("request", nargs="*", help="what to do (or type it in the window)")
@@ -106,6 +111,19 @@ def main(argv: list[str]) -> int:
         from kulan_assistant import agent, ask_service
         agent.self_test()
         ask_service.self_test()
+        return 0
+
+    if args.command == "reminders":
+        from kulan_assistant import agent
+        print(json.dumps(agent.list_reminders(), indent=2))
+        return 0
+
+    if args.command == "reminder-cancel":
+        from kulan_assistant import agent
+        if not any(r["id"] == args.id for r in agent.list_reminders()):
+            print("kulan-assistant: no such reminder", file=sys.stderr)
+            return 1
+        agent.remove_reminder(args.id)
         return 0
 
     if args.command == "reminder-fire":

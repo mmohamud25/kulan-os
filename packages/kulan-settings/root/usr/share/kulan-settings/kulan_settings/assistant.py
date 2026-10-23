@@ -1,10 +1,13 @@
 """Assistant: Kulan Assistant's models and features, all on this computer."""
 from __future__ import annotations
 
+import json
 import os
+import re
+from datetime import datetime
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import Page, choice_row, read_json, settings, switch_row
 
@@ -112,6 +115,12 @@ class AssistantPage(Page):
         features.add(choice_row("Translate to", None, choices, lambda: self.settings.get_string("translate-to"),
                                 lambda v: self.settings.set_string("translate-to", v)))
 
+        # Reminders set with Ask Kulan: see what's coming, cancel one.
+        self.reminders_group = self.add_group(
+            "Reminders", "Ask Kulan sets them (Shift+Super+Space: “remind me at 5 to call Amina”). They come even "
+                         "after a restart.")
+        self.reminder_rows: list[Gtk.Widget] = []
+
         if WHISPER.exists() and self.settings.props.settings_schema.has_key("dictation"):
             dictation = self.add_group("Dictation", "Press Shift+Super+D, speak, then press it again: the words "
                                                     "are typed where the cursor is. Nothing is recorded or kept.")
@@ -130,9 +139,51 @@ class AssistantPage(Page):
         self.listen_busy(self.on_busy)
         self.shown()
 
+    def show_reminders(self) -> None:
+        for row in self.reminder_rows:
+            self.reminders_group.remove(row)
+        self.reminder_rows = []
+        base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+        found = []
+        for path in sorted((base / "kulan-assistant" / "reminders").glob("*.json")):
+            try:
+                data = json.loads(path.read_text())
+                at = datetime.fromisoformat(str(data["at"]))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if re.fullmatch(r"[0-9a-f]{12}", path.stem):
+                found.append((at, path.stem, str(data.get("message", ""))[:120]))
+        if not found:
+            row = Adw.ActionRow(title="No reminders", subtitle="Ask Kulan to remind you about something")
+            self.reminders_group.add(row)
+            self.reminder_rows.append(row)
+            return
+        for at, rid, message in sorted(found):
+            when = at.strftime("%A %-d %B, %H:%M") if at.date() != datetime.now().date() else at.strftime("Today, %H:%M")
+            row = Adw.ActionRow(title=GLib.markup_escape_text(message), subtitle=when)
+            cancel = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                                tooltip_text="Cancel this reminder")
+            cancel.update_property([Gtk.AccessibleProperty.LABEL], [f"Cancel the reminder: {message}"])
+            cancel.connect("clicked", lambda _b, r=rid: self.cancel_reminder(r))
+            row.add_suffix(cancel)
+            self.reminders_group.add(row)
+            self.reminder_rows.append(row)
+
+    def cancel_reminder(self, rid: str) -> None:
+        try:
+            proc = Gio.Subprocess.new(["kulan-assistant", "reminder-cancel", rid], Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            self.toast("Couldn’t cancel it")
+            return
+        proc.wait_async(None, lambda p, r: (p.wait_finish(r), self.show_reminders(),
+                                           self.toast("Reminder cancelled" if p.get_successful()
+                                                      else "Couldn’t cancel it")))
+
     def shown(self) -> None:
         if not self.groups:
             return
+        if hasattr(self, "reminders_group"):
+            self.show_reminders()
         self.buttons = []
         for kind, group in self.groups.items():
             for row in self.rows.get(kind, []):

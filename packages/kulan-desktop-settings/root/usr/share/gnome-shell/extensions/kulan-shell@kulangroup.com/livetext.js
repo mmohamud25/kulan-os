@@ -35,7 +35,7 @@ export class LiveText {
             return;
         const tesseract = GLib.find_program_in_path('tesseract');
         if (!tesseract) {
-            Main.notify(TITLE, 'Text recognition isn’t installed. Install “tesseract-ocr” in Software.');
+            Main.notify(TITLE, 'Text recognition isn’t installed. In the Terminal: sudo apt install tesseract-ocr');
             return;
         }
         this._busy = true;
@@ -101,8 +101,37 @@ export class LiveText {
         source.addNotification(notification);
     }
 
+    // The languages to read: this computer's language first when its
+    // recognition data is installed, then English and Arabic when they are
+    // (Kulan OS ships both), at most three (each one slows recognition).
+    _languages() {
+        const installed = new Set();
+        for (const dir of ['/usr/share/tesseract-ocr/5/tessdata', '/usr/share/tesseract-ocr/4.00/tessdata',
+            '/usr/share/tessdata']) {
+            try {
+                const listing = Gio.File.new_for_path(dir).enumerate_children('standard::name',
+                    Gio.FileQueryInfoFlags.NONE, null);
+                let info;
+                while ((info = listing.next_file(null)) !== null) {
+                    const name = info.get_name();
+                    if (name.endsWith('.traineddata') && name !== 'osd.traineddata')
+                        installed.add(name.slice(0, -'.traineddata'.length));
+                }
+            } catch {
+                // not there
+            }
+        }
+        const codes = {ar: 'ara', fr: 'fra', es: 'spa', de: 'deu', it: 'ita', pt: 'por', nl: 'nld', sv: 'swe',
+            tr: 'tur', ru: 'rus', zh: 'chi_sim', ja: 'jpn', ko: 'kor', hi: 'hin', ur: 'urd', sw: 'swa', am: 'amh',
+            fa: 'fas', id: 'ind', pl: 'pol', uk: 'ukr', so: 'som'};
+        const lang = (GLib.get_language_names()[0] ?? 'en').slice(0, 2);
+        const wanted = [codes[lang], 'eng', 'ara'].filter(code => code && installed.has(code));
+        const unique = [...new Set(wanted)].slice(0, 3);
+        return unique.length > 0 ? unique.join('+') : 'eng';
+    }
+
     async _recognise(tesseract, path) {
-        const proc = Gio.Subprocess.new([tesseract, path, 'stdout', '-l', 'eng'],
+        const proc = Gio.Subprocess.new([tesseract, path, 'stdout', '-l', this._languages()],
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
         const cancellable = this._cancellable;
         let timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, TIMEOUT_S, () => {

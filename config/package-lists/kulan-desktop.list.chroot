@@ -54,6 +54,7 @@ baobab
 # Live Text: copy text out of anything on screen (Super+Shift+T)
 tesseract-ocr
 tesseract-ocr-eng
+tesseract-ocr-ara
 python3-nautilus
 # Terminal: Ptyxis with Kulan colours, zsh with suggestions and highlighting
 ptyxis

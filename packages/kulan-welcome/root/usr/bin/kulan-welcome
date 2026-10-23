@@ -527,7 +527,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         for row in rows:
             group.add(row)
         group.add(self.link_row("More accessibility options", "Typing, pointing, sound and more",
-                                lambda: self.open_gnome("universal-access")))
+                                lambda: self.open_settings("accessibility")))
         box.append(group)
         return self.page(box)
 
@@ -566,6 +566,12 @@ class WelcomeWindow(Adw.ApplicationWindow):
         dns = Gtk.Button(label="Turn on", valign=Gtk.Align.CENTER)
         dns.connect("clicked", self.on_adblock_dns)
         dns.set_sensitive(not self.live and Path(UPDATE_HELPER).exists())
+        try:  # already on (set in Kulan Settings › Privacy, or earlier here)
+            if "adblock.dns.mullvad.net" in Path("/etc/systemd/resolved.conf.d/60-kulan-dns.conf").read_text():
+                dns.set_label("On")
+                dns.set_sensitive(False)
+        except OSError:
+            pass
         self.dns_row.add_suffix(dns)
         group.add(self.dns_row)
         box.append(group)
@@ -759,11 +765,13 @@ class WelcomeWindow(Adw.ApplicationWindow):
     def build_passwords(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.append(self.heading("Your passwords", "Keep every password in an encrypted vault on this computer. "
-                                "Firefox can fill them in for you.", "dialog-password-symbolic"))
+                                "With KeePassXC’s browser add-on, Firefox can fill them in for you.",
+                                "dialog-password-symbolic"))
         group = Adw.PreferencesGroup(description="Choose one strong main password for the vault and write it "
                                      "down somewhere safe: it can't be recovered.")
-        vault = Adw.ActionRow(title="Create your password vault", subtitle="KeePassXC, built in and offline")
-        button = Gtk.Button(label="Create", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        vault = Adw.ActionRow(title="Set up your password vault",
+                              subtitle="KeePassXC, built in and offline: choose “Create new database”")
+        button = Gtk.Button(label="Open KeePassXC", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         button.connect("clicked", lambda _b: self.open_app("org.keepassxc.KeePassXC.desktop",
                                                            "KeePassXC isn't installed. Get it in Software."))
         vault.add_suffix(button)
@@ -938,7 +946,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
                     encrypted,
                 )
             )
-        group.add(self.status_row("Screen lock", "Locks after 5 minutes away, or when the lid closes", True))
+        group.add(self.screen_lock_row())
         group.add(self.status_row("Private browsing defaults",
                                   "Firefox blocks ads, trackers and cookie banners, and sends no usage data",
                                   Path("/etc/firefox/policies/policies.json").exists()))
@@ -948,6 +956,20 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                lambda: self.open_settings("security")))
         box.append(more)
         return self.page(box)
+
+    def screen_lock_row(self) -> Adw.ActionRow:
+        """The screen lock as it's actually set."""
+        saver, session = settings("org.gnome.desktop.screensaver"), settings("org.gnome.desktop.session")
+        locks = saver.get_boolean("lock-enabled") if has_key(saver, "lock-enabled") else None
+        delay = session.get_uint("idle-delay") if has_key(session, "idle-delay") else 0
+        if locks is None:
+            return self.status_row("Screen lock", "Set it in Kulan Settings › Security", None)
+        if not locks or not delay:
+            return self.status_row("Screen lock", "Off: anyone at this computer can use it while you’re away. "
+                                   "Turn it on in Kulan Settings › Security", False)
+        minutes = max(1, delay // 60)
+        return self.status_row("Screen lock", f"Locks after {minutes} minute{'s' if minutes != 1 else ''} away, "
+                               "or when the lid closes", True)
 
     @staticmethod
     def status_row(title: str, subtitle: str, state: bool | None) -> Adw.ActionRow:

@@ -393,6 +393,22 @@ def set_reminder(a: dict) -> Result:
     return Result(True, f"I'll remind you {when_words(at)}", undo=lambda: remove_reminder(rid))
 
 
+def list_reminders() -> list[dict]:
+    """Reminders still to come: [{"id", "message", "at"}], soonest first."""
+    out = []
+    for path in sorted(reminders_dir().glob("*.json")):
+        rid = path.stem
+        if not re.fullmatch(r"[0-9a-f]{12}", rid):
+            continue
+        try:
+            data = json.loads(path.read_text())
+            datetime.datetime.fromisoformat(str(data["at"]))
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+        out.append({"id": rid, "message": str(data.get("message", ""))[:120], "at": str(data["at"])})
+    return sorted(out, key=lambda r: r["at"])
+
+
 def fire_reminder(rid: str) -> int:
     """Run by the reminder's timer: show it, then clear it away."""
     if not re.fullmatch(r"[0-9a-f]{12}", rid):
@@ -744,7 +760,9 @@ def self_test() -> None:
                 assert f"ExecStart=/usr/bin/kulan-assistant reminder-fire {rid}" in service and "Amina" not in service
                 assert json.loads((reminders_dir() / f"{rid}.json").read_text())["message"] == "Call Amina"
                 assert ("enable", "--now", f"kulan-reminder-{rid}.timer") in calls
+                assert [r["message"] for r in list_reminders()] == ["Call Amina"], list_reminders()
                 result.undo()
+                assert list_reminders() == []
                 assert not list(units_dir().glob("kulan-reminder-*")) and not list(reminders_dir().glob("*"))
                 remove_reminder("../../etc")  # refused quietly
                 assert fire_reminder("../x") == 2
