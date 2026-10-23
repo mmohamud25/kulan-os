@@ -195,6 +195,21 @@ if [[ "${STATUS_SVC}" == success\ [0-9]* ]]; then
 elif [[ -n "${STATUS_SVC}" ]]; then
 	result fail "Sandboxed status service" "kulan-update-status: ${STATUS_SVC}"
 fi
+LIGHT="$(field lighter)"
+if [[ -z "${LIGHT}" ]]; then
+	result info "Lighter mode" "not reported"
+elif (( MEMORY <= 4096 )); then
+	# 4 GB or less: on by itself, and file search at the lowest priority.
+	if [[ "${LIGHT}" == "on success search_nice=19 "* ]]; then
+		result pass "Lighter mode" "on by itself with ${MEMORY} MB; file search runs at the lowest priority"
+	else
+		result fail "Lighter mode" "expected on with ${MEMORY} MB, file search at priority 19: ${LIGHT}"
+	fi
+elif [[ "${LIGHT}" == "off success "* ]]; then
+	result pass "Lighter mode" "off with ${MEMORY} MB, as it should be"
+else
+	result fail "Lighter mode" "expected off with ${MEMORY} MB: ${LIGHT}"
+fi
 APP_SB="$(field appsandbox)"
 if [[ "${APP_SB}" == 0* ]]; then
 	result pass "Sandboxed app updates" "app updates' lookup works inside its sandbox"

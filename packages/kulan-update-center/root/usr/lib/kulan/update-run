@@ -16,6 +16,7 @@
 #   update-run security-checkup           run Lynis; summary in /var/lib/kulan/security-checkup.json
 #   update-run firewall-on                turn the firewall on (block incoming)
 #   update-run countme-on|countme-off     the anonymous weekly count on or off (/usr/lib/kulan/countme)
+#   update-run lighter on|off|auto        lighter mode for computers with little memory (/usr/lib/kulan/lighter-mode)
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
@@ -438,6 +439,13 @@ PY
 		[[ $# -eq 1 ]] || die "usage: update-run compliance-off"
 		[[ -x /usr/bin/kulan-compliance ]] || die "Compliance mode isn't installed."
 		/usr/bin/kulan-compliance off 1>&2
+		;;
+	lighter)
+		[[ $# -eq 2 ]] || die "usage: update-run lighter on|off|auto"
+		case "$2" in
+			on | off | auto) /usr/lib/kulan/lighter-mode set "$2" ;;
+			*) die "usage: update-run lighter on|off|auto" ;;
+		esac
 		;;
 	countme-on)
 		[[ $# -eq 1 ]] || die "usage: update-run countme-on"

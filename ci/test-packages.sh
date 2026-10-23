@@ -255,6 +255,26 @@ m.send({"version": "2.6", "arch": "amd64", "age": 2}, url=f"http://127.0.0.1:{sr
 assert got == [("application/json", {"version": "2.6", "arch": "amd64", "age": 2}, None)], got
 srv.shutdown()
 PY2
+check "Lighter mode" "on, off and automatic are remembered and applied: shell flag, file search priority and zram size only when on" bash -c '
+	L=/usr/lib/kulan/lighter-mode
+	systemctl is-enabled kulan-lighter-mode.service >/dev/null 2>&1 || test -L /etc/systemd/system/multi-user.target.wants/kulan-lighter-mode.service || { echo "service not enabled"; exit 1; }
+	/usr/lib/kulan/update-run lighter on || exit 1
+	test "$(cat /etc/kulan/lighter-mode)" = on && test -e /run/kulan/lighter-mode && grep -qx "Nice=19" /run/systemd/user/localsearch-3.service.d/60-kulan-lighter.conf && grep -q "min(ram, 8192)" /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf || { echo "on not applied"; exit 1; }
+	$L status | python3 -c "import json,sys; d=json.load(sys.stdin); assert d[\"on\"] and d[\"choice\"] == \"on\" and d[\"active_now\"], d" || exit 1
+	/usr/lib/kulan/update-run lighter off || exit 1
+	test ! -e /run/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /run/systemd/user/localsearch-3.service.d/60-kulan-lighter.conf || { echo "off not applied"; exit 1; }
+	/usr/lib/kulan/update-run lighter auto || exit 1
+	test ! -e /etc/kulan/lighter-mode || { echo "auto kept a choice"; exit 1; }
+	$L status | python3 -c "import json,sys; d=json.load(sys.stdin); m=int(open(\"/proc/meminfo\").read().split()[1]); assert d[\"choice\"] == \"auto\" and d[\"on\"] == (m < 5*1024*1024), d"
+	! /usr/lib/kulan/update-run lighter sometimes 2>/dev/null'
+check "Lighter mode for the assistant" "the model unloads after 2 minutes in lighter mode, 10 otherwise" python3 -c '
+import sys; sys.path.insert(0, "/usr/share/kulan-assistant")
+from pathlib import Path; import tempfile
+from kulan_assistant import engine
+engine.LIGHTER_FLAG = Path(tempfile.mkdtemp(), "flag")
+assert engine.idle_minutes() == 10
+engine.LIGHTER_FLAG.write_text("on")
+assert engine.idle_minutes() == 2'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
@@ -643,7 +663,7 @@ if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-upda
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
-	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi

@@ -3,7 +3,7 @@
 
 Started by kulan-assistant-engine.service (a systemd user service) when an
 assistant feature needs it. Listens only on a Unix socket in the user's
-private runtime folder, and needs the user's key. Exits after kulan_assistant.engine.IDLE_MINUTES without a request.
+private runtime folder, and needs the user's key. Exits after kulan_assistant.engine.idle_minutes() without a request (2 in lighter mode, otherwise 10).
 """
 import os
 import signal
@@ -53,7 +53,7 @@ def main() -> int:
             idle = time.time() - last_use.stat().st_mtime
         except OSError:
             idle = 0
-        if idle > engine.IDLE_MINUTES * 60:
+        if idle > engine.idle_minutes() * 60:
             proc.terminate()
             try:
                 proc.wait(timeout=20)

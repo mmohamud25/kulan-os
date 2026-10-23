@@ -56,6 +56,15 @@ sleep 5 # let the session settle
 	# service skips the live session, so it's run through systemd-run).
 	systemctl start kulan-update-status.service 2>/dev/null
 	echo "statusservice=$(systemctl show -P Result kulan-update-status.service 2>/dev/null) $(stat -c %Y /var/lib/kulan/updates.json 2>/dev/null)"
+	# Lighter mode (on by itself under 5 GB): the flag, and file search
+	# really running at the lowest priority in the person's session.
+	LIGHT=off
+	[ -e /run/kulan/lighter-mode ] && LIGHT=on
+	SEARCH_NICE=""
+	if [ -n "$(desktop_user)" ]; then
+		SEARCH_NICE="$(systemctl --user --machine="$(desktop_user)@" show -P Nice localsearch-3.service 2>/dev/null)"
+	fi
+	echo "lighter=${LIGHT} $(systemctl show -P Result kulan-lighter-mode.service 2>/dev/null) search_nice=${SEARCH_NICE:-?} mem_kib=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
 	# On an installed system (the install test), once: a restore point
 	# through the sandboxed service, the way the daily timer takes one.
 	if grep -qw 'kulan.restart-test' /proc/cmdline && [ -f /usr/lib/systemd/system/kulan-restore-points.service ] &&

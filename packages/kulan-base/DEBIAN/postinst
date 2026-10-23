@@ -16,6 +16,8 @@ case "$1" in
 		# When memory runs out, systemd-oomd closes the app causing it; this
 		# says which one, so it doesn't just disappear.
 		deb-systemd-helper enable kulan-oom-notice.service >/dev/null || true
+		# Lighter mode: decided at every start (on by itself under 5 GB).
+		deb-systemd-helper enable kulan-lighter-mode.service >/dev/null || true
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 			deb-systemd-invoke restart kulan-oom-notice.service >/dev/null 2>&1 || true

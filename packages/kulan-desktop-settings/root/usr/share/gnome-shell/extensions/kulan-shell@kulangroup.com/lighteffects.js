@@ -1,4 +1,7 @@
-// Kulan Shell: lighter effects when the computer has no graphics acceleration.
+// Kulan Shell: lighter effects when the computer has no graphics acceleration,
+// or in lighter mode (computers with little memory; /usr/lib/kulan/lighter-mode
+// writes /run/kulan/lighter-mode, and Kulan Settings › Battery and power
+// switches it).
 //
 // Without a working graphics driver (virtual machines without 3D, some old
 // PCs) the processor draws everything itself (Mesa's llvmpipe), and the live
@@ -20,6 +23,11 @@ const BLUR_SCHEMA = 'org.gnome.shell.extensions.blur-my-shell';
 // Blurred live, every frame: the expensive ones.
 const LIVE_BLURS = ['popup', 'appfolder', 'window-list', 'coverflow-alt-tab'];
 export const ANIMATION_FACTOR = 0.75;
+const LIGHTER_FLAG = '/run/kulan/lighter-mode';
+
+export function lighterMode() {
+    return GLib.file_test(LIGHTER_FLAG, GLib.FileTest.EXISTS);
+}
 
 function stateFile() {
     return GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'light-effects.json']);
@@ -43,9 +51,21 @@ export function hardwareAccelerated() {
 }
 
 export class LightEffects {
-    constructor() {
+    constructor(onChange = null) {
         this._source = null;
-        this.software = !hardwareAccelerated();
+        this._accelerated = hardwareAccelerated();
+        this._onChange = onChange;
+        this.software = !this._accelerated || lighterMode();
+        // Lighter mode switched in Kulan Settings: follow it straight away.
+        this._monitor = Gio.File.new_for_path(LIGHTER_FLAG).monitor_file(Gio.FileMonitorFlags.NONE, null);
+        this._monitorId = this._monitor.connect('changed', () => {
+            const light = !this._accelerated || lighterMode();
+            if (light === this.software)
+                return;
+            this.software = light;
+            this._sync();
+            this._onChange?.();
+        });
         // Blur my Shell may be enabled after Kulan Shell; check again then.
         this._stateId = Main.extensionManager.connect('extension-state-changed', (_m, ext) => {
             if (ext?.uuid === BLUR_UUID)
@@ -106,6 +126,11 @@ export class LightEffects {
     }
 
     destroy() {
+        if (this._monitorId)
+            this._monitor.disconnect(this._monitorId);
+        this._monitor?.cancel();
+        this._monitor = null;
+        this._monitorId = 0;
         if (this._stateId)
             Main.extensionManager.disconnect(this._stateId);
         this._stateId = 0;

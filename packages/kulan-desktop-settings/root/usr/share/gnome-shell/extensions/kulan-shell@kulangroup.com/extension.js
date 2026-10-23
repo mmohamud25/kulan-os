@@ -491,7 +491,7 @@ export default class KulanShellExtension extends Extension {
         else
             this._appGridLayout = null;
         this._vmDisplay = new VmDisplayKeeper();
-        this._lightEffects = new LightEffects();
+        this._lightEffects = new LightEffects(() => this._applySettings());
         this._reopenApps = Main.sessionMode.isLocked ? null : new ReopenApps(this._settings);
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
@@ -520,8 +520,8 @@ export default class KulanShellExtension extends Extension {
     _applySettings() {
         const speed = this._settings?.get_string('animation-speed') ?? 'normal';
         const factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
-        // No graphics acceleration: every frame is drawn by the processor, so
-        // fewer of them (shorter animations) feel smoother.
+        // No graphics acceleration (every frame is drawn by the processor) or
+        // lighter mode: fewer frames (shorter animations) feel smoother.
         St.Settings.get().slow_down_factor = this._lightEffects?.software ? factor * ANIMATION_FACTOR : factor;
         if (this._indicator) {
             this._indicator.allowed = this._settings?.get_boolean('update-indicator') ?? true;
