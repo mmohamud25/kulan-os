@@ -19,7 +19,8 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import agent, engine  # noqa: E402
 
-APP_ID = "org.kulan.Assistant.Agent"
+# The launcher's ID, so the dock shows "Kulan Assistant" and its icon for this window.
+APP_ID = "org.kulan.Assistant"
 EXAMPLES = ["Dark mode and a smaller dock", "Turn on Do Not Disturb", "Make text bigger",
             "Open the Files app", "Find my CV", "Lock the screen after 10 minutes"]
 

@@ -583,6 +583,23 @@ check "Assistant in GNOME" "app entry, Activities search provider and its D-Bus 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Assistant actions" "tidying, reminders and plans checked without a model (kulan-assistant self-test)" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | tail -n 3; echo "$out" | grep -qx "agent self-test passed" && echo "$out" | grep -qx "ask service self-test passed"'
 check "Ask Kulan" "panel in Kulan Shell, Shift+Cmd+Space, and the assistant's Ask service for it" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; grep -q AskKulan \$d/extension.js && grep -q org.kulan.Assistant.Ask \$d/askkulan.js && grep -q kulan-ask \$d/stylesheet-dark.css && grep -q kulan-ask \$d/stylesheet-light.css && gs org.kulan.desktop ask-shortcut | grep -q '<Shift><Super>space' && grep -qx 'Exec=/usr/bin/kulan-assistant ask-service' /usr/share/dbus-1/services/org.kulan.Assistant.Ask.service"
+# A window whose app ID has no launcher shows in the dock as its raw ID
+# ("org.kulan.Assistant.Agent") with a blank icon.
+check "Windows have launchers" "every Kulan app ID has a .desktop file, so the dock shows its name and icon" python3 -I -B - <<'PY'
+import pathlib, re
+files = [*pathlib.Path("/usr/share/kulan-settings").rglob("*.py"), *pathlib.Path("/usr/share/kulan-assistant").rglob("*.py"),
+         *(p for p in pathlib.Path("/usr/bin").glob("kulan*") if p.is_file())]
+ids = set()
+for f in files:
+    try:
+        t = f.read_text()
+    except (OSError, UnicodeDecodeError):
+        continue
+    ids |= set(re.findall(r"(?:APP_ID *= *|application_id *= *)[\"'](org\.kulan\.[A-Za-z.]+)[\"']", t))
+ids.discard("org.kulan.Assistant.Test")
+missing = sorted(i for i in ids if not pathlib.Path(f"/usr/share/applications/{i}.desktop").exists())
+assert "org.kulan.Assistant" in ids and not missing, missing
+PY
 check "Ask Kulan without a model" "the service says how to get one" bash -c 'out="$(HOME=$(mktemp -d) timeout 60 dbus-run-session -- gdbus call --session --dest org.kulan.Assistant.Ask --object-path /org/kulan/Assistant/Ask --method org.kulan.Assistant.Ask.Ask "why is it slow" 2>&1)"; echo "$out" | cut -c1-200; echo "$out" | grep -qE "needs a model first|isn.t fully installed"'
 check "Assistant without a model" "says how to get one instead of failing silently" bash -c 'out="$(kulan-assistant ask proofread "hello there" 2>&1)"; rc=$?; echo "$out"; [ "$rc" -eq 1 ] && echo "$out" | grep -qE "needs a model first|isn.t fully installed"'
 # shellcheck disable=SC2016  # expanded by the inner bash
