@@ -207,18 +207,30 @@ def time_open(cmd: str, label: str, limit: float = 40.0):
           f"running: {run('ps -eo comm | sort -u | tr \"\\n\" \" \"')[:400]}")
     return None
 
-APPS = (("Files", "nautilus --new-window", "pkill -x nautilus"),
-        ("Terminal", "ptyxis --new-window", "pkill -x ptyxis"),
-        ("Kulan Settings", "/usr/bin/kulan-settings", "pkill -f '[/]usr/bin/kulan-settings'"),
-        ("Firefox", "firefox-esr --new-window about:blank", "pkill -f '[/]usr/lib/firefox-esr/firefox-esr'"))
+# (label, command, which processes to stop: pkill/pgrep arguments). Firefox's
+# main process is named plain "firefox-esr" (only its helpers have the full
+# path), so it's matched by name.
+APPS = (("Files", "nautilus --new-window", "-x nautilus"),
+        ("Terminal", "ptyxis --new-window", "-x ptyxis"),
+        ("Kulan Settings", "/usr/bin/kulan-settings", "-f '[/]usr/bin/kulan-settings'"),
+        ("Firefox", "firefox-esr --new-window about:blank", "-x firefox-esr"))
+
+def stop_app(label: str, which: str):
+    # Ask it to quit; if it's still there after a few seconds, make it. A window
+    # left open would make the next opening look like hardly any change.
+    left = run(f"pkill {which}; for i in 1 2 3 4 5 6; do sleep 1; pgrep {which} >/dev/null || break; done; "
+               f"if pgrep {which} >/dev/null; then pkill -9 {which}; sleep 1; echo forced; fi")
+    if "forced" in (left or ""):
+        print(f"::notice title=Speed: {label}::didn't quit when asked; stopped it")
+
 speed = {}
 if qga is not None:
-    for label, cmd, stop in APPS:
+    for label, cmd, which in APPS:
         times = []
         for _ in range(2):
             times.append(time_open(cmd, label))
             time.sleep(3)
-            run(stop + "; sleep 3")
+            stop_app(label, which)
             time.sleep(2)
         speed[label] = {"first": times[0], "again": times[1]}
         print(f"Speed: {label} first {times[0]} s, again {times[1]} s")
