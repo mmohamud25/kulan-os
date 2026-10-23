@@ -33,7 +33,7 @@ class AgentWindow(Adw.ApplicationWindow):
 
         self.toasts = Adw.ToastOverlay()
         view = Adw.ToolbarView()
-        view.add_top_bar(Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Do it for me")))
+        view.add_top_bar(Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Kulan Assistant", subtitle="Ask a question, or say what to do")))
         page = Adw.PreferencesPage()
 
         ask = Adw.PreferencesGroup(description="Tell the assistant what to do. It runs on this computer and "
@@ -66,6 +66,11 @@ class AgentWindow(Adw.ApplicationWindow):
         page.add(self.plan_group)
 
         actions = Gtk.Box(spacing=10, halign=Gtk.Align.END, margin_top=12, margin_end=12, margin_bottom=12)
+        self.fix_page = ""
+        self.fix_button = Gtk.Button(label="Open Kulan Settings", css_classes=["suggested-action", "pill"],
+                                     visible=False)
+        self.fix_button.connect("clicked", lambda _b: (engine.open_settings(self.fix_page), self.close()))
+        actions.append(self.fix_button)
         self.undo_button = Gtk.Button(label="Undo", visible=False)
         self.undo_button.connect("clicked", lambda _b: self.undo())
         self.do_button = Gtk.Button(label="Do it", css_classes=["suggested-action", "pill"], visible=False)
@@ -93,6 +98,12 @@ class AgentWindow(Adw.ApplicationWindow):
         self.do_button.set_visible(False)
         self.undo_button.set_visible(False)
         self.undos = []
+        problem = engine.readiness()
+        self.fix_button.set_visible(problem is not None)
+        if problem:
+            self.fix_page = problem[1]
+            self.say(problem[0])
+            return False
         self.chips.set_visible(False)
         self.say("Working out what to do…", busy=True)
         threading.Thread(target=self.worker, args=(request, self.cancel), daemon=True).start()
@@ -136,36 +147,60 @@ class AgentWindow(Adw.ApplicationWindow):
 
     # --- doing ---------------------------------------------------------------------------
     def execute(self) -> None:
+        """Does the steps in the background (fixing Wi-Fi or searching files can
+        take a while), showing each one's result as it finishes."""
         self.do_button.set_visible(False)
-        failed = 0
-        for step, row in zip(self.steps, self.step_rows):
-            result = agent.run_step(step)
-            row.set_subtitle(GLib.markup_escape_text(result.message))
-            row.step_icon.set_from_icon_name("object-select-symbolic" if result.ok else "dialog-warning-symbolic")
-            row.step_icon.set_css_classes(["success"] if result.ok else ["warning"])
-            if result.undo:
-                self.undos.append(result.undo)
-            failed += not result.ok
-            for path in result.found:
-                found = Adw.ActionRow(title=GLib.markup_escape_text(GLib.path_get_basename(path)),
-                                      subtitle=GLib.markup_escape_text(path), activatable=True)
-                found.add_suffix(Gtk.Image(icon_name="document-open-symbolic"))
-                found.connect("activated", lambda _r, p=path: Gtk.FileLauncher.new(
-                    Gio.File.new_for_path(p)).launch(self, None, None))
-                self.plan_group.add(found)
-                self.step_rows.append(found)
+        self.say("Doing it…", busy=True)
+        steps, rows = list(self.steps), list(self.step_rows)
+        cancel = self.cancel
+
+        def work() -> None:
+            failed = 0
+            for step, row in zip(steps, rows):
+                result = agent.run_step(step)
+                failed += not result.ok
+                GLib.idle_add(self.step_done, step, row, result, cancel)
+            GLib.idle_add(self.all_done, failed, cancel)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def step_done(self, _step: agent.Step, row: Adw.ActionRow, result: agent.Result,
+                  cancel: threading.Event | None) -> bool:
+        if cancel is not self.cancel:
+            return False
+        row.set_subtitle(GLib.markup_escape_text(result.message))
+        row.step_icon.set_from_icon_name("object-select-symbolic" if result.ok else "dialog-warning-symbolic")
+        row.step_icon.set_css_classes(["success"] if result.ok else ["warning"])
+        if result.undo:
+            self.undos.append(result.undo)
+        for path in result.found:
+            found = Adw.ActionRow(title=GLib.markup_escape_text(GLib.path_get_basename(path)),
+                                  subtitle=GLib.markup_escape_text(path), activatable=True)
+            found.add_suffix(Gtk.Image(icon_name="document-open-symbolic"))
+            found.connect("activated", lambda _r, p=path: Gtk.FileLauncher.new(
+                Gio.File.new_for_path(p)).launch(self, None, None))
+            self.plan_group.add(found)
+            self.step_rows.append(found)
+        return False
+
+    def all_done(self, failed: int, cancel: threading.Event | None) -> bool:
+        if cancel is not self.cancel:
+            return False
         self.say("Done." if not failed else "Done, but not everything worked.")
         self.undo_button.set_visible(bool(self.undos))
+        return False
 
     def undo(self) -> None:
+        failed = 0
         for fn in reversed(self.undos):
             try:
                 fn()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - try every undo, then say how it went
+                failed += 1
         self.undos = []
         self.undo_button.set_visible(False)
-        self.toasts.add_toast(Adw.Toast(title="Put back as it was", timeout=3))
+        self.toasts.add_toast(Adw.Toast(title="Put back as it was" if not failed else
+                                        "Mostly put back; some changes couldn’t be undone", timeout=4))
 
     # --- helpers ---------------------------------------------------------------------------
     def say(self, text: str, busy: bool = False) -> None:

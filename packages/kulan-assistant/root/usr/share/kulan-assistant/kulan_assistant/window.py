@@ -61,6 +61,12 @@ class AssistantWindow(Adw.ApplicationWindow):
         box.append(scroller)
 
         buttons = Gtk.Box(spacing=8, halign=Gtk.Align.END)
+        # When the assistant can't answer yet (no model, not installed): the
+        # page of Kulan Settings that fixes it.
+        self.fix_page = ""
+        self.fix_button = Gtk.Button(label="Open Kulan Settings", css_classes=["suggested-action"], visible=False)
+        self.fix_button.connect("clicked", lambda _b: (engine.open_settings(self.fix_page), self.close()))
+        buttons.append(self.fix_button)
         self.stop_button = Gtk.Button(label="Stop")
         self.stop_button.connect("clicked", lambda _b: self.cancel.set())
         self.copy_button = Gtk.Button(label="Copy")
@@ -95,6 +101,8 @@ class AssistantWindow(Adw.ApplicationWindow):
         self.cancel = threading.Event()
         self.view.get_buffer().set_text("")
         self.result = ""
+        if self.not_ready():
+            return
         self.set_busy(True, "Starting the assistant… the first time can take a few seconds."
                       if not engine.healthy() else "Writing…")
         threading.Thread(target=self.worker, args=(self.current_task().id, self.cancel), daemon=True).start()
@@ -112,6 +120,19 @@ class AssistantWindow(Adw.ApplicationWindow):
             GLib.idle_add(self.done, str(exc), cancel)
         except Exception as exc:  # noqa: BLE001 - show it rather than hang
             GLib.idle_add(self.done, f"Something went wrong: {exc}", cancel)
+
+    def not_ready(self) -> bool:
+        """Says so (with a button to fix it) when the assistant can't answer yet."""
+        problem = engine.readiness()
+        self.fix_button.set_visible(problem is not None)
+        if problem is None:
+            return False
+        self.fix_page = problem[1]
+        self.set_busy(False, problem[0])
+        self.copy_button.set_visible(False)
+        if self.replace:
+            self.replace_button.set_visible(False)
+        return True
 
     def append(self, piece: str, cancel: threading.Event) -> bool:
         if cancel is self.cancel and not cancel.is_set():

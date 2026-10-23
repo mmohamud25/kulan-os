@@ -62,7 +62,7 @@ const SHORTCUTS = {
         if (ext._clipboard)
             ext._clipboard.show();
         else
-            Main.notify('Clipboard history is off', 'Turn it on in Kulan Settings > Keyboard.');
+            Main.notify('Clipboard history is off', 'Turn it on in Kulan Settings › Keyboard.');
     },
 };
 

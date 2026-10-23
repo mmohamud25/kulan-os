@@ -10,6 +10,7 @@ import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 
 Gio._promisify(Gio.Subprocess.prototype, 'communicate_utf8_async');
 
@@ -24,6 +25,8 @@ const TERMINALS = /^(org\.gnome\.(Console|Terminal|Ptyxis)|kgx|gnome-terminal|pt
 const RESTORE_CLIPBOARD_MS = 1000;
 const FOCUS_WAIT_MS = 150;
 const MAX_TEXT = 100000;
+const MODELS_JSON = '/usr/share/kulan-assistant/models.json';
+const MODELS_DIR = '/var/lib/kulan-assistant/models';
 // Copied files (Files puts these on the clipboard), then pictures.
 const KEEP_TYPES = ['x-special/gnome-copied-files', 'text/uri-list', 'image/png'];
 
@@ -70,14 +73,68 @@ export class Assistant {
         return this.installed && this._settings.get_boolean(key);
     }
 
+    // Whether a model of this kind ('writing' or 'dictation') is downloaded:
+    // read from the model list and the models folder, no process started.
+    hasModel(kind = 'writing') {
+        try {
+            const [, bytes] = GLib.file_get_contents(MODELS_JSON);
+            const models = JSON.parse(new TextDecoder().decode(bytes));
+            return models.some(m => (m.kind ?? 'writing') === kind && typeof m.file === 'string' &&
+                !m.file.includes('/') && GLib.file_test(`${MODELS_DIR}/${m.file}`, GLib.FileTest.EXISTS));
+        } catch {
+            return false;
+        }
+    }
+
+    // The writing tools' shortcut as set in Kulan Settings › Keyboard, written
+    // the way people read it.
+    _shortcut() {
+        try {
+            const accel = new Gio.Settings({schema_id: 'org.kulan.desktop'}).get_strv('writing-tools-shortcut')[0];
+            if (accel) {
+                return accel.replace(/<Super>/g, 'Super+').replace(/<Shift>/g, 'Shift+')
+                    .replace(/<(Control|Primary)>/g, 'Ctrl+').replace(/<Alt>/g, 'Alt+')
+                    .replace(/\+([a-z])$/, (_m, c) => `+${c.toUpperCase()}`);
+            }
+        } catch {
+            // older settings without the key
+        }
+        return 'the writing tools shortcut';
+    }
+
+    // A notification with a button that opens the Kulan Settings page that
+    // fixes the problem, instead of a dead end.
+    notifyFix(body, page) {
+        try {
+            const source = MessageTray.getSystemSource();
+            const notification = new MessageTray.Notification({source, title: TITLE, body});
+            notification.addAction('Open Kulan Settings', () => {
+                try {
+                    Gio.Subprocess.new(['kulan-settings', page], Gio.SubprocessFlags.NONE);
+                } catch (e) {
+                    logError(e, 'Kulan Shell: opening Kulan Settings');
+                }
+            });
+            source.addNotification(notification);
+        } catch (e) {
+            logError(e, 'Kulan Shell: notification');
+            Main.notify(TITLE, body);
+        }
+    }
+
     // Shift+Super+W: the selected text, in the Kulan Assistant window.
     async writingTools() {
         if (!this.installed) {
-            Main.notify(TITLE, 'Kulan Assistant isn’t installed.');
+            this.notifyFix('Kulan Assistant isn’t installed. Turn it on in Kulan Settings › Add-ons.', 'add-ons');
             return;
         }
         if (!this._settings.get_boolean('writing-tools')) {
-            Main.notify(TITLE, 'Writing tools are off. Turn them on in Kulan Settings > Assistant.');
+            this.notifyFix('Writing tools are off. Turn them on in Kulan Settings › Assistant.', 'assistant');
+            return;
+        }
+        if (!this.hasModel()) {
+            this.notifyFix('Kulan Assistant needs a model first: a free download, chosen once in Kulan Settings › Assistant.',
+                'assistant');
             return;
         }
         if (this._busy)
@@ -85,7 +142,7 @@ export class Assistant {
         // What is selected is the PRIMARY selection (no copying needed).
         const text = (await readText(St.ClipboardType.PRIMARY)).slice(0, MAX_TEXT);
         if (!text.trim()) {
-            Main.notify(TITLE, 'Select some text first, then press Shift+Super+W.');
+            Main.notify(TITLE, `Select some text first, then press ${this._shortcut()}.`);
             return;
         }
         const window = global.display.focus_window;

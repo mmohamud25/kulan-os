@@ -72,12 +72,9 @@ def _result(step: agent.Step) -> dict:
 
 
 def status() -> dict:
-    if not engine.ENGINE.exists():
-        return {"ready": False, "message": "Kulan Assistant isn't installed. Turn it on in Kulan Settings › Add-ons.",
-                "settings": "add-ons"}
-    if engine.usable_model() is None:
-        return {"ready": False, "message": "Kulan Assistant needs a model first. Choose one in Kulan Settings › "
-                                           "Assistant.", "settings": "assistant"}
+    problem = engine.readiness()
+    if problem:
+        return {"ready": False, "message": problem[0], "settings": problem[1]}
     return {"ready": True, "message": ""}
 
 

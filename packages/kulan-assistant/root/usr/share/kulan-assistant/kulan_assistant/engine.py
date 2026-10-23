@@ -128,6 +128,25 @@ def usable_model(kind: str = "writing") -> str | None:
     return first["id"] if first else None
 
 
+def readiness(kind: str = "writing") -> tuple[str, str] | None:
+    """None when the assistant can answer; otherwise (what to tell the person,
+    the Kulan Settings page that fixes it), to show before they try."""
+    if not ENGINE.exists():
+        return ("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.", "add-ons")
+    if usable_model(kind) is None:
+        if kind == "dictation":
+            return ("Dictation needs a speech model first: a free download, chosen once in Kulan Settings › "
+                    "Assistant.", "assistant")
+        return ("Kulan Assistant needs a model first: a free download, chosen once in Kulan Settings › Assistant.",
+                "assistant")
+    return None
+
+
+def open_settings(page: str) -> None:
+    subprocess.Popen(["kulan-settings", page], start_new_session=True, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL)
+
+
 def touch_last_use() -> None:
     path = prepare_runtime_dir() / "last-use"
     path.touch()
@@ -203,9 +222,10 @@ def ensure_running(timeout: float = 120) -> None:
     if state == "ready":
         return
     if not ENGINE.exists():
-        raise EngineError("The assistant engine isn't installed. Reinstall Kulan Assistant from Add-ons.")
+        raise EngineError("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.")
     if usable_model() is None:
-        raise EngineError("No model yet. Choose one in Kulan Settings > Assistant.")
+        raise EngineError("Kulan Assistant needs a model first: a free download, chosen once in Kulan Settings › "
+                          "Assistant.")
     api_key()  # create it before the service reads it
     if state == "wrong-key":
         # Started with an older key (the key file was replaced): start it again.

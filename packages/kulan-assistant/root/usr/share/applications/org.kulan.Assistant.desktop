@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Kulan Assistant
-Comment=Do it for me, writing help, summaries and search, all on this computer
+Comment=Ask questions, get things done, writing help and summaries, all on this computer
 Keywords=assistant;ai;agent;do it for me;writing;proofread;rewrite;summarise;summarize;translate;
 Exec=kulan-assistant do
 Actions=settings;

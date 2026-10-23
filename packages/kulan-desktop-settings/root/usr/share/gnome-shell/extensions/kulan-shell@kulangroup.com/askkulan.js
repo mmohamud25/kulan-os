@@ -139,6 +139,20 @@ export class AskKulan {
             }
         }
         this._showExamples();
+        this._checkReady();
+    }
+
+    // Whether the assistant can answer (installed, with a model): if not, say
+    // so with a button to fix it, rather than offering examples that fail.
+    _checkReady() {
+        this._call('Status', null, reply => {
+            if (reply.error)
+                this._showError(reply);
+            else if (reply.ready === false)
+                this._showError({error: reply.message, settings: reply.settings});
+            else
+                this._showExamples();
+        });
     }
 
     close() {
