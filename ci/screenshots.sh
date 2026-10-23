@@ -169,6 +169,20 @@ for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
     close_apps()
     time.sleep(3)
 
+# Every Kulan Settings page as it really looks in the live session (with
+# its network, sound, display and account services), for reviewing the
+# insides of the app; saved as settings-<page>.png.
+PAGES = ("wifi bluetooth printers sound focus notifications users parental-controls appearance desktop dock "
+         "top-bar display battery storage login-items apps security privacy keyboard mouse accessibility "
+         "assistant prayer-times date-time region updates add-ons about").split()
+if qga is not None:
+    for page in PAGES:
+        run(SESSION % f"/usr/bin/kulan-settings {page}", wait=False)
+        time.sleep(6)
+        shot(f"settings-{page}")
+        run("pkill -f '[/]usr/bin/kulan-settings'; sleep 1")
+        time.sleep(1)
+
 # Ask Kulan, opened the way the Activities search result opens it (the
 # shortcut needs a real keyboard): empty, then with a question. The live
 # system has no model yet, so the answer says how to get one.

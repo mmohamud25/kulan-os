@@ -106,14 +106,14 @@ class BatteryPage(Page):
                                 lambda: self.power.get_string("power-button-action"),
                                 lambda v: self.power.set_string("power-button-action", v)))
 
-        saving = self.add_group("Saving power")
-        self.add_rows(
-            saving,
+        saving_rows = [row for row in (
             switch_row(self.power, "power-saver-profile-on-low-battery", "Power saver when the battery is low",
                        "Switches to Power saver by itself, and back when charging"),
             switch_row(self.power, "ambient-enabled", "Automatic brightness",
                        "Follows the light around you, on computers with a light sensor"),
-        )
+        ) if row is not None]
+        if saving_rows:  # no heading with nothing under it
+            self.add_rows(self.add_group("Saving power"), *saving_rows)
 
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, UPOWER, DISPLAY_DEVICE,
                                   "org.freedesktop.UPower.Device", None, self.got_battery)
