@@ -133,7 +133,7 @@ class AgentWindow(Adw.ApplicationWindow):
         self.say(reply or "Here’s the plan:")
         for step in steps:
             row = Adw.ActionRow(title=GLib.markup_escape_text(step.text))
-            icon = Gtk.Image(icon_name="emblem-system-symbolic" if step.action.changes else "go-next-symbolic")
+            icon = Gtk.Image(icon_name="preferences-system-symbolic" if step.action.changes else "go-next-symbolic")
             row.add_prefix(icon)
             row.step_icon = icon
             self.plan_group.add(row)

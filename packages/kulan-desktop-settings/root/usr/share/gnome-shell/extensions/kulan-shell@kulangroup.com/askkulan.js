@@ -373,7 +373,7 @@ export class AskKulan {
             return;
         }
         for (const step of reply.steps ?? [])
-            this._addRow(step.changes ? 'emblem-system-symbolic' : 'go-next-symbolic', step.text, '');
+            this._addRow(step.changes ? 'preferences-system-symbolic' : 'go-next-symbolic', step.text, '');
         if (reply.confirm) {
             this._plan = {id: reply.id, text: this._entry.get_text()};
             this._addButtons([

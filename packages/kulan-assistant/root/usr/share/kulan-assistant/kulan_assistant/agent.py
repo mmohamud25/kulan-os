@@ -566,10 +566,25 @@ Actions you can use:
 Rules:
 - Use only the actions above, with exactly the listed arguments. Never invent actions.
 - If a request can't be done with these actions (deleting files, passwords, installing,
-  anything else), return no steps and say briefly in "reply" what they can do instead.
+  anything else), return NO steps at all (not even a related one) and say briefly in "reply"
+  how they can do it themselves.
 - Be friendly and plain; no lists, no markdown. At most {max} steps.
 Facts about this computer now:
 {facts}"""
+
+
+# Worked examples: small models follow these far better than the rules alone
+# (especially "no steps" for what the actions can't do).
+EXAMPLES = [
+    {"role": "user", "content": "Delete everything in my Downloads folder"},
+    {"role": "assistant", "content": json.dumps({
+        "reply": "I can't delete files. In Files, open Downloads, press Ctrl+A to select everything, then press "
+                 "Delete: it all goes to the Bin, so you can still get it back.", "steps": []})},
+    {"role": "user", "content": "Dark mode please, and open Files"},
+    {"role": "assistant", "content": json.dumps({
+        "reply": "Switching to dark mode and opening Files.",
+        "steps": [{"action": "set_style", "args": {"mode": "dark"}}, {"action": "open_app", "args": {"name": "Files"}}]})},
+]
 
 
 def system_prompt() -> str:
@@ -631,7 +646,7 @@ def plan(request: str) -> tuple[str, list[Step]]:
     """Ask the model for a plan. Raises engine.EngineError if it can't run."""
     engine.ensure_running()
     body = {
-        "messages": [{"role": "system", "content": system_prompt()},
+        "messages": [{"role": "system", "content": system_prompt()}, *EXAMPLES,
                      {"role": "user", "content": request.strip()[:500]}],
         "temperature": 0.1,
         "max_tokens": 700,
