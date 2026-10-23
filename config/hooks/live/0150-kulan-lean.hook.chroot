@@ -8,3 +8,41 @@ set -eu
 if dpkg-query -W -f '${Status}' cups-browsed 2>/dev/null | grep -q "ok installed"; then
 	apt-get purge -y -q cups-browsed
 fi
+
+# Things nothing needs, that only make the download bigger (each is removed
+# only when nothing else goes with it):
+# - pocketsphinx-en-us: English speech data for FFmpeg's speech filter
+#   (~23 MB); dictation uses Kulan Assistant's own engine.
+# - locales-all: every language's formats prebuilt (~19 MB). The live
+#   session's English is built below; the installer and Kulan Settings ›
+#   Language and region build any other one in seconds when it's chosen.
+# - vlc-l10n: VLC's translations (~9 MB).
+purge_if_alone() {
+	for PKG in "$@"; do
+		dpkg-query -W -f '${Status}' "${PKG}" 2>/dev/null | grep -q "ok installed" || continue
+		GOING="$(apt-get -s purge "${PKG}" 2>/dev/null | awk '/^Purg |^Remv /{print $2}' | sort -u | tr '\n' ' ')"
+		if [ "${GOING}" = "${PKG} " ]; then
+			apt-get purge -y -q "${PKG}"
+		else
+			echo "I: keeping ${PKG}: removing it would also remove ${GOING}"
+		fi
+	done
+}
+purge_if_alone pocketsphinx-en-us locales-all vlc-l10n
+
+# English formats ready in the live session (live-config then only checks).
+if [ -f /etc/locale.gen ] && command -v locale-gen >/dev/null 2>&1; then
+	if ! grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen; then
+		sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+		grep -q '^en_US.UTF-8 UTF-8' /etc/locale.gen || echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen
+	fi
+	locale-gen
+fi
+
+# GNOME's own wallpaper pictures (~36 MB): Kulan OS has its own, and the
+# "More wallpapers" list skips pictures that aren't there. Help pages stay
+# in English only (~12 MB); the help app falls back to English anyway.
+# /etc/dpkg/dpkg.cfg.d/kulan-lean (kulan-desktop-settings) keeps both out
+# of later updates; here the ones already installed go.
+rm -rf /usr/share/backgrounds/gnome
+find /usr/share/help -mindepth 1 -maxdepth 1 -type d ! -name C -exec rm -rf {} +

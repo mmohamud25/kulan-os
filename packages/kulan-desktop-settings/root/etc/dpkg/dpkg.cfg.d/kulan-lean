@@ -3,3 +3,10 @@
 # be chosen in Kulan Settings. Their theme files stay, so nothing breaks.
 path-exclude=/usr/share/icons/Bibata-*/cursors/*
 path-include=/usr/share/icons/Bibata-Modern-Classic/cursors/*
+
+# GNOME's own wallpaper pictures (Kulan OS has its own; Kulan Settings only
+# lists pictures that exist), and help pages in English only (the help app
+# falls back to English).
+path-exclude=/usr/share/backgrounds/gnome/*
+path-exclude=/usr/share/help/*
+path-include=/usr/share/help/C/*
