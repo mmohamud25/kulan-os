@@ -90,6 +90,11 @@ unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/nul
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
 R="${WORK}/root"
 
+# Where the size goes: the live system (compressed), the offline-install pool,
+# and the biggest installed packages (uncompressed), to keep the ISO small.
+POOL_KB="$(xorriso -indev "${ISO}" -du /pool 2>/dev/null | awk 'END { print $1 }' | tr -dc 0-9)"
+result info "Size breakdown" "live system $(( $(stat -c %s "${WORK}/fs.squashfs") / 1048576 )) MB, offline-install pool $(( ${POOL_KB:-0} / 1024 )) MB; biggest installed: $(awk 'BEGIN{RS=""} {p=""; s=0; n=split($0, l, "\n"); for (i=1;i<=n;i++) { if (l[i] ~ /^Package: /) p=substr(l[i],10); if (l[i] ~ /^Installed-Size: /) s=substr(l[i],17) } print s, p }' "${R}/var/lib/dpkg/status" 2>/dev/null | sort -rn | head -n 15 | awk '{ printf "%s%s %d MB", (NR>1?", ":""), $2, $1/1024 }')"
+
 # shellcheck disable=SC2317  # called through check()
 installed() { # installed <package>
 	awk -v p="$1" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" && $0 ~ /Status: install ok installed/ {f=1} END{exit !f}' \
