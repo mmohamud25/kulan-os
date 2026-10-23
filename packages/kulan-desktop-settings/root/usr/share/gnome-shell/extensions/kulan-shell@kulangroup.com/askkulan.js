@@ -166,7 +166,7 @@ export class AskKulan {
             if (reply.error)
                 this._showError(reply);
             else if (reply.ready === false)
-                this._showError({error: reply.message, settings: reply.settings});
+                this._showError({error: reply.message, settings: reply.settings, note: reply.note});
             else
                 this._showExamples();
         });
@@ -414,6 +414,8 @@ export class AskKulan {
     _showError(reply) {
         this._clear();
         this._addText(reply.error, 'kulan-ask-reply');
+        if (reply.note) // what still works without a model (the time, the date…)
+            this._addText(reply.note, 'kulan-ask-note');
         const buttons = [];
         if (reply.settings)
             buttons.push(['Open Kulan Settings', () => this._launch(['kulan-settings', reply.settings]), true]);
@@ -429,6 +431,10 @@ export class AskKulan {
         this._clear();
         if (reply.reply)
             this._addText(reply.reply, 'kulan-ask-reply');
+        if (reply.instant) { // the time, the date, battery, free space: read straight from the computer
+            this._addButtons([['Done', () => this.close(), true]]);
+            return;
+        }
         if (reply.results) { // nothing to confirm: already done
             this._showResults({id: reply.id, text}, reply, false);
             return;

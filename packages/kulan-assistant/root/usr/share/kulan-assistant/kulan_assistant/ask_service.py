@@ -21,7 +21,7 @@ import time
 
 from gi.repository import Gio, GLib
 
-from . import agent, engine
+from . import agent, engine, instant
 
 BUS_NAME = "org.kulan.Assistant.Ask"
 OBJECT_PATH = "/org/kulan/Assistant/Ask"
@@ -71,10 +71,13 @@ def _result(step: agent.Step) -> dict:
     return {"text": step.text, "ok": bool(r and r.ok), "message": r.message if r else "", "found": r.found if r else []}
 
 
+INSTANT_NOTE = "Until then, you can still ask the time, the date, the battery or free space."
+
+
 def status() -> dict:
     problem = engine.readiness()
     if problem:
-        return {"ready": False, "message": problem[0], "settings": problem[1]}
+        return {"ready": False, "message": problem[0], "settings": problem[1], "note": INSTANT_NOTE}
     return {"ready": True, "message": ""}
 
 
@@ -82,6 +85,9 @@ def ask(plans: Plans, text: str) -> dict:
     text = " ".join(text.split())[:MAX_TEXT]
     if not text:
         return {"error": "Type a question or what you'd like done."}
+    quick = instant.answer(text)  # the time, the date, battery, free space: no model needed
+    if quick:
+        return {"id": "", "reply": quick, "steps": [], "confirm": False, "instant": True}
     state = status()
     if not state["ready"]:
         return {"error": state["message"], "settings": state.get("settings")}
@@ -230,6 +236,16 @@ def self_test() -> None:
     with mock.patch.object(engine, "usable_model", return_value=None), \
             mock.patch.object(type(engine.ENGINE), "exists", return_value=True):
         assert ask(plans, "hello")["settings"] == "assistant"
+        assert status()["note"] == INSTANT_NOTE
+        # Instant answers need no model, and no plan is kept for them.
+        before = len(plans.items)
+        for question in ("What time is it?", "what's the date", "how much space do I have left"):
+            out = ask(plans, question)
+            assert out.get("instant") and out["reply"] and not out["steps"] and "error" not in out, out
+        assert len(plans.items) == before
+    with mock.patch.object(engine, "readiness", side_effect=AssertionError("no model check for instant answers")), \
+            mock.patch.object(agent, "plan", side_effect=AssertionError("no model for instant answers")):
+        assert ask(plans, "battery")["instant"]
     # Old plans are forgotten.
     pid = plans.add([])
     plans.items[pid]["made"] -= PLAN_TTL_S + 1
