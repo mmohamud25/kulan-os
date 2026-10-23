@@ -17,6 +17,7 @@
 #   update-run firewall-on                turn the firewall on (block incoming)
 #   update-run countme-on|countme-off     the anonymous weekly count on or off (/usr/lib/kulan/countme)
 #   update-run lighter on|off|auto        lighter mode for computers with little memory (/usr/lib/kulan/lighter-mode)
+#   update-run phone-link-on|phone-link-off  let phones (KDE Connect) reach this computer through the firewall
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
@@ -439,6 +440,19 @@ PY
 		[[ $# -eq 1 ]] || die "usage: update-run compliance-off"
 		[[ -x /usr/bin/kulan-compliance ]] || die "Compliance mode isn't installed."
 		/usr/bin/kulan-compliance off 1>&2
+		;;
+	phone-link-on | phone-link-off)
+		[[ $# -eq 1 ]] || die "usage: update-run phone-link-on|phone-link-off"
+		# KDE Connect's ports (GSConnect speaks the same protocol): found and
+		# reached by phones on the same network only.
+		command -v ufw >/dev/null 2>&1 || exit 0
+		for PROTO in udp tcp; do
+			if [[ "$1" == phone-link-on ]]; then
+				ufw allow 1714:1764/"${PROTO}" comment "Kulan Phone link" 1>&2
+			else
+				ufw --force delete allow 1714:1764/"${PROTO}" 1>&2 || true
+			fi
+		done
 		;;
 	lighter)
 		[[ $# -eq 2 ]] || die "usage: update-run lighter on|off|auto"

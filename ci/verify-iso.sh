@@ -84,6 +84,7 @@ FILES=(
 	etc/calamares/modules/fstab.conf
 	var/lib/flatpak/overrides/global
 	etc/passwd
+	usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io/metadata.json
 	usr/bin/kulan-installer
 	usr/lib/kulan/installer-engine
 	usr/share/applications/calamares-install-debian.desktop
@@ -160,6 +161,7 @@ check "Default apps" "photos open in Image Viewer, PDFs in Document Viewer, text
 check "Smaller download" "unused speech data, the all-language bundle, VLC translations, GNOME's wallpapers and other-language help left out; Kulan's wallpapers and English kept" bash -c "$(declare -f installed); R='${R}'; ! installed pocketsphinx-en-us && ! installed locales-all && ! installed vlc-l10n && ! grep -qE 'squashfs-root/usr/share/backgrounds/gnome/.+' '${WORK}/listing' && ! grep -qE 'squashfs-root/usr/share/help/(de|fr|es)/' '${WORK}/listing' && grep -q 'squashfs-root/usr/share/backgrounds/kulan/kulan-dark.png\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/locale/locale-archive\$' '${WORK}/listing'"
 check "Clock sync" "systemd-timesyncd installed, so the time is set from the internet" installed systemd-timesyncd
 check "Lighter mode" "enabled at start-up; the file search service it slows down (localsearch-3) is in the image" bash -c "grep -q 'squashfs-root/etc/systemd/system/multi-user.target.wants/kulan-lighter-mode.service\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/systemd/user/localsearch-3.service\$' '${WORK}/listing'"
+check "Phone link" "GSConnect installed, made for GNOME 48, and off until switched on in Kulan Settings › Phone" bash -c "$(declare -f installed); R='${R}'; installed gnome-shell-extension-gsconnect && python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); v=[str(x) for x in m.get(\"shell-version\", [])]; sys.exit(0 if \"48\" in v else \"GSConnect supports GNOME \" + \", \".join(v))' '${R}/usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io/metadata.json'"
 check "Anonymous count" "weekly count timer enabled, with its own user" bash -c "grep -q 'squashfs-root/etc/systemd/system/timers.target.wants/kulan-countme.timer\$' '${WORK}/listing' && grep -q '^kulan-countme:' '${R}/etc/passwd'"
 check "Firmware updates" "fwupd installed (BIOS, dock and device firmware in Software Update)" installed fwupd
 check "Live Text languages" "English and Arabic text recognition" bash -c "$(declare -f installed); R='${R}'; installed tesseract-ocr-eng && installed tesseract-ocr-ara"

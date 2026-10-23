@@ -284,6 +284,12 @@ check "Backups page matches Déjà Dup" "every Déjà Dup setting and option Kul
 	GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend | grep -qx drive || { echo "no drive backend"; exit 1; }
 	GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend | grep -qx local || { echo "no local backend"; exit 1; }
 	help="$(deja-dup --help 2>&1)"; grep -q -- "--restore" <<<"$help" && grep -q -- "--backup" <<<"$help" || { echo "deja-dup options changed: $help"; exit 1; }'
+check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764), phone-link-off closes them" bash -c '
+	command -v ufw >/dev/null || apt-get install -y -q --no-install-recommends ufw >/dev/null 2>&1 || exit 1
+	/usr/lib/kulan/update-run phone-link-on >/dev/null 2>&1 || { echo "on failed"; exit 1; }
+	grep -q "1714:1764" /etc/ufw/user.rules && grep -q "Kulan Phone link" /etc/ufw/user.rules || { echo "ports not opened"; exit 1; }
+	/usr/lib/kulan/update-run phone-link-off >/dev/null 2>&1 || { echo "off failed"; exit 1; }
+	! grep -q "1714:1764" /etc/ufw/user.rules /etc/ufw/user6.rules'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"

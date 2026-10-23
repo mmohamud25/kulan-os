@@ -25,6 +25,7 @@ from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
 from .mouse import MousePage
 from .notifications import NotificationsPage
+from .phone import PhonePage
 from .prayer import PrayerPage
 from .printers import PrintersPage
 from .privacy import PrivacyPage
@@ -46,6 +47,7 @@ PAGES = [
     # Connections
     ("wifi", WifiPage),
     ("bluetooth", BluetoothPage),
+    ("phone", PhonePage),
     ("printers", PrintersPage),
     # Sound and attention
     ("sound", SoundPage),
@@ -86,7 +88,7 @@ GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-
 # Each page's tile colour in the sidebar (2.4 look): a white symbol on a
 # rounded square, like a Mac's System Settings.
 TILE_COLOURS = {
-    "wifi": "#0d9488", "bluetooth": "#3b82f6", "printers": "#475569",
+    "wifi": "#0d9488", "bluetooth": "#3b82f6", "phone": "#16a34a", "printers": "#475569",
     "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
