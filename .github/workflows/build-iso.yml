@@ -487,6 +487,24 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      # The same with a start-up PIN (the recommended way): the test types the
+      # PIN on the VM's keyboard at the second start.
+      - name: TPM unlock with a PIN test
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 60
+        env:
+          KULAN_TPM_TEST_PIN: "2468"
+        run: ci/tpm-test.sh out/*.iso tpm-pin-test
+
+      - name: Upload TPM unlock with a PIN test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v6
+        with:
+          name: tpm-pin-test-amd64
+          path: tpm-pin-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload install test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@v6
@@ -593,7 +611,7 @@ jobs:
         id: tests
         continue-on-error: true
         with:
-          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test}-amd64"
+          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test}-amd64"
           path: tests/
       - name: Commit to ci-diagnostics
         if: steps.tests.outcome == 'success'

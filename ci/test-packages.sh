@@ -557,6 +557,7 @@ check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
+check "TPM unlock PIN" "status says whether a PIN is needed; the helper takes on, on --pin and off only" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"pin\"] is False, d" && kulan-tpm on --nope 2>/dev/null; [ $? -eq 64 ] && grep -q "tpm-on-pin)" /usr/lib/kulan/update-run && grep -q "exec /usr/bin/kulan-tpm on --pin" /usr/lib/kulan/update-run'
 # --- Fleet management (the computer's side, against a stand-in server) ----------------
 python3 ci/fleet-mock.py 18765 /tmp/fleet-log.json & FLEET_MOCK=$!
 sleep 1

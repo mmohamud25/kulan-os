@@ -2,7 +2,8 @@
 """Unlock the encrypted disk with this computer's security chip (TPM 2.0).
 
   kulan-tpm status [--json]   can it be used here, and is it on (no root needed)
-  kulan-tpm on                read the disk password from stdin, enrol the TPM (root)
+  kulan-tpm on [--pin]        stdin: the disk password, and with --pin a new PIN on
+                              the next line; enrol the TPM (root)
   kulan-tpm off               remove the TPM key; the password is asked again (root)
 
 How it works: systemd-cryptenroll adds a key slot to the LUKS2 system disk
@@ -12,6 +13,14 @@ start-up image is built with dracut, whose systemd-cryptsetup reads that key
 (Debian's initramfs-tools can't), and /etc/crypttab gets tpm2-device=auto.
 The disk password stays as it is and is asked whenever the TPM says no
 (a different computer, Secure Boot turned off, the disk moved elsewhere).
+
+What it protects against. Without a PIN, the TPM gives the key to anything
+that starts with Secure Boot in the same state, and other Debian-based
+systems on a USB stick start that way too: so it protects a disk taken out
+of the computer, not the computer itself. With a PIN (--pin, recommended),
+the TPM also needs the PIN typed at start-up, and it locks itself after
+repeated wrong guesses, so the computer itself is protected too: like
+BitLocker with a PIN, a short PIN instead of the long disk password.
 
 Secure Boot must be on: with it off, any system started from a USB stick
 would see the same PCR 7 and could unlock the disk.
@@ -36,6 +45,7 @@ PCRS = "7"
 # Kulan Settings and Fleet.
 AVAILABLE = True
 TPM_OPTION = "tpm2-device=auto"
+PIN_MIN, PIN_MAX = 4, 64
 
 
 def run(argv: list[str], input_text: str | None = None, env: dict | None = None,
@@ -104,15 +114,34 @@ def luks_version(dump: str) -> str:
     return ""
 
 
+def has_pin(dump: str) -> bool:
+    """Whether the TPM key slot also needs a PIN (luksDump's token lists
+    "tpm2-pin: true")."""
+    return any(line.split(":", 1)[0].strip() == "tpm2-pin" and line.split(":", 1)[1].strip().lower() == "true"
+               for line in dump.splitlines() if ":" in line)
+
+
+def pin_problem(pin: str) -> str:
+    if not PIN_MIN <= len(pin) <= PIN_MAX:
+        return f"The PIN must be {PIN_MIN} to {PIN_MAX} characters"
+    if not pin.isprintable() or pin != pin.strip():
+        return "The PIN can't start or end with a space, or contain special characters"
+    return ""
+
+
 def status() -> dict:
     luks = root_luks()
     dump = luks_dump(luks[1]) if luks and os.geteuid() == 0 else ""
     enrolled = "systemd-tpm2" in dump if dump else None
+    pin = has_pin(dump) if dump else None
+    try:
+        saved = json.loads(STATE_FILE.read_text())
+    except (OSError, ValueError):
+        saved = {}
     if enrolled is None:
-        try:
-            enrolled = json.loads(STATE_FILE.read_text()).get("on") is True
-        except (OSError, ValueError):
-            enrolled = False
+        enrolled = saved.get("on") is True
+    if pin is None:
+        pin = bool(saved.get("pin")) if enrolled else False
     reasons = []
     if not Path("/sys/firmware/efi").exists():
         reasons.append("This computer starts without UEFI")
@@ -126,6 +155,7 @@ def status() -> dict:
         reasons.append("The disk uses LUKS1; TPM unlock needs LUKS2")
     return {
         "on": bool(enrolled),
+        "pin": bool(enrolled and pin),
         "available": AVAILABLE,
         "possible": not reasons,
         "reasons": reasons,
@@ -174,7 +204,7 @@ def rebuild_startup_image() -> None:
     run(["update-grub"])
 
 
-def turn_on() -> int:
+def turn_on(with_pin: bool = False) -> int:
     need_root()
     st = status()
     if not st["possible"]:
@@ -184,6 +214,10 @@ def turn_on() -> int:
     password = sys.stdin.readline().rstrip("\n")
     if not password:
         say("The disk password is needed (one line on standard input)")
+        return 64
+    pin = sys.stdin.readline().rstrip("\n") if with_pin else ""
+    if with_pin and pin_problem(pin):
+        say(pin_problem(pin))
         return 64
     volume, device = st["volume"], st["device"]
     # Check the password first, so nothing is changed if it's wrong.
@@ -210,13 +244,22 @@ def turn_on() -> int:
     say("Adding the TPM key to the disk…")
     if "systemd-tpm2" in luks_dump(device):
         run(["systemd-cryptenroll", "--wipe-slot=tpm2", device], env={"PASSWORD": password})
-    r = run(["systemd-cryptenroll", "--tpm2-device=auto", f"--tpm2-pcrs={PCRS}", device],
-            env={"PASSWORD": password})
+    enroll = ["systemd-cryptenroll", "--tpm2-device=auto", f"--tpm2-pcrs={PCRS}"]
+    if with_pin:
+        enroll.append("--tpm2-with-pin=yes")
+    r = run([*enroll, device], env={"PASSWORD": password, **({"NEWPIN": pin} if with_pin else {})})
     if r.returncode != 0:
         say("The TPM key couldn't be added: " + r.stderr.strip()[-300:])
         return 1
-    # Prove it: open the disk's key with the TPM alone, right now.
-    if run(["cryptsetup", "open", "--test-passphrase", "--token-only", device]).returncode != 0:
+    # Prove it: get the disk's key back from the TPM, right now (with the PIN
+    # when there is one), so it's never left on when it wouldn't work.
+    if with_pin:
+        proof = run(["systemd-cryptenroll", "--unlock-tpm2-device=auto", "--wipe-slot=empty", device],
+                    env={"PIN": pin})
+        proven = proof.returncode == 0 and has_pin(luks_dump(device))
+    else:
+        proven = run(["cryptsetup", "open", "--test-passphrase", "--token-only", device]).returncode == 0
+    if not proven:
         run(["systemd-cryptenroll", "--wipe-slot=tpm2", device], env={"PASSWORD": password})
         say("The TPM didn't give the key back, so TPM unlock was left off")
         return 1
@@ -231,8 +274,9 @@ def turn_on() -> int:
         say(str(e))
         return 1
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps({"on": True, "since": int(time.time()), "pcrs": PCRS}) + "\n")
-    say("TPM unlock on: the disk opens by itself on this computer")
+    STATE_FILE.write_text(json.dumps({"on": True, "pin": with_pin, "since": int(time.time()), "pcrs": PCRS}) + "\n")
+    say("TPM unlock on: type your PIN at start-up instead of the disk password" if with_pin
+        else "TPM unlock on: the disk opens by itself on this computer")
     return 0
 
 
@@ -267,12 +311,16 @@ def main(argv: list[str]) -> int:
         if "--json" in argv[2:]:
             print(json.dumps(st, indent=2))
         else:
-            print("TPM unlock " + ("on" if st["on"] else "off"))
+            print("TPM unlock " + (("on, with a PIN" if st["pin"] else "on, without a PIN") if st["on"] else "off"))
             for reason in st["reasons"]:
                 print("  " + reason)
         return 0
     if command == "on":
-        return turn_on()
+        extra = argv[2:]
+        if extra not in ([], ["--pin"]):
+            print("usage: kulan-tpm on [--pin]", file=sys.stderr)
+            return 64
+        return turn_on(with_pin=extra == ["--pin"])
     if command == "off":
         return turn_off()
     print(__doc__.split("\n\n")[1], file=sys.stderr)

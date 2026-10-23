@@ -15,6 +15,10 @@ CHECKUP_FILE = Path("/var/lib/kulan/security-checkup.json")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 COMPLIANCE = "/usr/bin/kulan-compliance"
 TPM = "/usr/bin/kulan-tpm"
+
+
+def kulan_tpm_pin_min() -> int:
+    return 4  # kulan-tpm's PIN_MIN
 SECURE_BOOT_VAR = Path("/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c")
 
 GOOD, WARN, INFO = "good", "warn", "info"
@@ -80,8 +84,9 @@ class SecurityPage(Page):
 
         self.tpm_group = self.add_group(
             "Start-up",
-            "With TPM unlock, the encrypted disk opens by itself on this computer, and the disk password is "
-            "only asked if something changed (another computer, Secure Boot turned off).")
+            "With TPM unlock, this computer’s security chip opens the encrypted disk, so you type a short PIN "
+            "at start-up instead of the long disk password. The disk password still works whenever the chip "
+            "says no (another computer, Secure Boot turned off).")
         self.tpm_switch = Adw.SwitchRow(title="Unlock with this computer’s security chip", subtitle="Checking…")
         self.tpm_handler = self.tpm_switch.connect("notify::active", self.on_tpm_switch)
         self.tpm_group.add(self.tpm_switch)
@@ -233,8 +238,11 @@ class SecurityPage(Page):
                 self.tpm_switch.set_active(on)
             reasons = data.get("reasons") or []
             self.tpm_switch.set_sensitive(on or (bool(data.get("possible")) and not self.window.helper.busy))
-            if on:
-                self.tpm_switch.set_subtitle("On: the disk opens by itself on this computer")
+            if on and data.get("pin"):
+                self.tpm_switch.set_subtitle("On, with a PIN: type it at start-up instead of the disk password")
+            elif on:
+                self.tpm_switch.set_subtitle("On, without a PIN: protects the disk if it’s taken out, but not this "
+                                             "computer itself. Turn off and on again to add a PIN")
             elif reasons:
                 self.tpm_switch.set_subtitle(GLib.markup_escape_text(reasons[0]))
             else:
@@ -248,28 +256,68 @@ class SecurityPage(Page):
             self.tpm_switch.set_subtitle("Turning off…")
             self.window.helper.run(["tpm-off"], "TPM unlock off", on_done=lambda _ok: self.shown(), stdin="")
             return
-        dialog = Adw.AlertDialog(heading="Disk password",
-                                 body="Type the password you enter at start-up. It's used once to add the "
-                                      "security chip's key, and it keeps working whenever the chip says no.")
-        entry = Adw.PasswordEntryRow(title="Disk password")
+        dialog = Adw.AlertDialog(heading="Turn on TPM unlock",
+                                 body="Type the password you enter at start-up now. It’s used once to add the "
+                                      "security chip’s key, and it keeps working whenever the chip says no.")
+        password = Adw.PasswordEntryRow(title="Disk password")
+        use_pin = Adw.SwitchRow(title="Ask for a PIN at start-up", active=True,
+                                subtitle="Recommended. Without one, someone who has this computer could get "
+                                         "in with a Debian USB stick")
+        pin = Adw.PasswordEntryRow(title=f"New PIN ({kulan_tpm_pin_min()} or more characters)")
+        again = Adw.PasswordEntryRow(title="PIN again")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        box.append(entry)
-        dialog.set_extra_child(box)
+        for row in (password, use_pin, pin, again):
+            box.append(row)
+        hint = Gtk.Label(wrap=True, xalign=0, css_classes=["caption", "dim-label"], margin_top=8)
+        extra = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        extra.append(box)
+        extra.append(hint)
+        dialog.set_extra_child(extra)
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("on", "Turn on")
+        dialog.add_response("on", "Turn On")
         dialog.set_response_appearance("on", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("on")
         dialog.set_close_response("cancel")
-        entry.connect("entry-activated", lambda _e: dialog.response("on"))
+
+        def problem() -> str:
+            if not password.get_text():
+                return "Type the disk password."
+            if use_pin.get_active():
+                text = pin.get_text()
+                if len(text) < kulan_tpm_pin_min():
+                    return f"The PIN needs {kulan_tpm_pin_min()} or more characters. Digits are fine."
+                if text != text.strip() or not text.isprintable() or len(text) > 64:
+                    return "The PIN can’t start or end with a space."
+                if again.get_text() != text:
+                    return "The two PINs aren’t the same."
+            return ""
+
+        def update(*_args) -> None:
+            pin.set_visible(use_pin.get_active())
+            again.set_visible(use_pin.get_active())
+            issue = problem()
+            dialog.set_response_enabled("on", not issue)
+            hint.set_label(issue if (password.get_text() or pin.get_text()) else
+                           "Keep the PIN somewhere safe: forgetting it means typing the disk password instead.")
+
+        for row in (password, pin, again):
+            row.connect("changed", update)
+            row.connect("entry-activated", lambda _e: not problem() and dialog.response("on"))
+        use_pin.connect("notify::active", update)
+        update()
 
         def answered(_d, response: str) -> None:
-            password = entry.get_text()
-            if response != "on" or not password:
+            if response != "on" or problem():
                 with self.tpm_switch.handler_block(self.tpm_handler):
                     self.tpm_switch.set_active(False)
                 return
             self.tpm_switch.set_subtitle("Adding the key and rebuilding the start-up image (a few minutes)…")
-            self.window.helper.run(["tpm-on"], "TPM unlock on", on_done=lambda _ok: self.shown(), stdin=password)
+            if use_pin.get_active():
+                self.window.helper.run(["tpm-on-pin"], "TPM unlock on, with a PIN", on_done=lambda _ok: self.shown(),
+                                       stdin=f"{password.get_text()}\n{pin.get_text()}")
+            else:
+                self.window.helper.run(["tpm-on"], "TPM unlock on", on_done=lambda _ok: self.shown(),
+                                       stdin=password.get_text())
 
         dialog.connect("response", answered)
         dialog.present(self.window)
