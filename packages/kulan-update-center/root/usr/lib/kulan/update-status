@@ -117,6 +117,34 @@ def app_updates() -> list[dict]:
     return updates
 
 
+FIRMWARE_FILE = "/var/lib/kulan/firmware-updates.json"  # written by update-run check (fwupdmgr get-updates)
+
+
+def firmware_updates() -> list[dict]:
+    """Device firmware updates (fwupd), as last looked up by update-run."""
+    try:
+        with open(FIRMWARE_FILE, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    updates = []
+    for device in data.get("Devices", []) if isinstance(data, dict) else []:
+        releases = device.get("Releases") or [] if isinstance(device, dict) else []
+        if not releases or not isinstance(releases[0], dict):
+            continue
+        name = str(device.get("Name") or "Device")[:80]
+        updates.append({
+            "name": name,
+            "from": str(device.get("Version") or "")[:40],
+            "to": str(releases[0].get("Version") or "")[:40],
+            "security": "is-security" in (releases[0].get("Flags") or []),
+            "kind": "firmware",
+            "id": str(device.get("DeviceId") or "")[:80],
+            "summary": str(releases[0].get("Summary") or "")[:200],
+        })
+    return updates[:20]
+
+
 PAUSE_FILE = "/etc/apt/apt.conf.d/54kulan-paused-after-undo"  # written by restore-points undo-update
 
 
@@ -239,7 +267,7 @@ def main(argv: list[str]) -> int:
         status["state"] = "running"
         status["running_since"] = int(time.time())
     else:
-        updates = available_updates() + app_updates()
+        updates = available_updates() + app_updates() + firmware_updates()
         count, security_count = counted(updates)
         status.update({
             "state": "idle",

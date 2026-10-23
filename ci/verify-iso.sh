@@ -149,6 +149,8 @@ else
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter
+check "Firmware updates" "fwupd installed (BIOS, dock and device firmware in Software Update)" installed fwupd
+check "Live Text languages" "English and Arabic text recognition" bash -c "$(declare -f installed); R='${R}'; installed tesseract-ocr-eng && installed tesseract-ocr-ara"
 check "Cursor files" "Bibata Modern Classic cursors present, the unused variants' left out" bash -c "grep -q 'squashfs-root/usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr\$' '${WORK}/listing' && ! grep -E 'squashfs-root/usr/share/icons/Bibata-[^/]+/cursors/' '${WORK}/listing' | grep -qv '/Bibata-Modern-Classic/'"
 check "Boot splash selected" "Plymouth theme = kulan" grep -qx "Theme=kulan" "${R}/etc/plymouth/plymouthd.conf"
 if [[ -f "${WORK}/initrd.img" ]]; then

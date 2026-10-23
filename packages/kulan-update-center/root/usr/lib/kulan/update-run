@@ -104,6 +104,37 @@ print(int(need))
 	done
 }
 
+# Firmware updates for the BIOS, docks and devices (fwupd, from the makers
+# through the LVFS): looked up with the other updates, listed in Software
+# Update, installed with them. Never stops anything else.
+FIRMWARE_LIST=/var/lib/kulan/firmware-updates.json
+firmware_list() {
+	command -v fwupdmgr >/dev/null 2>&1 || return 0
+	mkdir -p /var/lib/kulan
+	timeout 90 fwupdmgr refresh --force -y >/dev/null 2>&1 || true
+	if timeout 60 fwupdmgr get-updates --json -y --no-unreported-check --no-metadata-check \
+		>"${FIRMWARE_LIST}.tmp" 2>/dev/null && [[ -s "${FIRMWARE_LIST}.tmp" ]]; then
+		chmod 0644 "${FIRMWARE_LIST}.tmp"
+		mv -f "${FIRMWARE_LIST}.tmp" "${FIRMWARE_LIST}"
+	else
+		rm -f "${FIRMWARE_LIST}.tmp" "${FIRMWARE_LIST}" # nothing to update (or no fwupd here)
+	fi
+}
+# Succeeds when firmware was updated (it then finishes at the next restart).
+firmware_install() {
+	command -v fwupdmgr >/dev/null 2>&1 || return 1
+	[[ -s "${FIRMWARE_LIST}" ]] || return 1
+	python3 -I -c 'import json, sys; d = json.load(open(sys.argv[1])); sys.exit(0 if any(x.get("Releases") for x in d.get("Devices", [])) else 1)' \
+		"${FIRMWARE_LIST}" 2>/dev/null || return 1
+	echo "pmstatus:firmware:95:Updating device firmware"
+	if timeout 1800 fwupdmgr update -y --no-reboot-check --no-unreported-check 1>&2; then
+		rm -f "${FIRMWARE_LIST}"
+		return 0
+	fi
+	echo "Device firmware couldn't be updated this time; it's tried again with the next updates." >&2
+	return 1
+}
+
 # Packages apt would remove as no longer needed, sorted, one per line.
 autoremovable() {
 	apt-get -s autoremove 2>/dev/null | awk '/^Remv /{print $2}' | sort -u
@@ -174,6 +205,7 @@ case "${1:-}" in
 	check)
 		[[ $# -eq 1 ]] || die "usage: update-run check"
 		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
+		firmware_list
 		apt-get -q "${APT_LOCK[@]}" update 1>&2
 		/usr/lib/kulan/update-status refresh || true
 		;;
@@ -200,6 +232,10 @@ case "${1:-}" in
 			grep -E '^(linux-image|linux-signed|libc6$|systemd$|libsystemd0$|dbus$|dbus-daemon$|gnome-shell$|mutter$|libmutter|gdm3$|nvidia|libnvidia|firmware-|intel-microcode$|amd64-microcode$)' || true)"
 		run_apt --with-new-pkgs upgrade
 		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates install || echo "App updates couldn't be installed this time." >&2; }
+		if firmware_install; then
+			NEEDS_RESTART="${NEEDS_RESTART:+${NEEDS_RESTART}
+}device-firmware"
+		fi
 		if [[ -n "${NEEDS_RESTART}" ]]; then
 			mkdir -p /run/kulan
 			printf '%s\n' "${NEEDS_RESTART}" > /run/kulan/restart-required

@@ -111,6 +111,10 @@ def summarize(available: list[dict], current_version: str) -> dict:
     security: dict[str, list[str]] = {}
     other: dict[str, list[str]] = {}
     for update in available:
+        if update.get("kind") == "firmware":
+            target = security if update.get("security") else other
+            target.setdefault(f"Firmware for {update.get('name') or 'a device'}", []).append(str(update.get("name") or ""))
+            continue
         if update.get("kind") in ("app", "runtime"):
             if update.get("kind") == "app":
                 apps.append(update)
@@ -207,3 +211,5 @@ def self_test() -> None:
     assert point["release"] is None and point["kulan"] == ["kulan-base"], point
     assert friendly_name({"name": "linux-image-6.12.57-amd64", "source": "linux-signed-amd64"}) == \
         "System core (Linux kernel)"
+    fw = summarize([{"name": "System Firmware", "kind": "firmware", "from": "1.2", "to": "1.3"}], "2.5")
+    assert [g["title"] for g in fw["other"]] == ["Firmware for System Firmware"] and fw["count"] == 1, fw

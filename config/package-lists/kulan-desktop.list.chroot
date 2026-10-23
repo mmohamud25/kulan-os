@@ -55,6 +55,8 @@ baobab
 tesseract-ocr
 tesseract-ocr-eng
 tesseract-ocr-ara
+# Firmware updates for the BIOS, docks and devices, from their makers (LVFS)
+fwupd
 python3-nautilus
 # Terminal: Ptyxis with Kulan colours, zsh with suggestions and highlighting
 ptyxis
