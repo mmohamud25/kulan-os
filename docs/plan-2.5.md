@@ -77,7 +77,7 @@ ships first.
 - The assistant's name: Kulan Assistant, or something like Caawiye.
 
 ## Status (23 October 2026)
-Proposed to Mohamud (not confirmed yet): 2.5 is "Ask Kulan, and everything underneath made
+Decided with Mohamud (23 Oct): 2.5 is "Ask Kulan, and everything underneath made
 solid". Fleet v2 and the rest of the assistant actions move to 2.6.
 
 Done on kulan-os-2.5 (tested in CI, waiting for "release it"):
@@ -103,7 +103,7 @@ Done on kulan-os-2.5 (tested in CI, waiting for "release it"):
 Still to do for 2.5: trim the PC ISO under ~1.8 GB (measuring); review the
 real-desktop screenshots of every Settings page.
 
-Proposed for 2.6: Fleet v2; more assistant actions (photos by date, duplicates,
+Moved to 2.6: Fleet v2; more assistant actions (photos by date, duplicates,
 timers, to-dos, Bluetooth/printer fixes, backups); Sharing page; NVIDIA
 driver add-on with Secure Boot signing; Broadcom wl; an upgrade test from
 the previous release on an installed VM; sleep/wake and dual-boot tests;
