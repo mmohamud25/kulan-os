@@ -27,10 +27,16 @@ from . import engine
 
 MAX_STEPS = 6
 MAX_REPLY = 600
-SETTINGS_PAGES = ["wifi", "bluetooth", "printers", "sound", "focus", "notifications", "users", "parental-controls", "appearance",
-                  "desktop", "dock", "top-bar", "display", "battery", "storage", "login-items", "apps", "security",
-                  "privacy", "keyboard", "mouse", "accessibility", "assistant", "prayer-times", "date-time", "region",
-                  "updates", "add-ons", "about"]
+SETTINGS_PAGES = ["wifi", "bluetooth", "phone", "printers", "sound", "focus", "notifications", "users", "parental-controls",
+                  "appearance", "desktop", "dock", "top-bar", "display", "battery", "storage", "login-items", "apps",
+                  "security", "privacy", "backups", "keyboard", "mouse", "accessibility", "assistant", "prayer-times",
+                  "date-time", "region", "updates", "add-ons", "about"]
+PHOTO_WHEN = ["today", "yesterday", "this_week", "last_week", "this_month", "last_month", "this_year", "last_year"]
+PHOTO_TYPES = (".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".gif", ".tif", ".tiff", ".raw", ".cr2", ".nef", ".dng")
+LARGE_MB = [100, 500, 1000]
+DUPLICATE_PLACES = ["downloads", "documents", "pictures", "desktop", "home"]
+TODO_FILE = Path(GLib.get_user_data_dir()) / "kulan" / "todo.json"  # Kulan Shell's To-do widget
+MAX_FOUND = 40
 ACCENTS = ["teal", "blue", "green", "yellow", "orange", "red", "pink", "purple", "slate"]
 # where -> (GLib's special folder, its usual name when the system has none set)
 PLACES = {"home": ("", ""), "desktop": ("DESKTOP", "Desktop"), "documents": ("DOCUMENTS", "Documents"),
@@ -377,7 +383,8 @@ def set_reminder(a: dict) -> Result:
     unit = f"kulan-reminder-{rid}"
     reminders_dir().mkdir(parents=True, exist_ok=True)
     units_dir().mkdir(parents=True, exist_ok=True)
-    (reminders_dir() / f"{rid}.json").write_text(json.dumps({"message": message, "at": at.isoformat()}))
+    (reminders_dir() / f"{rid}.json").write_text(json.dumps({"message": message, "at": at.isoformat(),
+                                                             "title": "Timer" if a.get("_title") == "Timer" else "Reminder"}))
     (units_dir() / f"{unit}.service").write_text(
         "[Unit]\nDescription=Kulan Assistant reminder\n\n[Service]\nType=oneshot\n"
         f"ExecStart=/usr/bin/kulan-assistant reminder-fire {rid}\n")
@@ -423,13 +430,180 @@ def fire_reminder(rid: str) -> int:
         hints = {"urgency": GLib.Variant("y", 2), "desktop-entry": GLib.Variant("s", "org.kulan.Assistant")}
         bus.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
                       "org.freedesktop.Notifications", "Notify",
-                      GLib.Variant("(susssasa{sv}i)", ("Kulan Assistant", 0, "org.kulan.Assistant", "Reminder",
+                      GLib.Variant("(susssasa{sv}i)", ("Kulan Assistant", 0, "org.kulan.Assistant",
+                                                       "Timer" if data.get("title") == "Timer" else "Reminder",
                                                        str(data.get("message", "")), [], hints, 0)),
                       None, Gio.DBusCallFlags.NONE, 10000, None)
     except GLib.Error:
         return 1  # not shown: keep it, so it comes again at the next sign-in
     remove_reminder(rid)
     return 0
+
+
+# --- photos, big files and duplicates -----------------------------------------------------
+def _walk(top: Path, deadline: float):
+    """Files under top, skipping hidden folders and caches; stops at the deadline."""
+    for root, dirs, files in os.walk(top):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("snap", "node_modules", "__pycache__")]
+        for f in files:
+            if not f.startswith("."):
+                yield Path(root) / f
+        if time.monotonic() > deadline:
+            return
+
+
+def photo_range(when: str, today: datetime.date | None = None) -> tuple[datetime.date, datetime.date]:
+    """[start, end) dates for a request like "last_week"."""
+    today = today or datetime.date.today()
+    monday = today - datetime.timedelta(days=today.weekday())
+    first = today.replace(day=1)
+    previous_first = (first - datetime.timedelta(days=1)).replace(day=1)
+    return {
+        "today": (today, today + datetime.timedelta(days=1)),
+        "yesterday": (today - datetime.timedelta(days=1), today),
+        "this_week": (monday, today + datetime.timedelta(days=1)),
+        "last_week": (monday - datetime.timedelta(days=7), monday),
+        "this_month": (first, today + datetime.timedelta(days=1)),
+        "last_month": (previous_first, first),
+        "this_year": (today.replace(month=1, day=1), today + datetime.timedelta(days=1)),
+        "last_year": (today.replace(year=today.year - 1, month=1, day=1), today.replace(month=1, day=1)),
+    }[when]
+
+
+def find_photos(a: dict) -> Result:
+    start, end = photo_range(a["when"])
+    deadline = time.monotonic() + 15
+    hits = []
+    places = [_place("pictures"), _place("downloads"), _place("desktop"), _place("documents")]
+    seen: set[Path] = set()
+    for top in places:
+        if not top.is_dir() or top in seen:
+            continue
+        seen.add(top)
+        for path in _walk(top, deadline):
+            if path.suffix.lower() not in PHOTO_TYPES:
+                continue
+            try:
+                day = datetime.date.fromtimestamp(path.stat().st_mtime)
+            except OSError:
+                continue
+            if start <= day < end:
+                hits.append((path.stat().st_mtime, str(path)))
+    words = a["when"].replace("_", " ")
+    if not hits:
+        return Result(True, f"No photos from {words} in Pictures, Downloads, Desktop or Documents")
+    hits.sort(reverse=True)
+    return Result(True, f"{len(hits)} photo{'s' if len(hits) != 1 else ''} from {words}"
+                  + (f" (the newest {MAX_FOUND} shown)" if len(hits) > MAX_FOUND else ""),
+                  found=[p for _t, p in hits[:MAX_FOUND]])
+
+
+def find_large_files(a: dict) -> Result:
+    limit = int(a["min_mb"]) * 1024 * 1024
+    deadline = time.monotonic() + 15
+    hits = []
+    for path in _walk(Path.home(), deadline):
+        try:
+            size = path.lstat().st_size
+        except OSError:
+            continue
+        if size >= limit and not path.is_symlink():
+            hits.append((size, str(path)))
+    if not hits:
+        return Result(True, f"No files of {a['min_mb']} MB or more in your home folder")
+    hits.sort(reverse=True)
+    total = sum(n for n, _p in hits)
+    return Result(True, f"{len(hits)} file{'s' if len(hits) != 1 else ''} of {a['min_mb']} MB or more, "
+                        f"{total / 1024 ** 3:.1f} GB together. Biggest first; delete the ones you don't need in Files",
+                  found=[p for _n, p in hits[:MAX_FOUND]])
+
+
+def duplicate_groups(top: Path, deadline: float) -> list[list[Path]]:
+    """Files with the very same contents: same size first, then the same SHA-256."""
+    import hashlib
+    by_size: dict[int, list[Path]] = {}
+    for path in _walk(top, deadline):
+        try:
+            if path.is_symlink():
+                continue
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if size >= 1024:  # tiny files aren't worth it
+            by_size.setdefault(size, []).append(path)
+    groups = []
+    for size, paths in sorted(by_size.items(), reverse=True):
+        if len(paths) < 2 or time.monotonic() > deadline:
+            continue
+        by_hash: dict[str, list[Path]] = {}
+        for path in paths:
+            digest = hashlib.sha256()
+            try:
+                with open(path, "rb") as fh:
+                    for chunk in iter(lambda: fh.read(1 << 20), b""):
+                        digest.update(chunk)
+            except OSError:
+                continue
+            by_hash.setdefault(digest.hexdigest(), []).append(path)
+        groups.extend(sorted(g, key=lambda p: p.stat().st_mtime) for g in by_hash.values() if len(g) > 1)
+    return groups
+
+
+def find_duplicates(a: dict) -> Result:
+    top = _place(a["where"])
+    if not top.is_dir():
+        return Result(False, f"There's no {a['where'].capitalize()} folder")
+    groups = duplicate_groups(top, time.monotonic() + 20)
+    if not groups:
+        return Result(True, f"No duplicate files in {a['where'].capitalize()}")
+    extra = [p for g in groups for p in g[1:]]  # the copies after the oldest one
+    space = sum(p.stat().st_size for p in extra if p.exists())
+    return Result(True, f"{len(groups)} file{'s have' if len(groups) != 1 else ' has'} copies: {len(extra)} "
+                        f"extra cop{'ies' if len(extra) != 1 else 'y'}, {space / 1024 ** 2:.0f} MB. Listed: the "
+                        "copies; the oldest of each stays. Nothing is deleted",
+                  found=[str(p) for p in extra[:MAX_FOUND]])
+
+
+# --- timers and to-dos ---------------------------------------------------------------------
+def set_timer(a: dict) -> Result:
+    label = " ".join(str(a["label"]).split())[:60] or "Timer"
+    result = set_reminder({"message": f"{label}: {a['minutes']} minutes are up", "minutes": a["minutes"],
+                           **({"_at": a["_at"]} if "_at" in a else {}), "_title": "Timer"})
+    if result.ok:
+        result.message = f"Timer set for {a['minutes']} minute{'s' if a['minutes'] != 1 else ''}"
+    return result
+
+
+def read_todos() -> list[dict]:
+    try:
+        data = json.loads(TODO_FILE.read_text())
+        items = data.get("items") if isinstance(data, dict) else None
+        return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def write_todos(items: list[dict]) -> None:
+    TODO_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = TODO_FILE.with_name(TODO_FILE.name + ".kulan-new")
+    tmp.write_text(json.dumps({"version": 1, "items": items[:200]}, indent=1))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, TODO_FILE)
+
+
+def add_todo(a: dict) -> Result:
+    text = " ".join(str(a["task"]).split())[:200]
+    if not text:
+        return Result(False, "There's no task to add")
+    items = read_todos()
+    if len(items) >= 200:
+        return Result(False, "The to-do list is full: clear completed tasks first")
+    tid = GLib.uuid_string_random()
+    write_todos([{"id": tid, "text": text, "done": False}, *items])
+
+    def undo() -> None:
+        write_todos([i for i in read_todos() if i.get("id") != tid])
+    return Result(True, f"Added “{text}” to your to-do list", undo=undo)
 
 
 # --- fixing common problems --------------------------------------------------------------
@@ -481,6 +655,65 @@ def _size(path: Path, deadline: float) -> int:
             except OSError:
                 pass
     return total
+
+
+def fix_bluetooth(_a: dict) -> Result:
+    tool = shutil.which("bluetoothctl")
+    if tool is None:
+        return Result(False, "Bluetooth isn't available on this computer")
+    if shutil.which("rfkill"):
+        subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=10)
+    subprocess.run([tool, "power", "off"], capture_output=True, timeout=20)
+    time.sleep(2)
+    on = subprocess.run([tool, "power", "on"], capture_output=True, text=True, timeout=20)
+    if on.returncode != 0 or "Failed" in on.stdout:
+        return Result(False, "Bluetooth couldn't be turned on. Is there a Bluetooth switch or key on the computer?")
+    time.sleep(3)
+    connected = subprocess.run([tool, "devices", "Connected"], capture_output=True, text=True, timeout=10).stdout
+    names = [line.split(" ", 2)[2] for line in connected.splitlines() if line.startswith("Device ") and line.count(" ") >= 2]
+    if names:
+        return Result(True, "Bluetooth restarted. Connected: " + ", ".join(names[:4]))
+    return Result(True, "Bluetooth restarted. Nothing is connected yet: turn the device off and on, or pair it again "
+                        "in Bluetooth settings")
+
+
+def fix_printer(_a: dict) -> Result:
+    if shutil.which("lpstat") is None:
+        return Result(False, "Printing isn't set up on this computer")
+    printers = subprocess.run(["lpstat", "-p"], capture_output=True, text=True, timeout=15).stdout
+    names = [line.split()[1] for line in printers.splitlines() if line.startswith("printer ")]
+    if not names:
+        return Result(False, "No printers are set up. Add one in Kulan Settings › Printers")
+    resumed = []
+    for line in printers.splitlines():
+        parts = line.split()
+        if line.startswith("printer ") and "disabled" in line and len(parts) > 1 and shutil.which("cupsenable"):
+            if subprocess.run(["cupsenable", parts[1]], capture_output=True, timeout=15).returncode == 0:
+                resumed.append(parts[1])
+    jobs = subprocess.run(["lpstat", "-o"], capture_output=True, text=True, timeout=15).stdout.strip().splitlines()
+    message = (f"Turned {', '.join(resumed)} back on. " if resumed else "")
+    if jobs:
+        message += (f"{len(jobs)} print job{'s are' if len(jobs) != 1 else ' is'} waiting: check the printer is on and "
+                    "has paper. Kulan Settings › Printers shows the queue")
+    else:
+        message += "Nothing is waiting to print. If the printer is on and still doesn't print, remove and add it again in Printers"
+    return Result(bool(resumed) or not jobs, message)
+
+
+def back_up_now(_a: dict) -> Result:
+    if shutil.which("deja-dup") is None:
+        return Result(False, "Backups aren't installed")
+    deja = _settings("org.gnome.DejaDup")
+    backend = deja.get_string("backend") if deja is not None and deja.props.settings_schema.has_key("backend") else ""
+    if backend not in ("drive", "local", "remote", "google", "microsoft"):
+        open_settings({"page": "backups"})
+        return Result(False, "Backups aren't set up yet: I opened Kulan Settings › Backups to choose a drive")
+    try:
+        subprocess.Popen(["deja-dup", "--backup"], start_new_session=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    except OSError as e:
+        return Result(False, f"The backup didn't start: {e}")
+    return Result(True, "Backing up now. Déjà Dup shows the progress")
 
 
 def check_storage(_a: dict) -> Result:
@@ -556,6 +789,29 @@ ACTIONS = [
     Action("check_storage", "See how much disk space is free and what uses the most (the computer is full, or "
            "slow because the disk is nearly full).",
            {}, False, lambda a: "Check what's using disk space", check_storage),
+    Action("find_photos", "Find photos from a time (today, last week, last month...) in Pictures, Downloads, "
+           "Desktop and Documents.",
+           {"when": {"enum": PHOTO_WHEN}}, False,
+           lambda a: f"Find photos from {a['when'].replace('_', ' ')}", find_photos),
+    Action("find_large_files", "List the biggest files in the home folder (to free up space).",
+           {"min_mb": {"enum": LARGE_MB}}, False,
+           lambda a: f"List files of {a['min_mb']} MB or more", find_large_files),
+    Action("find_duplicates", "Find files that are exact copies of each other in a folder. Nothing is deleted.",
+           {"where": {"enum": DUPLICATE_PLACES}}, False,
+           lambda a: f"Look for duplicate files in {a['where'].capitalize()}", find_duplicates),
+    Action("set_timer", "A countdown timer: a notice when the minutes are up.",
+           {"minutes": {"type": "integer", "minimum": 1, "maximum": 180}, "label": {"type": "string", "maxLength": 60}},
+           True, lambda a: f"Set a {a['minutes']}-minute timer ({' '.join(str(a['label']).split())[:60] or 'Timer'})",
+           set_timer),
+    Action("add_todo", "Add a task to the person's to-do list (the To-do widget).",
+           {"task": {"type": "string", "maxLength": 200}}, True,
+           lambda a: f"Add “{' '.join(str(a['task']).split())[:200]}” to your to-do list", add_todo),
+    Action("fix_bluetooth", "Bluetooth headphones, mouse or keyboard won't connect: restart Bluetooth.",
+           {}, True, lambda a: "Restart Bluetooth and check what's connected", fix_bluetooth),
+    Action("fix_printer", "The printer won't print: turn paused printers back on and check the queue.",
+           {}, True, lambda a: "Check the printers and their queue", fix_printer),
+    Action("back_up_now", "Back up the person's files now (to the drive chosen in Backups).",
+           {}, True, lambda a: "Back up your files now", back_up_now),
 ]
 BY_ID = {a.id: a for a in ACTIONS}
 
@@ -651,7 +907,7 @@ def validate(plan: dict) -> tuple[str, list[Step]]:
                                                     or len(value) > spec.get("maxLength", 10_000)):
                 ok = False
         if ok:
-            if action.id == "set_reminder":
+            if action.id in ("set_reminder", "set_timer"):
                 # Fixed when the plan is made, so the time shown is the time set.
                 args = {**args, "_at": reminder_time(int(args["minutes"])).isoformat()}
             steps.append(Step(action, args, action.describe(args)))
@@ -767,4 +1023,65 @@ def self_test() -> None:
                 remove_reminder("../../etc")  # refused quietly
                 assert fire_reminder("../x") == 2
                 assert not set_reminder({"message": "x", "minutes": 0}).ok
+
+                # Timers: a reminder titled "Timer".
+                result = set_timer({"minutes": 10, "label": "Pasta"})
+                assert result.ok and result.message == "Timer set for 10 minutes", result
+                [rid] = [r["id"] for r in list_reminders()]
+                data = json.loads((reminders_dir() / f"{rid}.json").read_text())
+                assert data["title"] == "Timer" and data["message"] == "Pasta: 10 minutes are up", data
+                result.undo()
+                assert list_reminders() == []
+
+            # Photos by date (by when the file was saved).
+            assert photo_range("last_week", datetime.date(2026, 10, 23)) == (datetime.date(2026, 10, 12), datetime.date(2026, 10, 19))
+            assert photo_range("last_month", datetime.date(2026, 1, 15)) == (datetime.date(2025, 12, 1), datetime.date(2026, 1, 1))
+            assert photo_range("yesterday", datetime.date(2026, 3, 1)) == (datetime.date(2026, 2, 28), datetime.date(2026, 3, 1))
+            pictures = Path(home) / "Pictures"
+            (pictures / "Trip").mkdir(parents=True)
+            today_ts = time.time()
+            old_ts = today_ts - 86400 * 400
+            for name, ts in (("Trip/beach.JPG", today_ts), ("cat.png", today_ts), ("old.jpg", old_ts), ("notes.txt", today_ts)):
+                (pictures / name).write_bytes(b"x" * 2048)
+                os.utime(pictures / name, (ts, ts))
+            found = find_photos({"when": "today"})
+            names = {Path(p).name for p in found.found}
+            assert found.ok and {"beach.JPG", "cat.png"} <= names and not names & {"old.jpg", "notes.txt"}, found
+            assert any("/Downloads/" in p for p in found.found), found  # Downloads too (the tidy test's photos)
+            assert "No photos" in find_photos({"when": "last_week"}).message
+
+            # Big files and exact copies (nothing deleted).
+            (Path(home) / "Videos").mkdir()
+            big = Path(home) / "Videos" / "film.mkv"
+            with open(big, "wb") as fh:
+                fh.truncate(101 * 1024 * 1024)
+            large = find_large_files({"min_mb": 100})
+            assert large.ok and large.found == [str(big)], large
+            assert find_large_files({"min_mb": 500}).found == []
+            (downloads / "report.pdf").write_bytes(b"A" * 5000)
+            (downloads / "report (1).pdf").write_bytes(b"A" * 5000)
+            (downloads / "other.pdf").write_bytes(b"B" * 5000)
+            os.utime(downloads / "report.pdf", (old, old))
+            dup = find_duplicates({"where": "downloads"})
+            assert dup.ok and [Path(p).name for p in dup.found] == ["report (1).pdf"], dup
+            assert (downloads / "report (1).pdf").exists()
+
+            # To-dos go to the To-do widget's file; Undo takes them out again.
+            with mock.patch(f"{__name__}.TODO_FILE", Path(home) / ".local/share/kulan/todo.json"):
+                result = add_todo({"task": "  Buy   milk "})
+                assert result.ok and read_todos()[0]["text"] == "Buy milk" and read_todos()[0]["done"] is False
+                add_todo({"task": "Call the bank"})
+                result.undo()
+                assert [i["text"] for i in read_todos()] == ["Call the bank"], read_todos()
+
+    # The new actions' plans are checked like the others.
+    _r, steps = validate({"reply": "", "steps": [
+        {"action": "find_photos", "args": {"when": "last_week"}}, {"action": "find_photos", "args": {"when": "1999"}},
+        {"action": "find_large_files", "args": {"min_mb": 7}}, {"action": "set_timer", "args": {"minutes": 500, "label": "x"}},
+        {"action": "set_timer", "args": {"minutes": 5, "label": "Tea"}}, {"action": "add_todo", "args": {"task": ""}}]})
+    assert [s.action.id for s in steps] == ["find_photos", "set_timer"], steps
+    assert "_at" in steps[1].args
+    assert [s.action.id for s in validate({"steps": [{"action": "open_settings", "args": {"page": "backups"}},
+                                                    {"action": "open_settings", "args": {"page": "phone"}}]})[1]] == \
+        ["open_settings", "open_settings"]
     print("agent self-test passed")

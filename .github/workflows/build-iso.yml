@@ -176,19 +176,20 @@ jobs:
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
   # Publishes the packages to the update channel only after everything has
-  # passed: the package tests, and both ISOs' checks, boot, low-end boot,
-  # install, TPM and speed tests. Installed computers update from the
+  # passed: the package tests, the upgrade test, and both ISOs' checks, boot,
+  # low-end boot, install, TPM and speed tests. Installed computers update from the
   # channel automatically, so nothing reaches them that hasn't been through
   # every test. (The ISO build reads the channel already online - the
   # previous release - so it doesn't need this build published first.)
   # Skipped until scripts/setup-update-channel.sh has been run.
   publish:
-    needs: [test-packages, engine, files, build]
+    needs: [test-packages, engine, files, build, upgrade-test]
     # Only runs that built both architectures publish: the channel is
     # rebuilt from scratch each time and must keep both engines.
     if: >-
       github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both' && !cancelled() &&
-      needs.test-packages.result == 'success' && needs.build.result == 'success'
+      needs.test-packages.result == 'success' && needs.build.result == 'success' &&
+      needs.upgrade-test.result == 'success'
     name: Publish updates
     runs-on: ubuntu-24.04
     # Never at the same time as the weekly re-sign (resign-channel.yml).
@@ -300,6 +301,79 @@ jobs:
           done
           echo "::error title=Update channel::${KULAN_APT_URL} is not serving ${VERSION} after 10 minutes"
           exit 1
+
+  # Upgrade test: install the previous release (the latest GitHub Release's
+  # PC ISO), update it to this build's packages through Software Update's
+  # own commands, restart, and check it comes back with every Kulan package
+  # updated and nothing half-installed. Protects everyone already on Kulan
+  # OS: publishing waits for it.
+  upgrade-test:
+    needs: [packages, engine, files, test-packages]
+    if: >-
+      !cancelled() && (inputs.arch || 'both') != 'arm64' &&
+      needs.test-packages.result == 'success' &&
+      needs.engine.result == 'success' && needs.files.result == 'success'
+    name: Upgrade test (${{ matrix.from }} release to this build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    # The last two releases: computers that skipped one update jump straight
+    # to this build, so that path is tested too.
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [previous, older]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-debs
+          path: dist/debs/
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-engine-amd64
+          path: dist/debs/
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-files-amd64
+          path: dist/debs/
+      # The same files the update channel will get (see publish).
+      - name: Match the update channel's Kulan Files
+        run: ci/use-channel-files.sh dist/debs
+
+      - name: Get the previous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Real releases only (test builds are pre-releases), newest first.
+          INDEX=0; [ "${{ matrix.from }}" = older ] && INDEX=1
+          TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" \
+            -q "[.[] | select(.draft == false and .prerelease == false)] | sort_by(.published_at) | reverse | .[${INDEX}].tag_name // empty")"
+          [ -n "${TAG}" ] || { echo "::error::no ${{ matrix.from }} release found"; exit 1; }
+          mkdir -p previous
+          gh release download "${TAG}" --repo "$GITHUB_REPOSITORY" -D previous \
+            --pattern kulan-os-amd64.iso --pattern SHA256SUMS --pattern SHA256SUMS.sig
+          cd previous
+          gpgv --keyring ../packages/kulan-archive-keyring.gpg SHA256SUMS.sig SHA256SUMS
+          grep ' kulan-os-amd64.iso$' SHA256SUMS | sha256sum -c -
+          echo "::notice title=Upgrade test (${{ matrix.from }})::from ${TAG}"
+
+      - name: Upgrade test
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q qemu-system-x86 ovmf squashfs-tools dosfstools fdisk e2fsprogs parted xorriso apt-utils gnupg
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
+          ci/upgrade-test.sh previous/kulan-os-amd64.iso dist/debs upgrade-test
+
+      - name: Upload upgrade test
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: upgrade-test-amd64-${{ matrix.from }}
+          path: upgrade-test/
+          retention-days: 14
+          if-no-files-found: ignore
 
   build:
     needs: [plan, packages, engine, files, test-packages]

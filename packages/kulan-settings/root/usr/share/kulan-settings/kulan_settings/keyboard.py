@@ -104,7 +104,7 @@ class KeyboardPage(Page):
         self.add_rows(clipboard,
                       switch_row(self.kulan, "clipboard-history", "Clipboard history",
                                  "Remembers the last 25 things you copied, in memory only, until you lock the "
-                                 "screen. Passwords from KeePassXC are skipped, but passwords copied from a "
+                                 "screen; pick one to paste it. Passwords from KeePassXC are skipped, but passwords copied from a "
                                  "browser are remembered too"))
 
         more = self.add_group()

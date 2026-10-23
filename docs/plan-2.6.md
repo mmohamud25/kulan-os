@@ -1,7 +1,7 @@
-# Kulan OS 2.6 plan (draft)
+# Kulan OS 2.6 plan
 
-Started with Mohamud, 23 October 2026. Nothing here reaches main or the
-update channel until he says "release it". 2.5 ships first.
+Started with Mohamud, 23 October 2026. 2.5 shipped the same day. Nothing here
+reaches main or the update channel until he says "release it".
 
 ## Counting downloads and installs, privately (agreed)
 Kulan OS promises it doesn't track people; counting stays within that.
@@ -44,9 +44,48 @@ cameras or faces. A privacy policy page on os.kulangroup.com covers 2 and 3.
 - Small: clipboard history pastes for you; Quick Note and To-do say when
   saving fails, with undo; "Make private" confirms the new name.
 
-## Ideas, to choose
-- Phone link (files, notifications, texts; Android best).
-- One backup and restore page, including earlier versions of a file.
-- A lighter mode for 4 GB computers.
-- A Kulan Store in Kulan's look.
-- On hold until Mohamud says so: Somali, web answers for Ask Kulan.
+## Chosen with Mohamud (23 October 2026)
+- Phone link: files, notifications and texts with an Android phone (KDE
+  Connect protocol, through GSConnect), set up from Kulan Settings ›
+  Phone; iPhone gets file sharing only.
+- One backup and restore page in Kulan Settings: scheduled backups to a
+  USB drive or another disk (encrypted, with Déjà Dup / restic), restoring
+  everything or a single file, and earlier versions of a file from Files.
+- A lighter mode for 4 GB computers: switched on automatically when memory
+  is small (and by hand in Kulan Settings › Battery & Speed): fewer
+  animations, no search indexing, the assistant's model only on demand,
+  zram sized to match. Tested in the low-end start-up test.
+- A Kulan Store in Kulan's look: apps from Flathub and Debian in one
+  place, with Kulan's own picks, installs and updates through the
+  existing update services (no new ways in).
+
+## Not doing until Mohamud says so
+- Somali; web answers for Ask Kulan.
+
+## Status (23 October 2026, on branch kulan-os-2.6)
+Done and tested: the upgrade test (found a 2.5 bug: a fresh install's first
+update skips its restore point; being fixed), private counting (live on
+Supabase, privacy policy page), lighter mode, the small fixes, the Backups
+page, Phone link, Fleet v2 (server live), more Ask Kulan actions with the
+top-bar, microphone and read-the-screen buttons. Version is 2.6, with
+release notes. Phone link stays an add-on (not in the image, so it isn't on
+for everyone); the Phone page installs it. Kulan Fleet (the admin app) is
+listed in Kulan Settings › Add-ons.
+Moved to 2.7 with Mohamud (docs/plan-2.7.md): Kulan Store, the native
+Sharing page (GNOME Settings' Sharing stays linked), signed start-up files,
+the signing key, NVIDIA/Broadcom, the sleep, dual-boot and restore tests,
+and downloads on Cloudflare R2.
+
+## Order (proposed)
+1. Upgrade test 2.5 → 2.6 (protects everyone already on 2.5).
+2. Private counting (Supabase) and the privacy policy page.
+3. Lighter mode; small fixes.
+4. Backup and restore page.
+5. Phone link.
+6. Fleet v2.
+7. Kulan Store.
+8. More Ask Kulan actions and buttons; Sharing page.
+9. Security (signed start-up files, signing key), NVIDIA/Broadcom, and the
+   sleep, dual-boot and restore tests.
+If 2.6 gets too big, what's left at the end moves to 2.7, as Fleet v2
+did from 2.5.

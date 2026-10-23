@@ -15,11 +15,15 @@ case "$1" in
 		# App (Flatpak) updates show in Software Update and, with automatic
 		# updates on, install daily.
 		deb-systemd-helper enable kulan-app-updates.timer >/dev/null || true
+		# The anonymous weekly count (off: Kulan Settings > Privacy).
+		systemd-sysusers kulan-countme.conf >/dev/null 2>&1 || true
+		deb-systemd-helper enable kulan-countme.timer >/dev/null || true
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-restore-points.timer >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-update-status.timer >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-app-updates.timer >/dev/null 2>&1 || true
+			deb-systemd-invoke start kulan-countme.timer >/dev/null 2>&1 || true
 		fi
 		# Both helpers skip the ISO build and the live session by themselves.
 		/usr/lib/kulan/restore-points setup || true

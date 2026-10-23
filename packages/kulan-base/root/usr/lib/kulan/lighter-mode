@@ -1,0 +1,121 @@
+#!/bin/bash
+# Lighter mode, for computers with little memory (4 GB). On by itself when the
+# computer has under 5 GB; Kulan Settings › Battery and power can switch it on
+# or off for good (update-run lighter on|off|auto).
+#
+# What it does:
+#   - Kulan Shell turns off the live blurs and shortens animations (it watches
+#     /run/kulan/lighter-mode);
+#   - file search (LocalSearch) indexes at the lowest priority, with a memory
+#     ceiling, so it never competes with the apps in use;
+#   - Kulan Assistant unloads its model after 2 minutes unused instead of 10;
+#   - compressed memory (zram) as big as the memory, as Fedora does, instead of
+#     half (from the next start).
+#
+#   lighter-mode apply [--boot]  at start-up (kulan-lighter-mode.service, --boot:
+#                                remember what start-up chose, for Kulan Settings)
+#   lighter-mode status          JSON: on, choice (on|off|auto), memory
+#   lighter-mode set on|off|auto  (root) remember the choice and apply it
+set -uo pipefail
+
+CHOICE=/etc/kulan/lighter-mode
+FLAG=/run/kulan/lighter-mode
+AT_BOOT=/run/kulan/lighter-mode-at-boot  # on/off: what this start-up chose (file search and zram follow it)
+SEARCH_DROPIN=/run/systemd/user/localsearch-3.service.d/60-kulan-lighter.conf
+ZRAM_CONF=/etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf
+AUTO_BELOW_KIB=$((5 * 1024 * 1024))
+
+memory_kib() { awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null; }
+
+choice() {
+	local value
+	value="$({ tr -d '[:space:]' < "${CHOICE}"; } 2>/dev/null)"
+	case "${value}" in
+		on | off) echo "${value}" ;;
+		*) echo auto ;;
+	esac
+}
+
+wanted() { # 0 when lighter mode should be on
+	case "$(choice)" in
+		on) return 0 ;;
+		off) return 1 ;;
+	esac
+	local mem
+	mem="$(memory_kib)"
+	[[ -n "${mem}" && "${mem}" -lt "${AUTO_BELOW_KIB}" ]]
+}
+
+apply() {
+	if wanted; then
+		mkdir -p "$(dirname "${FLAG}")" "$(dirname "${SEARCH_DROPIN}")"
+		echo on > "${FLAG}"
+		cat > "${SEARCH_DROPIN}" <<-'EOF'
+			# Kulan OS lighter mode (/usr/lib/kulan/lighter-mode): file search
+			# indexes only when nothing else needs the computer.
+			[Service]
+			Nice=19
+			CPUSchedulingPolicy=idle
+			IOSchedulingClass=idle
+			MemoryHigh=300M
+		EOF
+		if [[ ! -f "${ZRAM_CONF}" ]]; then
+			mkdir -p "$(dirname "${ZRAM_CONF}")"
+			cat > "${ZRAM_CONF}" <<-'EOF'
+				# Kulan OS lighter mode (/usr/lib/kulan/lighter-mode): compressed
+				# memory as big as the memory (Fedora's size), not half.
+				[zram0]
+				zram-size = min(ram, 8192)
+			EOF
+		fi
+	else
+		rm -f "${FLAG}" "${SEARCH_DROPIN}" "${ZRAM_CONF}"
+	fi
+	return 0
+}
+
+status() {
+	local on=false
+	wanted && on=true
+	local at_boot
+	at_boot="$({ cat "${AT_BOOT}"; } 2>/dev/null)"
+	printf '{"on": %s, "choice": "%s", "memory_kib": %s, "auto_below_kib": %s, "active_now": %s, "at_boot": %s}\n' \
+		"${on}" "$(choice)" "$(memory_kib || echo 0)" "${AUTO_BELOW_KIB}" \
+		"$([[ -e "${FLAG}" ]] && echo true || echo false)" \
+		"$(case "${at_boot}" in on) echo true ;; off) echo false ;; *) echo null ;; esac)"
+}
+
+case "${1:-}" in
+	apply)
+		[[ ${EUID} -eq 0 ]] || { echo "lighter-mode apply: run as root" >&2; exit 1; }
+		apply
+		if [[ "${2:-}" == --boot ]]; then
+			mkdir -p "$(dirname "${AT_BOOT}")"
+			if wanted; then echo on > "${AT_BOOT}"; else echo off > "${AT_BOOT}"; fi
+		fi
+		;;
+	status)
+		status
+		;;
+	set)
+		[[ ${EUID} -eq 0 ]] || { echo "lighter-mode set: run as root" >&2; exit 1; }
+		case "${2:-}" in
+			on | off)
+				mkdir -p "$(dirname "${CHOICE}")"
+				echo "$2" > "${CHOICE}"
+				;;
+			auto)
+				rm -f "${CHOICE}"
+				;;
+			*)
+				echo "usage: lighter-mode set on|off|auto" >&2
+				exit 2
+				;;
+		esac
+		apply
+		;;
+	*)
+		echo "usage: lighter-mode apply|status|set on|off|auto" >&2
+		exit 2
+		;;
+esac

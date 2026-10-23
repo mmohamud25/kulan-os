@@ -31,7 +31,13 @@ export class Dictation {
         this._cancelled = false;
     }
 
-    async toggle() {
+    get isRecording() {
+        return this._recorder !== null;
+    }
+
+    // onText: where the words go (Ask Kulan); without it, they're typed into
+    // the window that was in front. onEnd: called when it's over, either way.
+    async toggle(onText = null, onEnd = null) {
         if (this._recorder) {
             await this._stop(true);
             return;
@@ -61,6 +67,10 @@ export class Dictation {
         GLib.mkdir_with_parents(dir, 0o700);
         this._file = GLib.build_filenamev([dir, `dictation-${GLib.random_int()}.wav`]);
         this._window = global.display.focus_window;
+        // Only now, after every reason not to record: an earlier dictation
+        // still writing out its words keeps its own destination.
+        this._onText = onText;
+        this._onEnd = onEnd;
         try {
             this._recorder = Gio.Subprocess.new(
                 [recorder, '--rate', '16000', '--channels', '1', '--format', 's16', this._file],
@@ -131,6 +141,8 @@ export class Dictation {
         this._hideIndicator();
         this._removeFile(this._file);
         this._window = null;
+        this._onText = null;
+        this._ended();
         Main.notify(TITLE, message);
     }
 
@@ -185,7 +197,10 @@ export class Dictation {
                 return;
             }
             this._hideIndicator();
-            await this._assistant._paste(this._window, `${text} `);
+            if (this._onText)
+                this._onText(text);
+            else
+                await this._assistant._paste(this._window, `${text} `);
         } catch (e) {
             logError(e, 'Kulan Shell: dictation');
             Main.notify(TITLE, 'Couldn’t finish the dictation.');
@@ -193,8 +208,16 @@ export class Dictation {
             this._hideIndicator();
             this._removeFile(file);
             this._window = null;
+            this._onText = null;
             this._busy = false;
+            this._ended();
         }
+    }
+
+    _ended() {
+        const onEnd = this._onEnd;
+        this._onEnd = null;
+        onEnd?.();
     }
 
     destroy() {

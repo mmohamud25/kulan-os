@@ -1,7 +1,8 @@
 // Kulan OS fleet server, protocol v1 (the other end of /usr/bin/kulan-fleet).
 //
 //   POST /fleet/v1/enrol          {code, hostname, os, kulan_version} -> {device_id, token, organisation}
-//   POST /fleet/v1/report         Bearer token, {device_id, ...status} -> {actions: [{id, type}]}
+//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?}
+//                                 -> {actions: [{id, type}], policy: {...}}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
 //
@@ -12,8 +13,21 @@
 import postgres from "npm:postgres@3.4.5";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
-const MAX_BODY = 256 * 1024;
-const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart"]);
+const MAX_BODY = 512 * 1024; // a report with a full app list
+const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase"]);
+const MAX_APPS = 3000;
+
+// The apps a computer sends once a day: names, versions and where from, nothing else.
+function cleanApps(value: unknown): { name: string; version: string; source: string }[] | null {
+  if (!Array.isArray(value)) return null;
+  return value.slice(0, MAX_APPS).flatMap((a) => {
+    if (typeof a !== "object" || a === null) return [];
+    const name = text((a as Record<string, unknown>).name, 120)?.trim();
+    const source = (a as Record<string, unknown>).source;
+    if (!name || (source !== "debian" && source !== "flatpak")) return [];
+    return [{ name, version: text((a as Record<string, unknown>).version, 80) ?? "", source }];
+  });
+}
 
 function reply(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -86,17 +100,29 @@ Deno.serve(async (req: Request) => {
     if (!dev) return reply(401, { error: "unknown computer or key" });
 
     if (path === "/v1/report") {
+      const apps = cleanApps(body.apps);
+      delete body.apps; // kept on the computer's row, not in every hourly report
+      if (apps) await sql`update fleet.devices set apps = ${sql.json(apps)}, apps_at = now() where id = ${dev.id}`;
       await sql`insert into fleet.reports (device_id, report) values (${dev.id}, ${sql.json(body)})`;
+      if (Math.random() < 0.01) await sql`select fleet.prune_reports()`;
       await sql`update fleet.devices set last_seen = now(), last_report = ${sql.json(body)},
                   hostname = coalesce(${text(body.hostname, 120)}, hostname),
                   os = coalesce(${text(body.os, 120)}, os),
                   kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version)
                 where id = ${dev.id}`;
+      // An erase still waiting after 30 days expires instead (the computer was found, say).
+      await sql`update fleet.actions set status = 'expired', finished_at = now()
+                where device_id = ${dev.id} and status = 'pending' and type = 'erase'
+                  and created_at < now() - interval '30 days'`;
       const actions = await sql`update fleet.actions set status = 'sent', sent_at = now()
                                 where id in (select id from fleet.actions where device_id = ${dev.id}
                                              and status = 'pending' order by created_at limit 10)
                                 returning id, type`;
-      return reply(200, { actions: actions.filter((a) => ACTIONS.has(a.type)).map((a) => ({ id: a.id, type: a.type })) });
+      const [org] = await sql`select policy from fleet.organisations where id = ${dev.organisation_id}`;
+      return reply(200, {
+        actions: actions.filter((a) => ACTIONS.has(a.type)).map((a) => ({ id: a.id, type: a.type })),
+        policy: org?.policy ?? {},
+      });
     }
 
     const done = path.match(/^\/v1\/actions\/([0-9a-f-]{36})$/);

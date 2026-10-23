@@ -24,6 +24,14 @@ MODELS_DIR = Path("/var/lib/kulan-assistant/models")
 REGISTRY = Path("/usr/share/kulan-assistant/models.json")
 UNIT = "kulan-assistant-engine.service"
 IDLE_MINUTES = 10
+# Lighter mode (computers with little memory, /usr/lib/kulan/lighter-mode):
+# the model's memory goes back sooner.
+LIGHTER_IDLE_MINUTES = 2
+LIGHTER_FLAG = Path("/run/kulan/lighter-mode")
+
+
+def idle_minutes() -> int:
+    return LIGHTER_IDLE_MINUTES if LIGHTER_FLAG.exists() else IDLE_MINUTES
 CONTEXT = 8192
 THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 

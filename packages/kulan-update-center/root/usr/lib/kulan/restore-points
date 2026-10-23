@@ -15,6 +15,8 @@
 #                                    update (a restore point of how it is now
 #                                    is taken first), then restart
 #
+# Snapshots made here are Timeshift's on-demand kind (its default for
+# --create; passing "--tags O" is refused by Timeshift 24/25).
 # Snapshots are skipped when the disk is low on space, so restore points can
 # never fill the disk. Schedule: daily (keep 2) and weekly (keep 1); of the
 # ones taken before installing updates, the newest 2 are kept (Timeshift keeps
@@ -263,7 +265,7 @@ case "${1:-}" in
 		# skipped when the disk is low on space).
 		echo "pmstatus:undo:10:Saving how things are now"
 		if have_space; then
-			timeshift --create --scripted --comments "${UNDO_NOTE}" --tags O >&2 || log "couldn't save the current state; undoing anyway"
+			timeshift --create --scripted --comments "${UNDO_NOTE}" >&2 || log "couldn't save the current state; undoing anyway"
 		fi
 		echo "pmstatus:undo:40:Putting the system back to before the update"
 		# Only the system is restored (Timeshift leaves home folders alone);
@@ -303,7 +305,7 @@ case "${1:-}" in
 		touch "${STAMP}" # once, even if the snapshot is skipped for space
 		[[ -f "${CONFIG}" ]] || exit 0 # restore points not set up
 		have_space || exit 0
-		timeshift --create --scripted --comments "${UPDATE_NOTE}" --tags O >&2 || log "couldn't take a restore point before automatic updates"
+		timeshift --create --scripted --comments "${UPDATE_NOTE}" >&2 || log "couldn't take a restore point before automatic updates"
 		prune_updates || true
 		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || true
 		;;
@@ -312,7 +314,7 @@ case "${1:-}" in
 		is_live_or_build && { log "not available in the live session"; exit 1; }
 		setup
 		have_space || exit 1
-		timeshift --create --scripted --comments "$2" --tags O
+		timeshift --create --scripted --comments "$2"
 		prune_updates
 		# Measuring can take a minute: done afterwards, at idle priority.
 		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || { enforce_cap; record_usage; }

@@ -1,0 +1,13 @@
+[Unit]
+Description=Count this computer, anonymously, once a week
+ConditionPathExists=!/etc/kulan/no-countme
+
+# Daily, but it sends at most once a week (a computer that's often off still
+# gets counted).
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=1d
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Kulan OS lighter mode (on by itself under 5 GB of memory)
+Documentation=file:///usr/lib/kulan/lighter-mode
+DefaultDependencies=no
+After=local-fs.target
+# Before anyone signs in, so file search and the desktop start light.
+Before=systemd-user-sessions.service display-manager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/kulan/lighter-mode apply --boot
+
+[Install]
+WantedBy=multi-user.target

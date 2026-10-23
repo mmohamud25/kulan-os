@@ -192,7 +192,7 @@ class SecurityPage(Page):
             cards.append(self.card("Backups", "On: your files are backed up", GOOD))
         elif shutil.which("deja-dup"):
             cards.append(self.card("Backups", "Not set up: restore points cover the system, not your files",
-                                   WARN, "Set up", lambda: launch("org.gnome.DejaDup.desktop", self.toast)))
+                                   WARN, "Set up", lambda: self.window.show_page("backups")))
 
         boot = secure_boot()
         if boot == "on":

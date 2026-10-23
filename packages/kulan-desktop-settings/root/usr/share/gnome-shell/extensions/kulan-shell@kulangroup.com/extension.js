@@ -481,7 +481,7 @@ export default class KulanShellExtension extends Extension {
         this._liveText = new LiveText(this._assistant);
         this._dictation = new Dictation(this._assistant);
         this._prayer = this._settings?.settings_schema.has_key('prayer-times') ? new PrayerTimes(this._settings) : null;
-        this._askKulan = new AskKulan();
+        this._askKulan = new AskKulan({dictation: this._dictation, liveText: this._liveText});
         // "Ask Kulan" in the search bar opens the Ask Kulan panel with the words.
         this._spotlight = new Spotlight(text => this._askKulan?.open(text, true));
         // A calmer app grid: 72-pixel icons instead of GNOME's 96.
@@ -491,7 +491,7 @@ export default class KulanShellExtension extends Extension {
         else
             this._appGridLayout = null;
         this._vmDisplay = new VmDisplayKeeper();
-        this._lightEffects = new LightEffects();
+        this._lightEffects = new LightEffects(() => this._applySettings());
         this._reopenApps = Main.sessionMode.isLocked ? null : new ReopenApps(this._settings);
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
@@ -520,16 +520,41 @@ export default class KulanShellExtension extends Extension {
     _applySettings() {
         const speed = this._settings?.get_string('animation-speed') ?? 'normal';
         const factor = ANIMATION_SPEEDS[speed] ?? ANIMATION_SPEEDS.normal;
-        // No graphics acceleration: every frame is drawn by the processor, so
-        // fewer of them (shorter animations) feel smoother.
+        // No graphics acceleration (every frame is drawn by the processor) or
+        // lighter mode: fewer frames (shorter animations) feel smoother.
         St.Settings.get().slow_down_factor = this._lightEffects?.software ? factor * ANIMATION_FACTOR : factor;
         if (this._indicator) {
             this._indicator.allowed = this._settings?.get_boolean('update-indicator') ?? true;
             this._indicator.update(readStatus());
         }
+        this._syncAskButton();
         this._syncSession();
         this._syncStyle();
         this._syncFocus();
+    }
+
+    // Ask Kulan's button in the top bar (Kulan Settings › Top bar), when
+    // Kulan Assistant is installed.
+    _syncAskButton() {
+        const schema = this._settings?.settings_schema;
+        const want = this._askKulan && (!schema?.has_key('ask-button') || this._settings.get_boolean('ask-button')) &&
+            GLib.file_test('/usr/share/dbus-1/services/org.kulan.Assistant.Ask.service', GLib.FileTest.EXISTS);
+        if (want && !this._askButton) {
+            this._askButton = new PanelMenu.Button(0.0, 'Ask Kulan', true);
+            this._askButton.add_child(new St.Icon({
+                gicon: Gio.ThemedIcon.new_from_names(['org.kulan.Assistant-symbolic', 'kulan-logo-symbolic']),
+                style_class: 'system-status-icon',
+            }));
+            this._askButton.connect('button-press-event', () => {
+                this._askKulan?.toggle();
+                return Clutter.EVENT_STOP;
+            });
+            Main.panel.addToStatusArea(`${this.uuid}-ask`, this._askButton, 1, 'right');
+            this._askButton.container.visible = !Main.sessionMode.isLocked;
+        } else if (!want && this._askButton) {
+            this._askButton.destroy();
+            this._askButton = null;
+        }
     }
 
     // Kulan's own shortcuts, read from org.kulan.desktop (an older schema
@@ -655,6 +680,8 @@ export default class KulanShellExtension extends Extension {
         this._prayer?.destroy();
         this._prayer = null;
         this._spotlight?.destroy();
+        this._askButton?.destroy();
+        this._askButton = null;
         this._askKulan?.destroy();
         this._askKulan = null;
         if (this._appGridLayout)
@@ -729,6 +756,8 @@ export default class KulanShellExtension extends Extension {
             this._indicator.container.visible = unlocked;
         if (this._menu)
             this._menu.container.visible = unlocked && (this._settings?.get_boolean('kulan-menu') ?? true);
+        if (this._askButton)
+            this._askButton.container.visible = unlocked;
     }
 
     // apt writes the status file a few times in a row; reload once it settles.

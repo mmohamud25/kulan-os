@@ -30,7 +30,8 @@ export class LiveText {
         this._cancellable = null;
     }
 
-    async start() {
+    // onText: where the text goes (Ask Kulan); without it, it's copied.
+    async start(onText = null) {
         if (this._busy)
             return;
         const tesseract = GLib.find_program_in_path('tesseract');
@@ -67,6 +68,10 @@ export class LiveText {
             const text = await this._recognise(tesseract, path);
             if (!text) {
                 Main.notify(TITLE, 'No text found there. Try a larger area.');
+                return;
+            }
+            if (onText) {
+                onText(text);
                 return;
             }
             St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);

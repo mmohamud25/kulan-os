@@ -83,6 +83,7 @@ FILES=(
 	etc/xdg/gnome-mimeapps.list
 	etc/calamares/modules/fstab.conf
 	var/lib/flatpak/overrides/global
+	etc/passwd
 	usr/bin/kulan-installer
 	usr/lib/kulan/installer-engine
 	usr/share/applications/calamares-install-debian.desktop
@@ -158,6 +159,9 @@ check "Font" "Inter installed" installed fonts-inter
 check "Default apps" "photos open in Image Viewer, PDFs in Document Viewer, text in Text Editor (every default app is in the ISO)" bash -c 'f="$1/etc/xdg/gnome-mimeapps.list"; grep -qx "image/jpeg=org.gnome.Loupe.desktop" "$f" && grep -qx "application/pdf=org.gnome.Evince.desktop" "$f" && grep -qx "text/plain=org.gnome.TextEditor.desktop" "$f" || exit 1; for app in $(sed -n "s/^[^#][^=]*=//p" "$f" | sort -u); do grep -q "squashfs-root/usr/share/applications/${app}\$" "$2" || { echo "missing ${app}"; exit 1; }; done' _ "${R}" "${WORK}/listing"
 check "Smaller download" "unused speech data, the all-language bundle, VLC translations, GNOME's wallpapers and other-language help left out; Kulan's wallpapers and English kept" bash -c "$(declare -f installed); R='${R}'; ! installed pocketsphinx-en-us && ! installed locales-all && ! installed vlc-l10n && ! grep -qE 'squashfs-root/usr/share/backgrounds/gnome/.+' '${WORK}/listing' && ! grep -qE 'squashfs-root/usr/share/help/(de|fr|es)/' '${WORK}/listing' && grep -q 'squashfs-root/usr/share/backgrounds/kulan/kulan-dark.png\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/locale/locale-archive\$' '${WORK}/listing'"
 check "Clock sync" "systemd-timesyncd installed, so the time is set from the internet" installed systemd-timesyncd
+check "Lighter mode" "enabled at start-up; the file search service it slows down (localsearch-3) is in the image" bash -c "grep -q 'squashfs-root/etc/systemd/system/multi-user.target.wants/kulan-lighter-mode.service\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/systemd/user/localsearch-3.service\$' '${WORK}/listing'"
+check "Phone link is off" "GSConnect isn't in the image: it's an add-on, installed from Kulan Settings › Phone (in the image, Kulan's defaults would turn it on for everyone)" bash -c "$(declare -f installed); R='${R}'; ! installed gnome-shell-extension-gsconnect"
+check "Anonymous count" "weekly count timer enabled, with its own user" bash -c "grep -q 'squashfs-root/etc/systemd/system/timers.target.wants/kulan-countme.timer\$' '${WORK}/listing' && grep -q '^kulan-countme:' '${R}/etc/passwd'"
 check "Firmware updates" "fwupd installed (BIOS, dock and device firmware in Software Update)" installed fwupd
 check "Live Text languages" "English and Arabic text recognition" bash -c "$(declare -f installed); R='${R}'; installed tesseract-ocr-eng && installed tesseract-ocr-ara"
 check "Cursor files" "Bibata Modern Classic cursors present, the unused variants' left out" bash -c "grep -q 'squashfs-root/usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr\$' '${WORK}/listing' && ! grep -E 'squashfs-root/usr/share/icons/Bibata-[^/]+/cursors/' '${WORK}/listing' | grep -qv '/Bibata-Modern-Classic/'"

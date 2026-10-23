@@ -325,6 +325,10 @@
 
 /* Ask Kulan (Shift+Cmd+Space) */
 .kulan-ask-entry-icon { icon-size: 24px; padding-right: 6px; }
+.kulan-ask-top { spacing: 4px; }
+.kulan-ask-icon-button { padding: 8px; border-radius: 10px; color: rgba(255, 255, 255, 0.7); }
+.kulan-ask-icon-button:hover, .kulan-ask-icon-button:focus { background-color: rgba(255, 255, 255, 0.08); }
+.kulan-ask-icon-button:checked { background-color: #2dd4bf; color: #04201d; }
 .kulan-ask-body { spacing: 6px; padding: 6px 8px 4px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .kulan-ask-reply { color: #eef4fb; font-size: 1.05em; padding: 6px 4px; }
 .kulan-ask-thinking { color: rgba(255, 255, 255, 0.7); padding: 8px 4px; font-feature-settings: "tnum"; }
@@ -638,3 +642,4 @@
   border-color: #2dd4bf;
   box-shadow: none;
 }
+.kulan-quicknote-status { margin: 4px 0 2px 0; font-size: 13px; color: #fbbf24; }

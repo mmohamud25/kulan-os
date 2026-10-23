@@ -1,0 +1,249 @@
+#!/usr/bin/python3
+"""Count this computer, anonymously, once a week (Fedora's "countme" idea).
+
+Kulan OS doesn't track people. To know roughly how many computers run it,
+once a week this sends exactly three things and nothing else:
+
+    version   the Kulan OS version, like "2.6"
+    arch      "amd64" (PC) or "arm64" (Mac and other Arm computers)
+    age       how long since this computer first counted itself:
+              1 under a week, 2 under a month, 3 under six months, 4 longer
+
+There's no ID, so one week's count can't be linked to the next, or to a
+computer or a person. The server only adds one to that week's total (see
+fleet/supabase/functions/countme). Off: Kulan Settings > Privacy, or
+"sudo /usr/lib/kulan/update-run countme-off".
+
+    countme send        once a week at most (kulan-countme.timer, daily)
+    countme show        print exactly what would be sent, and the setting
+    countme self-test   check the logic (build and package tests)
+"""
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+from pathlib import Path
+
+URL = "https://xegnwqxpegznsufulclx.supabase.co/functions/v1/countme/v1"
+OFF = Path("/etc/kulan/no-countme")
+STATE = Path(os.environ.get("STATE_DIRECTORY", "/var/lib/kulan-countme"))
+TIMEOUT_S = 20
+AGES = {1: "under a week", 2: "under a month", 3: "under six months", 4: "longer"}
+
+
+def version(os_release: str = "/etc/os-release") -> str | None:
+    """The Kulan OS version ("2.6"), or None on anything else."""
+    fields = {}
+    try:
+        for line in Path(os_release).read_text().splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                fields[key] = value.strip().strip('"')
+    except OSError:
+        return None
+    if fields.get("ID") != "kulan":
+        return None
+    parts = fields.get("VERSION_ID", "").split(".")
+    if len(parts) < 2 or not all(p.isdigit() and len(p) <= 2 for p in parts[:2]):
+        return None
+    return f"{int(parts[0])}.{int(parts[1])}"
+
+
+def arch() -> str | None:
+    try:
+        name = subprocess.run(["dpkg", "--print-architecture"], capture_output=True, text=True,
+                              timeout=10, check=True).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return name if name in ("amd64", "arm64") else None
+
+
+def week_of(day: datetime.date) -> str:
+    year, week, _ = day.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def age_bucket(first: datetime.date, today: datetime.date) -> int:
+    days = (today - first).days
+    if days < 7:
+        return 1
+    if days < 30:
+        return 2
+    if days < 182:
+        return 3
+    return 4
+
+
+def first_seen(state: Path, today: datetime.date, write: bool) -> datetime.date:
+    """When this computer first counted itself (kept on this computer only)."""
+    path = state / "first-seen"
+    try:
+        return datetime.date.fromisoformat(path.read_text().strip())
+    except (OSError, ValueError):
+        pass
+    if write:
+        state.mkdir(parents=True, exist_ok=True)
+        path.write_text(today.isoformat() + "\n")
+    return today
+
+
+def kernel_options() -> list[str]:
+    try:
+        return Path("/proc/cmdline").read_text().split()
+    except OSError:
+        return []
+
+
+def live_session() -> bool:
+    return "boot=live" in kernel_options() or Path("/run/live/medium").is_dir()
+
+
+def skip_reason() -> str | None:
+    if OFF.exists():
+        return "switched off in Kulan Settings > Privacy"
+    cmdline = kernel_options()
+    if live_session():
+        return "the live session isn't counted, only installed computers"
+    if "kulan.boot-report" in cmdline:
+        return "a test machine"
+    return None
+
+
+def report(state: Path, today: datetime.date, write: bool = False) -> dict | None:
+    v, a = version(), arch()
+    if not v or not a:
+        return None
+    return {"version": v, "arch": a, "age": age_bucket(first_seen(state, today, write), today)}
+
+
+def send(body: dict, url: str = URL) -> None:
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "Kulan OS"})
+    with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:  # noqa: S310 - fixed https URL
+        if response.status not in (200, 204):
+            raise OSError(f"the server answered {response.status}")
+
+
+def cmd_send() -> int:
+    reason = skip_reason()
+    if reason:
+        print(f"Not counted: {reason}.")
+        return 0
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    sent = STATE / "last-week"
+    try:
+        if sent.read_text().strip() == week_of(today):
+            print("Already counted this week.")
+            return 0
+    except OSError:
+        pass
+    body = report(STATE, today, write=True)
+    if body is None:
+        print("Not counted: this isn't a Kulan OS release this counts.")
+        return 0
+    try:
+        send(body)
+    except OSError as exc:  # offline or the server's down: try again tomorrow
+        print(f"Couldn't count this week yet ({exc}); trying again tomorrow.")
+        return 0
+    STATE.mkdir(parents=True, exist_ok=True)
+    sent.write_text(week_of(today) + "\n")
+    print(f"Counted for {week_of(today)}: {json.dumps(body)}")
+    return 0
+
+
+def cmd_show() -> int:
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    body = report(STATE, today)
+    try:
+        last = (STATE / "last-week").read_text().strip()
+    except OSError:
+        last = ""
+    print(json.dumps({"on": not OFF.exists(), "skipped": skip_reason(), "sends": body,
+                      "age_means": AGES.get(body["age"]) if body else None,
+                      "last_counted": last or None, "to": URL}, indent=2))
+    return 0
+
+
+def self_test() -> None:
+    import tempfile
+    from unittest import mock
+
+    with tempfile.TemporaryDirectory() as tmp:
+        rel = Path(tmp, "os-release")
+        rel.write_text('PRETTY_NAME="Kulan OS 2.6"\nID=kulan\nVERSION_ID="2.6"\n')
+        assert version(str(rel)) == "2.6"
+        rel.write_text('ID=kulan\nVERSION_ID="2.6.1"\n')
+        assert version(str(rel)) == "2.6"
+        rel.write_text('ID=debian\nVERSION_ID="13"\n')
+        assert version(str(rel)) is None
+        rel.write_text('ID=kulan\nVERSION_ID="2"\n')
+        assert version(str(rel)) is None
+        rel.write_text('ID=kulan\nVERSION_ID="2.x; drop"\n')
+        assert version(str(rel)) is None
+
+        d = datetime.date(2026, 10, 23)
+        assert [age_bucket(d - datetime.timedelta(days=n), d) for n in (0, 6, 7, 29, 30, 181, 182, 900)] == \
+            [1, 1, 2, 2, 3, 3, 4, 4]
+        assert week_of(datetime.date(2026, 10, 19)) == week_of(datetime.date(2026, 10, 25)) == "2026-W43"
+        assert week_of(datetime.date(2027, 1, 1)) == "2026-W53"
+
+        state = Path(tmp, "state")
+        assert first_seen(state, d, write=False) == d and not state.exists()
+        assert first_seen(state, d, write=True) == d
+        assert first_seen(state, d + datetime.timedelta(days=40), write=True) == d  # kept, not reset
+
+        # Exactly three fields, nothing that could identify the computer.
+        with mock.patch(f"{__name__}.version", return_value="2.6"), mock.patch(f"{__name__}.arch", return_value="arm64"):
+            body = report(state, d + datetime.timedelta(days=40))
+        assert body == {"version": "2.6", "arch": "arm64", "age": 3}, body
+
+        # Once a week; offline is fine and tries again; off means nothing is sent.
+        global STATE, OFF  # noqa: PLW0603 - the test points them at a temporary folder
+        saved = STATE, OFF
+        STATE, OFF = Path(tmp, "s2"), Path(tmp, "no-countme")
+        try:
+            sent: list[dict] = []
+            with mock.patch(f"{__name__}.version", return_value="2.6"), \
+                    mock.patch(f"{__name__}.arch", return_value="amd64"), \
+                    mock.patch(f"{__name__}.kernel_options", return_value=["quiet", "splash"]), \
+                    mock.patch(f"{__name__}.live_session", return_value=False):
+                with mock.patch(f"{__name__}.send", side_effect=OSError("offline")):
+                    cmd_send()
+                assert not (STATE / "last-week").exists()
+                with mock.patch(f"{__name__}.send", side_effect=lambda b, url=URL: sent.append(b)):
+                    cmd_send()
+                    cmd_send()  # the same week: nothing more
+                    assert len(sent) == 1 and sent[0] == {"version": "2.6", "arch": "amd64", "age": 1}, sent
+                    OFF.write_text("")
+                    (STATE / "last-week").unlink()
+                    cmd_send()  # switched off
+                    assert len(sent) == 1
+                    OFF.unlink()
+                with mock.patch(f"{__name__}.kernel_options", return_value=["kulan.boot-report"]):
+                    assert skip_reason() == "a test machine"
+            with mock.patch(f"{__name__}.live_session", return_value=True):
+                assert skip_reason().startswith("the live session")
+        finally:
+            STATE, OFF = saved
+    print("countme self-test passed")
+
+
+def main(argv: list[str]) -> int:
+    if argv == ["send"]:
+        return cmd_send()
+    if argv == ["show"]:
+        return cmd_show()
+    if argv == ["self-test"]:
+        self_test()
+        return 0
+    print(__doc__.strip(), file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

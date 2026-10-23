@@ -15,10 +15,14 @@
 #   update-run addon-remove <id>          remove an add-on listed in addons.json
 #   update-run security-checkup           run Lynis; summary in /var/lib/kulan/security-checkup.json
 #   update-run firewall-on                turn the firewall on (block incoming)
+#   update-run countme-on|countme-off     the anonymous weekly count on or off (/usr/lib/kulan/countme)
+#   update-run lighter on|off|auto        lighter mode for computers with little memory (/usr/lib/kulan/lighter-mode)
+#   update-run phone-link-on|phone-link-off  let phones (KDE Connect) reach this computer through the firewall
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
-#   update-run fleet-join <server>|fleet-leave  join or leave an organisation (one-time code on stdin)
+#   update-run fleet-join <server> [--allow-erase]|fleet-leave  join or leave an organisation (one-time code on stdin)
+#   update-run fleet-allow-erase on|off   let the organisation erase this computer if it's lost
 #   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
 #   update-run set-hostname <name>        change the computer's name
 #   update-run locale-add <locale>        add a language (one listed in /usr/share/i18n/SUPPORTED)
@@ -80,8 +84,10 @@ repair_dpkg() {
 # Room to download and install the updates (and to work), on the disks apt
 # uses. Says how much is needed when there isn't enough.
 check_space() {
-	local need
-	need="$(apt-get "${APT_LOCK[@]}" -o Debug::NoLocking=1 --assume-no "$@" 2>/dev/null | python3 -I -c '
+	local plan need
+	# apt exits non-zero when it answers "no" itself: keep its plan anyway.
+	plan="$(apt-get "${APT_LOCK[@]}" -o Debug::NoLocking=1 --assume-no "$@" 2>/dev/null || true)"
+	need="$(python3 -I -c '
 import re, sys
 units = {"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9}
 need = 0
@@ -93,7 +99,8 @@ for line in sys.stdin:
     if m:
         need += float(m.group(1).replace(",", "")) * units.get(m.group(2), 1)
 print(int(need))
-' || echo 0)"
+' <<<"${plan}" 2>/dev/null || true)"
+	[[ "${need}" =~ ^[0-9]+$ ]] || need=0
 	local margin=$((500 * 1000 * 1000)) dir avail
 	for dir in /var/cache/apt/archives /usr; do
 		avail="$(df --output=avail -B1 "${dir}" 2>/dev/null | tail -n 1 | tr -dc 0-9)"
@@ -409,9 +416,15 @@ os.replace(tmp, out)
 PY
 		;;
 	fleet-join)
-		[[ $# -eq 2 ]] || die "usage: update-run fleet-join <server> (one-time code on stdin)"
+		[[ $# -eq 2 || ( $# -eq 3 && "$3" == --allow-erase ) ]] ||
+			die "usage: update-run fleet-join <server> [--allow-erase] (one-time code on stdin)"
 		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
-		exec /usr/bin/kulan-fleet join "$2"
+		exec /usr/bin/kulan-fleet join "${@:2}"
+		;;
+	fleet-allow-erase)
+		[[ $# -eq 2 && ( "$2" == on || "$2" == off ) ]] || die "usage: update-run fleet-allow-erase on|off"
+		[[ -x /usr/bin/kulan-fleet ]] || die "Fleet management isn't installed."
+		exec /usr/bin/kulan-fleet allow-erase "$2"
 		;;
 	fleet-leave)
 		[[ $# -eq 1 ]] || die "usage: update-run fleet-leave"
@@ -437,6 +450,52 @@ PY
 		[[ $# -eq 1 ]] || die "usage: update-run compliance-off"
 		[[ -x /usr/bin/kulan-compliance ]] || die "Compliance mode isn't installed."
 		/usr/bin/kulan-compliance off 1>&2
+		;;
+	phone-link-on | phone-link-off)
+		[[ $# -eq 1 ]] || die "usage: update-run phone-link-on|phone-link-off"
+		# KDE Connect's ports (GSConnect speaks the same protocol), from local
+		# networks only (the same ranges as the add-ons'), never the internet.
+		command -v ufw >/dev/null 2>&1 || exit 0
+		for NET in "${PRIVATE_NETS[@]}"; do
+			for PROTO in udp tcp; do
+				if [[ "$1" == phone-link-on && "${NET}" == *:* ]]; then
+					# IPv6: only where the firewall handles IPv6 (IPV6=yes).
+					ufw allow proto "${PROTO}" from "${NET}" to any port 1714:1764 comment "Kulan Phone link" 1>&2 || true
+				elif [[ "$1" == phone-link-on ]]; then
+					ufw allow proto "${PROTO}" from "${NET}" to any port 1714:1764 comment "Kulan Phone link" 1>&2
+				else
+					ufw --force delete allow proto "${PROTO}" from "${NET}" to any port 1714:1764 >/dev/null 2>&1 || true
+				fi
+			done
+		done
+		# 2.6 test builds opened the ports to everyone: close that too.
+		if [[ "$1" == phone-link-off ]]; then
+			for PROTO in udp tcp; do
+				ufw --force delete allow 1714:1764/"${PROTO}" >/dev/null 2>&1 || true
+			done
+		fi
+		;;
+	lighter)
+		[[ $# -eq 2 ]] || die "usage: update-run lighter on|off|auto"
+		case "$2" in
+			on | off | auto) /usr/lib/kulan/lighter-mode set "$2" ;;
+			*) die "usage: update-run lighter on|off|auto" ;;
+		esac
+		;;
+	countme-on)
+		[[ $# -eq 1 ]] || die "usage: update-run countme-on"
+		rm -f /etc/kulan/no-countme
+		if [[ -d /run/systemd/system ]]; then
+			systemctl enable --now kulan-countme.timer 1>&2 || true
+		fi
+		;;
+	countme-off)
+		[[ $# -eq 1 ]] || die "usage: update-run countme-off"
+		mkdir -p /etc/kulan
+		echo "# The anonymous weekly count is off (Kulan Settings > Privacy)." > /etc/kulan/no-countme
+		if [[ -d /run/systemd/system ]]; then
+			systemctl disable --now kulan-countme.timer 1>&2 || true
+		fi
 		;;
 	firewall-on)
 		[[ $# -eq 1 ]] || die "usage: update-run firewall-on"

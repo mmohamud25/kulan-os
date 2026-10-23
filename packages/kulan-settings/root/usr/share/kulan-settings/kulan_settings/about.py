@@ -217,8 +217,20 @@ class AboutPage(Page):
             shared.add_row(Adw.ActionRow(
                 title="What the organisation can ask this computer to do",
                 subtitle="Report now, install updates, turn compliance mode on, lock the screen, "
-                         "restart (with 5 minutes' notice)"))
+                         "restart (with 5 minutes' notice)" + (", and erase it if it’s lost"
+                                                               if data.get("allow_erase") else ""),
+                subtitle_lines=0))
             rows = [head, shared]
+            policy = self.fleet_policy()
+            if policy:
+                rows.append(policy)
+            erase = Adw.SwitchRow(title="Allow erasing this computer if it’s lost or stolen",
+                                  subtitle="Your organisation can then make everything on its disk unreadable from "
+                                           "afar. Only works when the disk is encrypted", subtitle_lines=0,
+                                  active=bool(data.get("allow_erase")))
+            erase.connect("notify::active", self.on_allow_erase)
+            self.erase_row = erase
+            rows.append(erase)
         else:
             join = Adw.ActionRow(title="Join an organisation",
                                  subtitle="For work or school computers: your IT team gives you a server address "
@@ -230,15 +242,59 @@ class AboutPage(Page):
             self.org_group.add(row)
             self.org_rows.append(row)
 
+    @staticmethod
+    def fleet_policy() -> Adw.ExpanderRow | None:
+        """What the organisation's policy asks of this computer, and whether it's met."""
+        try:
+            data = json.loads(Path("/var/lib/kulan/fleet-policy.json").read_text())
+        except (OSError, ValueError):
+            return None
+        policy, status = data.get("policy") or {}, data.get("status") or {}
+        if not policy:
+            return None
+        words = {"auto_updates": "Automatic updates on", "firewall": "Firewall on",
+                 "require_encryption": "Disk encryption"}
+        items = [(words[k], status.get(k)) for k in words if policy.get(k)]
+        if policy.get("screen_lock_minutes"):
+            items.append((f"Screen locks after {policy['screen_lock_minutes']} minutes",
+                          status.get("screen_lock_minutes")))
+        missing = sum(1 for _t, s in items if s != "met")
+        row = Adw.ExpanderRow(title="Your organisation’s policy",
+                              subtitle="All met" if not missing else
+                              f"{missing} not met: your organisation is told")
+        for title, state in items:
+            item = Adw.ActionRow(title=title, subtitle="Met" if state == "met" else
+                                 "Not met. For disk encryption, Kulan OS has to be installed again with "
+                                 "encryption on" if title == "Disk encryption" else "Not met yet",
+                                 subtitle_lines=0)
+            item.add_prefix(Gtk.Image(icon_name="object-select-symbolic" if state == "met" else
+                                      "dialog-warning-symbolic"))
+            row.add_row(item)
+        return row
+
+    def on_allow_erase(self, row: Adw.SwitchRow, _pspec) -> None:
+        on = row.get_active()
+
+        def done(ok: bool) -> None:
+            if not ok:
+                self.render_org()
+        self.window.helper.run(["fleet-allow-erase", "on" if on else "off"],
+                               "Your organisation can erase this computer if it’s lost" if on else
+                               "Your organisation can’t erase this computer", on_done=done)
+
     def join_org(self) -> None:
         dialog = Adw.AlertDialog(heading="Join an organisation",
                                  body="This computer will report its status (model, updates, security checks) "
                                       "every hour. Files, browsing and messages are never shared.")
         server = Adw.EntryRow(title="Server address (https://…)")
         code = Adw.PasswordEntryRow(title="One-time code")
+        erase = Adw.SwitchRow(title="Allow erasing it if it’s lost or stolen",
+                              subtitle="Only works when the disk is encrypted. You can change this later",
+                              subtitle_lines=0, active=False)
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         box.append(server)
         box.append(code)
+        box.append(erase)
         dialog.set_extra_child(box)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("join", "Join")
@@ -248,7 +304,8 @@ class AboutPage(Page):
         def answered(_d, response: str) -> None:
             if response != "join" or not server.get_text().strip() or not code.get_text().strip():
                 return
-            self.window.helper.run(["fleet-join", server.get_text().strip()], "Joined",
+            self.window.helper.run(["fleet-join", server.get_text().strip(), *(["--allow-erase"] if erase.get_active() else [])],
+                                   "Joined",
                                    on_done=lambda _ok: self.render_org(), stdin=code.get_text().strip())
 
         dialog.connect("response", answered)

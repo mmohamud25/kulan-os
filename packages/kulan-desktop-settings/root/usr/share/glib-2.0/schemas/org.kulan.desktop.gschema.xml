@@ -12,6 +12,11 @@
       <summary>Show the Kulan menu</summary>
       <description>The Kulan logo at the left of the top bar, with About, Settings, Lock, Restart and Shut Down.</description>
     </key>
+    <key name="ask-button" type="b">
+      <default>true</default>
+      <summary>Show the Ask Kulan button</summary>
+      <description>A button in the top bar that opens Ask Kulan (when Kulan Assistant is installed).</description>
+    </key>
     <key name="update-indicator" type="b">
       <default>true</default>
       <summary>Show the update icon</summary>

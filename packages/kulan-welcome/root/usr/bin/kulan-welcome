@@ -31,6 +31,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "org.kulan.Welcome"
 UPDATE_HELPER = "/usr/lib/kulan/update-run"
+COUNTME_OFF = "/etc/kulan/no-countme"  # the anonymous weekly count is off (update-run countme-off)
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 CONF_PATH = Path("/usr/share/kulan/kulan.conf")
 STATE_DIR = Path(GLib.get_user_config_dir()) / "kulan-welcome"
@@ -574,6 +575,18 @@ class WelcomeWindow(Adw.ApplicationWindow):
             pass
         self.dns_row.add_suffix(dns)
         group.add(self.dns_row)
+
+        # The anonymous weekly count: said plainly, with the off switch here.
+        if Path("/usr/lib/kulan/countme").exists():
+            self.count_row = Adw.SwitchRow(
+                title="Count this computer, anonymously",
+                subtitle=f"Once a week {self.name} sends only its version, PC or Mac, and roughly how long it’s "
+                         "been installed. No ID and nothing about you. It helps us know how many computers to "
+                         "support. Change it any time in Kulan Settings › Privacy",
+                subtitle_lines=0, active=not Path(COUNTME_OFF).exists())
+            self.count_row.set_sensitive(not self.live and Path(UPDATE_HELPER).exists())
+            self.count_row.connect("notify::active", self.on_count)
+            group.add(self.count_row)
         box.append(group)
 
         more = Adw.PreferencesGroup()
@@ -584,6 +597,24 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def helper(self, args: list[str], done) -> None:
         run_async(["pkexec", UPDATE_HELPER, *args], done, timeout=600)
+
+    def on_count(self, row: Adw.SwitchRow, _pspec) -> None:
+        on = row.get_active()
+        if on == (not Path(COUNTME_OFF).exists()):
+            return
+        row.set_sensitive(False)
+
+        def done(code: int, _out: str, err: str) -> bool:
+            row.set_sensitive(True)
+            if code != 0:
+                row.handler_block_by_func(self.on_count)
+                row.set_active(not Path(COUNTME_OFF).exists())
+                row.handler_unblock_by_func(self.on_count)
+                self.toast("Cancelled" if code in (126, 127) else
+                           f"Couldn't change it: {(err.strip().splitlines() or ['unknown error'])[-1][:120]}")
+            return False
+
+        self.helper(["countme-on" if on else "countme-off"], done)
 
     def on_private_name(self, button: Gtk.Button) -> None:
         name = f"kulan-{secrets.token_hex(3)}"
@@ -736,15 +767,15 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- 6: backups ---------------------------------------------------------------
     def build_backups(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("Back up your files", "Keep a copy of your files on a drive or in Google Drive "
-                                "or OneDrive, so nothing is lost if this computer is.",
+        box.append(self.heading("Back up your files", "Keep a copy of your files on a USB drive or another "
+                                "disk, so nothing is lost if this computer is.",
                                 "drive-harddisk-symbolic"))
         group = Adw.PreferencesGroup()
         backups = Adw.ActionRow(title="File backups",
-                                subtitle="Backups (Déjà Dup): automatic, encrypted, and easy to restore")
+                                subtitle="Automatic and encrypted, to a USB drive or another disk. Set up in "
+                                         "Kulan Settings › Backups")
         button = Gtk.Button(label="Set up", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
-        button.connect("clicked", lambda _b: self.open_app("org.gnome.DejaDup.desktop",
-                                                           "Backups isn't installed. Get Déjà Dup in Software."))
+        button.connect("clicked", lambda _b: self.open_settings("backups"))
         button.set_sensitive(not self.live)
         backups.add_suffix(button)
         group.add(backups)

@@ -6,10 +6,12 @@ OS_RELEASE=/usr/lib/os-release
 
 case "$1" in
 	purge)
-		# Compliance mode's files: back to Debian's own settings.
+		# Compliance mode's and the fleet policy's files: back to Debian's own settings.
 		rm -f /etc/dconf/db/local.d/50-kulan-compliance /etc/dconf/db/local.d/locks/50-kulan-compliance \
 			/etc/security/pwquality.conf.d/50-kulan-compliance.conf /etc/ssh/sshd_config.d/50-kulan-compliance.conf \
-			/etc/apt/apt.conf.d/20kulan-compliance-updates /var/lib/kulan/compliance.json
+			/etc/apt/apt.conf.d/20kulan-compliance-updates /var/lib/kulan/compliance.json \
+			/etc/dconf/db/local.d/60-kulan-fleet /etc/dconf/db/local.d/locks/60-kulan-fleet \
+			/etc/dconf/db/local.d/40-kulan-fleet /etc/dconf/db/local.d/locks/40-kulan-fleet
 		if command -v dconf >/dev/null 2>&1; then dconf update 2>/dev/null || true; fi
 		deb-systemd-helper purge kulan-boot-report.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-oom-notice.service >/dev/null 2>&1 || true
@@ -17,6 +19,9 @@ case "$1" in
 		deb-systemd-helper purge kulan-fast-restart.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fleet.timer >/dev/null 2>&1 || true
 		rm -f /etc/kulan/fleet.json
+		deb-systemd-helper purge kulan-lighter-mode.service >/dev/null 2>&1 || true
+		rm -f /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf \
+			/run/kulan/lighter-mode /run/systemd/user/localsearch-3.service.d/60-kulan-lighter.conf
 		rmdir /etc/kulan 2>/dev/null || true
 		rm -rf /var/lib/kulan
 		;;

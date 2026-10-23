@@ -1,7 +1,8 @@
 // To-do: a short task list kept in ~/.local/share/kulan/todo.json (only on
 // this computer). The To-do widget shows what's left and ticks tasks off;
 // clicking the card opens this panel over everything, to add, tick, remove
-// and clear tasks. Escape or Done closes it.
+// and clear tasks. Escape or Done closes it. Removing or clearing tasks offers
+// Undo; if the list can't be saved (a full disk), it says so.
 
 import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
@@ -14,6 +15,12 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 export const TODO_FILE = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'todo.json']);
 const MAX_TASKS = 200;
 const MAX_CHARS = 200;
+const UNDO_SHOW_MS = 10000;
+let lastError = null;
+
+function saveFailed() {
+    Main.notify('To-do wasn’t saved', `The change couldn’t be saved (${lastError}). Free up some space and try again.`);
+}
 
 export function readTodos() {
     try {
@@ -37,9 +44,12 @@ export function writeTodos(items) {
         // Written whole and renamed into place, so a crash never leaves half a list.
         Gio.File.new_for_path(TODO_FILE).replace_contents(new TextEncoder().encode(text), null, false,
             Gio.FileCreateFlags.PRIVATE | Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+        lastError = null;
         return true;
     } catch (e) {
         logError(e, 'Kulan Shell: could not save the to-do list');
+        lastError = e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NO_SPACE)
+            ? 'the disk is full' : (e.message || 'unknown error');
         return false;
     }
 }
@@ -50,7 +60,8 @@ export function setDone(id, done) {
     if (!item)
         return;
     item.done = done;
-    writeTodos(items);
+    if (!writeTodos(items))
+        saveFailed();
 }
 
 // A round tick box, as in Reminders.
@@ -69,6 +80,8 @@ export class TodoPanel {
     constructor() {
         this._backdrop = null;
         this._grab = null;
+        this._undoTimer = 0;
+        this._undoItems = null;
     }
 
     get isOpen() {
@@ -126,13 +139,20 @@ export class TodoPanel {
         scroll.child = this._list;
         this._panel.add_child(scroll);
 
+        this._status = new St.Label({style_class: 'kulan-quicknote-status', visible: false, x_expand: true});
+        this._status.clutter_text.line_wrap = true;
+        this._panel.add_child(this._status);
+
+        const foot = new St.BoxLayout({x_expand: true});
+        this._undo = new St.Button({label: 'Undo', style_class: 'kulan-todo-clear', can_focus: true, visible: false});
+        this._undo.connect('clicked', () => this._undoChange());
+        foot.add_child(this._undo);
+        foot.add_child(new St.Widget({x_expand: true}));
         this._clear = new St.Button({label: 'Clear completed', style_class: 'kulan-todo-clear', can_focus: true,
             x_align: Clutter.ActorAlign.END});
-        this._clear.connect('clicked', () => {
-            writeTodos(readTodos().filter(i => !i.done));
-            this._refresh();
-        });
-        this._panel.add_child(this._clear);
+        this._clear.connect('clicked', () => this._change(items => items.filter(i => !i.done)));
+        foot.add_child(this._clear);
+        this._panel.add_child(foot);
 
         this._backdrop.add_child(this._panel);
         this._backdrop.connect('button-press-event', (_actor, event) => {
@@ -179,6 +199,37 @@ export class TodoPanel {
         this._refresh();
     }
 
+    // Remove or clear tasks, with Undo for a few seconds.
+    _change(edit) {
+        const before = readTodos();
+        if (!writeTodos(edit(before.map(i => ({...i}))))) {
+            this._refresh();
+            return;
+        }
+        this._undoItems = before;
+        this._undo.visible = true;
+        if (this._undoTimer)
+            GLib.source_remove(this._undoTimer);
+        this._undoTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, UNDO_SHOW_MS, () => {
+            this._undoTimer = 0;
+            this._undoItems = null;
+            if (this._undo)
+                this._undo.visible = false;
+            return GLib.SOURCE_REMOVE;
+        });
+        this._refresh();
+    }
+
+    _undoChange() {
+        if (!this._undoItems)
+            return;
+        if (writeTodos(this._undoItems)) {
+            this._undoItems = null;
+            this._undo.visible = false;
+        }
+        this._refresh();
+    }
+
     _refresh() {
         if (!this._list)
             return;
@@ -191,7 +242,12 @@ export class TodoPanel {
         for (const item of ordered) {
             const row = new St.BoxLayout({style_class: 'kulan-todo-row', x_expand: true});
             row.add_child(checkButton(item.done, done => {
-                setDone(item.id, done);
+                const items = readTodos();
+                const found = items.find(i => i.id === item.id);
+                if (found) {
+                    found.done = done;
+                    writeTodos(items);
+                }
                 this._refresh();
             }, item.done ? `Mark “${item.text}” as not done` : `Mark “${item.text}” as done`));
             const text = new St.Label({style_class: item.done ? 'kulan-todo-text kulan-todo-text-done' : 'kulan-todo-text',
@@ -203,14 +259,13 @@ export class TodoPanel {
             const remove = new St.Button({style_class: 'kulan-todo-remove', can_focus: true,
                 accessible_name: `Remove “${item.text}”`,
                 child: new St.Icon({icon_name: 'window-close-symbolic', icon_size: 14})});
-            remove.connect('clicked', () => {
-                writeTodos(readTodos().filter(i => i.id !== item.id));
-                this._refresh();
-            });
+            remove.connect('clicked', () => this._change(all => all.filter(i => i.id !== item.id)));
             row.add_child(remove);
             this._list.add_child(row);
         }
         this._clear.visible = items.some(i => i.done);
+        this._status.visible = lastError !== null;
+        this._status.text = lastError ? `Couldn’t save the list (${lastError}). Free up some space and try again.` : '';
     }
 
     close() {
@@ -219,12 +274,19 @@ export class TodoPanel {
         // Whatever was typed but not added yet is added, so it's never lost.
         if (this._entry?.get_text().trim())
             this._add();
+        if (this._undoTimer) {
+            GLib.source_remove(this._undoTimer);
+            this._undoTimer = 0;
+        }
+        this._undoItems = null;
+        if (lastError)
+            saveFailed();
         if (this._grab) {
             Main.popModal(this._grab);
             this._grab = null;
         }
         this._backdrop.destroy();
-        this._backdrop = this._panel = this._entry = this._list = this._clear = null;
+        this._backdrop = this._panel = this._entry = this._list = this._clear = this._status = this._undo = null;
     }
 
     destroy() {

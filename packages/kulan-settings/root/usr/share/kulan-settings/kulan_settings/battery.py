@@ -4,6 +4,8 @@ sleeps. Charge comes from UPower; on desktops and VMs without a battery
 that part is hidden."""
 from __future__ import annotations
 
+import json
+import subprocess
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -59,6 +61,35 @@ def nearest(value: int, choices: list[tuple[int, str]]) -> str:
 
 
 
+LIGHTER = "/usr/lib/kulan/lighter-mode"
+LIGHTER_CHOICES = [("auto", "Automatic"), ("on", "On"), ("off", "Off")]
+
+
+def lighter_status() -> dict | None:
+    """Lighter mode now (lighter-mode status), or None without it."""
+    if not Path(LIGHTER).exists():
+        return None
+    try:
+        out = subprocess.run([LIGHTER, "status"], capture_output=True, text=True, timeout=10, check=True).stdout
+        return json.loads(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def lighter_text(status: dict) -> str:
+    memory = f"{status.get('memory_kib', 0) / 1024 / 1024:.1f} GB"
+    what = ("Fewer effects; file search and the assistant use less memory; more compressed memory. "
+            "For computers with 4 GB of memory.")
+    if status.get("choice") == "auto":
+        now = (f"On by itself: this computer has {memory} of memory." if status.get("on") else
+               f"Off: this computer has {memory} of memory, plenty for the full effects.")
+    else:
+        now = "On." if status.get("on") else "Off."
+    if status.get("at_boot") is not None and status.get("on") != status.get("at_boot"):
+        now += " Effects change now; file search and compressed memory after a restart."
+    return f"{what} {now}"
+
+
 def can_hibernate() -> bool:
     """Hibernating needs swap on a disk (Kulan OS uses compressed memory,
     zram, which can't hold a hibernated system) at least as big as memory."""
@@ -76,7 +107,8 @@ class BatteryPage(Page):
     title = "Battery and power"
     icon = "battery-good-symbolic"
     keywords = ("battery", "power", "charge", "charging", "sleep", "suspend", "screen off", "blank",
-                "power mode", "performance", "power saver", "percentage", "lid")
+                "power mode", "performance", "power saver", "percentage", "lid", "lighter mode", "speed",
+                "slow", "memory", "4 gb", "effects", "animations")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -132,9 +164,24 @@ class BatteryPage(Page):
         if saving_rows:  # no heading with nothing under it
             self.add_rows(self.add_group("Saving power"), *saving_rows)
 
+        status = lighter_status()
+        if status is not None:
+            speed = self.add_group("Speed")
+            self.lighter_row = choice_row("Lighter mode", lighter_text(status), LIGHTER_CHOICES,
+                                          lambda: status.get("choice", "auto"), self.set_lighter)
+            self.lighter_row.set_subtitle_lines(0)
+            speed.add(self.lighter_row)
+
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, UPOWER, DISPLAY_DEVICE,
                                   "org.freedesktop.UPower.Device", None, self.got_battery)
         self.connect_profiles(0)
+
+    def set_lighter(self, choice: str) -> None:
+        status = lighter_status()
+        if status is None or status.get("choice") == choice:
+            return
+        message = {"auto": "Lighter mode is automatic", "on": "Lighter mode on", "off": "Lighter mode off"}[choice]
+        self.window.helper.run(["lighter", choice], message, on_done=lambda _ok: self.window.reload_page(self))
 
     def sleep_row(self, source: str, title: str) -> Adw.ComboRow:
         type_key, timeout_key = f"sleep-inactive-{source}-type", f"sleep-inactive-{source}-timeout"

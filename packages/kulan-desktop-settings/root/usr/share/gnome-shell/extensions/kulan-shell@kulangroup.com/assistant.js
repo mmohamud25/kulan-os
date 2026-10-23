@@ -20,7 +20,7 @@ const SCHEMA = 'org.kulan.assistant';
 const EXIT_REPLACE = 3;
 const EXIT_COPY = 4;
 // Apps where Ctrl+V types a control character and Shift+Ctrl+V pastes.
-const TERMINALS = /^(org\.gnome\.(Console|Terminal|Ptyxis)|kgx|gnome-terminal|ptyxis|xterm|kitty|alacritty|foot|org\.wezfurlong\.wezterm)/i;
+export const TERMINALS = /^(org\.gnome\.(Console|Terminal|Ptyxis)|kgx|gnome-terminal|ptyxis|xterm|kitty|alacritty|foot|org\.wezfurlong\.wezterm)/i;
 // Long enough for the app to receive the paste before the clipboard is put back.
 const RESTORE_CLIPBOARD_MS = 1000;
 const FOCUS_WAIT_MS = 150;

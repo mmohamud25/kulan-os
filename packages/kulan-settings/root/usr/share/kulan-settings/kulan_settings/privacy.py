@@ -2,9 +2,11 @@
 location, history, and what Kulan OS connects to."""
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import socket
+import subprocess
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -21,6 +23,9 @@ from .common import (
 from .permissions import PermissionsDialog
 
 DNS_CONF = Path("/etc/systemd/resolved.conf.d/60-kulan-dns.conf")
+COUNTME = "/usr/lib/kulan/countme"
+COUNTME_OFF = Path("/etc/kulan/no-countme")
+ARCH_WORDS = {"amd64": "PC (amd64)", "arm64": "Mac or other Arm computer (arm64)"}
 HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
 DNS_CHOICES = [
@@ -37,9 +42,38 @@ CONNECTIONS = [
                           "for and download updates")),
     ("Clock", "A Debian time server, to keep the clock right"),
     ("Encrypted DNS", "Quad9, Mullvad or Cloudflare for Families, only if you turn it on"),
-    ("Nothing else", ("No usage data, crash reports or advertising IDs are sent. Apps you install may "
-                      "connect to their own services")),
 ]
+NOTHING_ELSE = ("Nothing else", ("No usage data, crash reports or advertising IDs are sent. Apps you install "
+                                 "may connect to their own services"))
+
+
+def countme_report() -> dict | None:
+    """What the weekly count sends (countme show), or None if it isn't here."""
+    if not Path(COUNTME).exists():
+        return None
+    try:
+        out = subprocess.run([COUNTME, "show"], capture_output=True, text=True, timeout=10, check=True).stdout
+        return json.loads(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def countme_text(report: dict | None) -> str:
+    """The exact report, in words."""
+    if not report or not report.get("sends"):
+        return "Nothing: this computer isn't counted (it isn't an installed Kulan OS release)."
+    sends = report["sends"]
+    lines = [f"Kulan OS version: {sends['version']}",
+             f"Kind of computer: {ARCH_WORDS.get(sends['arch'], sends['arch'])}",
+             f"Installed for: {report.get('age_means') or sends['age']}"]
+    text = "Once a week, only this:\n\n" + "\n".join(lines)
+    text += ("\n\nNo ID, account, name, address or anything about how you use the computer. The server only "
+             "adds one to that week’s total, so one week can’t be linked to the next.")
+    if report.get("skipped"):
+        text += f"\n\nNot sent now: {report['skipped']}."
+    elif report.get("last_counted"):
+        text += f"\n\nLast counted: week {report['last_counted'].split('-W')[-1]} of {report['last_counted'][:4]}."
+    return text
 
 
 def dns_mode() -> str:
@@ -69,7 +103,8 @@ class PrivacyPage(Page):
     title = "Privacy"
     icon = "preferences-system-privacy-symbolic"
     keywords = ("privacy", "dns", "ads", "adblock", "tracking", "trackers", "camera", "microphone", "location",
-                "history", "recent files", "computer name", "hostname", "connectivity")
+                "history", "recent files", "computer name", "hostname", "connectivity", "count", "telemetry",
+                "statistics", "anonymous")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -82,7 +117,7 @@ class PrivacyPage(Page):
         self.name_row.add_css_class("property")
         rename = Gtk.Button(label="Make private", valign=Gtk.Align.CENTER,
                             tooltip_text="Use a name that doesn’t include yours, such as kulan-3fa9c2")
-        rename.connect("clicked", lambda _b: self.set_name(private_name()))
+        rename.connect("clicked", lambda _b: self.ask_name(private_name()))
         edit = Gtk.Button(icon_name="document-edit-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
                           tooltip_text="Choose a name")
         edit.update_property([Gtk.AccessibleProperty.LABEL], ["Choose a name"])
@@ -137,6 +172,19 @@ class PrivacyPage(Page):
         for title, text in CONNECTIONS:
             row = Adw.ActionRow(title=title, subtitle=text, subtitle_lines=0)
             connections.add(row)
+        self.count_row = None
+        if Path(COUNTME).exists():
+            self.count_row = Adw.SwitchRow(
+                title="Count this computer, anonymously",
+                subtitle="Once a week: the Kulan OS version, PC or Mac, and roughly how long it’s been installed. "
+                         "No ID and nothing about you. Helps Kulan know how many computers to support",
+                subtitle_lines=0, active=not COUNTME_OFF.exists())
+            what = Gtk.Button(label="What’s sent", valign=Gtk.Align.CENTER, css_classes=["flat"])
+            what.connect("clicked", lambda _b: self.show_count())
+            self.count_row.add_suffix(what)
+            self.count_row.connect("notify::active", self.on_count)
+            connections.add(self.count_row)
+        connections.add(Adw.ActionRow(title=NOTHING_ELSE[0], subtitle=NOTHING_ELSE[1], subtitle_lines=0))
         self.check_row = Adw.SwitchRow(title="Connectivity check",
                                        subtitle="Loads a small test page now and then to spot Wi-Fi sign-in pages "
                                                 "(hotels, airports). Off: you open those pages yourself")
@@ -163,11 +211,14 @@ class PrivacyPage(Page):
     def shown(self) -> None:
         self.name_row.set_subtitle(GLib.markup_escape_text(current_name()))
 
-    def ask_name(self) -> None:
-        dialog = Adw.AlertDialog(heading="Computer name",
-                                 body="Letters, numbers and dashes. Avoid your own name: other devices on "
-                                      "the network can see it.")
-        entry = Gtk.Entry(text=current_name(), activates_default=True)
+    def ask_name(self, suggested: str | None = None) -> None:
+        """Choose a name; with suggested (Make private), a private one is filled in to confirm or change."""
+        body = ("Letters, numbers and dashes. Avoid your own name: other devices on the network can see it."
+                if suggested is None else
+                f"Other devices on the network will see this computer as “{suggested}” instead of "
+                f"“{current_name()}”. You can change it first.")
+        dialog = Adw.AlertDialog(heading="Make the name private" if suggested else "Computer name", body=body)
+        entry = Gtk.Entry(text=suggested or current_name(), activates_default=True)
         dialog.set_extra_child(entry)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("rename", "Rename")
@@ -199,6 +250,26 @@ class PrivacyPage(Page):
                    "family": "Family-safe DNS on"}[mode]
         self.window.helper.run(["dns", mode], message, on_done=lambda _ok: self.window.reload_page(self))
 
+    # --- the anonymous weekly count -----------------------------------------------------
+    def show_count(self) -> None:
+        dialog = Adw.AlertDialog(heading="What’s sent", body=countme_text(countme_report()))
+        dialog.add_response("close", "Close")
+        dialog.present(self.window)
+
+    def on_count(self, row: Adw.SwitchRow, _pspec) -> None:
+        on = row.get_active()
+        if on == (not COUNTME_OFF.exists()):
+            return
+
+        def done(ok: bool) -> None:
+            if not ok and not self.torn_down:
+                row.handler_block_by_func(self.on_count)
+                row.set_active(not COUNTME_OFF.exists())
+                row.handler_unblock_by_func(self.on_count)
+        self.window.helper.run(["countme-on" if on else "countme-off"],
+                               "This computer will be counted, anonymously" if on else "This computer won’t be counted",
+                               on_done=done)
+
     # --- history ---------------------------------------------------------------------
     def clear_recent(self) -> None:
         manager = Gtk.RecentManager.get_default()
@@ -216,6 +287,8 @@ class PrivacyPage(Page):
         for button in self.name_buttons:
             button.set_sensitive(not busy)
         self.dns_row.set_sensitive(not busy)
+        if self.count_row is not None:
+            self.count_row.set_sensitive(not busy)
 
     def got_nm(self, _source, result) -> None:
         try:
