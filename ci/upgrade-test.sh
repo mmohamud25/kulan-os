@@ -98,10 +98,10 @@ xorriso -osirrox on -indev "${ISO}" -extract /live/filesystem.squashfs "${WORK}/
 mkdir -p "${WORK}/medium"
 xorriso -osirrox on -indev "${ISO}" -extract /pool "${WORK}/medium/pool" -extract /dists "${WORK}/medium/dists" \
 	>/dev/null 2>&1 || fail_now "Package pool" "the previous release's ISO has no package pool"
-sudo unsquashfs -q -n -d "${WORK}/old" "${WORK}/fs.squashfs" usr/lib/kulan/installer-engine etc/os-release >/dev/null ||
+sudo unsquashfs -q -n -d "${WORK}/old" "${WORK}/fs.squashfs" usr/lib/kulan/installer-engine usr/lib/os-release >/dev/null ||
 	fail_now "Previous installer" "couldn't take Kulan Installer's engine from the previous release"
 ENGINE="${WORK}/old/usr/lib/kulan/installer-engine"
-OLD_NAME="$(sed -n 's/^PRETTY_NAME=//p' "${WORK}/old/etc/os-release" | tr -d '"')"
+OLD_NAME="$(sed -n 's/^PRETTY_NAME=//p' "${WORK}/old/usr/lib/os-release" | tr -d '"')"
 
 truncate -s 24G "${WORK}/disk.img"
 LOOP="$(sudo losetup -fP --show "${WORK}/disk.img")" || fail_now "Disk" "no loop device"
@@ -174,6 +174,7 @@ if [ ! -e "${STATE}/updated" ]; then
 	/usr/lib/kulan/update-run install --restore-point >"${STATE}/install.out" 2>"${STATE}/install.err"
 	say "install=$? $(( $(date +%s) - START ))"
 	tail -n 12 "${STATE}/install.err" | sed 's/^/KULAN-UPGRADE: installlog=/' > "${OUT}"
+	grep -iE "restore|timeshift" "${STATE}/install.err" | tail -n 6 | sed 's/^/KULAN-UPGRADE: restorelog=/' > "${OUT}"
 	if grep -q "Restore point skipped" "${STATE}/install.err"; then say "restorepoint=skipped"; else say "restorepoint=made"; fi
 	say "restart_required=$(paste -sd ' ' /run/kulan/restart-required 2>/dev/null)"
 	touch "${STATE}/updated"
@@ -201,9 +202,9 @@ After=multi-user.target network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+# Not oneshot: start-up must finish (the boot report measures it).
+Type=simple
 ExecStart=/usr/local/sbin/kulan-upgrade-test
-TimeoutStartSec=infinity
 
 [Install]
 WantedBy=multi-user.target
@@ -275,7 +276,7 @@ else
 fi
 case "$(say_field restorepoint)" in
 	made) result pass "Restore point" "taken before installing, as Software Update does" ;;
-	skipped) result fail "Restore point" "skipped before the update" ;;
+	skipped) result fail "Restore point" "skipped before the update: $(sed -n 's/^KULAN-UPGRADE: restorelog=//p' <<<"${LOG}" | tail -n 4 | paste -sd ' ' - | cut -c1-400)" ;;
 esac
 RESTART="$(say_field restart_required)"
 [[ -n "${RESTART}" ]] && result info "Restart needed for" "${RESTART}"
@@ -335,7 +336,7 @@ if [[ -n "${AFTER}" ]]; then
 else
 	result fail "This build's versions" "the updated system didn't report its packages"
 fi
-grep -q '"GET /InRelease' "${OUT}/http.log" ||
+grep -qE '"GET [^ ]*InRelease' "${OUT}/http.log" ||
 	result fail "Test repository" "the virtual machine never asked for this build's packages"
 summary
 exit "${FAILED}"
