@@ -107,9 +107,30 @@ def history(limit: int = 8) -> list[dict]:
             stamp = 0
         runs.append({"time": stamp, "packages": names, "kulan_series": kulan_series,
                      "automatic": "unattended" in fields.get("Commandline", "")})
-        if len(runs) >= limit:
+        if len(runs) >= limit * 6:
             break
-    return runs
+    return merge_runs(runs)[:limit]
+
+
+MERGE_GAP = 15 * 60
+
+
+def merge_runs(runs: list[dict]) -> list[dict]:
+    """One update often takes several apt runs a few minutes apart (automatic
+    updates install in steps); they show as one entry. Runs are newest first."""
+    merged: list[dict] = []
+    for run in runs:
+        last = merged[-1] if merged else None
+        if (last and run["automatic"] == last["automatic"] and run["time"] and last["earliest"]
+                and 0 <= last["earliest"] - run["time"] <= MERGE_GAP):
+            last["packages"] = last["packages"] + [p for p in run["packages"] if p not in last["packages"]]
+            last["kulan_series"] = last["kulan_series"] or run["kulan_series"]
+            last["earliest"] = run["time"]
+            continue
+        merged.append({**run, "earliest": run["time"]})
+    for run in merged:
+        del run["earliest"]
+    return merged
 
 
 def auto_updates_on() -> bool:

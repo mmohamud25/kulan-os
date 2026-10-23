@@ -24,7 +24,8 @@
 # yourself are never deleted automatically. If all of them together use more
 # than a quarter of the disk, the oldest automatic ones go first. Home
 # folders are not included (Timeshift's default): restore points roll back
-# the system, not personal files - Deja Dup backs those up.
+# the system, not personal files - Deja Dup backs those up. Nor are apps from
+# Flathub, the assistant's models or Docker's data (see EXCLUDES).
 set -euo pipefail
 
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
@@ -62,9 +63,42 @@ have_space() {
 	fi
 }
 
+# Left out of restore points: things that are big, come back from where they
+# were downloaded, and don't break the system if they're newer or older than
+# the rest (apps from Flathub, the assistant's models, Docker's images and
+# containers, downloaded update files). A restore leaves them as they are.
+# Without this, the first restore point of a computer with a few Flathub apps
+# and a model was over 20 GB.
+EXCLUDES=(/var/lib/flatpak /var/lib/kulan-assistant/models /var/lib/docker /var/lib/containerd
+	/var/cache/apt/archives /swapfile)
+
+exclude_big() {
+	python3 -I - "${CONFIG}" "${EXCLUDES[@]}" <<'PY'
+import json, os, sys
+config, wanted = sys.argv[1], sys.argv[2:]
+with open(config, encoding="utf-8") as fh:
+    data = json.load(fh)
+have = data.get("exclude")
+have = [x for x in have if isinstance(x, str)] if isinstance(have, list) else []
+missing = [x for x in wanted if x not in have]
+if not missing:
+    sys.exit(0)
+data["exclude"] = have + missing
+tmp = config + ".kulan-tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, indent=2)
+os.chmod(tmp, 0o644)
+os.replace(tmp, config)
+PY
+}
+
 setup() {
 	command -v timeshift >/dev/null 2>&1 || { log "Timeshift isn't installed"; return 1; }
-	[[ -f "${CONFIG}" ]] && return 0
+	if [[ -f "${CONFIG}" ]]; then
+		# Computers set up before 2.6.1 get the exclusions too.
+		exclude_big || log "couldn't update what restore points leave out"
+		return 0
+	fi
 	is_live_or_build && return 0
 
 	local uuid
@@ -98,6 +132,7 @@ with open(tmp, "w", encoding="utf-8") as fh:
 os.chmod(tmp, 0o644)
 os.replace(tmp, config)
 PY
+	exclude_big
 	log "set up: daily and weekly restore points on the system disk"
 }
 
