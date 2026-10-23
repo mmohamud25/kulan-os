@@ -166,3 +166,11 @@ send-software-usage-stats=false
 # The Kulan OS welcome app replaces GNOME's own first-login tour popup.
 [org.gnome.shell]
 welcome-dialog-last-shown-version='999'
+
+# One search (Cmd+Space and Activities): apps first, then files, Kulan
+# Settings (which also lists the GNOME Settings pages it doesn't have, so
+# GNOME Settings' own source is off: no doubled "Sound" or "Wi-Fi"), sums,
+# characters, and "Ask Kulan" last.
+[org.gnome.desktop.search-providers]
+disabled=['org.gnome.Settings.desktop']
+sort-order=['org.gnome.Nautilus.desktop', 'org.kulan.Settings.desktop', 'org.gnome.Calculator.desktop', 'org.gnome.Characters.desktop', 'org.gnome.clocks.desktop', 'org.gnome.Weather.desktop', 'org.kulan.Assistant.desktop']

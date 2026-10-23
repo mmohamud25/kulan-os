@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import json
 import re
+import subprocess
 import threading
 from pathlib import Path
 
@@ -39,6 +40,10 @@ QUESTION_WORDS = {"the", "my", "a", "an", "from", "about", "with", "last", "ago"
                   "when", "what", "for", "of", "in", "on", "to", "yesterday", "today", "week", "month", "year",
                   "recent", "latest", "sent", "received", "made", "wrote", "written"}
 MAX_RESULTS = 8
+# The first result for anything that reads like a request or a question:
+# "Ask Kulan", which opens Kulan Assistant with it (answers, or does it).
+ASK_PREFIX = "kulan-ask:"
+ASK_MIN_WORDS = 2
 IDLE_EXIT_S = 300
 
 INTERFACE = """
@@ -231,12 +236,16 @@ class Provider:
         elif method == "GetResultMetas":
             invocation.return_value(GLib.Variant("(aa{sv})", ([self.meta(i) for i in args[0]],)))
         elif method == "ActivateResult":
-            try:
-                Gio.AppInfo.launch_default_for_uri(args[0], None)
-            except GLib.Error:
-                pass
+            if args[0].startswith(ASK_PREFIX):
+                ask_kulan(args[0][len(ASK_PREFIX):])
+            else:
+                try:
+                    Gio.AppInfo.launch_default_for_uri(args[0], None)
+                except GLib.Error:
+                    pass
             invocation.return_value(None)
         elif method == "LaunchSearch":
+            ask_kulan(" ".join(args[0]).strip())
             invocation.return_value(None)
 
     def search(self, invocation: Gio.DBusMethodInvocation, question: str) -> None:
@@ -248,14 +257,16 @@ class Provider:
             GLib.source_remove(self.timer)
             self.timer = 0
         self.generation += 1
-        if not looks_like_question(question) or not enabled() or engine.usable_model() is None:
-            invocation.return_value(GLib.Variant("(as)", ([],)))
+        usable = enabled() and engine.usable_model() is not None
+        ask = [ASK_PREFIX + question] if usable and len(question.split()) >= ASK_MIN_WORDS else []
+        if not looks_like_question(question) or not usable:
+            invocation.return_value(GLib.Variant("(as)", (ask,)))
             return
         if not engine.healthy():
             # Loading a model takes longer than Activities waits: start it now,
             # and answer once it's ready (the next keystroke searches again).
             warm_up()
-            invocation.return_value(GLib.Variant("(as)", ([],)))
+            invocation.return_value(GLib.Variant("(as)", (ask,)))
             return
         self.pending = (invocation, question)
         generation = self.generation
@@ -273,6 +284,7 @@ class Provider:
                 results = find(question)
             except Exception:  # noqa: BLE001 - a search must never break Activities
                 results = []
+            results = [ASK_PREFIX + question] + results
             GLib.idle_add(lambda: invocation.return_value(GLib.Variant("(as)", (results,))) and False)
 
         threading.Thread(target=work, daemon=True).start()
@@ -280,6 +292,10 @@ class Provider:
 
     @staticmethod
     def meta(identifier: str) -> dict:
+        if identifier.startswith(ASK_PREFIX):
+            return {"id": GLib.Variant("s", identifier), "name": GLib.Variant("s", "Ask Kulan"),
+                    "description": GLib.Variant("s", identifier[len(ASK_PREFIX):]),
+                    "gicon": GLib.Variant("s", "org.kulan.Assistant")}
         file = Gio.File.new_for_uri(identifier)
         name = file.get_basename() or identifier
         description = ""
@@ -299,6 +315,18 @@ class Provider:
             pass
         return {"id": GLib.Variant("s", identifier), "name": GLib.Variant("s", name),
                 "description": GLib.Variant("s", description), "gicon": GLib.Variant("s", icon.to_string())}
+
+
+def ask_kulan(text: str) -> None:
+    """Open Kulan Assistant's window with the request: it answers a question,
+    or plans the steps for something to do (nothing happens until Do it)."""
+    if not text:
+        return
+    try:
+        subprocess.Popen(["/usr/bin/kulan-assistant", "do", text], start_new_session=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 
 def serve() -> int:

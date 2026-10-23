@@ -420,6 +420,19 @@ done
 SH
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Apps ready after sign-in" "kulan-prewarm timer on for every account; skips the live session and low memory" bash -c 'test -L /etc/systemd/user/timers.target.wants/kulan-prewarm.timer && sh -n /usr/lib/kulan/prewarm && grep -q "run/live/medium" /usr/lib/kulan/prewarm && grep -qx "IOSchedulingClass=idle" /usr/lib/systemd/user/kulan-prewarm.service'
+# shellcheck disable=SC2016  # expanded by the inner python
+check "One search" "Kulan Settings' search finds its pages and GNOME's (Printers, Sharing); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
+import importlib.machinery, importlib.util, sys
+loader = importlib.machinery.SourceFileLoader("sp", "/usr/lib/kulan/settings-search-provider")
+spec = importlib.util.spec_from_loader("sp", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
+pages = m.load_pages()
+assert m.search(pages, ["printer"]) == ["gnome:printers"], m.search(pages, ["printer"])
+assert "appearance" in m.search(pages, ["dark", "mode"]) and "wifi" in m.search(pages, ["wi-fi"])
+sys.path.insert(0, "/usr/share/kulan-assistant")
+from kulan_assistant import search
+meta = search.Provider.meta(search.ASK_PREFIX + "make the text bigger")
+assert meta["name"].unpack() == "Ask Kulan" and meta["description"].unpack() == "make the text bigger"
+PY'
 check "kulan command" "help, info, doctor and settings work; mistakes get a usage message" bash -c 'kulan help | grep -q "kulan doctor" && kulan info | grep -q "^  Memory" && { kulan doctor; rc=$?; [ "$rc" -le 1 ]; } && { kulan settings dark-mode maybe 2>/dev/null; [ $? -eq 64 ]; } && { kulan nonsense 2>/dev/null; [ $? -eq 64 ]; } && { kulan why 2>/dev/null; [ $? -eq 1 ]; }'
 check "Terminal questions" "kulan ask and kulan why use the Terminal instructions (Debian, apt, nothing run)" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import tasks; a = tasks.messages_for("answer", "How do I list files?"); w = tasks.messages_for("terminal-error", "Command: lss\nExit code: 127"); assert "Debian 13" in a[0]["content"] and "Debian 13" in w[0]["content"] and "writing helper" not in a[0]["content"], a'
 # shellcheck disable=SC2016  # expanded by the inner bash

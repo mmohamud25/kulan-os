@@ -4,7 +4,9 @@
 A GNOME Shell search provider (org.gnome.Shell.SearchProvider2), started by
 D-Bus when someone searches and gone after a few idle minutes. Typing
 "restore points", "dark mode" or "prayer" finds the Kulan Settings page.
-GNOME Settings' own pages (Wi-Fi, printers...) come from its own provider.
+The few pages that still live in GNOME Settings (Printers, Online accounts,
+Sharing) are listed here too, and GNOME Settings' own search source is off
+(org.gnome.desktop.search-providers), so nothing shows up twice.
 """
 from __future__ import annotations
 
@@ -47,21 +49,31 @@ def plain(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
 
 
+GNOME_PREFIX = "gnome:"
+
+
 def load_pages() -> list[dict]:
-    """[{id, title, icon, words}] for every Kulan Settings page."""
-    from kulan_settings.app import PAGES  # imports GTK; done once per start
+    """[{id, title, icon, words}] for every Kulan Settings page, and the GNOME
+    Settings pages Kulan Settings links to."""
+    from kulan_settings.app import GNOME_PANELS, PAGES  # imports GTK; done once per start
 
     pages = []
     for page_id, cls in PAGES:
         title = str(getattr(cls, "title", page_id))
         words = " ".join((title, *getattr(cls, "keywords", ()))).replace("-", " ")
         pages.append({"id": page_id, "title": title, "icon": str(getattr(cls, "icon", "preferences-system-symbolic")),
-                      "words": plain(words), "title_plain": plain(title)})
+                      "words": plain(words), "title_plain": plain(title), "where": "Kulan Settings"})
+    for title, icons, panel in GNOME_PANELS:
+        extra = {"printers": "printer printing scanner", "online-accounts": "google microsoft account email calendar",
+                 "sharing": "remote desktop screen sharing file sharing media"}.get(panel[0], "")
+        pages.append({"id": GNOME_PREFIX + panel[0], "title": title, "icon": icons.split("|")[-1],
+                      "words": plain(f"{title} {panel[0].replace('-', ' ')} {extra}"), "title_plain": plain(title),
+                      "where": "GNOME Settings", "panel": list(panel)})
     return pages
 
 
 def search(pages: list[dict], terms: list[str]) -> list[str]:
-    words = [plain(t) for t in terms if t.strip()]
+    words = plain(" ".join(terms).replace("-", " ")).split()
     if not words or sum(len(w) for w in words) < 2:
         return []
     scored = []
@@ -103,12 +115,15 @@ class Provider:
                 metas.append({
                     "id": GLib.Variant("s", identifier),
                     "name": GLib.Variant("s", page["title"]),
-                    "description": GLib.Variant("s", "Kulan Settings"),
+                    "description": GLib.Variant("s", page["where"]),
                     "gicon": GLib.Variant("s", page["icon"]),
                 })
             invocation.return_value(GLib.Variant("(aa{sv})", (metas,)))
         elif method == "ActivateResult":
-            if args[0] in self.by_id:
+            page = self.by_id.get(args[0])
+            if page is not None and "panel" in page:
+                self.launch(["gnome-control-center", *page["panel"]])
+            elif page is not None:
                 self.launch(["kulan-settings", args[0]])
             invocation.return_value(None)
         elif method == "LaunchSearch":
