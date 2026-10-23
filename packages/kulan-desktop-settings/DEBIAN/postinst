@@ -1,8 +1,18 @@
 #!/bin/sh
 set -e
 
+# Kulan's desktop defaults, logos and boot splash are extras on top of a
+# working system: if one of these steps fails (a broken schema from another
+# package, a full disk), say so and carry on, so the package still installs.
+# Otherwise apt would refuse every later update, security fixes included,
+# until the problem was fixed by hand. The next update runs them again; the
+# ISO build and package tests check what they set.
+soft() {
+	"$@" || echo "W: kulan-desktop-settings: \"$*\" didn't finish; it runs again at the next update" >&2
+}
+
 apply() {
-	/usr/lib/kulan/desktop-setup
+	soft /usr/lib/kulan/desktop-setup
 }
 
 # Debian's "vendor-logos": the logo shown by Debian's login screen defaults
@@ -40,10 +50,11 @@ splash_logo() {
 		return 0
 	fi
 	if [ -z "${DIVERTED_BY}" ]; then
+		# Only replace Plymouth's logo once its own copy is safely set aside.
 		dpkg-divert --package kulan-desktop-settings --add --rename \
-			--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
+			--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}" || return 1
 	fi
-	mkdir -p /usr/share/plymouth
+	mkdir -p /usr/share/plymouth || return 1
 	ln -sfn /usr/share/kulan/vendor-logos/logo-text-version-64.png "${SPLASH_LOGO}"
 }
 
@@ -63,14 +74,14 @@ lean_cursors() {
 
 case "$1" in
 	configure)
-		vendor_logos
-		splash_logo
-		lean_cursors
+		soft vendor_logos
+		soft splash_logo
+		soft lean_cursors
 		apply
 		# Most-used apps read into memory after sign-in (kulan-prewarm), for
 		# every account; "systemctl --user disable kulan-prewarm.timer" opts out.
 		systemctl --global enable kulan-prewarm.timer >/dev/null 2>&1 || true
-		/usr/lib/kulan/boot-splash-setup
+		soft /usr/lib/kulan/boot-splash-setup
 		# Rebuild the initramfs so the boot splash change takes effect.
 		if command -v update-initramfs >/dev/null 2>&1; then
 			dpkg-trigger --no-await update-initramfs || true
