@@ -244,6 +244,7 @@ def partition(plan: dict) -> dict:
     disk, encrypt, uefi = plan["disk"], bool(plan.get("encrypt")), firmware() == "uefi"
     release_disk(disk)
     if plan["mode"] == "erase":
+        CHANGED["what"] = "erased"  # from here on, what was on the disk is gone
         run(["wipefs", "-a", disk])
         layout = ["label: gpt"]
         names = []
@@ -302,7 +303,23 @@ def partition(plan: dict) -> dict:
     wait_for(list(paths.values()))
     esp = (paths.get("esp") or existing[0]) if uefi else None
     return {"esp": esp, "boot": paths.get("boot"), "root": paths["root"], "new_esp": uefi and not existing,
-            "bios": paths.get("bios")}
+            "bios": paths.get("bios"), "created": new}
+
+
+def remove_partitions(disk: str, created: list[str]) -> bool:
+    """Take away partitions this install made next to another system (after a
+    failure), so the free space is free again for the next try."""
+    numbers = []
+    for dev in created:
+        number = run(["lsblk", "-dno", "PARTN", dev], check=False).stdout.strip()
+        if number.isdigit():
+            numbers.append(number)
+    if not numbers:
+        return False
+    ok = run(["sfdisk", "--delete", disk, *numbers], check=False).returncode == 0
+    run(["partprobe", disk], check=False)
+    run(["udevadm", "settle"], check=False)
+    return ok
 
 
 def format_and_mount(plan: dict, parts: dict, target: Path) -> dict:
@@ -491,8 +508,9 @@ def boot_packages(encrypt: bool) -> list[str]:
     return packages + ["os-prober"]
 
 
-def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict) -> None:
+def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict, progress=lambda _f, _t: None) -> None:
     target = chroot.target
+    progress(0.05, "Installing the boot loader…")
     medium = plan["medium"]
     inside = target / medium.lstrip("/")
     sources_list = target / "etc/apt/sources.list.d/kulan-installer-media.list"
@@ -531,7 +549,9 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
         settings.append(f'GRUB_CMDLINE_LINUX_DEFAULT="${{GRUB_CMDLINE_LINUX_DEFAULT}} {plan["kernel_args"]}"')
     write(grub_d / "60-kulan-installer.cfg", "\n".join(settings) + "\n")
 
+    progress(0.45, "Building the start-up image…")
     chroot.run(["update-initramfs", "-u", "-k", "all"])
+    progress(0.75, "Making the disk start Kulan OS…")
     if firmware() == "uefi":
         target_name = {"amd64": "x86_64-efi", "arm64": "arm64-efi"}.get(arch(), f"{arch()}-efi")
         # bootloader-id "debian": Debian's signed GRUB only looks there with Secure Boot.
@@ -551,6 +571,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
             chroot.run([a for a in argv if a != "--recheck"] + ["--removable", "--no-nvram"])
     else:
         chroot.run(["grub-install", "--target=i386-pc", "--recheck", plan["disk"]])
+    progress(0.9, "Adding Kulan OS to the start-up menu…")
     chroot.run(["update-grub"])
     # GRUB names a loop device (tests) by its path, which won't exist at start-up.
     root_dev = disk_info.get("root_dev", "")
@@ -561,6 +582,12 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
 
 
 # --- the install ----------------------------------------------------------------------
+
+# What a failed install left changed on the disk: "erased" (the disk was
+# wiped), "removed" (new partitions were made and taken away again), "left"
+# (they couldn't be taken away), or nothing.
+CHANGED: dict = {}
+
 
 def install(plan: dict) -> None:
     global FIRMWARE
@@ -578,6 +605,7 @@ def install(plan: dict) -> None:
     target = Path(tempfile.mkdtemp(prefix="kulan-target-"))
     disk_info: dict = {}
     parts: dict = {}
+    finished = False
     try:
         at("partition", 0, "Preparing the disk…")
         parts = partition(plan)
@@ -598,9 +626,10 @@ def install(plan: dict) -> None:
             at("user", 0, "Making your account…")
             make_user(chroot, plan)
             at("boot", 0, "Making the disk start Kulan OS…")
-            install_boot_loader(chroot, plan, parts, disk_info)
+            install_boot_loader(chroot, plan, parts, disk_info, lambda f, text: at("boot", f, text))
         at("boot", 1, "Finishing…")
         run(["sync"], check=False)
+        finished = True
     finally:
         for point in ("boot/efi", "boot", ""):
             path = target / point if point else target
@@ -612,6 +641,9 @@ def install(plan: dict) -> None:
             target.rmdir()
         except OSError:
             pass
+        if not finished and parts.get("created"):
+            # Next to another system: take the new partitions away again.
+            CHANGED["what"] = "removed" if remove_partitions(plan["disk"], parts["created"]) else "left"
     log(f"installed in {int(time.time() - started)} s")
     emit(progress=1.0, text="Kulan OS is installed")
 
@@ -637,10 +669,14 @@ def main(argv: list[str]) -> int:
         emit(done=True)
         return 0
     except Failure as exc:
-        emit(error=str(exc))
+        emit(error=str(exc), changed=CHANGED.get("what", ""))
         return 1
     except (ValueError, KeyError) as exc:
-        emit(error=f"The installer got an unexpected plan: {exc}")
+        emit(error=f"The installer got an unexpected plan: {exc}", changed=CHANGED.get("what", ""))
+        return 1
+    except Exception as exc:  # noqa: BLE001 - always tell the installer window what happened
+        log(f"unexpected: {exc!r}")
+        emit(error=f"The installer stopped unexpectedly: {exc}", changed=CHANGED.get("what", ""))
         return 1
 
 

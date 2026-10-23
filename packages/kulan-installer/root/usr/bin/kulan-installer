@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -245,9 +246,24 @@ class Installer(Adw.ApplicationWindow):
         test = Adw.EntryRow(title="Type here to try it")
         rows.append(test)
         box.append(rows)
+        # The live session types with the chosen layout straight away, so the
+        # box above really tries it (and the rest of the install uses it too).
+        self.layout_row.connect("notify::selected", lambda *_a: self.use_layout())
+        self.use_layout()
         return self.page("keyboard", "Keyboard", "Step 1 of 4", "Your keyboard", "Choose the layout printed on "
                          "your keys. You can add more later in Kulan Settings.", box,
                          on_next=lambda: self.load_disks())
+
+    def use_layout(self) -> None:
+        if self.self_test or self.demo:
+            return
+        layout, variant, _d = self.layouts[self.layout_row.get_selected()]
+        source = Gio.SettingsSchemaSource.get_default()
+        if source is None or source.lookup("org.gnome.desktop.input-sources", True) is None:
+            return
+        settings = Gio.Settings(schema_id="org.gnome.desktop.input-sources")
+        settings.set_value("sources", GLib.Variant("a(ss)", [("xkb", f"{layout}+{variant}" if variant else layout)]))
+        settings.set_uint("current", 0)
 
     # 3. disk
     def load_disks(self) -> None:
@@ -258,15 +274,41 @@ class Installer(Adw.ApplicationWindow):
                  "largest_free": 120 * GB, "big_enough": True}]}
             self.push(self.disk_page())
             return
-        try:
-            out = subprocess.run(["pkexec", ENGINE, "disks"], capture_output=True, text=True, timeout=60)
-            self.disk_info = json.loads(out.stdout or "{}")
-            if "error" in self.disk_info:
-                raise ValueError(self.disk_info["error"])
-        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-            self.toast(f"Couldn’t look at the disks: {exc}")
+        # Looking can take a while (the password prompt, slow disks): in the
+        # background, with the button saying so, so the window never freezes.
+        current = self.nav.get_visible_page()
+        button = getattr(getattr(current, "view", None), "next_button", None)
+        if getattr(self, "disks_loading", False):
             return
-        self.push(self.disk_page())
+        self.disks_loading = True
+        if button is not None:
+            button.set_sensitive(False)
+            button.set_label("Looking at the disks…")
+
+        def work() -> None:
+            try:
+                out = subprocess.run(["pkexec", ENGINE, "disks"], capture_output=True, text=True, timeout=120)
+                info = json.loads(out.stdout or "{}")
+                error = info.get("error") if isinstance(info, dict) else "unexpected answer"
+                if out.returncode in (126, 127) and not out.stdout:
+                    error = "the administrator password wasn’t given"
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                info, error = {}, str(exc)
+            GLib.idle_add(done, info, error)
+
+        def done(info: dict, error: str | None) -> bool:
+            self.disks_loading = False
+            if button is not None:
+                button.set_sensitive(True)
+                button.set_label("Continue")
+            if error:
+                self.toast(f"Couldn’t look at the disks: {error}. Press Continue to try again.")
+                return False
+            self.disk_info = info
+            self.push(self.disk_page())
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
 
     def disk_page(self) -> Adw.NavigationPage:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
@@ -299,6 +341,24 @@ class Installer(Adw.ApplicationWindow):
                 check.connect("toggled", lambda c, d=disk, m=mode: c.get_active() and self.pick_disk(d, m))
                 group.append(row)
                 self.disk_buttons.append((check, disk, mode))
+        # Another system there, but no room next to it: say how to make room,
+        # rather than offering only "Erase".
+        for disk in disks:
+            if disk["empty"] or not disk["contents"] or disk["largest_free"] >= 20 * GB:
+                continue
+            other = ", ".join(disk["contents"])
+            if disk["table"] != "gpt":
+                why = (f"To keep {other}, this disk would need the newer GPT layout. Erase it instead, or "
+                       "install on another disk.")
+            elif "Windows" in disk["contents"]:
+                why = ("To keep Windows, first make room: in Windows, open Disk Management, right-click the "
+                       "C: drive, choose Shrink Volume and free at least 20 GB, then start this installer again.")
+            else:
+                why = f"To keep {other}, first make at least 20 GB of free space on this disk in that system."
+            hint = Adw.ActionRow(title=GLib.markup_escape_text(f"Installing next to {other} isn’t possible yet"),
+                                 subtitle=GLib.markup_escape_text(why), subtitle_lines=0)
+            hint.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+            group.append(hint)
         if not self.disk_buttons:
             group.append(Adw.ActionRow(title="No disk to install on",
                                        subtitle="Kulan OS needs a disk of at least 20 GB (not the USB stick "
@@ -323,7 +383,7 @@ class Installer(Adw.ApplicationWindow):
         enc.append(self.disk_password2)
         box.append(enc)
         note = Gtk.Label(label="Write the disk password down somewhere safe: without it, your files can’t be "
-                               "recovered. TPM unlock (Kulan Settings > Security) can type it for you later.",
+                               "recovered. With TPM unlock (Kulan Settings › Security) you can type a short PIN instead later.",
                          wrap=True, xalign=0, css_classes=["dim-label"])
         self.encrypt_row.bind_property("active", note, "visible", GObject.BindingFlags.SYNC_CREATE)
         box.append(note)
@@ -560,12 +620,33 @@ class Installer(Adw.ApplicationWindow):
                              on_next=self.restart)
         else:
             box.append(Gtk.Label(label=error, wrap=True, xalign=0, css_classes=["kulan-warning"]))
-            box.append(Gtk.Label(label=f"Nothing else was changed after this point. The full log is in {LOG}.",
-                                 wrap=True, xalign=0, css_classes=["dim-label"]))
+            changed = (getattr(self, "result", None) or {}).get("changed", "")
+            what = {
+                "erased": "The disk had already been erased when this happened, so what was on it before is gone. "
+                          "You can try again, or keep using Kulan OS from the USB stick.",
+                "removed": "The new partitions were taken away again: the other system and its free space are as "
+                           "they were.",
+                "left": "New partitions were made in the free space and couldn’t be taken away. Before trying "
+                        "again, delete the partitions named “Kulan OS”, “Kulan boot” or “EFI” that were just made, "
+                        "with the Disks app, or the installer won’t find the free space.",
+            }.get(changed, "Nothing on the disk was changed.")
+            box.append(Gtk.Label(label=what, wrap=True, xalign=0))
+            box.append(Gtk.Label(label=f"The full log is in {LOG}.", wrap=True, xalign=0, css_classes=["dim-label"]))
             page = self.page("failed", "Not installed", "Not installed", "Kulan OS couldn’t be installed", None, box,
-                             next_label="Start again", on_next=self.start_again)
+                             next_label="Try Again", on_next=self.try_again)
+            page.set_can_pop(False)
+            self.push(page)
+            return
         page.set_can_pop(False)
         self.nav.replace([page])
+
+    def try_again(self) -> None:
+        """Back to the summary, with every answer kept (a fresh look at the
+        disks, since they may have changed)."""
+        if self.nav.find_page("summary") is not None and not (self.self_test or self.demo):
+            self.nav.pop_to_tag("summary")
+        else:
+            self.start_again()
 
     def start_again(self) -> None:
         self.nav.replace([self.welcome_page()])
