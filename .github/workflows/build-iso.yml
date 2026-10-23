@@ -175,15 +175,20 @@ jobs:
             debian:trixie bash ci/test-packages.sh
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
-  # Publishes the tested packages to the update channel before the ISOs are
-  # built: an ISO that includes the channel reads it during the build, so it
-  # must already be online. Skipped until scripts/setup-update-channel.sh
-  # has been run.
+  # Publishes the packages to the update channel only after everything has
+  # passed: the package tests, and both ISOs' checks, boot, low-end boot,
+  # install, TPM and speed tests. Installed computers update from the
+  # channel automatically, so nothing reaches them that hasn't been through
+  # every test. (The ISO build reads the channel already online - the
+  # previous release - so it doesn't need this build published first.)
+  # Skipped until scripts/setup-update-channel.sh has been run.
   publish:
-    needs: [test-packages, engine, files]
+    needs: [test-packages, engine, files, build]
     # Only runs that built both architectures publish: the channel is
     # rebuilt from scratch each time and must keep both engines.
-    if: github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both'
+    if: >-
+      github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both' && !cancelled() &&
+      needs.test-packages.result == 'success' && needs.build.result == 'success'
     name: Publish updates
     runs-on: ubuntu-24.04
     permissions:
@@ -293,14 +298,14 @@ jobs:
           exit 1
 
   build:
-    needs: [plan, packages, engine, files, test-packages, publish]
-    # Runs when publishing succeeded or was skipped (tags, channel not set up).
+    needs: [plan, packages, engine, files, test-packages]
+    # Runs once the packages passed their tests; the update channel is only
+    # published after this (see publish).
     if: >-
       !cancelled() &&
       needs.test-packages.result == 'success' &&
       needs.engine.result == 'success' &&
-      needs.files.result == 'success' &&
-      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+      needs.files.result == 'success'
     name: ISO (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 180
