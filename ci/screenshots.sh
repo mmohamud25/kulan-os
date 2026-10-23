@@ -146,8 +146,10 @@ def shot(name):
         print(f"::warning title=Screenshots::{name} wasn't captured")
 
 def close_apps():
-    # Close only the apps this script and the live session opened.
-    run("pkill -x kulan-welcome; pkill -f /usr/bin/kulan-installer; pkill -f /usr/bin/kulan-settings; sleep 2")
+    # Close only the apps this script and the live session opened. The [/]
+    # keeps each pattern from matching the shell running these very commands
+    # (its own command line contains them), which pkill would kill first.
+    run("pkill -x kulan-welcome; pkill -f '[/]usr/bin/kulan-installer'; pkill -f '[/]usr/bin/kulan-settings'; sleep 2")
 
 time.sleep(25)  # let the welcome app, widgets and weather settle
 close_apps()
@@ -207,8 +209,8 @@ def time_open(cmd: str, label: str, limit: float = 40.0):
 
 APPS = (("Files", "nautilus --new-window", "pkill -x nautilus"),
         ("Terminal", "ptyxis --new-window", "pkill -x ptyxis"),
-        ("Kulan Settings", "/usr/bin/kulan-settings", "pkill -f /usr/bin/kulan-settings"),
-        ("Firefox", "firefox-esr --new-window about:blank", "pkill -f firefox-esr"))
+        ("Kulan Settings", "/usr/bin/kulan-settings", "pkill -f '[/]usr/bin/kulan-settings'"),
+        ("Firefox", "firefox-esr --new-window about:blank", "pkill -f '[/]usr/lib/firefox-esr/firefox-esr'"))
 speed = {}
 if qga is not None:
     for label, cmd, stop in APPS:

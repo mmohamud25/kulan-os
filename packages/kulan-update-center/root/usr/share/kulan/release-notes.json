@@ -9,7 +9,8 @@
       "The kulan command: kulan info shows this computer at a glance, kulan update installs updates, kulan doctor checks for common problems and says how to fix them, and kulan settings opens any page",
       "Ask Kulan Assistant in the Terminal: ask how to do something with kulan ask, and after a command fails press Alt+K to hear why and how to fix it. It runs on this computer",
       "Missing commands: type one that isn't installed and the Terminal says which package has it",
-      "Printers in Kulan Settings: see each printer and what it's doing, pick the default, print a test page, pause it or cancel waiting pages, and add a printer found on your network or plugged in, without drivers for most modern printers"
+      "Printers in Kulan Settings: see each printer and what it's doing, pick the default, print a test page, pause it or cancel waiting pages, and add a printer found on your network or plugged in, without drivers for most modern printers",
+      "TPM unlock (Kulan Settings › Security › Start-up): on computers with a TPM 2.0 chip and Secure Boot on, the encrypted disk opens by itself; the disk password is still asked if anything changed"
     ]
   },
   {
