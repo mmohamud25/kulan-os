@@ -284,13 +284,20 @@ check "Backups page matches Déjà Dup" "every Déjà Dup setting and option Kul
 	range="$(GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend)"
 	grep -qx "'"'"'drive'"'"'" <<<"$range" && grep -qx "'"'"'local'"'"'" <<<"$range" || { echo "backends: $range" | tr "\n" " "; exit 1; }
 	help="$(deja-dup --help 2>&1)"; grep -q -- "--restore" <<<"$help" && grep -q -- "--backup" <<<"$help" || { echo "deja-dup options changed: $help"; exit 1; }'
-check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764), phone-link-off closes them" bash -c '
-	command -v ufw >/dev/null || apt-get install -y -q --no-install-recommends ufw >/dev/null 2>&1 || exit 1
-	out="$(/usr/lib/kulan/update-run phone-link-on 2>&1)" || { echo "on failed: $(tail -n 3 <<<"$out" | tr "\n" " ")"; exit 1; }
-	grep -q "1714:1764" /etc/ufw/user.rules && grep -q "Kulan Phone link" /etc/ufw/user.rules || { echo "ports not opened"; exit 1; }
-	grep -q -- "-s 192.168.0.0/16" /etc/ufw/user.rules && ! grep -E "dports? 1714:1764" /etc/ufw/user.rules | grep -vq -- "-s " || { echo "open beyond local networks"; exit 1; }
-	/usr/lib/kulan/update-run phone-link-off >/dev/null 2>&1 || { echo "off failed"; exit 1; }
-	! grep -q "1714:1764" /etc/ufw/user.rules /etc/ufw/user6.rules'
+check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764) to local networks only; phone-link-off closes them" bash -c '
+	# The test container may not change the firewall (no iptables rights),
+	# so a stand-in ufw records exactly what update-run asks of it.
+	real=/usr/sbin/ufw; log=/tmp/ufw-calls.log; rm -f "$log"
+	[ -e "$real" ] && mv "$real" "$real.kulan-test"
+	printf "#!/bin/sh\necho \"\$*\" >> %s\n" "$log" > "$real"; chmod +x "$real"
+	/usr/lib/kulan/update-run phone-link-on >/dev/null 2>&1; on=$?
+	cp "$log" /tmp/ufw-on.log; rm -f "$log"
+	/usr/lib/kulan/update-run phone-link-off >/dev/null 2>&1; off=$?
+	rm -f "$real"; [ -e "$real.kulan-test" ] && mv "$real.kulan-test" "$real"
+	[ "$on" = 0 ] && [ "$off" = 0 ] || { echo "exit codes on=$on off=$off"; exit 1; }
+	[ "$(grep -c "^allow proto .* from .* to any port 1714:1764 comment Kulan Phone link$" /tmp/ufw-on.log)" = 12 ] || { cat /tmp/ufw-on.log; exit 1; }
+	grep -q "from 192.168.0.0/16" /tmp/ufw-on.log && ! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
+	[ "$(grep -c "^--force delete allow proto .* from .* to any port 1714:1764$" "$log")" = 12 ] || { cat "$log"; exit 1; }'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
