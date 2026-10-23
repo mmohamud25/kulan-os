@@ -238,7 +238,7 @@ assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age"}, d
 assert d["sends"]["version"] == ".".join(vid.split(".")[:2]) and d["sends"]["arch"] in ("amd64", "arm64") and d["sends"]["age"] == 1, d
 assert d["to"].startswith("https://"), d'
 check "Count off switch" "update-run countme-off stops the count; countme-on brings it back" bash -c '/usr/lib/kulan/update-run countme-off && test -e /etc/kulan/no-countme && /usr/lib/kulan/countme send | grep -q "switched off" && /usr/lib/kulan/update-run countme-on && test ! -e /etc/kulan/no-countme'
-check "Count reaches the server" "a real HTTP POST with only the three fields (to a local test server)" python3 -I - <<'PY2'
+check "Count reaches the server" "a real HTTP POST with only the three fields (to a local test server)" python3 -I -B - <<'PY2'
 import http.server, importlib.machinery, importlib.util, json, threading
 got = []
 class H(http.server.BaseHTTPRequestHandler):
@@ -281,12 +281,12 @@ check "Backups page matches Déjà Dup" "every Déjà Dup setting and option Kul
 	for k in backend periodic periodic-period delete-after include-list exclude-list last-backup; do g org.gnome.DejaDup "$k"; done
 	for k in uuid name icon folder; do g org.gnome.DejaDup.Drive "$k"; done
 	g org.gnome.DejaDup.Local folder
-	GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend | grep -qx drive || { echo "no drive backend"; exit 1; }
-	GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend | grep -qx local || { echo "no local backend"; exit 1; }
+	range="$(GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend)"
+	grep -qx "'"'"'drive'"'"'" <<<"$range" && grep -qx "'"'"'local'"'"'" <<<"$range" || { echo "backends: $range" | tr "\n" " "; exit 1; }
 	help="$(deja-dup --help 2>&1)"; grep -q -- "--restore" <<<"$help" && grep -q -- "--backup" <<<"$help" || { echo "deja-dup options changed: $help"; exit 1; }'
 check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764), phone-link-off closes them" bash -c '
 	command -v ufw >/dev/null || apt-get install -y -q --no-install-recommends ufw >/dev/null 2>&1 || exit 1
-	/usr/lib/kulan/update-run phone-link-on >/dev/null 2>&1 || { echo "on failed"; exit 1; }
+	out="$(/usr/lib/kulan/update-run phone-link-on 2>&1)" || { echo "on failed: $(tail -n 3 <<<"$out" | tr "\n" " ")"; exit 1; }
 	grep -q "1714:1764" /etc/ufw/user.rules && grep -q "Kulan Phone link" /etc/ufw/user.rules || { echo "ports not opened"; exit 1; }
 	grep -q -- "-s 192.168.0.0/16" /etc/ufw/user.rules && ! grep -E "dports? 1714:1764" /etc/ufw/user.rules | grep -vq -- "-s " || { echo "open beyond local networks"; exit 1; }
 	/usr/lib/kulan/update-run phone-link-off >/dev/null 2>&1 || { echo "off failed"; exit 1; }
@@ -294,7 +294,7 @@ check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764)
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
-check "App updates in the status" "Flatpak updates appear with Debian's" python3 -I - <<'PY'
+check "App updates in the status" "Flatpak updates appear with Debian's" python3 -I -B - <<'PY'
 import importlib.machinery, importlib.util, os, tempfile
 loader = importlib.machinery.SourceFileLoader("us", "/usr/lib/kulan/update-status")
 spec = importlib.util.spec_from_loader("us", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
@@ -325,7 +325,7 @@ check "Restart in ARM VMs" "fast restart only in ARM QEMU VMs; kexec hardening k
 	if test -e "$D/systemd-reboot.service.d/50-kulan-fast-restart.conf"; then echo "generator set up kexec on $(uname -m)"; exit 1; fi
 	echo ok'
 check "Memory guard" "systemd-oomd and Kulan's notice enabled; user apps closed under memory pressure" bash -c 'systemctl is-enabled systemd-oomd.service && systemctl is-enabled kulan-oom-notice.service && grep -qx "ManagedOOMMemoryPressure=kill" /usr/lib/systemd/system/user@.service.d/50-kulan-oomd.conf'
-check "Memory notice" "names the app that was closed" python3 -I - <<'PY'
+check "Memory notice" "names the app that was closed" python3 -I -B - <<'PY'
 import importlib.machinery, importlib.util
 loader = importlib.machinery.SourceFileLoader("oom", "/usr/lib/kulan/oom-notice")
 spec = importlib.util.spec_from_loader("oom", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
@@ -367,7 +367,7 @@ check "Undo last update" "restores the newest pre-update point after saving the 
 	grep -q "Unattended-Upgrade \"0\"" "$D/pause" && grep -qE "Until: [0-9]+" "$D/pause"'
 check "Kulan Store" "GNOME Software shown as Kulan Store with its icon; Kulan picks in the catalogue" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Kulan Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml'
 check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
-check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I - <<'PY'
+check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I -B - <<'PY'
 import os, sys, tempfile
 home = tempfile.mkdtemp()
 os.environ["XDG_DATA_HOME"] = os.path.join(home, "data")
@@ -669,7 +669,7 @@ assert "run_script" not in p and p["screen_lock_minutes"] == 5, p
 assert s["screen_lock_minutes"] == "met" and s["require_encryption"] == "not met", s
 assert set(s) == {"auto_updates", "firewall", "screen_lock_minutes", "require_encryption"}, s
 PY
-check "Fleet erase" "allowed only by this computer's user, and only on an encrypted disk" python3 -I - <<'PY'
+check "Fleet erase" "allowed only by this computer's user, and only on an encrypted disk" python3 -I -B - <<'PY'
 import importlib.machinery, importlib.util, subprocess
 assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode == 0
 loader = importlib.machinery.SourceFileLoader("kf", "/usr/bin/kulan-fleet")
@@ -728,7 +728,7 @@ if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-upda
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
-	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c '! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c 'for f in /usr/share/plymouth/themes/kulan /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override /var/lib/kulan/updates.json /var/lib/kulan-countme /etc/kulan/no-countme /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf /usr/share/kulan-settings /var/lib/kulan-assistant /usr/share/kulan-assistant /usr/bin/__pycache__; do test -e "$f" && echo "left: $f"; done; ! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi
