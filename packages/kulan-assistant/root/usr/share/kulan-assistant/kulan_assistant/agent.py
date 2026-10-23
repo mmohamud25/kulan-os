@@ -23,7 +23,7 @@ from gi.repository import Gio, GLib
 from . import engine
 
 MAX_STEPS = 6
-SETTINGS_PAGES = ["wifi", "bluetooth", "sound", "focus", "notifications", "users", "parental-controls", "appearance",
+SETTINGS_PAGES = ["wifi", "bluetooth", "printers", "sound", "focus", "notifications", "users", "parental-controls", "appearance",
                   "desktop", "dock", "top-bar", "display", "battery", "storage", "login-items", "apps", "security",
                   "privacy", "keyboard", "mouse", "accessibility", "assistant", "prayer-times", "date-time", "region",
                   "updates", "add-ons", "about"]
