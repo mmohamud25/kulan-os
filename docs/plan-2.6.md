@@ -68,7 +68,9 @@ update skips its restore point; being fixed), private counting (live on
 Supabase, privacy policy page), lighter mode, the small fixes, the Backups
 page, Phone link, Fleet v2 (server live), more Ask Kulan actions with the
 top-bar, microphone and read-the-screen buttons. Version is 2.6, with
-release notes.
+release notes. Phone link stays an add-on (not in the image, so it isn't on
+for everyone); the Phone page installs it. Kulan Fleet (the admin app) is
+listed in Kulan Settings › Add-ons.
 Moved to 2.7 with Mohamud (docs/plan-2.7.md): Kulan Store, the native
 Sharing page (GNOME Settings' Sharing stays linked), signed start-up files,
 the signing key, NVIDIA/Broadcom, the sleep, dual-boot and restore tests,

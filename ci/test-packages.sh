@@ -295,9 +295,13 @@ check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764)
 	/usr/lib/kulan/update-run phone-link-off >/dev/null 2>&1; off=$?
 	rm -f "$real"; [ -e "$real.kulan-test" ] && mv "$real.kulan-test" "$real"
 	[ "$on" = 0 ] && [ "$off" = 0 ] || { echo "exit codes on=$on off=$off"; exit 1; }
-	[ "$(grep -c "^allow proto .* from .* to any port 1714:1764 comment Kulan Phone link$" /tmp/ufw-on.log)" = 12 ] || { cat /tmp/ufw-on.log; exit 1; }
+	[ "$(grep -c "^allow proto .* from .* to any port 1714:1764 comment Kulan Phone link$" /tmp/ufw-on.log)" = 10 ] || { cat /tmp/ufw-on.log; exit 1; }
 	grep -q "from 192.168.0.0/16" /tmp/ufw-on.log && ! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
-	[ "$(grep -c "^--force delete allow proto .* from .* to any port 1714:1764$" "$log")" = 12 ] || { cat "$log"; exit 1; }'
+	[ "$(grep -c "^--force delete allow proto .* from .* to any port 1714:1764$" "$log")" = 10 ] || { cat "$log"; exit 1; }'
+check "Phone link works with GNOME 48" "Debian's GSConnect (the Phone link add-on) is made for GNOME 48" bash -c '
+	apt-get install -y -q --no-install-recommends gnome-shell-extension-gsconnect >/dev/null 2>&1 || { echo "not installable"; exit 1; }
+	python3 -c "import json, sys; m = json.load(open(\"/usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io/metadata.json\")); v = [str(x) for x in m.get(\"shell-version\", [])]; sys.exit(0 if \"48\" in v else \"made for GNOME \" + \", \".join(v))"; ok=$?
+	apt-get purge -y -q gnome-shell-extension-gsconnect >/dev/null 2>&1; rm -rf /usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io; exit $ok'
 check "Free-space check before updates" "reads apt's plan (apt answers no and exits 1) into one number, and stops when the disk is too full" bash -c '
 	space() { bash -c "set -euo pipefail; APT_LOCK=(-o DPkg::Lock::Timeout=60); die() { echo \"die: \$*\"; exit 3; }
 		eval \"\$(sed -n \"/^check_space() {/,/^}/p\" /usr/lib/kulan/update-run)\"
@@ -530,7 +534,7 @@ import json, re, subprocess
 addons = json.load(open("/usr/share/kulan/addons.json"))
 ids = [a["id"] for a in addons]
 assert len(ids) == len(set(ids)), ids
-assert {"apps", "chromium", "devkit", "assistant", "learning-pack", "steam"} <= set(ids), ids
+assert {"apps", "chromium", "devkit", "assistant", "learning-pack", "steam", "phone-link", "fleet-admin"} <= set(ids), ids
 assert next(a for a in addons if a["id"] == "steam").get("arch") == ["amd64"]
 for a in addons:
     assert a.get("title") and a.get("description") and (a.get("packages") or a.get("flatpak")), a

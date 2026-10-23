@@ -2,7 +2,9 @@
 files, see its notifications, and read and send texts from the computer.
 
 GSConnect does it (a GNOME Shell extension speaking KDE Connect's protocol;
-the phone runs the KDE Connect app). It's off until switched on here,
+the phone runs the KDE Connect app). It isn't in the image: it's the Phone
+Link add-on (about 5 MB), which this page installs when asked. It's off until
+switched on here or installed,
 because it listens on the network: switching it on enables the extension for
 this account and opens KDE Connect's ports in the firewall (update-run
 phone-link-on); off closes them again. Only phones on the same network can
@@ -39,8 +41,11 @@ class PhonePage(Page):
         super().__init__(window)
         self.shell = settings("org.gnome.shell")
         self.manager = None
-        if not installed() or self.shell is None:
-            self.add_group(None, "Phone link (GSConnect) isn’t installed.")
+        if self.shell is None:
+            self.add_group(None, "Phone link needs GNOME Shell.")
+            return
+        if not installed():
+            self.build_install()
             return
 
         intro = self.add_group(None, "Share files and links, see your phone’s notifications here, and read and "
@@ -84,6 +89,46 @@ class PhonePage(Page):
         self.listen_busy(self.on_busy)
         self.sync_visible()
         self.connect_devices()
+
+    def build_install(self) -> None:
+        """Not installed yet: say what it does and install the add-on on request
+        (it opens KDE Connect's ports to local networks only, like the switch)."""
+        self.switch = None
+        group = self.add_group(None, "Share files and links, see your phone’s notifications here, and read and "
+                                     "send texts from the computer. Works best with Android; on iPhone, files "
+                                     "and the clipboard.")
+        row = Adw.ActionRow(title="Phone link",
+                            subtitle="Not installed (about 5 MB). Installing turns it on: phones on the same home "
+                                     "or office network can find this computer, and only a phone you pair can "
+                                     "connect", subtitle_lines=0)
+        self.install_button = Gtk.Button(label="Install", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        self.install_button.update_property([Gtk.AccessibleProperty.LABEL], ["Install Phone link"])
+        self.install_button.connect("clicked", lambda _b: self.install())
+        self.install_button.set_sensitive(not self.window.helper.busy)
+        row.add_suffix(self.install_button)
+        group.add(row)
+        self.listen_busy(self.on_install_busy)
+
+    def on_install_busy(self, busy: bool) -> None:
+        self.install_button.set_sensitive(not busy)
+
+    def install(self) -> None:
+        self.install_button.set_label("Installing…")
+
+        def done(ok: bool) -> None:
+            if not ok:
+                self.install_button.set_label("Install")
+                return
+            from .addons import set_extension
+            set_extension(UUID, True)
+            dialog = Adw.AlertDialog(heading="Phone link is installed",
+                                     body="Log out and back in to finish. Then install KDE Connect on your phone "
+                                          "and pair it here.")
+            dialog.add_response("ok", "OK")
+            dialog.present(self.window)
+            GLib.idle_add(lambda: self.window.reload_page(self) and False)
+
+        self.window.helper.run(["addon-install", "phone-link"], "Phone link installed", on_done=done)
 
     def on_busy(self, busy: bool) -> None:
         self.switch.set_sensitive(not busy)

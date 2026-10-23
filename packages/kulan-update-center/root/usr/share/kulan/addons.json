@@ -45,6 +45,17 @@
     ]
   },
   {
+    "id": "fleet-admin",
+    "title": "Kulan Fleet (for IT admins)",
+    "description": "Look after an organisation's computers from this one: who needs updates, policies (updates, firewall, encryption, screen lock), installed apps, alerts and an activity log, and lock, restart or erase a lost computer",
+    "icon": "network-workgroup-symbolic",
+    "size": "under 1 MB",
+    "note": "Open Kulan Fleet from your apps and sign in with your work email: it sends you a one-time code. Computers join your organisation from Kulan Settings › About.",
+    "packages": [
+      "kulan-fleet-admin"
+    ]
+  },
+  {
     "id": "virus-scan",
     "title": "Virus scanner",
     "description": "ClamAV with a simple app (ClamTk) to scan files, folders and USB drives on demand, useful for files from Windows computers",

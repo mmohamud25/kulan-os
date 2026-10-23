@@ -454,9 +454,9 @@ PY
 	phone-link-on | phone-link-off)
 		[[ $# -eq 1 ]] || die "usage: update-run phone-link-on|phone-link-off"
 		# KDE Connect's ports (GSConnect speaks the same protocol), from local
-		# networks only (home and office address ranges), never the internet.
+		# networks only (the same ranges as the add-ons'), never the internet.
 		command -v ufw >/dev/null 2>&1 || exit 0
-		for NET in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 fc00::/7 fe80::/10; do
+		for NET in "${PRIVATE_NETS[@]}"; do
 			for PROTO in udp tcp; do
 				if [[ "$1" == phone-link-on && "${NET}" == *:* ]]; then
 					# IPv6: only where the firewall handles IPv6 (IPV6=yes).

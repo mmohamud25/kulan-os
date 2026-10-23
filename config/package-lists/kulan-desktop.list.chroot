@@ -60,9 +60,6 @@ fwupd
 # Sets the clock from the internet (Date and time › Set the time automatically)
 systemd-timesyncd
 python3-nautilus
-# Phone link (Kulan Settings › Phone): files, notifications and texts with a
-# phone running KDE Connect. Off until switched on there.
-gnome-shell-extension-gsconnect
 # Terminal: Ptyxis with Kulan colours, zsh with suggestions and highlighting
 ptyxis
 zsh

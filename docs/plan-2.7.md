@@ -41,10 +41,11 @@ Secure:
   virtual machine without 3D is obvious.
 
 ## Proposed for 2.8
-- Gaming: Steam, Proton, GameMode and controllers in one step (becomes the
-  Gaming edition in 3.0), Android apps (Waydroid), live captions (on the
-  computer, with Dictation's speech model), sending files to nearby
-  computers (like Warpinator), apps from other Linux systems (Distrobox).
+- Gaming: the Steam add-on (already there, with Proton) gains GameMode and
+  controller support in the same step (becomes the Gaming edition in 3.0);
+  Android apps (Waydroid); live captions (on the computer, with Dictation's
+  speech model); apps from other Linux systems (Distrobox). Sending files to
+  nearby computers is already the Nearby Share add-on (LocalSend).
 - Newer hardware support: a newer kernel from Debian backports.
 - Graphics switching for laptops with two graphics chips.
 - Offline learning library add-on (Wikipedia, lessons, books; fits Kulan
