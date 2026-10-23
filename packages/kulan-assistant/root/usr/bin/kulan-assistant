@@ -9,6 +9,9 @@
   kulan-assistant do [REQUEST]                            "Do it for me": plan Kulan actions, then do them
   kulan-assistant plan REQUEST                            print the plan as JSON (nothing is done)
   kulan-assistant search-provider                         the Activities search service (D-Bus)
+  kulan-assistant ask-service                             Ask Kulan's service for the desktop (D-Bus)
+  kulan-assistant reminder-fire ID                        show a reminder (run by its timer)
+  kulan-assistant self-test                               check the actions without a model
 
 TASK is one of: proofread, rewrite, friendly, professional, shorter, summary,
 key-points, translate, explain.
@@ -40,6 +43,10 @@ def main(argv: list[str]) -> int:
     dictate.add_argument("audio", type=Path)
     sub.add_parser("status", help="engine, model and memory, as JSON")
     sub.add_parser("search-provider", help="run the Activities search provider (D-Bus activated)")
+    sub.add_parser("ask-service", help="run Ask Kulan's service for the desktop (D-Bus activated)")
+    fire = sub.add_parser("reminder-fire", help="show a reminder and clear it (run by its timer)")
+    fire.add_argument("id")
+    sub.add_parser("self-test", help="check the actions without a model")
     do = sub.add_parser("do", help="\"Do it for me\": a window that plans Kulan actions and does them")
     do.add_argument("request", nargs="*", help="what to do (or type it in the window)")
     plan = sub.add_parser("plan", help="print the plan for a request as JSON; nothing is done")
@@ -94,6 +101,20 @@ def main(argv: list[str]) -> int:
     if args.command == "do":
         from kulan_assistant import agent_window
         return agent_window.show(" ".join(args.request))
+
+    if args.command == "self-test":
+        from kulan_assistant import agent, ask_service
+        agent.self_test()
+        ask_service.self_test()
+        return 0
+
+    if args.command == "reminder-fire":
+        from kulan_assistant import agent
+        return agent.fire_reminder(args.id)
+
+    if args.command == "ask-service":
+        from kulan_assistant import ask_service
+        return ask_service.serve()
 
     if args.command == "search-provider":
         from kulan_assistant import search

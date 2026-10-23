@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.kulan.Assistant.Ask
+Exec=/usr/bin/kulan-assistant ask-service

@@ -9,11 +9,14 @@ files, typing passwords, anything as administrator) aren't possible at all.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -23,6 +26,7 @@ from gi.repository import Gio, GLib
 from . import engine
 
 MAX_STEPS = 6
+MAX_REPLY = 600
 SETTINGS_PAGES = ["wifi", "bluetooth", "printers", "sound", "focus", "notifications", "users", "parental-controls", "appearance",
                   "desktop", "dock", "top-bar", "display", "battery", "storage", "login-items", "apps", "security",
                   "privacy", "keyboard", "mouse", "accessibility", "assistant", "prayer-times", "date-time", "region",
@@ -189,6 +193,292 @@ def set_wifi(a: dict) -> Result:
     return Result(True, f"Wi-Fi {state}", undo=lambda: subprocess.run(["nmcli", "radio", "wifi", back]))
 
 
+# --- tidying a folder ---------------------------------------------------------------------
+# Loose files in Downloads or on the Desktop go into folders by kind, inside
+# the same folder. Folders, hidden files, files still downloading and files
+# of unknown kinds stay where they are; nothing is overwritten or deleted,
+# and Undo puts every file back.
+TIDY_PLACES = ["downloads", "desktop"]
+KINDS = {
+    "Documents": {"pdf", "doc", "docx", "odt", "rtf", "txt", "md", "xls", "xlsx", "ods", "csv", "ppt", "pptx",
+                  "odp", "epub", "pages", "numbers", "key"},
+    "Pictures": {"jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "svg", "bmp", "tif", "tiff", "avif"},
+    "Videos": {"mp4", "mkv", "mov", "avi", "webm", "m4v", "wmv"},
+    "Music": {"mp3", "m4a", "flac", "wav", "ogg", "opus", "aac", "wma"},
+    "Archives": {"zip", "tar", "gz", "tgz", "xz", "bz2", "7z", "rar", "zst"},
+    "Installers": {"deb", "flatpakref", "flatpak", "appimage", "iso", "exe", "msi", "dmg", "pkg"},
+}
+PARTIAL = {"part", "crdownload", "download", "partial", "tmp"}
+RECENT_S = 120  # a file changed in the last two minutes may still be downloading
+
+
+def kind_of(name: str) -> str | None:
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name.strip(".") else ""
+    if name.lower().endswith((".tar.gz", ".tar.xz", ".tar.zst", ".tar.bz2")):
+        return "Archives"
+    return next((folder for folder, exts in KINDS.items() if ext in exts), None)
+
+
+def tidy_moves(folder: Path) -> list[tuple[Path, Path]]:
+    """(from, to) for every loose file that would move. Nothing is touched."""
+    moves: list[tuple[Path, Path]] = []
+    taken: set[Path] = set()
+    now = time.time()
+    try:
+        entries = sorted(folder.iterdir(), key=lambda p: p.name.lower())
+    except OSError:
+        return []
+    for entry in entries:
+        name = entry.name
+        if name.startswith(".") or entry.is_symlink() or not entry.is_file():
+            continue
+        if name.rsplit(".", 1)[-1].lower() in PARTIAL:
+            continue
+        try:
+            if now - entry.stat().st_mtime < RECENT_S:
+                continue
+        except OSError:
+            continue
+        kind = kind_of(name)
+        if kind is None:
+            continue
+        target = folder / kind / name
+        stem, dot, ext = name.rpartition(".") if "." in name.strip(".") else (name, "", "")
+        n = 2
+        while target.exists() or target in taken:
+            target = folder / kind / (f"{stem} ({n}){dot}{ext}" if dot else f"{name} ({n})")
+            n += 1
+        taken.add(target)
+        moves.append((entry, target))
+    return moves
+
+
+def describe_tidy(a: dict) -> str:
+    folder = _place(a["where"])
+    moves = tidy_moves(folder)
+    label = a["where"].capitalize()
+    if not moves:
+        return f"Sort the files in {label} into folders (it already looks tidy)"
+    counts: dict[str, int] = {}
+    for _src, dst in moves:
+        counts[dst.parent.name] = counts.get(dst.parent.name, 0) + 1
+    parts = ", ".join(f"{k} {v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1]))
+    return f"Move {len(moves)} file{'s' if len(moves) != 1 else ''} in {label} into folders: {parts}"
+
+
+def tidy_folder(a: dict) -> Result:
+    folder = _place(a["where"])
+    if not folder.is_dir():
+        return Result(False, f"There's no {a['where'].capitalize()} folder")
+    moves = tidy_moves(folder)
+    if not moves:
+        return Result(True, "Nothing to sort: it's already tidy")
+    made: list[Path] = []
+    done: list[tuple[Path, Path]] = []
+    for src, dst in moves:
+        try:
+            if not dst.parent.exists():
+                dst.parent.mkdir()
+                made.append(dst.parent)
+            if dst.exists():  # appeared meanwhile: leave the file where it is
+                continue
+            os.rename(src, dst)  # same folder tree, so a rename: never a copy
+            done.append((src, dst))
+        except OSError:
+            continue
+
+    def undo() -> None:
+        for src, dst in reversed(done):
+            try:
+                if dst.exists() and not src.exists():
+                    os.rename(dst, src)
+            except OSError:
+                pass
+        for path in made:
+            try:
+                path.rmdir()  # only if empty again
+            except OSError:
+                pass
+
+    skipped = len(moves) - len(done)
+    message = f"Moved {len(done)} file{'s' if len(done) != 1 else ''} into folders"
+    return Result(bool(done) or not moves, message + (f"; {skipped} left where they were" if skipped else ""),
+                  undo=undo if done else None)
+
+
+# --- reminders -------------------------------------------------------------------------
+# A systemd user timer per reminder, so it comes even after a restart (shown
+# at the next sign-in if the computer was off). The words are kept in a file
+# of their own, never in the unit files.
+MAX_REMINDER_MINUTES = 60 * 24 * 7
+
+
+def reminders_dir() -> Path:
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    return base / "kulan-assistant" / "reminders"
+
+
+def units_dir() -> Path:
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    return base / "systemd" / "user"
+
+
+def reminder_time(minutes: int, now: datetime.datetime | None = None) -> datetime.datetime:
+    now = now or datetime.datetime.now()
+    return (now + datetime.timedelta(minutes=minutes)).replace(second=0, microsecond=0)
+
+
+def reminder_at(a: dict) -> datetime.datetime:
+    try:
+        return datetime.datetime.fromisoformat(a["_at"])
+    except (KeyError, TypeError, ValueError):
+        return reminder_time(int(a["minutes"]))
+
+
+def when_words(at: datetime.datetime, now: datetime.datetime | None = None) -> str:
+    now = now or datetime.datetime.now()
+    clock = at.strftime("%-I:%M %p").replace("AM", "am").replace("PM", "pm")
+    if at.date() == now.date():
+        return f"at {clock}"
+    if at.date() == now.date() + datetime.timedelta(days=1):
+        return f"tomorrow at {clock}"
+    return f"on {at:%A %-d %B} at {clock}"
+
+
+def _systemctl(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["systemctl", "--user", *args], capture_output=True, text=True, timeout=30, check=False)
+
+
+def remove_reminder(rid: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{12}", rid):
+        return
+    unit = f"kulan-reminder-{rid}"
+    _systemctl("disable", "--now", f"{unit}.timer")
+    for path in (units_dir() / f"{unit}.timer", units_dir() / f"{unit}.service", reminders_dir() / f"{rid}.json"):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+    _systemctl("daemon-reload")
+
+
+def set_reminder(a: dict) -> Result:
+    minutes = int(a["minutes"])
+    message = " ".join(str(a["message"]).split())[:120]
+    if not 1 <= minutes <= MAX_REMINDER_MINUTES or not message:
+        return Result(False, "That reminder time isn't possible")
+    if shutil.which("systemctl") is None:
+        return Result(False, "Reminders aren't available here")
+    # The time shown in the plan, even if "Do it" is pressed a while later.
+    at = reminder_at(a)
+    if at <= datetime.datetime.now():
+        at = reminder_time(1)
+    rid = secrets.token_hex(6)
+    unit = f"kulan-reminder-{rid}"
+    reminders_dir().mkdir(parents=True, exist_ok=True)
+    units_dir().mkdir(parents=True, exist_ok=True)
+    (reminders_dir() / f"{rid}.json").write_text(json.dumps({"message": message, "at": at.isoformat()}))
+    (units_dir() / f"{unit}.service").write_text(
+        "[Unit]\nDescription=Kulan Assistant reminder\n\n[Service]\nType=oneshot\n"
+        f"ExecStart=/usr/bin/kulan-assistant reminder-fire {rid}\n")
+    (units_dir() / f"{unit}.timer").write_text(
+        "[Unit]\nDescription=Kulan Assistant reminder\n\n[Timer]\n"
+        f"OnCalendar={at:%Y-%m-%d %H:%M:00}\nPersistent=true\nAccuracySec=1s\n\n"
+        "[Install]\nWantedBy=timers.target\n")
+    _systemctl("daemon-reload")
+    started = _systemctl("enable", "--now", f"{unit}.timer")
+    if started.returncode != 0:
+        remove_reminder(rid)
+        return Result(False, "The reminder couldn't be set: " + (started.stderr.strip()[:120] or "systemd said no"))
+    return Result(True, f"I'll remind you {when_words(at)}", undo=lambda: remove_reminder(rid))
+
+
+def fire_reminder(rid: str) -> int:
+    """Run by the reminder's timer: show it, then clear it away."""
+    if not re.fullmatch(r"[0-9a-f]{12}", rid):
+        return 2
+    try:
+        data = json.loads((reminders_dir() / f"{rid}.json").read_text())
+    except (OSError, ValueError):
+        remove_reminder(rid)
+        return 1
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        hints = {"urgency": GLib.Variant("y", 2), "desktop-entry": GLib.Variant("s", "org.kulan.Assistant")}
+        bus.call_sync("org.freedesktop.Notifications", "/org/freedesktop/Notifications",
+                      "org.freedesktop.Notifications", "Notify",
+                      GLib.Variant("(susssasa{sv}i)", ("Kulan Assistant", 0, "org.kulan.Assistant", "Reminder",
+                                                       str(data.get("message", "")), [], hints, 0)),
+                      None, Gio.DBusCallFlags.NONE, 10000, None)
+    except GLib.Error:
+        return 1  # not shown: keep it, so it comes again at the next sign-in
+    remove_reminder(rid)
+    return 0
+
+
+# --- fixing common problems --------------------------------------------------------------
+def fix_wifi(_a: dict) -> Result:
+    if shutil.which("nmcli") is None:
+        return Result(False, "Wi-Fi settings aren't available")
+    subprocess.run(["nmcli", "radio", "wifi", "off"], capture_output=True, timeout=20)
+    time.sleep(2)
+    on = subprocess.run(["nmcli", "radio", "wifi", "on"], capture_output=True, text=True, timeout=20)
+    if on.returncode != 0:
+        return Result(False, on.stderr.strip() or "Wi-Fi couldn't be turned back on")
+    for _ in range(25):
+        time.sleep(1)
+        state = subprocess.run(["nmcli", "-t", "-f", "CONNECTIVITY", "general"], capture_output=True,
+                               text=True, timeout=10).stdout.strip()
+        if state == "full":
+            return Result(True, "Wi-Fi restarted, and the internet works")
+    return Result(False, "Wi-Fi restarted, but there's no internet yet. Open Wi-Fi settings to pick a network, "
+                         "or restart the router")
+
+
+def fix_sound(_a: dict) -> Result:
+    if shutil.which("systemctl") is None:
+        return Result(False, "Sound settings aren't available")
+    r = subprocess.run(["systemctl", "--user", "restart", "wireplumber", "pipewire", "pipewire-pulse"],
+                       capture_output=True, text=True, timeout=30)
+    if r.returncode != 0:
+        return Result(False, "The sound system couldn't be restarted: " + r.stderr.strip()[:120])
+    time.sleep(2)
+    if shutil.which("wpctl"):
+        volume = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True,
+                                timeout=10).stdout
+        if not volume.strip():
+            return Result(False, "Sound restarted, but no speakers or headphones were found. Check the cable or "
+                                 "Bluetooth")
+        if "MUTED" in volume:
+            return Result(True, "Sound restarted. It's muted: press the volume key or open Sound settings")
+    return Result(True, "Sound restarted")
+
+
+def _size(path: Path, deadline: float) -> int:
+    total = 0
+    for root, dirs, files in os.walk(path):
+        if time.monotonic() > deadline:
+            break
+        for f in files:
+            try:
+                total += os.lstat(os.path.join(root, f)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def check_storage(_a: dict) -> Result:
+    deadline = time.monotonic() + 10
+    disk = shutil.disk_usage(Path.home())
+    places = [("Bin", Path.home() / ".local/share/Trash"), ("Downloads", _place("downloads")),
+              ("App caches", Path.home() / ".cache"), ("Videos", _place("videos"))]
+    sizes = [(label, _size(path, deadline)) for label, path in places if path.exists()]
+    gbs = lambda n: f"{n / 1024 ** 3:.1f} GB"  # noqa: E731
+    parts = ", ".join(f"{label} {gbs(n)}" for label, n in sorted(sizes, key=lambda kv: -kv[1]) if n >= 50 * 1024 ** 2)
+    return Result(True, f"{gbs(disk.free)} free of {gbs(disk.total)}." + (f" Biggest: {parts}." if parts else "")
+                  + " Kulan Settings › Storage can clear the Bin and old caches.")
+
+
 ACTIONS = [
     Action("set_style", "Light or dark appearance, or automatic (light by day, dark at night).",
            {"mode": {"enum": ["light", "dark", "automatic"]}}, True,
@@ -235,6 +525,21 @@ ACTIONS = [
     Action("find_files", "Find files in the home folder whose names contain these words.",
            {"query": {"type": "string", "maxLength": 80}}, False,
            lambda a: f"Look for files named like “{a['query']}”", find_files),
+    Action("tidy_folder", "Tidy Downloads or the Desktop: put loose files into folders by kind (Documents, "
+           "Pictures, Videos, Music, Archives, Installers). Nothing is deleted.",
+           {"where": {"enum": TIDY_PLACES}}, True, describe_tidy, tidy_folder),
+    Action("set_reminder", "Remind the person about something, a number of minutes from now (for a clock time, "
+           "work out the minutes from the time now).",
+           {"message": {"type": "string", "maxLength": 120},
+            "minutes": {"type": "integer", "minimum": 1, "maximum": MAX_REMINDER_MINUTES}}, True,
+           lambda a: f"Remind you {when_words(reminder_at(a))}: “{a['message']}”", set_reminder),
+    Action("fix_wifi", "Wi-Fi or the internet isn't working: turn Wi-Fi off and on again and check the connection.",
+           {}, True, lambda a: "Restart Wi-Fi and check the internet", fix_wifi),
+    Action("fix_sound", "No sound or the wrong speakers: restart the sound system and check the output.",
+           {}, True, lambda a: "Restart the sound system and check the speakers", fix_sound),
+    Action("check_storage", "See how much disk space is free and what uses the most (the computer is full, or "
+           "slow because the disk is nearly full).",
+           {}, False, lambda a: "Check what's using disk space", check_storage),
 ]
 BY_ID = {a.id: a for a in ACTIONS}
 
@@ -246,19 +551,25 @@ def plan_schema() -> dict:
                                       "required": list(a.args), "properties": a.args}}}
              for a in ACTIONS]
     return {"type": "object", "additionalProperties": False, "required": ["reply", "steps"],
-            "properties": {"reply": {"type": "string", "maxLength": 300},
+            "properties": {"reply": {"type": "string", "maxLength": MAX_REPLY},
                            "steps": {"type": "array", "maxItems": MAX_STEPS, "items": {"anyOf": steps}}}}
 
 
-SYSTEM = """You are Kulan Assistant on a Kulan OS computer. You turn the person's request into steps,
-using only these actions:
+SYSTEM = """You are Kulan Assistant, built into Kulan OS on this person's computer. You run on the computer
+itself: you can't see the screen or the internet. Someone typed a question or a request.
+- A question (how, why, what, is…): answer it in "reply" in up to four short sentences, using the facts
+  about this computer below when they matter. Add steps only when one clearly helps (for example
+  check_storage when the disk is nearly full, or open_settings for the right page).
+- A request: turn it into steps, and say in one short sentence in "reply" what will happen.
+Actions you can use:
 {actions}
 Rules:
 - Use only the actions above, with exactly the listed arguments. Never invent actions.
-- If the request can't be done with these actions (deleting files, passwords, installing,
+- If a request can't be done with these actions (deleting files, passwords, installing,
   anything else), return no steps and say briefly in "reply" what they can do instead.
-- "reply" is one or two short, friendly sentences about what will happen.
-- At most {max} steps."""
+- Be friendly and plain; no lists, no markdown. At most {max} steps.
+Facts about this computer now:
+{facts}"""
 
 
 def system_prompt() -> str:
@@ -267,7 +578,12 @@ def system_prompt() -> str:
         args = ", ".join(f"{k}: {('one of ' + '/'.join(map(str, v['enum']))) if 'enum' in v else v.get('type')}"
                          for k, v in a.args.items())
         lines.append(f"- {a.id}({args}): {a.help}")
-    return SYSTEM.format(actions="\n".join(lines), max=MAX_STEPS)
+    try:
+        from . import facts
+        now = facts.snapshot()
+    except Exception:  # noqa: BLE001 - facts are a help, never a reason to fail
+        now = f"Now: {datetime.datetime.now():%A %-d %B %Y, %H:%M}"
+    return SYSTEM.format(actions="\n".join(lines), max=MAX_STEPS, facts=now)
 
 
 @dataclass
@@ -281,7 +597,7 @@ class Step:
 def validate(plan: dict) -> tuple[str, list[Step]]:
     """Only well-formed steps of known actions survive (the schema should
     already guarantee it; this is the second lock)."""
-    reply = str(plan.get("reply", "")).strip()[:300] if isinstance(plan, dict) else ""
+    reply = str(plan.get("reply", "")).strip()[:MAX_REPLY] if isinstance(plan, dict) else ""
     steps = []
     for raw in (plan.get("steps") or [])[:MAX_STEPS] if isinstance(plan, dict) else []:
         if not isinstance(raw, dict):
@@ -297,11 +613,16 @@ def validate(plan: dict) -> tuple[str, list[Step]]:
                 ok = False
             elif spec.get("type") == "boolean" and not isinstance(value, bool):
                 ok = False
-            elif spec.get("type") == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
+            elif spec.get("type") == "integer" and (not isinstance(value, int) or isinstance(value, bool)
+                                                     or not spec.get("minimum", value) <= value <= spec.get("maximum", value)):
                 ok = False
-            elif spec.get("type") == "string" and (not isinstance(value, str) or not value.strip()):
+            elif spec.get("type") == "string" and (not isinstance(value, str) or not value.strip()
+                                                    or len(value) > spec.get("maxLength", 10_000)):
                 ok = False
         if ok:
+            if action.id == "set_reminder":
+                # Fixed when the plan is made, so the time shown is the time set.
+                args = {**args, "_at": reminder_time(int(args["minutes"])).isoformat()}
             steps.append(Step(action, args, action.describe(args)))
     return reply, steps
 
@@ -313,7 +634,7 @@ def plan(request: str) -> tuple[str, list[Step]]:
         "messages": [{"role": "system", "content": system_prompt()},
                      {"role": "user", "content": request.strip()[:500]}],
         "temperature": 0.1,
-        "max_tokens": 400,
+        "max_tokens": 700,
         "chat_template_kwargs": {"enable_thinking": False},
         "response_format": {"type": "json_schema", "json_schema": {"name": "plan", "schema": plan_schema()}},
     }
@@ -334,3 +655,83 @@ def run_step(step: Step) -> Result:
     except Exception as e:  # an action never takes the window down
         step.result = Result(False, f"That didn't work: {e}")
     return step.result
+
+
+def self_test() -> None:
+    """Checks that need no model: plans are checked, tidying moves and puts
+    back, reminders are written and cleared. Uses a throwaway home folder."""
+    import tempfile
+    from unittest import mock
+
+    # Plans: only known actions with valid arguments survive.
+    reply, steps = validate({"reply": "OK", "steps": [
+        {"action": "set_style", "args": {"mode": "dark"}},
+        {"action": "rm_rf", "args": {}},
+        {"action": "set_volume", "args": {"percent": 300}},
+        {"action": "set_reminder", "args": {"message": "Call Amina", "minutes": 30}},
+        {"action": "set_reminder", "args": {"message": "x", "minutes": 0}},
+        {"action": "fix_wifi", "args": {}},
+        {"action": "tidy_folder", "args": {"where": "documents"}},
+    ]})
+    assert reply == "OK" and [s.action.id for s in steps] == ["set_style", "set_reminder", "fix_wifi"], steps
+    assert "_at" in steps[1].args and steps[1].text.startswith("Remind you at") or "tomorrow" in steps[1].text, steps[1]
+    assert validate("nonsense") == ("", [])
+    assert len(validate({"reply": "x" * 5000, "steps": []})[0]) == MAX_REPLY
+    prompt = system_prompt()
+    assert "tidy_folder(where: one of downloads/desktop)" in prompt and "Now:" in prompt, prompt[:400]
+
+    now = datetime.datetime(2026, 10, 23, 16, 5)
+    assert when_words(datetime.datetime(2026, 10, 23, 17, 0), now) == "at 5:00 pm"
+    assert when_words(datetime.datetime(2026, 10, 24, 9, 30), now) == "tomorrow at 9:30 am"
+    assert when_words(datetime.datetime(2026, 10, 27, 9, 30), now) == "on Tuesday 27 October at 9:30 am"
+
+    with tempfile.TemporaryDirectory() as home:
+        env = {"HOME": home, "XDG_CONFIG_HOME": f"{home}/.config", "XDG_STATE_HOME": f"{home}/.local/state"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(Path, "home", return_value=Path(home)), \
+                mock.patch.object(GLib, "get_user_special_dir", return_value=None):
+            downloads = Path(home) / "Downloads"
+            (downloads / "Pictures").mkdir(parents=True)
+            old = time.time() - 3600
+            for name in ("CV.pdf", "photo.JPG", "photo.jpg", "song.mp3", "backup.tar.gz", "kulan.iso",
+                         "notes", "half.pdf.part", ".hidden.pdf", "weird.xyz"):
+                (downloads / name).write_text(name)
+                os.utime(downloads / name, (old, old))
+            (downloads / "Pictures" / "photo.jpg").write_text("already there")
+            (downloads / "new.pdf").write_text("just downloaded")
+            (downloads / "folder.pdf").mkdir()
+            moves = {src.name: str(dst.relative_to(downloads)) for src, dst in tidy_moves(downloads)}
+            assert moves == {"CV.pdf": "Documents/CV.pdf", "photo.JPG": "Pictures/photo.JPG",
+                             "photo.jpg": "Pictures/photo (2).jpg", "song.mp3": "Music/song.mp3",
+                             "backup.tar.gz": "Archives/backup.tar.gz", "kulan.iso": "Installers/kulan.iso"}, moves
+            assert describe_tidy({"where": "downloads"}).startswith("Move 6 files in Downloads into folders: Pictures 2")
+            before = sorted(str(p.relative_to(downloads)) for p in downloads.rglob("*"))
+            result = tidy_folder({"where": "downloads"})
+            assert result.ok and result.undo and result.message == "Moved 6 files into folders", result
+            assert (downloads / "Pictures" / "photo (2).jpg").read_text() == "photo.jpg"
+            assert (downloads / "Pictures" / "photo.jpg").read_text() == "already there"
+            assert (downloads / "notes").exists() and (downloads / "half.pdf.part").exists()
+            result.undo()
+            after = sorted(str(p.relative_to(downloads)) for p in downloads.rglob("*"))
+            assert after == before, (before, after)
+            assert tidy_folder({"where": "desktop"}).ok is False  # no Desktop folder
+
+            # Reminders: written for systemd, cleared by Undo (systemctl faked).
+            calls: list[tuple] = []
+            fake = lambda *a: calls.append(a) or subprocess.CompletedProcess(a, 0, "", "")  # noqa: E731
+            with mock.patch(f"{__name__}._systemctl", side_effect=fake), \
+                    mock.patch("shutil.which", return_value="/usr/bin/systemctl"):
+                result = set_reminder({"message": "Call   Amina", "minutes": 90})
+                assert result.ok and result.message.startswith("I'll remind you "), result
+                [timer] = list(units_dir().glob("kulan-reminder-*.timer"))
+                rid = timer.stem.rsplit("-", 1)[1]
+                assert "Persistent=true" in timer.read_text() and "OnCalendar=" in timer.read_text()
+                service = (units_dir() / f"kulan-reminder-{rid}.service").read_text()
+                assert f"ExecStart=/usr/bin/kulan-assistant reminder-fire {rid}" in service and "Amina" not in service
+                assert json.loads((reminders_dir() / f"{rid}.json").read_text())["message"] == "Call Amina"
+                assert ("enable", "--now", f"kulan-reminder-{rid}.timer") in calls
+                result.undo()
+                assert not list(units_dir().glob("kulan-reminder-*")) and not list(reminders_dir().glob("*"))
+                remove_reminder("../../etc")  # refused quietly
+                assert fire_reminder("../x") == 2
+                assert not set_reminder({"message": "x", "minutes": 0}).ok
+    print("agent self-test passed")
