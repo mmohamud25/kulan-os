@@ -275,6 +275,15 @@ engine.LIGHTER_FLAG = Path(tempfile.mkdtemp(), "flag")
 assert engine.idle_minutes() == 10
 engine.LIGHTER_FLAG.write_text("on")
 assert engine.idle_minutes() == 2'
+check "Backups page matches Déjà Dup" "every Déjà Dup setting and option Kulan Settings › Backups uses exists in Debian 13's Déjà Dup" bash -c '
+	command -v deja-dup >/dev/null || apt-get install -y -q --no-install-recommends deja-dup >/dev/null 2>&1 || { echo "deja-dup not installable"; exit 1; }
+	g() { GSETTINGS_BACKEND=memory gsettings list-keys "$1" | grep -qx "$2" || { echo "missing $1 $2"; exit 1; }; }
+	for k in backend periodic periodic-period delete-after include-list exclude-list last-backup; do g org.gnome.DejaDup "$k"; done
+	for k in uuid name icon folder; do g org.gnome.DejaDup.Drive "$k"; done
+	g org.gnome.DejaDup.Local folder
+	GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend | grep -qx drive || { echo "no drive backend"; exit 1; }
+	GSETTINGS_BACKEND=memory gsettings range org.gnome.DejaDup backend | grep -qx local || { echo "no local backend"; exit 1; }
+	help="$(deja-dup --help 2>&1)"; grep -q -- "--restore" <<<"$help" && grep -q -- "--backup" <<<"$help" || { echo "deja-dup options changed: $help"; exit 1; }'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"

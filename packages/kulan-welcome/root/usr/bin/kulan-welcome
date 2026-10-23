@@ -767,15 +767,15 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- 6: backups ---------------------------------------------------------------
     def build_backups(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("Back up your files", "Keep a copy of your files on a drive or in Google Drive "
-                                "or OneDrive, so nothing is lost if this computer is.",
+        box.append(self.heading("Back up your files", "Keep a copy of your files on a USB drive or another "
+                                "disk, so nothing is lost if this computer is.",
                                 "drive-harddisk-symbolic"))
         group = Adw.PreferencesGroup()
         backups = Adw.ActionRow(title="File backups",
-                                subtitle="Backups (Déjà Dup): automatic, encrypted, and easy to restore")
+                                subtitle="Automatic and encrypted, to a USB drive or another disk. Set up in "
+                                         "Kulan Settings › Backups")
         button = Gtk.Button(label="Set up", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
-        button.connect("clicked", lambda _b: self.open_app("org.gnome.DejaDup.desktop",
-                                                           "Backups isn't installed. Get Déjà Dup in Software."))
+        button.connect("clicked", lambda _b: self.open_settings("backups"))
         button.set_sensitive(not self.live)
         backups.add_suffix(button)
         group.add(backups)

@@ -11,6 +11,7 @@ from .addons import AddonsPage
 from .apps import AppsPage
 from .appearance import AppearancePage
 from .assistant import AssistantPage
+from .backups import BackupsPage
 from .battery import BatteryPage
 from .bluetooth import BluetoothPage
 from .common import Helper, open_gnome_panel
@@ -66,6 +67,7 @@ PAGES = [
     # Protection
     ("security", SecurityPage),
     ("privacy", PrivacyPage),
+    ("backups", BackupsPage),
     # Input and helpers
     ("keyboard", KeyboardPage),
     ("mouse", MousePage),
@@ -88,7 +90,7 @@ TILE_COLOURS = {
     "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
-    "security": "#0f766e", "privacy": "#2563eb",
+    "security": "#0f766e", "privacy": "#2563eb", "backups": "#0891b2",
     "keyboard": "#64748b", "mouse": "#64748b", "accessibility": "#2563eb", "assistant": "#7c3aed", "prayer-times": "#d97706",
     "date-time": "#0ea5e9", "region": "#0d9488", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
 }
