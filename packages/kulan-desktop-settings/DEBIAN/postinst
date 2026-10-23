@@ -58,6 +58,33 @@ splash_logo() {
 	ln -sfn /usr/share/kulan/vendor-logos/logo-text-version-64.png "${SPLASH_LOGO}"
 }
 
+# The picture new accounts start with: Kulan's, not Debian's logo (which
+# desktop-base puts in /etc/skel/.face). Debian's is kept aside, and put
+# back if this package is removed. Accounts whose picture is still Debian's
+# logo get Kulan's; a picture someone chose is left alone.
+SKEL_FACE=/etc/skel/.face
+KULAN_FACE=/usr/share/kulan/faces/kulan.png
+account_picture() {
+	[ -f "${KULAN_FACE}" ] || return 0
+	DIVERTED_BY="$(dpkg-divert --listpackage "${SKEL_FACE}")"
+	if [ -n "${DIVERTED_BY}" ] && [ "${DIVERTED_BY}" != kulan-desktop-settings ]; then
+		return 0
+	fi
+	if [ -z "${DIVERTED_BY}" ]; then
+		dpkg-divert --package kulan-desktop-settings --add --rename \
+			--divert "${SKEL_FACE}.debian" "${SKEL_FACE}" || return 1
+	fi
+	cp "${KULAN_FACE}" "${SKEL_FACE}.kulan-new" && chmod 0644 "${SKEL_FACE}.kulan-new" &&
+		mv -f "${SKEL_FACE}.kulan-new" "${SKEL_FACE}" || return 1
+	[ -f "${SKEL_FACE}.debian" ] || return 0
+	for FACE in /home/*/.face; do
+		if [ -f "${FACE}" ] && [ ! -L "${FACE}" ] && cmp -s "${FACE}" "${SKEL_FACE}.debian"; then
+			cat "${KULAN_FACE}" > "${FACE}" # keeps its owner
+		fi
+	done
+	return 0
+}
+
 # Only Bibata Modern Classic is used: drop the other variants' cursor pictures
 # (already installed ones; /etc/dpkg/dpkg.cfg.d/kulan-lean keeps them out of
 # later updates).
@@ -77,6 +104,7 @@ case "$1" in
 		soft vendor_logos
 		soft splash_logo
 		soft lean_cursors
+		soft account_picture
 		apply
 		# Most-used apps read into memory after sign-in (kulan-prewarm), for
 		# every account; "systemctl --user disable kulan-prewarm.timer" opts out.

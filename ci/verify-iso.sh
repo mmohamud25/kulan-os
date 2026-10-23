@@ -117,6 +117,7 @@ if [[ "${ARCH}" == arm64 ]]; then
 	check "Console on screen" "boot messages, splash and prompts on the screen, not only the serial port" bash -c "grep -q 'console=tty0' '${WORK}/grub.cfg' && grep -q 'plymouth.ignore-serial-consoles' '${WORK}/grub.cfg'"
 fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
+check "Account picture" "new accounts start with Kulan's picture, not Debian's logo" bash -c "grep -qx /etc/skel/.face '${R}/var/lib/dpkg/diversions' && grep -q 'squashfs-root/usr/share/kulan/faces/kulan.png\$' '${WORK}/listing'"
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
 for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps kulan-assistant kulan-assistant-engine; do
 	VER="$(awk -v p="${PKG}" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" {match($0, /\nVersion: [^\n]+/); print substr($0, RSTART+10, RLENGTH-10)}' "${R}/var/lib/dpkg/status")"

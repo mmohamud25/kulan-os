@@ -12,6 +12,12 @@ case "$1" in
 			dpkg-divert --package kulan-desktop-settings --remove --rename \
 				--divert "${SPLASH_LOGO}.debian" "${SPLASH_LOGO}"
 		fi
+		# Give Debian's account picture back to new accounts.
+		if dpkg-divert --list /etc/skel/.face | grep -q 'by kulan-desktop-settings$'; then
+			rm -f /etc/skel/.face
+			dpkg-divert --package kulan-desktop-settings --remove --rename \
+				--divert /etc/skel/.face.debian /etc/skel/.face
+		fi
 		rm -f /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
 		rm -f /usr/share/kulan/xdg/applications/org.gnome.Console.desktop
 		if command -v glib-compile-schemas >/dev/null 2>&1; then
