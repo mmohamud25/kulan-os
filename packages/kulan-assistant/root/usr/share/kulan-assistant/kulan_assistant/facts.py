@@ -122,7 +122,7 @@ def updates() -> str:
     except (OSError, ValueError, AttributeError):
         return ""
     security = sum(1 for u in waiting if isinstance(u, dict) and u.get("security"))
-    restart = Path("/run/kulan/restart-required").exists()
+    restart = Path("/run/kulan/restart-required").exists() or Path("/run/reboot-required").exists()
     text = f"{len(waiting)} waiting ({security} security)" if waiting else "up to date"
     return text + ("; a restart is needed to finish updating" if restart else "")
 

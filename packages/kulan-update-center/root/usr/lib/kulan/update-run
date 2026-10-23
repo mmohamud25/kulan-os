@@ -38,7 +38,10 @@ AUTO_OVERRIDE=/etc/apt/apt.conf.d/53kulan-auto-upgrades-user
 ADDONS=/usr/share/kulan/addons.json
 CHECKUP=/var/lib/kulan/security-checkup.json
 DNS_CONF=/etc/systemd/resolved.conf.d/60-kulan-dns.conf
-APT_OPTS=(-q -y
+# Wait (up to 5 minutes) for an automatic update already running, rather
+# than failing with "could not get lock".
+APT_LOCK=(-o DPkg::Lock::Timeout=300)
+APT_OPTS=(-q -y "${APT_LOCK[@]}"
 	-o Dpkg::Options::=--force-confdef
 	-o Dpkg::Options::=--force-confold
 	-o APT::Status-Fd=3)
@@ -53,6 +56,51 @@ die() {
 # Status lines on fd 3 -> stdout; everything apt prints -> stderr.
 run_apt() {
 	apt-get "${APT_OPTS[@]}" "$@" 3>&1 1>&2
+}
+
+# An earlier update that was cut short (power loss, a full disk, a crash)
+# leaves dpkg half-way, and then apt refuses to install anything until it's
+# finished: finish it first, the same way "dpkg --configure -a" and
+# "apt-get -f install" would by hand.
+repair_dpkg() {
+	if [[ -z "$(find /var/lib/dpkg/updates -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" &&
+		-z "$(dpkg --audit 2>/dev/null)" ]]; then
+		return 0
+	fi
+	echo "pmstatus:repair:0:Finishing an earlier update that was interrupted"
+	echo "An earlier update was interrupted; finishing it first." >&2
+	dpkg --force-confdef --force-confold --configure -a 1>&2 || true
+	run_apt -f install || true
+	if [[ -n "$(dpkg --audit 2>/dev/null)" ]]; then
+		die "An earlier update couldn't be finished. Restart the computer and try again; if it still fails, run \"sudo dpkg --configure -a\" in the Terminal to see why."
+	fi
+}
+
+# Room to download and install the updates (and to work), on the disks apt
+# uses. Says how much is needed when there isn't enough.
+check_space() {
+	local need
+	need="$(apt-get "${APT_LOCK[@]}" -o Debug::NoLocking=1 --assume-no "$@" 2>/dev/null | python3 -I -c '
+import re, sys
+units = {"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9}
+need = 0
+for line in sys.stdin:
+    m = re.match(r"Need to get ([\d.,]+) (\w+)(?:/[\d.,]+ \w+)? of archives", line)
+    if m:
+        need += float(m.group(1).replace(",", "")) * units.get(m.group(2), 1)
+    m = re.match(r"After this operation, ([\d.,]+) (\w+) of additional disk space", line)
+    if m:
+        need += float(m.group(1).replace(",", "")) * units.get(m.group(2), 1)
+print(int(need))
+' || echo 0)"
+	local margin=$((500 * 1000 * 1000)) dir avail
+	for dir in /var/cache/apt/archives /usr; do
+		avail="$(df --output=avail -B1 "${dir}" 2>/dev/null | tail -n 1 | tr -dc 0-9)"
+		[[ -n "${avail}" ]] || continue
+		if (( avail < need + margin )); then
+			die "Not enough free space to install these updates: about $(( (need + margin) / 1000000 )) MB is needed and $(( avail / 1000000 )) MB is free. Free up space in Kulan Settings › Storage, then try again."
+		fi
+	done
 }
 
 # Packages apt would remove as no longer needed, sorted, one per line.
@@ -125,7 +173,7 @@ case "${1:-}" in
 	check)
 		[[ $# -eq 1 ]] || die "usage: update-run check"
 		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
-		apt-get -q update 1>&2
+		apt-get -q "${APT_LOCK[@]}" update 1>&2
 		/usr/lib/kulan/update-status refresh || true
 		;;
 	install)
@@ -135,10 +183,14 @@ case "${1:-}" in
 		elif [[ $# -ne 1 ]]; then
 			die "usage: update-run install [--restore-point]"
 		fi
+		repair_dpkg
+		check_space --with-new-pkgs upgrade
 		if [[ ${RESTORE} -eq 1 && -x /usr/lib/kulan/restore-points ]]; then
 			echo "pmstatus:restore-point:0:Creating a restore point"
 			/usr/lib/kulan/restore-points create "Before installing updates" 1>&2 ||
 				echo "Restore point skipped; installing updates anyway." >&2
+			# The restore point used some space too: still room for the updates?
+			check_space --with-new-pkgs upgrade
 		fi
 		# Updates that only take effect after a restart (the Linux kernel,
 		# the C library, systemd, the desktop itself, drivers, microcode).
@@ -166,7 +218,7 @@ case "${1:-}" in
 	restore-point)
 		[[ $# -eq 1 ]] || die "usage: update-run restore-point"
 		[[ -x /usr/lib/kulan/restore-points ]] || die "Restore points aren't installed."
-		/usr/lib/kulan/restore-points create "Created in Update Center"
+		/usr/lib/kulan/restore-points create "Made in Kulan Settings"
 		;;
 	undo-update)
 		[[ $# -eq 1 ]] || die "usage: update-run undo-update"
@@ -180,12 +232,14 @@ case "${1:-}" in
 		;;
 	install-devkit)
 		[[ $# -eq 1 ]] || die "usage: update-run install-devkit"
-		apt-get -q update 1>&2
+		repair_dpkg
+		apt-get -q "${APT_LOCK[@]}" update 1>&2
 		run_apt install kulan-devkit
 		;;
 	install-apps)
 		[[ $# -eq 1 ]] || die "usage: update-run install-apps"
-		apt-get -q update 1>&2
+		repair_dpkg
+		apt-get -q "${APT_LOCK[@]}" update 1>&2
 		run_apt install kulan-apps
 		;;
 	addon-install | addon-remove)
@@ -205,7 +259,9 @@ case "${1:-}" in
 		fi
 		if [[ "$1" == addon-install ]]; then
 			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
-				apt-get -q update 1>&2
+				repair_dpkg
+				apt-get -q "${APT_LOCK[@]}" update 1>&2
+				check_space install "${PACKAGES[@]}"
 				run_apt install "${PACKAGES[@]}"
 			fi
 			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
@@ -354,7 +410,7 @@ PY
 				;;
 			quad9 | adblock | family)
 				if ! command -v resolvectl >/dev/null 2>&1; then
-					apt-get -q update 1>&2
+					apt-get -q "${APT_LOCK[@]}" update 1>&2
 					run_apt install systemd-resolved
 				fi
 				if [[ "$2" == quad9 ]]; then

@@ -22,6 +22,11 @@ from pathlib import Path
 UPDATE_RUN = "/usr/lib/kulan/update-run"
 UPDATES = Path("/var/lib/kulan/updates.json")
 RESTART = Path("/run/kulan/restart-required")
+DEBIAN_RESTART = Path("/run/reboot-required")  # automatic updates (a new kernel)
+
+
+def restart_needed() -> bool:
+    return RESTART.exists() or DEBIAN_RESTART.exists()
 ASSISTANT = "/usr/bin/kulan-assistant"
 
 BOLD, DIM, TEAL, AMBER, RED, OFF = "\033[1m", "\033[2m", "\033[36m", "\033[33m", "\033[31m", "\033[0m"
@@ -103,27 +108,67 @@ def cmd_info(_args: list[str]) -> int:
 
 
 # --- update -------------------------------------------------------------------------
+def run_update(action: str) -> int:
+    """Run update-run, turning its progress lines (pmstatus:pkg:percent:what)
+    into one line that updates in place; apt's own messages pass through."""
+    try:
+        proc = subprocess.Popen(["pkexec", UPDATE_RUN, *action.split()], stdout=subprocess.PIPE, text=True,
+                                errors="replace")
+    except OSError as exc:
+        print(f"kulan: {exc}", file=sys.stderr)
+        return 1
+    tty = sys.stdout.isatty()
+    shown = ""
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        line = line.rstrip("\n")
+        kind, _sep, rest = line.partition(":")
+        if kind in ("pmstatus", "dlstatus"):
+            parts = rest.split(":", 2)
+            if len(parts) == 3:
+                try:
+                    percent = int(float(parts[1]))
+                except ValueError:
+                    percent = 0
+                what = ("Downloading" if kind == "dlstatus" else parts[2])[:60]
+                text = f"{percent:3d}%  {what}"
+                if tty:
+                    print(f"\r\033[K{text}", end="", flush=True)
+                elif text != shown:
+                    print(text)
+                shown = text
+            continue
+        if tty and shown:
+            print()
+            shown = ""
+        print(line)
+    rc = proc.wait()
+    if tty and shown:
+        print()
+    return rc
+
+
 def cmd_update(args: list[str]) -> int:
     if not Path(UPDATE_RUN).exists():
         print("Software Update isn't installed here.", file=sys.stderr)
         return 1
     if "--check" in args:
         print("Checking for updates…")
-        rc = subprocess.call(["pkexec", UPDATE_RUN, "check"])
+        rc = run_update("check")
         waiting = status().get("available") or []
         print(f"{len(waiting)} update(s) waiting." if waiting else "Kulan OS is up to date.")
         return rc
     waiting = status().get("available") or []
     if not waiting:
         print("Nothing waiting (from the last check). Checking now…")
-        subprocess.call(["pkexec", UPDATE_RUN, "check"])
+        run_update("check")
         waiting = status().get("available") or []
         if not waiting:
             print("Kulan OS is up to date.")
             return 0
     print(f"Installing {len(waiting)} update(s)…")
-    rc = subprocess.call(["pkexec", UPDATE_RUN, "install", "--restore-point"])
-    if rc == 0 and RESTART.exists():
+    rc = run_update("install --restore-point")
+    if rc == 0 and restart_needed():
         print(f"{AMBER}Restart to finish updating.{OFF}")
     return rc
 
@@ -165,7 +210,7 @@ def cmd_doctor(_args: list[str]) -> int:
     security = [u for u in waiting if isinstance(u, dict) and u.get("security")]
     report(not security, "Updates", f"{len(security)} security update(s) waiting" if security else
            (f"{len(waiting)} waiting" if waiting else "up to date"), "kulan update")
-    report(not RESTART.exists(), "Restart", "needed to finish updating" if RESTART.exists() else "not needed",
+    report(not restart_needed(), "Restart", "needed to finish updating" if restart_needed() else "not needed",
            "restart when it suits you")
     synced = out(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
     report(synced == "yes" if synced else None, "Clock", "set from the internet" if synced == "yes" else

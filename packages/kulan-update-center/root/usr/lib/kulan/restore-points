@@ -9,6 +9,8 @@
 #   restore-points usage             record how many there are and the space
 #                                    they use (for Kulan Settings > Storage)
 #   restore-points delete-all        delete every restore point
+#   restore-points before-auto-update  (apt hook) a restore point before automatic
+#                                    updates, once a day
 #   restore-points undo-update       put the system back to before the last
 #                                    update (a restore point of how it is now
 #                                    is taken first), then restart
@@ -127,6 +129,26 @@ for name, kind in sorted(rows):
     if name and not any(c.isspace() for c in name):
         print(name, kind)
 PY
+}
+
+# Whether this was started by an automatic update: unattended-upgrade is
+# one of the parent processes.
+auto_update_running() {
+	local pid=$$ comm i
+	for (( i = 0; i < 12 && pid > 1; i++ )); do
+		comm="$(cat "/proc/${pid}/comm" 2>/dev/null || true)"
+		[[ "${comm}" == unattended-upgr* ]] && return 0
+		# Run as "python3 /usr/bin/unattended-upgrade": the program itself,
+		# not just any command line that mentions it.
+		if tr '\0' '\n' < "/proc/${pid}/cmdline" 2>/dev/null | head -n 2 | grep -qE '(^|/)unattended-upgrade$'; then
+			return 0
+		fi
+		# The parent's id: the 2nd field after the name, which is in brackets
+		# and may itself contain spaces.
+		pid="$(sed 's/.*) //' "/proc/${pid}/stat" 2>/dev/null | awk '{print $2}')"
+		[[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+	done
+	return 1
 }
 
 delete_snapshot() {
@@ -262,6 +284,26 @@ case "${1:-}" in
 		fi
 		record_usage
 		;;
+	before-auto-update)
+		# Run by apt before every dpkg run (DPkg::Pre-Invoke). Only for
+		# automatic updates (unattended-upgrade), once per run and at most
+		# once in 20 hours: a restore point like the one Kulan Settings
+		# takes before installing updates, so "Undo last update" also
+		# covers updates that installed themselves. Never stops an update.
+		is_live_or_build && exit 0
+		auto_update_running || exit 0
+		STAMP=/var/lib/kulan/auto-update-restore-point
+		if [[ -f "${STAMP}" ]] && (( $(date +%s) - $(stat -c %Y "${STAMP}") < 20 * 3600 )); then
+			exit 0
+		fi
+		mkdir -p /var/lib/kulan
+		touch "${STAMP}" # once, even if the snapshot is skipped for space
+		[[ -f "${CONFIG}" ]] || exit 0 # restore points not set up
+		have_space || exit 0
+		timeshift --create --scripted --comments "${UPDATE_NOTE}" --tags O >&2 || log "couldn't take a restore point before automatic updates"
+		prune_updates || true
+		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || true
+		;;
 	create)
 		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
 		is_live_or_build && { log "not available in the live session"; exit 1; }
@@ -280,7 +322,7 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update' >&2
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|before-auto-update' >&2
 		exit 2
 		;;
 esac

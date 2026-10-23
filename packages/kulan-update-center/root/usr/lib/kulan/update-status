@@ -24,6 +24,8 @@ STATUS_FILE = "/var/lib/kulan/updates.json"
 HISTORY_LOG = "/var/log/apt/history.log"
 APP_UPDATES = "/var/lib/kulan/app-updates.tsv"  # written by /usr/lib/kulan/app-updates
 RESTART_FILE = "/run/kulan/restart-required"  # written by update-run after installing
+DEBIAN_RESTART = "/run/reboot-required"  # automatic updates (a new kernel)
+DEBIAN_RESTART_PKGS = "/run/reboot-required.pkgs"
 
 # apt-get -s prints e.g. "Inst openssl [3.5.1-1] (3.5.1-1+deb13u1 Debian-Security:13/stable-security [arm64])"
 INST = re.compile(r"^Inst (\S+) (?:\[([^\]]*)\] )?\((\S+) ([^)]*)\)")
@@ -138,11 +140,19 @@ def paused_until() -> int:
 
 
 def restart_required() -> list[str]:
-    try:
-        with open(RESTART_FILE, encoding="utf-8") as fh:
-            return [line.strip() for line in fh if line.strip()][:20]
-    except OSError:
-        return []
+    """What needs a restart to finish updating: from Kulan's own installs, and
+    from automatic updates (Debian's /run/reboot-required, which a new Linux
+    kernel writes, with the packages in reboot-required.pkgs)."""
+    names: list[str] = []
+    for path in (RESTART_FILE, DEBIAN_RESTART_PKGS):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                names += [line.strip() for line in fh if line.strip()]
+        except OSError:
+            pass
+    if not names and os.path.exists(DEBIAN_RESTART):
+        names = ["system"]
+    return list(dict.fromkeys(names))[:20]
 
 
 def last_run() -> dict:
