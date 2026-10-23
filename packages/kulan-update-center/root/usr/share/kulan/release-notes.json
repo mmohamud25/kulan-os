@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.6",
+    "title": "Your phone, your backups, and a lighter Kulan for 4 GB computers",
+    "items": [
+      "Phone link: share files and links with your phone, see its notifications here, and read and send texts from the computer. Install KDE Connect on the phone, then switch it on in Kulan Settings › Phone and pair. Works best with Android; on iPhone, files and the clipboard. It's off until you switch it on",
+      "Backups in one place: Kulan Settings › Backups backs up your files to a USB drive or another disk, encrypted and automatically, and brings back everything or an earlier version of one file",
+      "Lighter mode for computers with 4 GB of memory: on by itself there, with fewer effects, file search that never gets in the way, and more compressed memory. Kulan Settings › Battery and power switches it",
+      "Ask Kulan does more: find photos from last week, list the biggest files, find duplicate files, set timers, add to your to-do list, fix Bluetooth and printers, and back up now. Speak your question with the microphone button, or ask about text on the screen, such as an error message. And an Ask Kulan button in the top bar",
+      "Clipboard history pastes for you: pick something you copied earlier and it goes straight into the app you were using",
+      "Quick Note and To-do say when they can't save, and have Undo after you delete something",
+      "Counting computers, privately: once a week Kulan OS sends only its version, PC or Mac, and roughly how long it's been installed, so we know how many computers to support. No ID and nothing about you. Switch it off in Kulan Settings › Privacy, where What's sent shows the exact report",
+      "For organisations (Kulan Fleet): policies for automatic updates, the firewall, the screen lock and encryption; each computer's apps; a Needs attention list; an activity log; and erasing a lost or stolen computer, only when its user allowed it and its disk is encrypted",
+      "Every update is now tested by installing the previous release and updating it, the way Software Update does, before it reaches you"
+    ]
+  },
+  {
     "version": "2.5",
     "title": "Ask Kulan, a faster desktop and a more powerful Terminal",
     "items": [

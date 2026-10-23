@@ -62,6 +62,17 @@ cameras or faces. A privacy policy page on os.kulangroup.com covers 2 and 3.
 ## Not doing until Mohamud says so
 - Somali; web answers for Ask Kulan.
 
+## Status (23 October 2026, on branch kulan-os-2.6)
+Done and tested: the upgrade test (found a 2.5 bug: a fresh install's first
+update skips its restore point; being fixed), private counting (live on
+Supabase, privacy policy page), lighter mode, the small fixes, the Backups
+page, Phone link, Fleet v2 (server live), more Ask Kulan actions with the
+top-bar, microphone and read-the-screen buttons. Version is 2.6, with
+release notes.
+Proposed for 2.7 (asked Mohamud): Kulan Store, the native Sharing page (GNOME
+Settings' Sharing stays linked), signed start-up files, the signing key,
+NVIDIA/Broadcom, and the sleep, dual-boot and restore tests.
+
 ## Order (proposed)
 1. Upgrade test 2.5 → 2.6 (protects everyone already on 2.5).
 2. Private counting (Supabase) and the privacy policy page.
