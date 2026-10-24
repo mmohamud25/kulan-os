@@ -134,7 +134,7 @@ check "Kulan Shell" "kulan-shell@kulangroup.com enabled" grep -q "kulan-shell@ku
 check "Build number" "os-release BUILD_ID=${KULAN_BUILD:-?}" grep -qx "BUILD_ID=${KULAN_BUILD:-.*}" "${R}/usr/lib/os-release"
 check "Cursor" "Bibata cursor installed" installed bibata-cursor-theme
 check "Office apps" "LibreOffice Writer, Calc, Impress" bash -c "$(declare -f installed); R='${R}'; installed libreoffice-writer && installed libreoffice-calc && installed libreoffice-impress"
-check "Short app names" "Writer, Calc, Impress, GIMP and VLC in the app grid, not names cut off" bash -c "d='${R}'/usr/share/kulan/xdg/applications; grep -qx Name=Writer \$d/libreoffice-writer.desktop && grep -qx Name=Calc \$d/libreoffice-calc.desktop && grep -qx Name=Impress \$d/libreoffice-impress.desktop && grep -qx Name=GIMP \$d/gimp.desktop && grep -qx Name=VLC \$d/vlc.desktop"
+check "Short app names" "Writer, Calc, Impress, GIMP, VLC, Terminal, Disk Usage, Firewall and Store in the app grid, not names cut off" bash -c "d='${R}'/usr/share/kulan/xdg/applications; grep -qx Name=Writer \$d/libreoffice-writer.desktop && grep -qx Name=Calc \$d/libreoffice-calc.desktop && grep -qx Name=Impress \$d/libreoffice-impress.desktop && grep -qx Name=GIMP \$d/gimp.desktop && grep -qx Name=VLC \$d/vlc.desktop && grep -qx Name=Terminal \$d/org.gnome.Ptyxis.desktop && grep -qx 'Name=Disk Usage' \$d/org.gnome.baobab.desktop && grep -qx Name=Firewall \$d/gufw.desktop && grep -qx Name=Store \$d/org.gnome.Software.desktop"
 check "Media apps" "VLC and GIMP" bash -c "$(declare -f installed); R='${R}'; installed vlc && installed gimp"
 check "Restore points" "Timeshift installed" installed timeshift
 if installed kulan-devkit; then

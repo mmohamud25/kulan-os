@@ -11,7 +11,7 @@ FRIENDLY = [
     (("firefox-esr", "firefox"), "Firefox"),
     (("thunderbird",), "Thunderbird"),
     (("chromium",), "Chromium"),
-    (("libreoffice",), "LibreOffice"),
+    (("libreoffice",), "LibreOffice (Writer, Calc, Impress)"),
     (("openssl", "libssl3t64", "libssl3"), "Encryption (OpenSSL)"),
     (("gnutls28", "libgnutls30t64", "libgnutls30"), "Encryption (GnuTLS)"),
     (("nss", "libnss3"), "Encryption for Firefox (NSS)"),
@@ -31,6 +31,24 @@ FRIENDLY = [
     (("mutter", "libmutter"), "Windows and screens (Mutter)"),
     (("gdm3",), "Sign-in screen"),
     (("nautilus",), "Files"),
+    # Apps by the names in the app grid (desktop-setup's short names).
+    (("ptyxis",), "Terminal"),
+    (("gnome-text-editor",), "Text Editor"),
+    (("gnome-calculator",), "Calculator"),
+    (("loupe",), "Image Viewer"),
+    (("evince", "papers"), "PDF Viewer"),
+    (("file-roller",), "Archive Manager"),
+    (("gnome-disk-utility",), "Disks"),
+    (("gnome-system-monitor",), "System Monitor"),
+    (("baobab",), "Disk Usage"),
+    (("gnome-software",), "Store"),
+    (("deja-dup",), "Backups"),
+    (("keepassxc",), "KeePassXC"),
+    (("simple-scan",), "Scanner"),
+    (("gnome-characters",), "Characters"),
+    (("gnome-weather",), "Weather"),
+    (("gnome-clocks",), "Clocks"),
+    (("gufw",), "Firewall"),
     (("networkmanager", "network-manager"), "Wi-Fi and network"),
     (("wpa",), "Wi-Fi security (wpa_supplicant)"),
     (("bluez",), "Bluetooth"),
@@ -209,6 +227,13 @@ def self_test() -> None:
     assert series("2.4.1") == series("2.4.202610231200") == (2, 4)
     point = summarize([{"name": "kulan-base", "from": "2.4.202610222011", "to": "2.4.202610231200"}], "2.4")
     assert point["release"] is None and point["kulan"] == ["kulan-base"], point
+    # The names people see in the app grid, not package names or long titles.
+    for pkg, shown in (("ptyxis", "Terminal"), ("gnome-text-editor", "Text Editor"), ("loupe", "Image Viewer"),
+                       ("papers", "PDF Viewer"), ("gnome-software", "Store"), ("baobab", "Disk Usage"),
+                       ("gnome-software-plugin-flatpak", "Store"), ("libreoffice-writer", "LibreOffice (Writer, Calc, Impress)")):
+        assert friendly_name({"name": pkg}) == shown, (pkg, friendly_name({"name": pkg}))
+    assert friendly_name({"name": "gufw"}) == "Firewall" and friendly_name({"name": "ufw"}) == "Firewall"
+    assert friendly_name({"name": "gnome-shell"}) == "Desktop (GNOME Shell)", "longer entries still win"
     assert friendly_name({"name": "linux-image-6.12.57-amd64", "source": "linux-signed-amd64"}) == \
         "System core (Linux kernel)"
     fw = summarize([{"name": "System Firmware", "kind": "firmware", "from": "1.2", "to": "1.3"}], "2.5")

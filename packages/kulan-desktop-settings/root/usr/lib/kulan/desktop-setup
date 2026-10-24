@@ -126,7 +126,10 @@ for SPEC in \
 	"simple-scan.desktop:Scanner" \
 	"org.gnome.SimpleScan.desktop:Scanner" \
 	"org.gnome.Evince.desktop:PDF Viewer" \
-	"org.gnome.Papers.desktop:PDF Viewer"; do
+	"org.gnome.Papers.desktop:PDF Viewer" \
+	"org.gnome.Ptyxis.desktop:Terminal" \
+	"org.gnome.baobab.desktop:Disk Usage" \
+	"gufw.desktop:Firewall"; do
 	ID="${SPEC%%:*}"
 	SHORT="${SPEC#*:}"
 	SRC="/usr/share/applications/${ID}"

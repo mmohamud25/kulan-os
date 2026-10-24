@@ -15,7 +15,7 @@
   {
     "id": "apps",
     "title": "Office and media apps",
-    "description": "LibreOffice Writer, Calc and Impress, VLC and GIMP",
+    "description": "Writer, Calc and Impress (LibreOffice), VLC and GIMP",
     "icon": "x-office-document-symbolic",
     "size": "about 500 MB",
     "packages": [
