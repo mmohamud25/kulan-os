@@ -32,5 +32,18 @@ Small items:
 Ask Kulan app → Kulan Store and Kulan Fleet's listing → plain names → the
 small items → version, release notes, build and test.
 
+## Status (24 October 2026, on branch kulan-os-2.7)
+Done, each with tests: the Ask Kulan app (replaces "Do it for me"); the Store
+(GNOME Software, named "Store" by Mohamud, with Kulan's picks as Editor's
+Choice and Kulan Fleet listed and installed from Kulan's channel; CI
+installs it through GNOME Software and PackageKit); plain names (Terminal,
+Disk Usage, Firewall; Software Update uses them); the erase notice; the
+counting week; the 3D acceleration line. Version 2.7 with release notes.
+
+To do at release (with Mohamud's go-ahead): deploy the countme function
+(fleet/supabase/functions/countme, now with week.ts) to Supabase. Either
+order is safe: the server takes the old three fields, and 2.7 computers fall
+back to them on a 400.
+
 ## Not doing until Mohamud says so
 - Somali; web answers for Ask Kulan.

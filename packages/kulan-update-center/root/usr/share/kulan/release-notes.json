@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.7",
+    "title": "Ask Kulan, the app, and Kulan's own apps in the Store",
+    "items": [
+      "Ask Kulan, the app: a conversation with the assistant in its own window. Ask questions, or say what you'd like done, and follow up (\"and the Desktop too\"). Changes still wait for Do it and can be undone. Your conversations are kept only on this computer, listed at the side; turn that off or delete them in Kulan Settings › Assistant",
+      "The Store (formerly Kulan Store): Kulan's picks are its Editor's Choice, and Kulan's own apps are listed there, starting with Kulan Fleet, installed from Kulan's own update channel. Each app's page shows what it can access and who publishes it before you install",
+      "Plain names: Terminal, Disk Usage and Firewall in the app grid, dock and search, and Software Update names app updates the same way (Text Editor, Image Viewer, Store…)",
+      "Kulan Settings › About shows whether 3D graphics acceleration is on, and what to do if it's off (in a virtual machine, turn on 3D in its display settings)",
+      "Kulan Fleet: a lost computer shows a notice 20 seconds before it's erased, and switching it off then doesn't stop the erase",
+      "The anonymous weekly count says which week it's counting, so a count near midnight on Sunday can't be counted twice"
+    ]
+  },
+  {
     "version": "2.6.1",
     "title": "Instant answers, and fixes from testing 2.6",
     "items": [
