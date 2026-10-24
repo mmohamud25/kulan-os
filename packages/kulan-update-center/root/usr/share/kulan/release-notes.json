@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.6.1",
+    "title": "Instant answers, and fixes from testing 2.6",
+    "items": [
+      "Ask Kulan answers the time, the date, your battery and free space straight away, even before you've downloaded a model",
+      "Saved passwords and automatic sign-in: if you sign in automatically, apps that use saved passwords (Wi-Fi, browsers, online accounts) ask for the keyring's password, because nothing unlocked it. Setup now says so, and Kulan Settings › Users offers a fix: turn off automatic sign-in (recommended), or keep it and remove the keyring's password",
+      "Smaller restore points: they leave out apps from Flathub, the assistant's models, Docker's data and downloaded update files, which all come back from where they were downloaded",
+      "Short names in the app grid for apps whose names were cut off, like Writer, Calc, GIMP and VLC. Search still finds the full names",
+      "Update History shows one update as one entry",
+      "Kulan Fleet sign-in accepts the address however it was copied, and the Kulan Assistant window shows its name and icon in the dock"
+    ]
+  },
+  {
     "version": "2.6",
     "title": "Your phone, your backups, and a lighter Kulan for 4 GB computers",
     "items": [
