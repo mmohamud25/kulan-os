@@ -16,6 +16,26 @@ main or the update channel until he says "release it".
 - Downloads on Cloudflare R2 before the PC ISO nears GitHub's 2 GiB limit
   (needs a Cloudflare account from Mohamud).
 
+## Work accounts with Google Workspace (agreed 24 October 2026)
+Kulan Group uses Google Workspace. Google is the accounts half, Kulan Fleet
+the devices half (Google's device management doesn't cover Linux laptops).
+- Sign in with your work account: Kulan Settings › Users › "Join your
+  organisation's accounts". Uses Google's Secure LDAP service through SSSD
+  (paste the certificate Google gives you); employees sign in with their
+  Google Workspace account, their home folder is made on first sign-in, and
+  sign-in still works offline after that. Suspending someone in the Google
+  Admin console stops their laptop sign-in. Secure LDAP needs Business Plus,
+  Enterprise, Frontline, Education or Enterprise Essentials Plus (not
+  Business Starter or Standard).
+- Fleet sets it up: a computer that joins a Fleet organisation can get the
+  Google sign-in pushed to it, so a new laptop is ready in one step.
+- Google sign-in for the Kulan Fleet app (admins), instead of the emailed
+  one-time code.
+- Roles: employees get standard accounts; the owner and IT get
+  administrator accounts. Admins added to Fleet's list are named in its
+  activity log.
+- Tested on a real laptop, separate from the UTM VM.
+
 ## Proposed additions (23 October 2026)
 User friendly:
 - Reset Kulan OS, keeping your files (like Pop!_OS recovery / Powerwash).

@@ -14,8 +14,11 @@ editions are what's added on top of the same system.
 - Gaming (PC only): Steam with Proton, GameMode, controller support, the
   right graphics drivers (NVIDIA included), and a graphics check that says
   plainly when a computer can't game well. Not offered on Arm (Mac).
-- Work: join the organisation's Fleet during setup, compliance mode on,
-  encryption required, and an automatic-install file for IT.
+- Work: join the organisation's Fleet during setup, connect to its
+  accounts (Google Workspace sign-in, from 2.8) in the same step, compliance
+  mode on, encryption required, and an automatic-install file for IT. The
+  employee then signs in with their work account and policies and apps
+  arrive by themselves.
 Website: a page and download button per edition, all the same ISO, starting
 that edition's setup. Later, only if gaming takes off: a separate Gaming
 ISO with NVIDIA drivers and Steam built in (one extra download, not four).
