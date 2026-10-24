@@ -118,6 +118,7 @@ function alertsFor(d: Device, policy: Record<string, unknown>, now: number): { k
   }
   const security = Number(d.updates?.security ?? 0);
   if (security > 0) out.push({ kind: "updates", text: `${security} security update${security === 1 ? "" : "s"} waiting` });
+  if (d.state?.lost_mode === true) out.push({ kind: "lost", text: "In lost mode: nobody can sign in" });
   if (d.state?.firewall === false) out.push({ kind: "firewall", text: "Firewall is off" });
   if (d.state?.encrypted === false && policy.require_encryption) {
     out.push({ kind: "encryption", text: "Not encrypted, and the organisation requires it" });

@@ -23,8 +23,8 @@ Google Workspace (Business Starter); his own mail server comes later.
   admins (administrator rights on the computers, manage people and
   computers) and employees (standard accounts).
 - Leaving: disable in Fleet and their account is locked everywhere at the
-  next report (within the hour) or at once with "Lock now"; the admin keeps
-  their files for handover or removes them.
+  next report (within the hour; computers only hear from Fleet when they
+  report); the admin keeps their files for handover or removes them.
 - Every change (created, disabled, made admin) in the activity log, with who
   did it.
 - Optional, same form: also create (and later suspend) their Google
@@ -72,6 +72,25 @@ changes, every change in the activity log.
 ## Small Fleet additions
 - Shut down, with the same 5-minute notice as Restart.
 - Lost mode: nobody can use the computer until an admin releases it
-  (between Lock and Erase).
+  (between Lock and Erase). Built on /etc/nologin (GDM and the console
+  honour it, checked on the ISO) with a sign-in screen banner; anyone
+  signed in is signed out after a 20-second notice; it keeps reporting.
 - Already on this branch: the countme server's reply() fix and its test.
 
+## Built so far (branch kulan-os-2.8)
+- Computer: people.py (accounts, setup code, passwords both ways by
+  comparing hashes rather than clocks, roles, disable, remove), shut down
+  and lost mode in kulan-fleet.
+- Server: migration 20261024120000_fleet_people.sql; fleet (accounts in
+  each reply, passwords taken only from a computer the person may use)
+  and fleet-admin (People, admins, the Owner, recovery code). uids
+  70000-79999: clear of Debian's local accounts, systemd's ranges and
+  container subuids.
+- Kulan Fleet app: People page, person page, add (setup code made and
+  hashed on the admin's computer, shown once), admins and the Owner,
+  recovery, shut down and lost mode.
+- Tests: fleet/test against real Postgres (Fleet server workflow), the
+  package tests, the app's self-test.
+- At release, with Mohamud's go-ahead: apply the migration, deploy fleet
+  and fleet-admin, then release the packages (old computers ignore the
+  new reply fields).

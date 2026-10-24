@@ -255,6 +255,9 @@ for (const type of ["shutdown", "lost-mode-on", "lost-mode-off"]) {
 }
 r = await report(A);
 ok(r.body.actions.map((a) => a.type).join() === "shutdown,lost-mode-on,lost-mode-off", "the computer gets them in order", r.body.actions);
+await report(A, { state: { lost_mode: true, firewall: true } });
+r = await admin(HELPER, { op: "overview" });
+ok(r.body.alerts.some((x) => x.kind === "lost" && x.hostname === "laptop-a"), "a computer in lost mode is an alert", r.body.alerts);
 r = await admin(HELPER, { op: "action", device_id: A.device_id, type: "format-disk" });
 ok(r.status === 400, "unknown action refused", r);
 
