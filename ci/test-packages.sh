@@ -856,6 +856,38 @@ with mock.patch.object(f, "erase_check", return_value=(False, "not allowed on th
     assert events == [] and not er.called and not f.ERASE_PENDING.exists()
 print("fleet erase notice test passed")
 PYERASE
+# People (2.8): the organisation's accounts made, a changed password sent
+# back, a removal keeping the files.
+check "Fleet people" "an account made from the organisation's list (its uid, setup code, change at first sign-in); a new password sent with the next report; removed with its files kept for handover" python3 -I -B - <<'PYPEOPLE'
+import json, pwd, subprocess, time
+from pathlib import Path
+def shadow(u):
+    return [l for l in open("/etc/shadow") if l.startswith(u + ":")][0].split(":")
+u = pwd.getpwnam("fleetamina")
+assert u.pw_uid == 61901 and u.pw_gecos == "Amina Yusuf" and Path(u.pw_dir).is_dir(), u
+assert shadow("fleetamina")[2] == "0", "the setup code must be changed at first sign-in"
+assert "fleetamina" in json.load(open("/var/lib/kulan/fleet-people.json"))["people"]
+assert oct(Path("/var/lib/kulan/fleet-people.json").stat().st_mode)[-3:] == "600"
+# She signs in and chooses her own password.
+new = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input="her-own-password", capture_output=True, text=True, check=True).stdout.strip()
+subprocess.run(["usermod", "-p", new, "fleetamina"], check=True)
+subprocess.run(["chage", "-d", time.strftime("%Y-%m-%d"), "fleetamina"], check=True)
+Path("/home/fleetamina/notes.txt").write_text("handover")
+subprocess.run(["kulan-fleet", "report"], check=True, capture_output=True)
+sent = [r["body"].get("passwords") for r in json.load(open("/tmp/fleet-log.json")) if r["path"] == "/v1/report"]
+assert any(p and p[0]["username"] == "fleetamina" and p[0]["password_hash"] == new for p in sent), sent
+assert shadow("fleetamina")[1] == new, "her own password stays"
+# The organisation removes her: account gone, files kept for handover (root only).
+subprocess.run(["kulan-fleet", "report"], check=True, capture_output=True)
+try:
+    pwd.getpwnam("fleetamina"); raise AssertionError("still there")
+except KeyError:
+    pass
+kept = list(Path("/home/.kulan-left").glob("fleetamina-*"))
+assert kept and (kept[0] / "notes.txt").read_text() == "handover" and oct(Path("/home/.kulan-left").stat().st_mode)[-3:] == "700", kept
+subprocess.run(["rm", "-rf", "/home/.kulan-left"], check=True)
+print("fleet people passed")
+PYPEOPLE
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
 check "Fleet leave" "the server is told; key, status, any pending erase and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-erase-pending && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'

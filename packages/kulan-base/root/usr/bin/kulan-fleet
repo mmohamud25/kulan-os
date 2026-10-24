@@ -53,6 +53,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+# People (Fleet accounts) live in their own module; kulan-fleet runs as root,
+# so no compiled copies are written next to it.
+sys.dont_write_bytecode = True
+sys.path.insert(0, "/usr/share/kulan-fleet")
+import people  # noqa: E402
 from pathlib import Path
 
 CONFIG = Path("/etc/kulan/fleet.json")            # secret (token): root only
@@ -78,7 +84,8 @@ ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen",
 SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version and kernel",
           "Waiting updates and whether a restart is needed", "Compliance mode results", "TPM unlock on or off",
           "Disk encryption and firewall on or off", "Names and versions of installed apps (once a day)",
-          "Host name and when it last started"]
+          "Host name and when it last started",
+          "For accounts the organisation manages: a scrambled form (hash) of a new password, never the password"]
 APPS_EVERY_S = 24 * 3600
 MAX_APPS = 3000
 TIMEOUT = 30
@@ -657,6 +664,14 @@ def report() -> int:
             apps_due = True
         if apps_due:
             body["apps"] = apps()
+        # People: passwords changed here (they follow the person), and how
+        # the accounts the organisation manages are doing on this computer.
+        people_state = people.load_state()
+        passwords = people.changed_passwords(people_state)
+        if passwords:
+            body["passwords"] = passwords
+        if people_state.get("status"):
+            body["people_status"] = people_state["status"]
         try:
             reply = post(server, "/v1/report", body, token)
         except RuntimeError as e:
@@ -667,6 +682,16 @@ def report() -> int:
         if apps_due:
             APPS_SENT.parent.mkdir(parents=True, exist_ok=True)
             APPS_SENT.touch()
+        if passwords:
+            people.sent(people_state, passwords)
+        if "accounts" in reply:
+            people_state, accounts_status = people.apply(reply.get("accounts"), run, people_state)
+            people_state["status"] = accounts_status
+            changed = {u: v for u, v in accounts_status.items() if v != "up to date"}
+            if changed:
+                say("People: " + "; ".join(f"{u} {v}" for u, v in changed.items()))
+        if passwords or "accounts" in reply:
+            people.save_state(people_state)
         if "policy" in reply:
             status = apply_policy(reply.get("policy"))
             if status:
@@ -729,6 +754,8 @@ def leave() -> int:
     remove_policy()  # automatic updates and the firewall stay as they are
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
+    # Its accounts stay as ordinary accounts on this computer, no longer managed.
+    people.STATE.unlink(missing_ok=True)
     publish(None)
     say("Left the organisation: nothing is reported any more")
     return 0
