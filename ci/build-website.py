@@ -95,7 +95,7 @@ def page(path: str, title: str, description: str, body: str, script: str = "") -
 </main>
 <footer>
 <div class="wrap">
-<span>© 2026 {e(C.get("KULAN_PUBLISHER", "Kulan Group Ltd"))} · Kulan means “gathering” in Somali</span>
+<span>© 2026 {e(C.get("KULAN_PUBLISHER", "Kulan Group LLC"))} · Kulan means “gathering” in Somali</span>
 <nav aria-label="Footer"><a href="/help/#security">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
 </div>
 </footer>
