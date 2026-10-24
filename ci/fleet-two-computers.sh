@@ -50,8 +50,10 @@ for host in laptop-a laptop-b; do
 	docker exec "${host}" bash -c 'export DEBIAN_FRONTEND=noninteractive
 		apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends ca-certificates openssl pamtester zsh passwd login /debs/kulan-base_*_all.deb >/tmp/apt.log 2>&1 || { echo "::error title=Installing on $(hostname)::$(tail -n 8 /tmp/apt.log | tr "\n" " ")"; exit 1; }
 		cp /tmp/kulan-fleet-test.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null 2>&1' &
+	INSTALLS="${INSTALLS:-} $!"
 done
-wait
+# Only the installs: a bare "wait" would also wait for the server, for ever.
+for pid in ${INSTALLS}; do wait "${pid}"; done
 on() { docker exec "$1" bash -c "$2"; }
 signs_in() { docker exec -i "$1" pamtester login "$2" authenticate acct_mgmt <<<"$3" >/dev/null 2>&1; }
 report() { on "$1" "kulan-fleet report 2>&1 | grep -v '^Report sent' || true"; }
