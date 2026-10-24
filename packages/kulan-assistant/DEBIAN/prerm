@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+# Compiled copies Python may have saved next to the modules (when something
+# imported them as root): not in the package, so dpkg wouldn't remove them
+# and the folder would be left behind.
+case "$1" in
+	remove | upgrade | deconfigure)
+		if [ -d /usr/share/kulan-assistant ]; then
+			find /usr/share/kulan-assistant -depth -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+		fi
+		;;
+esac
+exit 0

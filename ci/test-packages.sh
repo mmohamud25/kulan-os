@@ -910,7 +910,11 @@ echo "${found}" | grep -q "unique-id: .*kulan-apps/org.kulan.Fleet" || { echo "$
 echo "${found}" | awk '/^GsApp:/ { if (f && a) ok = 1; f = a = 0 } /^id: *org\.kulan\.Fleet$/ { f = 1 } /^state: *available$/ { a = 1 } END { if (f && a) ok = 1; exit !ok }' ||
 	{ echo "Kulan Fleet isn't installable in the Store"; exit 1; }
 pgrep -x polkitd >/dev/null || echo "note: polkitd isn't running ($(tail -n 1 /tmp/polkitd.log 2>/dev/null))"
-gs action install org.kulan.Fleet > /tmp/store-install.log
+# "install" in GNOME Software 48 (Debian 13); "action install" in older ones.
+gs install org.kulan.Fleet > /tmp/store-install.log
+if grep -q "Did not recognise option" /tmp/store-install.log; then
+	gs action install org.kulan.Fleet > /tmp/store-install.log
+fi
 if ! dpkg -s kulan-fleet-admin 2>/dev/null | grep -qx "Status: install ok installed"; then
 	grep -ivE "fd limit|libEGL|proxy|CRITICAL" /tmp/store-install.log | grep -iE "fail|error|denied|auth|polkit|not " | tail -n 3
 	grep -ivE "CRITICAL|^$" /tmp/packagekitd.log | tail -n 2
