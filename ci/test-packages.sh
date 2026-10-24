@@ -442,10 +442,10 @@ check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwai
 # Saved passwords after automatic sign-in (2.6.1): against a real GNOME Keyring on a private bus.
 cat >/tmp/keyring-test.sh <<'KEYRING'
 #!/bin/bash
-export HOME="$(mktemp -d)" XDG_RUNTIME_DIR="$(mktemp -d)"
+export HOME="$(mktemp -d)" XDG_RUNTIME_DIR="$(mktemp -d)" PYTHONDONTWRITEBYTECODE=1
 unset XDG_DATA_HOME XDG_STATE_HOME
 eval "$(printf 'sign-in-pw' | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null)" || exit 1
-cd /usr/share/kulan-settings && python3 -I -c 'import sys; sys.path.insert(0, "."); from kulan_settings import keyring; keyring.self_test()' || exit 1
+cd /usr/share/kulan-settings && python3 -I -B -c 'import sys; sys.path.insert(0, "."); from kulan_settings import keyring; keyring.self_test()' || exit 1
 # The sign-in job does nothing (and succeeds) when Settings didn't ask for it.
 /usr/lib/kulan/keyring-merge && test ! -e "$HOME/.local/state/kulan/keyring-merge"
 KEYRING
