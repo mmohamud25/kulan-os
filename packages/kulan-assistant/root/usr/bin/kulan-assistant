@@ -13,7 +13,7 @@
   kulan-assistant reminder-fire ID                        show a reminder (run by its timer)
   kulan-assistant reminders                               list reminders still to come, as JSON
   kulan-assistant reminder-cancel ID                      cancel a reminder
-  kulan-assistant self-test                               check the actions without a model
+  kulan-assistant self-test                               check the actions and instant answers without a model
 
 TASK is one of: proofread, rewrite, friendly, professional, shorter, summary,
 key-points, translate, explain.
@@ -108,9 +108,10 @@ def main(argv: list[str]) -> int:
         return agent_window.show(" ".join(args.request))
 
     if args.command == "self-test":
-        from kulan_assistant import agent, ask_service
+        from kulan_assistant import agent, ask_service, instant
         agent.self_test()
         ask_service.self_test()
+        instant.self_test()
         return 0
 
     if args.command == "reminders":

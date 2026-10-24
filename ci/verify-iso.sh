@@ -87,6 +87,11 @@ FILES=(
 	usr/bin/kulan-installer
 	usr/lib/kulan/installer-engine
 	usr/share/applications/calamares-install-debian.desktop
+	usr/share/kulan/xdg/applications/libreoffice-writer.desktop
+	usr/share/kulan/xdg/applications/libreoffice-calc.desktop
+	usr/share/kulan/xdg/applications/libreoffice-impress.desktop
+	usr/share/kulan/xdg/applications/gimp.desktop
+	usr/share/kulan/xdg/applications/vlc.desktop
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -129,6 +134,7 @@ check "Kulan Shell" "kulan-shell@kulangroup.com enabled" grep -q "kulan-shell@ku
 check "Build number" "os-release BUILD_ID=${KULAN_BUILD:-?}" grep -qx "BUILD_ID=${KULAN_BUILD:-.*}" "${R}/usr/lib/os-release"
 check "Cursor" "Bibata cursor installed" installed bibata-cursor-theme
 check "Office apps" "LibreOffice Writer, Calc, Impress" bash -c "$(declare -f installed); R='${R}'; installed libreoffice-writer && installed libreoffice-calc && installed libreoffice-impress"
+check "Short app names" "Writer, Calc, Impress, GIMP and VLC in the app grid, not names cut off" bash -c "d='${R}'/usr/share/kulan/xdg/applications; grep -qx Name=Writer \$d/libreoffice-writer.desktop && grep -qx Name=Calc \$d/libreoffice-calc.desktop && grep -qx Name=Impress \$d/libreoffice-impress.desktop && grep -qx Name=GIMP \$d/gimp.desktop && grep -qx Name=VLC \$d/vlc.desktop"
 check "Media apps" "VLC and GIMP" bash -c "$(declare -f installed); R='${R}'; installed vlc && installed gimp"
 check "Restore points" "Timeshift installed" installed timeshift
 if installed kulan-devkit; then

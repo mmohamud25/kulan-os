@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kulan OS saved passwords
+Comment=Moves saved passwords into the keyring your sign-in password unlocks, once, when Kulan Settings asked for it
+Exec=/usr/lib/kulan/keyring-merge
+NoDisplay=true
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-enabled=true

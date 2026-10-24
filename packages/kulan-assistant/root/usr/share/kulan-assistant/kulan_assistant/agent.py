@@ -23,7 +23,7 @@ from typing import Callable
 
 from gi.repository import Gio, GLib
 
-from . import engine
+from . import engine, instant
 
 MAX_STEPS = 6
 MAX_REPLY = 600
@@ -915,7 +915,11 @@ def validate(plan: dict) -> tuple[str, list[Step]]:
 
 
 def plan(request: str) -> tuple[str, list[Step]]:
-    """Ask the model for a plan. Raises engine.EngineError if it can't run."""
+    """Ask the model for a plan. Raises engine.EngineError if it can't run.
+    The time, the date, battery and free space are answered straight away."""
+    quick = instant.answer(request)
+    if quick:
+        return quick, []
     engine.ensure_running()
     body = {
         "messages": [{"role": "system", "content": system_prompt()}, *EXAMPLES,

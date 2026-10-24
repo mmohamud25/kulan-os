@@ -76,6 +76,15 @@ Sharing page (GNOME Settings' Sharing stays linked), signed start-up files,
 the signing key, NVIDIA/Broadcom, the sleep, dual-boot and restore tests,
 and downloads on Cloudflare R2.
 
+## 2.6.1 (fixes from testing 2.6, branch kulan-os-2.6.1)
+Done, each with a CI test: Kulan Fleet sign-in accepts the address however
+copied; the assistant window's name and icon in the dock; smaller restore
+points (no Flathub apps, assistant models, Docker data or apt cache); short
+app names in the grid; Update History groups one update; Ask Kulan's instant
+answers (time, date, battery, free space) without a model; saved passwords
+after automatic sign-in (explained in setup, fixed in Settings › Users).
+Version 2.6.1 with release notes. Released only when Mohamud says so.
+
 ## Order (proposed)
 1. Upgrade test 2.5 → 2.6 (protects everyone already on 2.5).
 2. Private counting (Supabase) and the privacy policy page.

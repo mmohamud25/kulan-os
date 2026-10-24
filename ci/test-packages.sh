@@ -312,6 +312,13 @@ check "Free-space check before updates" "reads apt's plan (apt answers no and ex
 	out="$(space "" "$pkg" 2>&1)"; [ "$(tail -n 1 <<<"$out")" = ok ] && ! grep -q "syntax error" <<<"$out" || { echo "normal: $out" | tr "\n" " "; exit 1; }
 	out="$(space "df() { printf \"Avail\\n1000\\n\"; }" "$pkg" 2>&1)"; grep -q "^die: Not enough free space" <<<"$out" || { echo "full disk: $out" | tr "\n" " "; exit 1; }'
 check "Password policy" "polkit action runs only update-run" bash -c 'command -v pkexec >/dev/null && grep -q "<annotate key=\"org.freedesktop.policykit.exec.path\">/usr/lib/kulan/update-run</annotate>" /usr/share/polkit-1/actions/org.kulan.updates.policy'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Restore points stay small" "apps from Flathub, assistant models and Docker are left out, on new and existing set-ups" bash -c '
+	D=$(mktemp -d); mkdir -p "$D/bin"; printf "#!/bin/sh\nexit 0\n" > "$D/bin/timeshift"; chmod +x "$D/bin/timeshift"
+	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" /usr/lib/kulan/restore-points > "$D/rp"
+	echo "{\"exclude\": [\"/root/**\", \"/var/lib/flatpak\"], \"schedule_daily\": \"true\"}" > "$D/ts.json"
+	KULAN_RESTORE_FORCE=1 bash "$D/rp" setup && cp "$D/ts.json" "$D/once.json" && KULAN_RESTORE_FORCE=1 bash "$D/rp" setup && cmp -s "$D/ts.json" "$D/once.json" || exit 1
+	python3 -c "import json, sys; d = json.load(open(sys.argv[1])); e = d[\"exclude\"]; assert e[:2] == [\"/root/**\", \"/var/lib/flatpak\"] and e.count(\"/var/lib/flatpak\") == 1 and \"/var/lib/kulan-assistant/models\" in e and \"/var/lib/docker\" in e and d[\"schedule_daily\"] == \"true\", d" "$D/ts.json"'
 check "Restore points timer" "kulan-restore-points.timer enabled" test -L /etc/systemd/system/timers.target.wants/kulan-restore-points.timer
 check "Updates in one place" "GNOME Software's Updates page off; app updates timer on; app updates listed in Software Update" bash -c "$(declare -f gs); test -L /etc/systemd/system/timers.target.wants/kulan-app-updates.timer && grep -qx 'allow-updates=false' /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && { ! test -f /usr/share/glib-2.0/schemas/org.gnome.software.gschema.xml || test \"\$(gs org.gnome.software allow-updates)\" = false; }"
 check "App updates in the status" "Flatpak updates appear with Debian's" python3 -I -B - <<'PY'
@@ -385,6 +392,14 @@ check "Undo last update" "restores the newest pre-update point after saving the 
 	grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "$D/calls"
 	grep -q "systemctl reboot" "$D/calls"
 	grep -q "Unattended-Upgrade \"0\"" "$D/pause" && grep -qE "Until: [0-9]+" "$D/pause"'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Short app names" "long names cut off in the app grid get short ones (GIMP, Writer); removed with the app" bash -c '
+	src=/usr/share/applications/gimp.desktop; dst=/usr/share/kulan/xdg/applications/gimp.desktop; [ ! -e "$src" ] || exit 0
+	grep -q "interest-noawait /usr/share/applications/libreoffice-writer.desktop" /var/lib/dpkg/info/kulan-desktop-settings.triggers || exit 1
+	printf "[Desktop Entry]\nType=Application\nName=GNU Image Manipulation Program\nName[de]=GNU Bildbearbeitung\nExec=gimp\nIcon=gimp\nActions=new;\n\n[Desktop Action new]\nName=New Window\nExec=gimp\n" > "$src"
+	/usr/lib/kulan/desktop-setup >/dev/null 2>&1; ok=1
+	grep -qx "Name=GIMP" "$dst" && grep -qx "X-GNOME-FullName=GNU Image Manipulation Program" "$dst" && grep -qx "Name=New Window" "$dst" && grep -qx "Name\[de\]=GNU Bildbearbeitung" "$dst" && desktop-file-validate "$dst" && ok=0
+	rm -f "$src"; /usr/lib/kulan/desktop-setup >/dev/null 2>&1; [ ! -e "$dst" ] || ok=1; exit $ok'
 check "Kulan Store" "GNOME Software shown as Kulan Store with its icon; Kulan picks in the catalogue" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Kulan Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml'
 check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
 check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I -B - <<'PY'
@@ -424,6 +439,17 @@ check "Release notes" "notes exist for this version" python3 -c 'import json, sh
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "(2[1-9]|[3-9][0-9])/\1 pages built" && ! echo "$out" | grep -q Traceback'
+# Saved passwords after automatic sign-in (2.6.1): against a real GNOME Keyring on a private bus.
+cat >/tmp/keyring-test.sh <<'KEYRING'
+#!/bin/bash
+export HOME="$(mktemp -d)" XDG_RUNTIME_DIR="$(mktemp -d)" PYTHONDONTWRITEBYTECODE=1
+unset XDG_DATA_HOME XDG_STATE_HOME
+eval "$(printf 'sign-in-pw' | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null)" || exit 1
+cd /usr/share/kulan-settings && python3 -I -B -c 'import sys; sys.path.insert(0, "."); from kulan_settings import keyring; keyring.self_test()' || exit 1
+# The sign-in job does nothing (and succeeds) when Settings didn't ask for it.
+/usr/lib/kulan/keyring-merge && test ! -e "$HOME/.local/state/kulan/keyring-merge"
+KEYRING
+check "Saved passwords fix" "moving them into the login keyring, removing the keyring password, wrong passwords refused (real GNOME Keyring); the sign-in job does nothing unless asked" bash -c 'command -v gnome-keyring-daemon >/dev/null || apt-get install -y -q --no-install-recommends gnome-keyring >/dev/null 2>&1 || { echo "gnome-keyring not installable"; exit 1; }; desktop-file-validate /etc/xdg/autostart/org.kulan.KeyringMerge.desktop && test -x /usr/lib/kulan/keyring-merge && timeout 120 dbus-run-session -- bash /tmp/keyring-test.sh >/tmp/keyring.out 2>&1; rc=$?; grep -v "fd limit" /tmp/keyring.out | tail -n 4; test "$rc" = 0 && grep -qx "keyring self-test passed" /tmp/keyring.out'
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
@@ -525,6 +551,7 @@ assert meta["name"].unpack() == "Ask Kulan" and meta["description"].unpack() == 
 PY'
 # shellcheck disable=SC2016  # expanded by the inner python
 check "Printers page" "reads CUPS's printer list, default and waiting jobs; finds network and USB printers" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-settings"); import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from kulan_settings import printers as p; got = p.parse_printers("printer A disabled since x -\n\tUnplugged\n\tDescription: Office\nprinter B is idle.  enabled since x\n\tDescription: Home\n", "system default destination: B", "B-3 me 1 x\n"); assert [(x["description"], x["state"], x["reason"], x["default"], x["jobs"]) for x in got] == [("Office", "disabled", "Unplugged", False, 0), ("Home", "idle", "", True, 1)], got; f = p.parse_found("Device: uri = usb://Brother/HL?serial=1\n        info = Brother HL\nDevice: uri = file:/dev/null\n", set()); assert f == [{"uri": "usb://Brother/HL?serial=1", "name": "Brother HL", "where": "Plugged in (USB)"}], f'
+check "Update History groups an update" "apt runs of one update, minutes apart, show as one entry" python3 -I -B -c 'import sys; sys.path.insert(0, "/usr/share/kulan-settings"); import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from kulan_settings import updates as u; t = 1_800_000_000; runs = [{"time": t, "packages": ["kulan-base"], "kulan_series": None, "automatic": False}, {"time": t - 300, "packages": ["kulan-base", "firefox-esr"], "kulan_series": "2.6", "automatic": True}, {"time": t - 360, "packages": ["libc6"], "kulan_series": None, "automatic": True}, {"time": t - 400, "packages": ["kulan-settings"], "kulan_series": None, "automatic": True}, {"time": t - 86400, "packages": ["vlc"], "kulan_series": None, "automatic": True}]; m = u.merge_runs(runs); assert [(r["time"], r["kulan_series"], r["packages"]) for r in m] == [(t, None, ["kulan-base"]), (t - 300, "2.6", ["kulan-base", "firefox-esr", "libc6", "kulan-settings"]), (t - 86400, None, ["vlc"])], m; print("merge ok")'
 check "kulan command" "help, info, doctor and settings work; mistakes get a usage message" bash -c 'kulan help | grep -q "kulan doctor" && kulan info | grep -q "^  Memory" && { kulan doctor; rc=$?; [ "$rc" -le 1 ]; } && { kulan settings dark-mode maybe 2>/dev/null; [ $? -eq 64 ]; } && { kulan nonsense 2>/dev/null; [ $? -eq 64 ]; } && { kulan why 2>/dev/null; [ $? -eq 1 ]; }'
 check "Terminal questions" "kulan ask and kulan why use the Terminal instructions (Debian, apt, nothing run)" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import tasks; a = tasks.messages_for("answer", "How do I list files?"); w = tasks.messages_for("terminal-error", "Command: lss\nExit code: 127"); assert "Debian 13" in a[0]["content"] and "Debian 13" in w[0]["content"] and "writing helper" not in a[0]["content"], a'
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -582,7 +609,25 @@ check "Assistant compiles" "every Kulan Assistant Python file parses" bash -c "$
 check "Assistant in GNOME" "app entry, Activities search provider and its D-Bus service" bash -c 'desktop-file-validate /usr/share/applications/org.kulan.Assistant.desktop && grep -qx "DesktopId=org.kulan.Assistant.desktop" /usr/share/gnome-shell/search-providers/org.kulan.Assistant.search-provider.ini && grep -qx "Exec=/usr/bin/kulan-assistant search-provider" /usr/share/dbus-1/services/org.kulan.Assistant.SearchProvider.service && test -d /var/lib/kulan-assistant/models && python3 -c "import json; m = json.load(open(\"/usr/share/kulan-assistant/models.json\")); assert [x.get(\"kind\", \"writing\") for x in m].count(\"writing\") == 3 and [x.get(\"kind\") for x in m].count(\"dictation\") == 2 and all(x[\"url\"].startswith(\"https://huggingface.co/\") and len(x[\"sha256\"]) == 64 for x in m)"'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Assistant actions" "tidying, reminders and plans checked without a model (kulan-assistant self-test)" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | tail -n 3; echo "$out" | grep -qx "agent self-test passed" && echo "$out" | grep -qx "ask service self-test passed"'
+check "Instant answers" "the time, date, battery and free space answered with no model; requests like \"set a timer\" still go to the assistant" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | grep -qx "instant answers self-test passed" || { echo "$out" | tail -n 5; false; }'
 check "Ask Kulan" "panel in Kulan Shell, Shift+Cmd+Space, and the assistant's Ask service for it" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; grep -q AskKulan \$d/extension.js && grep -q org.kulan.Assistant.Ask \$d/askkulan.js && grep -q kulan-ask \$d/stylesheet-dark.css && grep -q kulan-ask \$d/stylesheet-light.css && gs org.kulan.desktop ask-shortcut | grep -q '<Shift><Super>space' && grep -qx 'Exec=/usr/bin/kulan-assistant ask-service' /usr/share/dbus-1/services/org.kulan.Assistant.Ask.service"
+# A window whose app ID has no launcher shows in the dock as its raw ID
+# ("org.kulan.Assistant.Agent") with a blank icon.
+check "Windows have launchers" "every Kulan app ID has a .desktop file, so the dock shows its name and icon" python3 -I -B - <<'PY'
+import pathlib, re
+files = [*pathlib.Path("/usr/share/kulan-settings").rglob("*.py"), *pathlib.Path("/usr/share/kulan-assistant").rglob("*.py"),
+         *(p for p in pathlib.Path("/usr/bin").glob("kulan*") if p.is_file())]
+ids = set()
+for f in files:
+    try:
+        t = f.read_text()
+    except (OSError, UnicodeDecodeError):
+        continue
+    ids |= set(re.findall(r"(?:APP_ID *= *|application_id *= *)[\"'](org\.kulan\.[A-Za-z.]+)[\"']", t))
+ids.discard("org.kulan.Assistant.Test")
+missing = sorted(i for i in ids if not pathlib.Path(f"/usr/share/applications/{i}.desktop").exists())
+assert "org.kulan.Assistant" in ids and not missing, missing
+PY
 check "Ask Kulan without a model" "the service says how to get one" bash -c 'out="$(HOME=$(mktemp -d) timeout 60 dbus-run-session -- gdbus call --session --dest org.kulan.Assistant.Ask --object-path /org/kulan/Assistant/Ask --method org.kulan.Assistant.Ask.Ask "why is it slow" 2>&1)"; echo "$out" | cut -c1-200; echo "$out" | grep -qE "needs a model first|isn.t fully installed"'
 check "Assistant without a model" "says how to get one instead of failing silently" bash -c 'out="$(kulan-assistant ask proofread "hello there" 2>&1)"; rc=$?; echo "$out"; [ "$rc" -eq 1 ] && echo "$out" | grep -qE "needs a model first|isn.t fully installed"'
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -718,6 +763,7 @@ kill "${FLEET_MOCK}" 2>/dev/null
 # The administrators' app: installs on its own and builds every page (sample data, no network).
 check "Kulan Fleet app installs" "kulan-fleet-admin with its Debian dependencies" bash -c "apt-get install -y -q ./${FLEET_ADMIN[0]} >/tmp/fleet-admin.log 2>&1 || { tail -n 5 /tmp/fleet-admin.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Fleet.desktop && test -s /usr/share/icons/hicolor/scalable/apps/org.kulan.Fleet.svg"
 check "Kulan Fleet app opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-fleet-admin --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Fleet: every page built"'
+check "Kulan Fleet sign-in" "the code, the email's link, and the browser's address however it was copied" python3 -I -B ci/fleet-signin-test.py /usr/bin/kulan-fleet-admin
 check "Kulan Fleet is optional" "not pulled in by the ISO's package lists" bash -c '! grep -rqx "kulan-fleet-admin" config/package-lists/'
 dpkg --purge kulan-fleet-admin >/dev/null 2>&1
 check "Kulan Installer installs" "kulan-installer with its Debian dependencies" bash -c "apt-get install -y -q ./${INSTALLER[0]} >/tmp/installer.log 2>&1 || { tail -n 5 /tmp/installer.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Installer.desktop && test -s /usr/share/polkit-1/actions/org.kulan.installer.policy"

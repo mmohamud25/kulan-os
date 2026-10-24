@@ -17,9 +17,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-from . import agent, engine  # noqa: E402
+from . import agent, engine, instant  # noqa: E402
 
-APP_ID = "org.kulan.Assistant.Agent"
+# The launcher's ID, so the dock shows "Kulan Assistant" and its icon for this window.
+APP_ID = "org.kulan.Assistant"
 EXAMPLES = ["Dark mode and a smaller dock", "Turn on Do Not Disturb", "Make text bigger",
             "Open the Files app", "Find my CV", "Lock the screen after 10 minutes"]
 
@@ -98,6 +99,11 @@ class AgentWindow(Adw.ApplicationWindow):
         self.do_button.set_visible(False)
         self.undo_button.set_visible(False)
         self.undos = []
+        quick = instant.answer(request)  # the time, the date, battery, free space: no model needed
+        if quick:
+            self.fix_button.set_visible(False)
+            self.say(quick)
+            return False
         problem = engine.readiness()
         self.fix_button.set_visible(problem is not None)
         if problem:

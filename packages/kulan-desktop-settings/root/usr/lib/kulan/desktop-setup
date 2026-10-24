@@ -106,6 +106,48 @@ else
 	rm -f "${STORE}"
 fi
 
+# Short names for apps whose full names are cut off under their icons
+# ("LibreOffice ...", "GNU Image ..."). Copies of the real launchers with only
+# the English name changed (translations, search words and actions stay; the
+# full name stays as X-GNOME-FullName). Remade each time, and removed when the
+# app is.
+SHORT_DIR=/usr/share/kulan/xdg/applications
+SHORT_MARK='# Kulan OS: the same launcher with a short name.'
+for SPEC in \
+	"libreoffice-writer.desktop:Writer" \
+	"libreoffice-calc.desktop:Calc" \
+	"libreoffice-impress.desktop:Impress" \
+	"libreoffice-draw.desktop:Draw" \
+	"libreoffice-math.desktop:Math" \
+	"libreoffice-base.desktop:Base" \
+	"gimp.desktop:GIMP" \
+	"vlc.desktop:VLC" \
+	"simple-scan.desktop:Scanner" \
+	"org.gnome.SimpleScan.desktop:Scanner" \
+	"org.gnome.Evince.desktop:PDF Viewer" \
+	"org.gnome.Papers.desktop:PDF Viewer"; do
+	ID="${SPEC%%:*}"
+	SHORT="${SPEC#*:}"
+	SRC="/usr/share/applications/${ID}"
+	DST="${SHORT_DIR}/${ID}"
+	if [ ! -f "${SRC}" ]; then
+		if [ -f "${DST}" ] && grep -qxF "${SHORT_MARK}" "${DST}"; then
+			rm -f "${DST}"
+		fi
+		continue
+	fi
+	mkdir -p "${SHORT_DIR}"
+	awk -v short="${SHORT}" -v mark="${SHORT_MARK}" '
+		/^\[/ { main = ($0 == "[Desktop Entry]") }
+		main && /^\[Desktop Entry\]$/ { print; print mark; next }
+		main && /^Name=/ && !named { print "Name=" short; print "X-GNOME-FullName=" substr($0, 6); named = 1; next }
+		main && /^X-GNOME-FullName=/ { next }
+		{ print }
+	' "${SRC}" > "${DST}.tmp"
+	chmod 0644 "${DST}.tmp"
+	mv -f "${DST}.tmp" "${DST}"
+done
+
 # KeePassXC's own launcher copy from 2.3 test builds: Qt apps now open
 # through XWayland for everyone (environment.d), so it isn't needed.
 rm -f /usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop

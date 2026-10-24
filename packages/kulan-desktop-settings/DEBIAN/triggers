@@ -2,3 +2,15 @@ interest-noawait /usr/share/gnome-shell/extensions
 interest-noawait /usr/share/applications/calamares-install-debian.desktop
 interest-noawait /usr/share/applications/org.kulan.Installer.desktop
 interest-noawait /usr/share/applications/org.gnome.Ptyxis.desktop
+interest-noawait /usr/share/applications/libreoffice-writer.desktop
+interest-noawait /usr/share/applications/libreoffice-calc.desktop
+interest-noawait /usr/share/applications/libreoffice-impress.desktop
+interest-noawait /usr/share/applications/libreoffice-draw.desktop
+interest-noawait /usr/share/applications/libreoffice-math.desktop
+interest-noawait /usr/share/applications/libreoffice-base.desktop
+interest-noawait /usr/share/applications/gimp.desktop
+interest-noawait /usr/share/applications/vlc.desktop
+interest-noawait /usr/share/applications/simple-scan.desktop
+interest-noawait /usr/share/applications/org.gnome.SimpleScan.desktop
+interest-noawait /usr/share/applications/org.gnome.Evince.desktop
+interest-noawait /usr/share/applications/org.gnome.Papers.desktop
