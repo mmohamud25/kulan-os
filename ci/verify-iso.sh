@@ -92,6 +92,10 @@ FILES=(
 	usr/share/kulan/xdg/applications/libreoffice-impress.desktop
 	usr/share/kulan/xdg/applications/gimp.desktop
 	usr/share/kulan/xdg/applications/vlc.desktop
+	usr/share/kulan/xdg/applications/org.gnome.Ptyxis.desktop
+	usr/share/kulan/xdg/applications/org.gnome.baobab.desktop
+	usr/share/kulan/xdg/applications/gufw.desktop
+	usr/share/kulan/xdg/applications/org.gnome.Software.desktop
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -140,7 +144,7 @@ for SPEC in "libreoffice-writer.desktop:Writer" "libreoffice-calc.desktop:Calc" 
 	"gufw.desktop:Firewall" "org.gnome.Software.desktop:Store"; do
 	ID="${SPEC%%:*}"
 	SHORT="${SPEC#*:}"
-	check "Short app name: ${SHORT}" "${ID} shows as ${SHORT} in the app grid (original: $(test -f "${R}/usr/share/applications/${ID}" && echo present || echo missing))" \
+	check "Short app name: ${SHORT}" "${ID} shows as ${SHORT} in the app grid (original: $(has_path "usr/share/applications/${ID}" && echo present || echo missing))" \
 		grep -qx "Name=${SHORT}" "${R}/usr/share/kulan/xdg/applications/${ID}"
 done
 check "Media apps" "VLC and GIMP" bash -c "$(declare -f installed); R='${R}'; installed vlc && installed gimp"
@@ -241,7 +245,7 @@ check "Installer swap" "no swap partition or file (compressed memory instead)" b
 check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
-check "Graphics helper" "Kulan's renderer helper and the EGL and OpenGL ES libraries it uses are there, for Kulan Settings › About's 3D acceleration line" bash -c "test -x '${R}/usr/lib/kulan/graphics-renderer' && ls '${R}'/usr/lib/*/libEGL.so.1 '${R}'/usr/lib/*/libGLESv2.so.2 >/dev/null"
+check "Graphics helper" "Kulan's renderer helper and the EGL and OpenGL ES libraries it uses are there, for Kulan Settings › About's 3D acceleration line" bash -c "$(declare -f has_path); WORK='${WORK}'; has_path usr/lib/kulan/graphics-renderer && grep -q 'squashfs-root/usr/lib/[^/]*/libEGL.so.1\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/[^/]*/libGLESv2.so.2\$' '${WORK}/listing'"
 check "Backups" "Deja Dup installed" installed deja-dup
 check "Network privacy" "Wi-Fi MAC randomization config" test -s "${R}/etc/NetworkManager/conf.d/80-kulan-privacy.conf"
 check "Browser privacy" "Firefox policies valid JSON" python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${R}/etc/firefox/policies/policies.json"
