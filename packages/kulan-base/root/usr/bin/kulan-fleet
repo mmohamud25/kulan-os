@@ -787,7 +787,9 @@ def report() -> int:
                 ok, detail = erase_with_notice(action_id)
             else:
                 ok, detail = do_action(kind)
-            again = again or kind == "refresh"
+            # Report again straight away after refresh, and after lost mode on
+            # or off, so the organisation sees it now rather than in an hour.
+            again = again or kind in ("refresh", "lost-mode-on", "lost-mode-off")
             erasing = erasing or (kind == "erase" and ok)
             if action_id:
                 try:
