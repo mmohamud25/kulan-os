@@ -978,6 +978,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 )
             )
         group.add(self.screen_lock_row())
+        if not live and self.automatic_sign_in():
+            group.add(self.automatic_sign_in_row())
         group.add(self.status_row("Private browsing defaults",
                                   "Firefox blocks ads, trackers and cookie banners, and sends no usage data",
                                   Path("/etc/firefox/policies/policies.json").exists()))
@@ -987,6 +989,37 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                lambda: self.open_settings("security")))
         box.append(more)
         return self.page(box)
+
+    @staticmethod
+    def automatic_sign_in(conf: Path = Path("/etc/gdm3/daemon.conf"), user: str | None = None) -> bool:
+        """Whether this person is signed in automatically at start-up."""
+        user = user or GLib.get_user_name()
+        try:
+            lines = conf.read_text(errors="replace").splitlines()
+        except OSError:
+            return False
+        section, values = "", {}
+        for line in lines:
+            line = line.strip()
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1].strip().lower()
+            elif section == "daemon" and "=" in line and not line.startswith("#"):
+                key, _s, value = line.partition("=")
+                values[key.strip()] = value.strip()
+        return values.get("AutomaticLoginEnable", "").lower() in ("true", "1", "yes") and \
+            values.get("AutomaticLogin", "") == user
+
+    def automatic_sign_in_row(self) -> Adw.ActionRow:
+        """Automatic sign-in: why saved passwords ask to be unlocked, and the fix."""
+        row = Adw.ActionRow(title="Sign in automatically",
+                            subtitle="On: no password at start-up, so nothing unlocks your saved passwords. Apps that "
+                                     "use them (Wi-Fi, browsers, online accounts) will ask for the keyring’s password "
+                                     "after you sign in. Fix it in Kulan Settings › Users.")
+        row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
+        fix = Gtk.Button(label="Fix…", valign=Gtk.Align.CENTER)
+        fix.connect("clicked", lambda _b: self.open_settings("users"))
+        row.add_suffix(fix)
+        return row
 
     def screen_lock_row(self) -> Adw.ActionRow:
         """The screen lock as it's actually set."""

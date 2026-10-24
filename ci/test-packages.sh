@@ -439,6 +439,17 @@ check "Release notes" "notes exist for this version" python3 -c 'import json, sh
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "(2[1-9]|[3-9][0-9])/\1 pages built" && ! echo "$out" | grep -q Traceback'
+# Saved passwords after automatic sign-in (2.6.1): against a real GNOME Keyring on a private bus.
+cat >/tmp/keyring-test.sh <<'KEYRING'
+#!/bin/bash
+export HOME="$(mktemp -d)" XDG_RUNTIME_DIR="$(mktemp -d)"
+unset XDG_DATA_HOME XDG_STATE_HOME
+eval "$(printf 'sign-in-pw' | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null)" || exit 1
+cd /usr/share/kulan-settings && python3 -I -c 'import sys; sys.path.insert(0, "."); from kulan_settings import keyring; keyring.self_test()' || exit 1
+# The sign-in job does nothing (and succeeds) when Settings didn't ask for it.
+/usr/lib/kulan/keyring-merge && test ! -e "$HOME/.local/state/kulan/keyring-merge"
+KEYRING
+check "Saved passwords fix" "moving them into the login keyring, removing the keyring password, wrong passwords refused (real GNOME Keyring); the sign-in job does nothing unless asked" bash -c 'command -v gnome-keyring-daemon >/dev/null || apt-get install -y -q --no-install-recommends gnome-keyring >/dev/null 2>&1 || { echo "gnome-keyring not installable"; exit 1; }; desktop-file-validate /etc/xdg/autostart/org.kulan.KeyringMerge.desktop && test -x /usr/lib/kulan/keyring-merge && timeout 120 dbus-run-session -- bash /tmp/keyring-test.sh >/tmp/keyring.out 2>&1; rc=$?; grep -v "fd limit" /tmp/keyring.out | tail -n 4; test "$rc" = 0 && grep -qx "keyring self-test passed" /tmp/keyring.out'
 check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hidden" bash -c 'grep -q "kulan-settings updates" /usr/bin/kulan-updates && grep -qx "NoDisplay=true" /usr/share/applications/org.kulan.Updates.desktop && dpkg -S /usr/bin/kulan-updates | grep -q "^kulan-settings:"'
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"

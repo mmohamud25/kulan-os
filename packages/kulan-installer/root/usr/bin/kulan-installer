@@ -441,7 +441,8 @@ class Installer(Adw.ApplicationWindow):
         self.password = Adw.PasswordEntryRow(title="Password")
         self.password2 = Adw.PasswordEntryRow(title="Password again")
         self.autologin = Adw.SwitchRow(title="Sign in automatically",
-                                       subtitle="Not recommended: anyone who starts the computer gets your files")
+                                       subtitle="Not recommended: anyone who starts the computer gets your files, "
+                                                "and saved passwords ask for a password after you sign in")
         self.edited = {"user": False, "host": False}
 
         def name_changed(_e) -> None:

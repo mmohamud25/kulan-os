@@ -14,6 +14,7 @@ from typing import Callable
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
+from . import keyring
 from .common import Page
 
 ACCOUNTS = "org.freedesktop.Accounts"
@@ -232,7 +233,7 @@ class UsersPage(Page):
     title = "Users"
     icon = "avatar-default-symbolic|system-users-symbolic"
     keywords = ("users", "accounts", "account", "password", "picture", "avatar", "photo", "name",
-                "administrator", "admin", "automatic login", "add user", "remove user", "people")
+                "administrator", "admin", "automatic login", "keyring", "saved passwords", "unlock keyring", "add user", "remove user", "people")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -307,10 +308,22 @@ class UsersPage(Page):
         self.add(self.mine, password)
 
         auto = Adw.SwitchRow(title="Sign in automatically",
-                             subtitle="No password at start-up (the screen lock still asks for it)",
+                             subtitle="No password at start-up (the screen lock still asks for it), so saved "
+                                      "passwords ask to be unlocked after you sign in",
                              active=bool(prop(me, "AutomaticLogin", False)))
         auto.connect("notify::active", lambda r, _p: self.set_flag(me, "SetAutomaticLogin", r.get_active()))
         self.add(self.mine, auto)
+        if keyring.asks_after_automatic_sign_in(bool(prop(me, "AutomaticLogin", False))):
+            # Nothing is typed at start-up, so the keyring with saved
+            # passwords stays locked and the first app to need one asks.
+            ask = Adw.ActionRow(title="Saved passwords ask to be unlocked",
+                                subtitle="With automatic sign-in, apps that use saved passwords (Wi-Fi, browsers, "
+                                         "online accounts) ask for the keyring’s password after you sign in")
+            ask.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
+            fix = Gtk.Button(label="Fix…", valign=Gtk.Align.CENTER)
+            fix.connect("clicked", lambda _b: self.keyring_dialog(me))
+            ask.add_suffix(fix)
+            self.add(self.mine, ask)
 
     def other_row(self, user: Gio.DBusProxy) -> Adw.ExpanderRow:
         real = prop(user, "RealName", "") or prop(user, "UserName", "")
@@ -387,6 +400,104 @@ class UsersPage(Page):
                 problem = change_own_password(old, fresh)
                 GLib.idle_add(lambda: (self.toast(problem or "Password changed"), False)[1])
             GLib.Thread.new("kulan-passwd", work)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    # --- saved passwords after automatic sign-in ----------------------------------------
+    def keyring_dialog(self, me: Gio.DBusProxy) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Stop the password request after signing in?",
+            body="Your saved passwords are kept locked. Normally the password you sign in with unlocks them; "
+                 "with automatic sign-in nothing is typed, so they ask for their own password.\n\n"
+                 "Turning off automatic sign-in fixes this and keeps them protected (recommended). Or keep "
+                 "automatic sign-in and remove the keyring’s password: then they are stored without their own "
+                 "lock, protected only by disk encryption while the computer is off.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("keep", "Keep automatic sign-in…")
+        dialog.add_response("off", "Turn off automatic sign-in")
+        dialog.set_response_appearance("off", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("off")
+        dialog.set_close_response("cancel")
+
+        def answered(_d, response: str) -> None:
+            if response == "off":
+                self.turn_off_automatic(me)
+            elif response == "keep":
+                self.remove_keyring_password_dialog()
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def turn_off_automatic(self, me: Gio.DBusProxy) -> None:
+        def done(error: str | None, _reply) -> None:
+            if error:
+                self.toast(error)
+                self.refresh()
+                return
+            message = "Automatic sign-in is off"
+            if keyring.separate_default():
+                # They're in a keyring the sign-in password doesn't open:
+                # move them into "login", now if possible, else at next sign-in.
+                try:
+                    moved = keyring.merge_into_login(prompt=False)
+                except (keyring.KeyringError, GLib.Error):
+                    moved = None
+                if moved is None:
+                    keyring.schedule_merge()
+                    self.tell("Automatic sign-in is off",
+                              "When you next sign in, your saved passwords move to the keyring your sign-in "
+                              "password unlocks. You may be asked for their old password one last time.")
+                    message = ""
+            if message:
+                self.toast(message)
+            self.refresh()
+        call(me, "SetAutomaticLogin", GLib.Variant("(b)", (False,)), done)
+
+    def tell(self, heading: str, body: str) -> None:
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("ok", "OK")
+        dialog.present(self.window)
+
+    def remove_keyring_password_dialog(self) -> None:
+        dialog = Adw.AlertDialog(
+            heading="Remove the keyring’s password",
+            body="Type the password your saved passwords are locked with: usually the one you chose when an app "
+                 "first asked, or your sign-in password. They’ll then open without asking, for anyone who can "
+                 "use this account.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        current = Adw.PasswordEntryRow(title="Keyring password")
+        box.append(current)
+        current.connect("changed", lambda e: dialog.set_response_enabled("remove", bool(e.get_text())))
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove password")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_enabled("remove", False)
+        dialog.set_close_response("cancel")
+
+        def answered(_d, response: str) -> None:
+            if response != "remove":
+                return
+            password = current.get_text()
+
+            def work() -> None:
+                problem = ""
+                try:
+                    keyring.stop_asking(password)
+                except keyring.KeyringError as e:
+                    problem = str(e)
+                except GLib.Error as e:
+                    problem = f"The keyring couldn’t be changed: {e.message}"
+
+                def show() -> bool:
+                    if problem:
+                        self.tell("Saved passwords weren’t changed" if "Done for" not in problem
+                                  else "Partly done", problem)
+                    else:
+                        self.toast("Saved passwords won’t ask any more")
+                    self.refresh()
+                    return False
+                GLib.idle_add(show)
+            GLib.Thread.new("kulan-keyring", work)
         dialog.connect("response", answered)
         dialog.present(self.window)
 

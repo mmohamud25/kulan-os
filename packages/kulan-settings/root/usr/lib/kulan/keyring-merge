@@ -1,0 +1,47 @@
+#!/usr/bin/python3
+"""At sign-in, after "Sign in automatically" was turned off in Kulan
+Settings › Users: move saved passwords from a separate keyring into the
+"login" keyring, which the sign-in password unlocks, so they stop asking.
+
+Does nothing unless Kulan Settings left a note to do it
+(~/.local/state/kulan/keyring-merge), and keeps the note until it has worked
+(after an automatic sign-in the login keyring is still locked, so it waits).
+"""
+import shutil
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, "/usr/share/kulan-settings")
+from kulan_settings import keyring  # noqa: E402
+
+
+def notify(title: str, body: str) -> None:
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", "--app-name=Kulan Settings", "--icon=dialog-password-symbolic", title, body],
+                       check=False, timeout=10)
+
+
+def main() -> int:
+    if not keyring.marker().exists():
+        return 0
+    if not keyring.separate_default():
+        keyring.marker().unlink(missing_ok=True)
+        return 0
+    time.sleep(5)  # let the keyring service and the desktop finish starting
+    try:
+        moved = keyring.merge_into_login()
+    except (keyring.KeyringError, Exception) as e:  # noqa: BLE001 - try again next sign-in
+        print(f"keyring-merge: {e}", file=sys.stderr)
+        return 1
+    if moved is None:
+        return 0  # login keyring locked (automatic sign-in again?) or prompt dismissed: next time
+    keyring.marker().unlink(missing_ok=True)
+    if moved:
+        notify("Saved passwords moved", f"{moved} saved password{'s' if moved != 1 else ''} now unlock with your "
+               "sign-in password, so you won't be asked for them after signing in.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
