@@ -1,64 +1,36 @@
-# Kulan OS 2.7 plan (draft)
+# Kulan OS 2.7 plan
 
-Moved from 2.6 with Mohamud, 23 October 2026, so 2.6 ships sooner. Nothing
-here reaches main or the update channel until he says "release it".
+Agreed with Mohamud, 24 October 2026: 2.7 is the three things from the 2.6.1
+handover plus two small items. Everything else that was listed here moved to
+2.8 (docs/plan-2.8.md) so 2.7 ships sooner. Nothing here reaches main or the
+update channel until he says "release it".
 
-## Moved from 2.6
-- A Kulan Store in Kulan's look: apps from Flathub and Debian in one place,
-  with Kulan's own picks; installs and updates through the existing update
-  services (no new ways in). Kulan's own apps listed there too, starting
-  with Kulan Fleet: Store listings (name, summary, icon, screenshot) in the
-  packages, Kulan's download server publishing them (AppStream), and a
-  build test that the Store finds and installs Kulan Fleet. Add-ons keeps
-  listing it as well.
-- A native Sharing page in Kulan Settings (remote desktop, files, media).
-  Until then, GNOME Settings' Sharing stays linked from Kulan Settings.
-- Security: signed, measured start-up files (unified kernel images) so
-  someone with the computer for a few minutes can't tamper with /boot; a
-  passphrase-protected update signing key with a rotation plan.
-- Hardware: NVIDIA driver add-on with Secure Boot (MOK) signing; Broadcom wl.
-- Tests: sleep and wake; install next to Windows; a real restore-point
-  restore.
-- Downloads on Cloudflare R2 before the PC ISO nears GitHub's 2 GiB limit
-  (needs a Cloudflare account from Mohamud).
+## In 2.7
+1. **The Ask Kulan app.** Its own window with a conversation (history kept
+   on this computer), answering questions and doing things on the computer
+   with Ask Kulan's actions and the instant answers. Changes still wait for
+   "Do it" and can be undone. Still on hold: web answers and Somali.
+2. **Kulan Store, with Kulan's own apps.** Apps from Flathub and Debian in
+   one place, in Kulan's look, with Kulan's picks; installs and updates
+   through the existing update services (no new ways in). Before installing,
+   each app's permissions and whether its publisher is verified (required).
+   Kulan's own apps listed too, starting with Kulan Fleet: Store listings
+   (name, summary, icon, screenshot) in the packages, Kulan's download
+   server publishing them (AppStream), and a build test that the Store
+   finds and installs Kulan Fleet. Add-ons keeps listing it as well.
+3. **Plain app names everywhere**: the dock, search and Settings match the
+   short names the app grid got in 2.6.1.
 
-## Proposed additions (23 October 2026; Mohamud likes all of them)
-User friendly:
-- Reset Kulan OS, keeping your files (like Pop!_OS recovery / Powerwash).
-- Move from Windows or Mac: bookmarks and saved passwords, Wi-Fi networks,
-  the wallpaper (files already work).
-- Choose a desktop layout: Kulan, Windows-like or Mac-like (like Zorin).
-- Website to app (like Linux Mint's Web Apps).
-Powerful:
-- Kulan Shortcuts: routines built from Ask Kulan's actions ("at 9 am:
-  Focus on, open Firefox"; "when my backup drive is plugged in: back up").
-Secure:
-- Find My Computer: Fleet v2's lock and erase for one person, with the same
-  consent rules.
-- Private folder: an encrypted folder with its own password (like KDE Vaults).
-- Battery care: stop charging at 80%.
-- Fingerprint sign-in set up in Kulan Settings › Users; the security
-  checkup runs weekly and only speaks up when something needs fixing.
-- Kulan Store: show each app's permissions and whether its publisher is
-  verified before installing (required, not optional).
+Small items:
+- Fleet follow-ups from 2.6: a short notice on the computer before an erase;
+  send the counting week from the computer so a count near midnight on
+  Sunday (UTC) can't be counted twice.
 - Kulan Settings › About: a Graphics line (acceleration on or off), so a
   virtual machine without 3D is obvious.
 
-## Proposed for 2.8
-- Gaming: the Steam add-on (already there, with Proton) gains GameMode and
-  controller support in the same step (becomes the Gaming edition in 3.0);
-  Android apps (Waydroid); live captions (on the computer, with Dictation's
-  speech model); apps from other Linux systems (Distrobox). Sending files to
-  nearby computers is already the Nearby Share add-on (LocalSend).
-- Newer hardware support: a newer kernel from Debian backports.
-- Graphics switching for laptops with two graphics chips.
-- Offline learning library add-on (Wikipedia, lessons, books; fits Kulan
-  Institute and places with poor internet); guest session that's wiped at
-  log-out.
-- The big safety project: updates you can start the previous version from
-  (btrfs snapshots in the start menu, like openSUSE and Fedora Silverblue).
+## Order
+Ask Kulan app → Kulan Store and Kulan Fleet's listing → plain names → the
+small items → version, release notes, build and test.
 
-## Smaller follow-ups from 2.6
-- Fleet: a short notice on the computer before an erase; send the counting
-  week from the computer so a count near midnight on Sunday (UTC) can't be
-  counted twice.
+## Not doing until Mohamud says so
+- Somali; web answers for Ask Kulan.
