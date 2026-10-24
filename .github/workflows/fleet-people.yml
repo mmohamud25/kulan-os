@@ -1,0 +1,30 @@
+name: Fleet people on two computers
+
+# The two-computer People test on its own, with a finished build's packages
+# (the full build runs it too, before publishing). For quick reruns while
+# working on Kulan Fleet.
+on:
+  workflow_dispatch:
+    inputs:
+      run:
+        description: "Build run ID whose packages to test"
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  test:
+    name: Fleet people on two computers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-debs
+          path: dist/debs/
+          run-id: ${{ inputs.run }}
+          github-token: ${{ github.token }}
+      - name: Two laptops, one test server
+        run: ci/fleet-two-computers.sh dist/debs

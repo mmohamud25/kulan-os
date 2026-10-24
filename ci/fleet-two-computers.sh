@@ -16,7 +16,9 @@ LOG=/tmp/fleet-test-server.log
 FAILS=0
 step() { printf '\n== %s\n' "$*"; }
 pass() { printf 'PASS %s\n' "$*"; }
-fail() { printf 'FAIL %s\n' "$*"; FAILS=$((FAILS + 1)); }
+fail() { printf 'FAIL %s\n' "$*"; echo "::error title=Fleet people::$*"; FAILS=$((FAILS + 1)); }
+# Stopped by an error outside a check: say where (CI shows it as an annotation).
+trap 'echo "::error title=Fleet people stopped::line ${LINENO}: ${BASH_COMMAND}"' ERR
 expect() { local what="$1"; shift; if "$@"; then pass "${what}"; else fail "${what}"; fi; }
 
 cleanup() {
@@ -46,7 +48,7 @@ for host in laptop-a laptop-b; do
 done
 for host in laptop-a laptop-b; do
 	docker exec "${host}" bash -c 'export DEBIAN_FRONTEND=noninteractive
-		apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends ca-certificates openssl pamtester zsh passwd login /debs/kulan-base_*_all.deb >/tmp/apt.log 2>&1 || { tail -n 20 /tmp/apt.log; exit 1; }
+		apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends ca-certificates openssl pamtester zsh passwd login /debs/kulan-base_*_all.deb >/tmp/apt.log 2>&1 || { echo "::error title=Installing on $(hostname)::$(tail -n 8 /tmp/apt.log | tr "\n" " ")"; exit 1; }
 		update-ca-certificates >/dev/null 2>&1' &
 done
 wait
@@ -145,6 +147,7 @@ expect "the test server leaves nothing" test ! -e /opt/kulan-fleet-test
 
 if [ "${FAILS}" -gt 0 ]; then
 	echo; echo "${FAILS} check(s) failed. Server log:"; tail -n 60 "${LOG}"
+	echo "::error title=Server log::$(grep -vE ' (200|204) *$' "${LOG}" | tail -n 15 | tr '\n' ' ')"
 	exit 1
 fi
 echo; echo "People across two computers: every check passed"
