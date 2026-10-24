@@ -113,19 +113,24 @@ def graphics() -> str:
     return " · ".join(dict.fromkeys(names))
 
 
-RENDERER_HELPER = "/usr/libexec/gnome-control-center-print-renderer"  # GNOME Settings' own
+# Kulan's own (EGL, off-screen), then GNOME Settings' (older GNOME versions).
+RENDERER_HELPERS = ("/usr/lib/kulan/graphics-renderer", "/usr/libexec/gnome-control-center-print-renderer")
 SOFTWARE_RENDERERS = ("llvmpipe", "softpipe", "swrast", "software rasterizer", "lavapipe")
 
 
-def acceleration(helper: str = RENDERER_HELPER) -> tuple[bool | None, str]:
+def acceleration(helper: str | None = None) -> tuple[bool | None, str]:
     """Whether the screen is drawn by the graphics chip (True) or by the
     processor (False), and the renderer's name; (None, "") if unknown."""
-    try:
-        out = subprocess.run([helper], capture_output=True, text=True, timeout=10, check=False,
-                             env={**os.environ, "LC_ALL": "C"}).stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
-        return None, ""
-    name = out.splitlines()[0].strip() if out else ""
+    name = ""
+    for path in ([helper] if helper else RENDERER_HELPERS):
+        try:
+            out = subprocess.run([path], capture_output=True, text=True, timeout=10, check=False,
+                                 env={**os.environ, "LC_ALL": "C"}).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        name = out.splitlines()[0].strip() if out else ""
+        if name:
+            break
     if not name:
         return None, ""
     return not any(s in name.lower() for s in SOFTWARE_RENDERERS), name

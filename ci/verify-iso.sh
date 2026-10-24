@@ -134,7 +134,15 @@ check "Kulan Shell" "kulan-shell@kulangroup.com enabled" grep -q "kulan-shell@ku
 check "Build number" "os-release BUILD_ID=${KULAN_BUILD:-?}" grep -qx "BUILD_ID=${KULAN_BUILD:-.*}" "${R}/usr/lib/os-release"
 check "Cursor" "Bibata cursor installed" installed bibata-cursor-theme
 check "Office apps" "LibreOffice Writer, Calc, Impress" bash -c "$(declare -f installed); R='${R}'; installed libreoffice-writer && installed libreoffice-calc && installed libreoffice-impress"
-check "Short app names" "Writer, Calc, Impress, GIMP, VLC, Terminal, Disk Usage, Firewall and Store in the app grid, not names cut off" bash -c "d='${R}'/usr/share/kulan/xdg/applications; grep -qx Name=Writer \$d/libreoffice-writer.desktop && grep -qx Name=Calc \$d/libreoffice-calc.desktop && grep -qx Name=Impress \$d/libreoffice-impress.desktop && grep -qx Name=GIMP \$d/gimp.desktop && grep -qx Name=VLC \$d/vlc.desktop && grep -qx Name=Terminal \$d/org.gnome.Ptyxis.desktop && grep -qx 'Name=Disk Usage' \$d/org.gnome.baobab.desktop && grep -qx Name=Firewall \$d/gufw.desktop && grep -qx Name=Store \$d/org.gnome.Software.desktop"
+# One line per app, so a failure says which name is missing.
+for SPEC in "libreoffice-writer.desktop:Writer" "libreoffice-calc.desktop:Calc" "libreoffice-impress.desktop:Impress" \
+	"gimp.desktop:GIMP" "vlc.desktop:VLC" "org.gnome.Ptyxis.desktop:Terminal" "org.gnome.baobab.desktop:Disk Usage" \
+	"gufw.desktop:Firewall" "org.gnome.Software.desktop:Store"; do
+	ID="${SPEC%%:*}"
+	SHORT="${SPEC#*:}"
+	check "Short app name: ${SHORT}" "${ID} shows as ${SHORT} in the app grid (original: $(test -f "${R}/usr/share/applications/${ID}" && echo present || echo missing))" \
+		grep -qx "Name=${SHORT}" "${R}/usr/share/kulan/xdg/applications/${ID}"
+done
 check "Media apps" "VLC and GIMP" bash -c "$(declare -f installed); R='${R}'; installed vlc && installed gimp"
 check "Restore points" "Timeshift installed" installed timeshift
 if installed kulan-devkit; then
@@ -233,7 +241,7 @@ check "Installer swap" "no swap partition or file (compressed memory instead)" b
 check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
-check "Graphics helper" "GNOME Settings' renderer helper is there for Kulan Settings › About's 3D acceleration line" test -x "${R}/usr/libexec/gnome-control-center-print-renderer"
+check "Graphics helper" "Kulan's renderer helper and the EGL and OpenGL ES libraries it uses are there, for Kulan Settings › About's 3D acceleration line" bash -c "test -x '${R}/usr/lib/kulan/graphics-renderer' && ls '${R}'/usr/lib/*/libEGL.so.1 '${R}'/usr/lib/*/libGLESv2.so.2 >/dev/null"
 check "Backups" "Deja Dup installed" installed deja-dup
 check "Network privacy" "Wi-Fi MAC randomization config" test -s "${R}/etc/NetworkManager/conf.d/80-kulan-privacy.conf"
 check "Browser privacy" "Firefox policies valid JSON" python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${R}/etc/firefox/policies/policies.json"

@@ -467,6 +467,12 @@ assert on is True and about.acceleration_text(on, name) == "On (Mesa Intel(R) UH
 assert about.acceleration(helper("virgl (Apple M5)"))[0] is True, "a virtual machine with 3D on"
 assert about.acceleration(os.path.join(d, "missing")) == (None, "") and about.acceleration_text(None, "") == ""
 assert about.acceleration(helper("")) == (None, "")
+# Kulan's own helper runs without a screen: a renderer name, or nothing (exit 1); never a crash.
+import subprocess
+r = subprocess.run(["/usr/lib/kulan/graphics-renderer"], capture_output=True, text=True, timeout=60)
+assert (r.returncode == 0 and r.stdout.strip()) or (r.returncode == 1 and not r.stdout.strip()), (r.returncode, r.stdout, r.stderr[-300:])
+assert "Traceback" not in r.stderr, r.stderr[-300:]
+print("renderer here:", r.stdout.strip() or "unknown")
 print("acceleration check passed")
 PYACC
 check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "(2[1-9]|[3-9][0-9])/\1 pages built" && ! echo "$out" | grep -q Traceback'
