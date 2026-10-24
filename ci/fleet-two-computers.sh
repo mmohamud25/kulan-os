@@ -44,12 +44,12 @@ JOIN="$(adm "{\"op\":\"new-code\",\"organisation_id\":\"${ORG}\",\"uses\":2}" | 
 step "Two laptops with this build's kulan-base"
 for host in laptop-a laptop-b; do
 	docker run -d --name "${host}" --hostname "${host}" -v "${DEBS}:/debs:ro" debian:trixie sleep infinity >/dev/null
-	sudo docker cp /opt/kulan-fleet-test/ca.crt "${host}:/usr/local/share/ca-certificates/kulan-fleet-test.crt"
+	sudo cat /opt/kulan-fleet-test/ca.crt | docker exec -i "${host}" tee /tmp/kulan-fleet-test.crt >/dev/null
 done
 for host in laptop-a laptop-b; do
 	docker exec "${host}" bash -c 'export DEBIAN_FRONTEND=noninteractive
 		apt-get update -q >/dev/null && apt-get install -y -q --no-install-recommends ca-certificates openssl pamtester zsh passwd login /debs/kulan-base_*_all.deb >/tmp/apt.log 2>&1 || { echo "::error title=Installing on $(hostname)::$(tail -n 8 /tmp/apt.log | tr "\n" " ")"; exit 1; }
-		update-ca-certificates >/dev/null 2>&1' &
+		cp /tmp/kulan-fleet-test.crt /usr/local/share/ca-certificates/ && update-ca-certificates >/dev/null 2>&1' &
 done
 wait
 on() { docker exec "$1" bash -c "$2"; }
