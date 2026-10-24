@@ -251,8 +251,10 @@ class AboutPage(Page):
             shared.add_row(Adw.ActionRow(
                 title="What the organisation can ask this computer to do",
                 subtitle="Report now, install updates, turn compliance mode on, lock the screen, "
-                         "restart (with 5 minutes' notice)" + (", and erase it if it’s lost"
-                                                               if data.get("allow_erase") else ""),
+                         "restart or switch off (with 5 minutes' notice), lock it in lost mode if it’s lost"
+                         + (", and erase it" if data.get("allow_erase") else "")
+                         + ". It also adds, changes and removes the accounts it made for its people; "
+                           "other accounts on this computer are never touched",
                 subtitle_lines=0))
             rows = [head, shared]
             policy = self.fleet_policy()
