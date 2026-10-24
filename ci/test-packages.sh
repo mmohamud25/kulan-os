@@ -849,7 +849,7 @@ print("fleet erase notice test passed")
 PYERASE
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
-check "Fleet leave" "the server is told; key, status and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
+check "Fleet leave" "the server is told; key, status, any pending erase and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-erase-pending && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).

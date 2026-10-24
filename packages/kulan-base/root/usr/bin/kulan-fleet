@@ -728,6 +728,7 @@ def leave() -> int:
     CONFIG.unlink(missing_ok=True)
     remove_policy()  # automatic updates and the firewall stay as they are
     APPS_SENT.unlink(missing_ok=True)
+    ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
     publish(None)
     say("Left the organisation: nothing is reported any more")
     return 0
