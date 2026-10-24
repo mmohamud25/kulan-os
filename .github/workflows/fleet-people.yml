@@ -2,8 +2,11 @@ name: Fleet people on two computers
 
 # The two-computer People test on its own, with a finished build's packages
 # (the full build runs it too, before publishing). For quick reruns while
-# working on Kulan Fleet.
+# working on Kulan Fleet: run it from the Actions page, or (before this file
+# is on main) push a branch named fleet-people-test/<build run ID>.
 on:
+  push:
+    branches: ["fleet-people-test/**"]
   workflow_dispatch:
     inputs:
       run:
@@ -20,11 +23,16 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Which build
+        id: which
+        run: echo "run=${INPUT_RUN:-${GITHUB_REF_NAME#fleet-people-test/}}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_RUN: ${{ inputs.run }}
       - uses: actions/download-artifact@v7
         with:
           name: kulan-debs
           path: dist/debs/
-          run-id: ${{ inputs.run }}
+          run-id: ${{ steps.which.outputs.run }}
           github-token: ${{ github.token }}
       - name: Two laptops, one test server
         run: ci/fleet-two-computers.sh dist/debs
