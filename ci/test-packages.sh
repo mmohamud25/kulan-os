@@ -610,6 +610,8 @@ check "Assistant in GNOME" "app entry, Activities search provider and its D-Bus 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Assistant actions" "tidying, reminders and plans checked without a model (kulan-assistant self-test)" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | tail -n 3; echo "$out" | grep -qx "agent self-test passed" && echo "$out" | grep -qx "ask service self-test passed"'
 check "Instant answers" "the time, date, battery and free space answered with no model; requests like \"set a timer\" still go to the assistant" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | grep -qx "instant answers self-test passed" || { echo "$out" | tail -n 5; false; }'
+check "Ask Kulan app" "conversations kept privately, answers, Do it and Undo, follow-ups see earlier messages, no-model and history-off states (built with Debian's GTK 4 and libadwaita, no model)" bash -c 'out="$(HOME=$(mktemp -d) timeout 180 xvfb-run -a dbus-run-session -- kulan-assistant app-self-test 2>&1)"; echo "$out" | grep -E "Traceback|Error|assert" | head -n 5; echo "$out" | grep -qx "Ask Kulan app self-test passed"'
+check "Ask Kulan conversations" "saved only for you (0600 in a 0700 folder), damaged files skipped, oldest trimmed" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | grep -qx "conversation self-test passed" || { echo "$out" | tail -n 5; false; }'
 check "Ask Kulan" "panel in Kulan Shell, Shift+Cmd+Space, and the assistant's Ask service for it" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; grep -q AskKulan \$d/extension.js && grep -q org.kulan.Assistant.Ask \$d/askkulan.js && grep -q kulan-ask \$d/stylesheet-dark.css && grep -q kulan-ask \$d/stylesheet-light.css && gs org.kulan.desktop ask-shortcut | grep -q '<Shift><Super>space' && grep -qx 'Exec=/usr/bin/kulan-assistant ask-service' /usr/share/dbus-1/services/org.kulan.Assistant.Ask.service"
 # A window whose app ID has no launcher shows in the dock as its raw ID
 # ("org.kulan.Assistant.Agent") with a blank icon.
@@ -664,7 +666,17 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 	check "Ask Kulan answers" "a question gets an answer through the Ask service" bash -c 'out="$(timeout 600 dbus-run-session -- gdbus call --session --timeout 590 --dest org.kulan.Assistant.Ask --object-path /org/kulan/Assistant/Ask --method org.kulan.Assistant.Ask.Ask "How much memory does this computer have?" 2>/tmp/ask.err)"; tail -n 3 /tmp/ask.err; echo "$out" | cut -c1-300; echo "$out" | python3 -c "import ast, json, sys; d = json.loads(ast.literal_eval(sys.stdin.read().strip())[0]); assert len(d[\"reply\"]) > 10 and \"error\" not in d, d"'
 	check "Assistant plans tidying" "\"tidy up my Downloads\" becomes tidy_folder downloads" bash -c 'out="$(timeout 600 kulan-assistant plan "Tidy up my Downloads folder" 2>&1)"; echo "$out" | tr -s " \n" " " | cut -c1-300; echo "$out" | python3 -c "import json, sys; d = json.load(sys.stdin); assert {\"action\": \"tidy_folder\", \"args\": {\"where\": \"downloads\"}} in [{\"action\": s[\"action\"], \"args\": s[\"args\"]} for s in d[\"steps\"]], d"'
 	check "Assistant plans reminders" "\"remind me in 20 minutes\" becomes set_reminder 20" bash -c 'out="$(timeout 600 kulan-assistant plan "Remind me in 20 minutes to call Amina" 2>&1)"; echo "$out" | tr -s " \n" " " | cut -c1-300; echo "$out" | python3 -c "import json, sys; d = json.load(sys.stdin); r = [s for s in d[\"steps\"] if s[\"action\"] == \"set_reminder\"]; assert r and r[0][\"args\"][\"minutes\"] == 20 and \"amina\" in r[0][\"args\"][\"message\"].lower(), d"'
-	check "Do it for me window" "the window builds with Debian's GTK 4 and libadwaita" bash -c 'HOME=$(mktemp -d) timeout 60 xvfb-run -a dbus-run-session -- python3 -c "import sys; sys.path.insert(0, \"/usr/share/kulan-assistant\"); import gi; gi.require_version(\"Gtk\", \"4.0\"); gi.require_version(\"Adw\", \"1\"); from gi.repository import Adw; Adw.init(); from kulan_assistant import agent_window; app = Adw.Application(application_id=\"org.kulan.Assistant.Test\"); w = agent_window.AgentWindow(app, \"\"); print(\"built\")" 2>&1 | grep -qx built'
+	check "Ask Kulan follow-ups" "after tidying Downloads, \"and the Desktop too\" plans tidying the Desktop (the app sends the conversation)" bash -c 'timeout 600 python3 -B -c "
+import sys
+sys.path.insert(0, \"/usr/share/kulan-assistant\")
+from kulan_assistant import agent
+history = [{\"user\": \"Tidy up my Downloads folder\", \"reply\": \"I will tidy your Downloads folder.\", \"steps\": [{\"action\": \"tidy_folder\", \"args\": {\"where\": \"downloads\"}}]}]
+reply, steps = agent.plan(\"and the Desktop too\", history=history, long=True)
+got = [(s.action.id, s.args) for s in steps]
+print(reply[:200], got)
+assert (\"tidy_folder\", {\"where\": \"desktop\"}) in got, got
+assert (\"tidy_folder\", {\"where\": \"downloads\"}) not in got, \"repeated what was already done\"
+"'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
 	check "Dictation engine" "whisper.cpp starts and has its CPU code" bash -c '/usr/lib/kulan-assistant/whisper/whisper-cli --help 2>&1 | grep -q "supported audio formats" && ls /usr/lib/kulan-assistant/whisper/libggml-cpu-*.so >/dev/null'
 	check "Dictation model download" "Quick speech model downloaded and its SHA-256 checked" timeout 600 /usr/lib/kulan/update-run assistant-model whisper-base

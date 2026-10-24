@@ -27,6 +27,7 @@ from . import engine, instant
 
 MAX_STEPS = 6
 MAX_REPLY = 600
+MAX_REPLY_APP = 1500  # the Ask Kulan app has room for longer answers
 SETTINGS_PAGES = ["wifi", "bluetooth", "phone", "printers", "sound", "focus", "notifications", "users", "parental-controls",
                   "appearance", "desktop", "dock", "top-bar", "display", "battery", "storage", "login-items", "apps",
                   "security", "privacy", "backups", "keyboard", "mouse", "accessibility", "assistant", "prayer-times",
@@ -816,21 +817,22 @@ ACTIONS = [
 BY_ID = {a.id: a for a in ACTIONS}
 
 
-def plan_schema() -> dict:
+def plan_schema(max_reply: int = MAX_REPLY) -> dict:
     steps = [{"type": "object", "additionalProperties": False, "required": ["action", "args"],
               "properties": {"action": {"const": a.id},
                              "args": {"type": "object", "additionalProperties": False,
                                       "required": list(a.args), "properties": a.args}}}
              for a in ACTIONS]
     return {"type": "object", "additionalProperties": False, "required": ["reply", "steps"],
-            "properties": {"reply": {"type": "string", "maxLength": MAX_REPLY},
+            "properties": {"reply": {"type": "string", "maxLength": max_reply},
                            "steps": {"type": "array", "maxItems": MAX_STEPS, "items": {"anyOf": steps}}}}
 
 
 SYSTEM = """You are Kulan Assistant, built into Kulan OS on this person's computer. You run on the computer
 itself: you can't see the screen or the internet. Someone typed a question or a request.
-- A question (how, why, what, is…): answer it in "reply" in up to four short sentences, using the facts
-  about this computer below when they matter. Add steps only when one clearly helps (for example
+- A question (how, why, what, is…): answer it in "reply" in {length}, using the facts
+  about this computer below when they matter. You can't look anything up: for news, prices, weather
+  or anything that changes, say you can't check that here. Add steps only when one clearly helps (for example
   check_storage when the disk is nearly full, or open_settings for the right page).
 - A request: turn it into steps, and say in one short sentence in "reply" what will happen.
 Actions you can use:
@@ -840,7 +842,7 @@ Rules:
 - If a request can't be done with these actions (deleting files, passwords, installing,
   anything else), return NO steps at all (not even a related one) and say briefly in "reply"
   how they can do it themselves.
-- Be friendly and plain; no lists, no markdown. At most {max} steps.
+- Be friendly and plain; no lists, no markdown. At most {max} steps.{conversation}
 Facts about this computer now:
 {facts}"""
 
@@ -859,7 +861,14 @@ EXAMPLES = [
 ]
 
 
-def system_prompt() -> str:
+SHORT_ANSWER = "up to four short sentences"
+LONG_ANSWER = "a clear answer of up to two short paragraphs (more only if they asked for detail)"
+CONVERSATION_NOTE = ("\n- Earlier messages of this conversation come before the newest one. Use them to understand "
+                     "follow-ups (\"and the Desktop too\", \"make it bigger\"), but plan steps only for the newest "
+                     "message; never repeat steps that were already done.")
+
+
+def system_prompt(long: bool = False, conversation: bool = False) -> str:
     lines = []
     for a in ACTIONS:
         args = ", ".join(f"{k}: {('one of ' + '/'.join(map(str, v['enum']))) if 'enum' in v else v.get('type')}"
@@ -870,7 +879,9 @@ def system_prompt() -> str:
         now = facts.snapshot()
     except Exception:  # noqa: BLE001 - facts are a help, never a reason to fail
         now = f"Now: {datetime.datetime.now():%A %-d %B %Y, %H:%M}"
-    return SYSTEM.format(actions="\n".join(lines), max=MAX_STEPS, facts=now)
+    return SYSTEM.format(actions="\n".join(lines), max=MAX_STEPS, facts=now,
+                         length=LONG_ANSWER if long else SHORT_ANSWER,
+                         conversation=CONVERSATION_NOTE if conversation else "")
 
 
 @dataclass
@@ -881,10 +892,10 @@ class Step:
     result: Result | None = None
 
 
-def validate(plan: dict) -> tuple[str, list[Step]]:
+def validate(plan: dict, max_reply: int = MAX_REPLY) -> tuple[str, list[Step]]:
     """Only well-formed steps of known actions survive (the schema should
     already guarantee it; this is the second lock)."""
-    reply = str(plan.get("reply", "")).strip()[:MAX_REPLY] if isinstance(plan, dict) else ""
+    reply = str(plan.get("reply", "")).strip()[:max_reply] if isinstance(plan, dict) else ""
     steps = []
     for raw in (plan.get("steps") or [])[:MAX_STEPS] if isinstance(plan, dict) else []:
         if not isinstance(raw, dict):
@@ -914,20 +925,38 @@ def validate(plan: dict) -> tuple[str, list[Step]]:
     return reply, steps
 
 
-def plan(request: str) -> tuple[str, list[Step]]:
+def history_messages(history: list[dict] | None) -> list[dict]:
+    """Earlier exchanges of a conversation ({"user", "reply", "steps"}), as
+    the chat the model sees: each answer in the same JSON it gives."""
+    out = []
+    for turn in history or []:
+        steps = [{"action": s["action"], "args": {k: v for k, v in s.get("args", {}).items() if not k.startswith("_")}}
+                 for s in turn.get("steps", []) if s.get("action") in BY_ID]
+        out.append({"role": "user", "content": str(turn.get("user", "")).strip()[:500]})
+        # Earlier answers shortened: the model's memory (CONTEXT) also holds the
+        # actions, the facts and the new answer.
+        out.append({"role": "assistant", "content": json.dumps(
+            {"reply": str(turn.get("reply", "")).strip()[:MAX_REPLY], "steps": steps})})
+    return out
+
+
+def plan(request: str, history: list[dict] | None = None, long: bool = False) -> tuple[str, list[Step]]:
     """Ask the model for a plan. Raises engine.EngineError if it can't run.
-    The time, the date, battery and free space are answered straight away."""
+    The time, the date, battery and free space are answered straight away.
+    history: earlier exchanges of the conversation (the Ask Kulan app);
+    long: room for a longer answer (the app has space for it)."""
     quick = instant.answer(request)
     if quick:
         return quick, []
     engine.ensure_running()
+    max_reply = MAX_REPLY_APP if long else MAX_REPLY
     body = {
-        "messages": [{"role": "system", "content": system_prompt()}, *EXAMPLES,
-                     {"role": "user", "content": request.strip()[:500]}],
+        "messages": [{"role": "system", "content": system_prompt(long=long, conversation=bool(history))}, *EXAMPLES,
+                     *history_messages(history), {"role": "user", "content": request.strip()[:500]}],
         "temperature": 0.1,
-        "max_tokens": 700,
+        "max_tokens": 1100 if long else 700,
         "chat_template_kwargs": {"enable_thinking": False},
-        "response_format": {"type": "json_schema", "json_schema": {"name": "plan", "schema": plan_schema()}},
+        "response_format": {"type": "json_schema", "json_schema": {"name": "plan", "schema": plan_schema(max_reply)}},
     }
     with engine.request("/v1/chat/completions", body, timeout=300) as resp:
         data = json.loads(resp.read().decode("utf-8", "replace"))
@@ -935,7 +964,7 @@ def plan(request: str) -> tuple[str, list[Step]]:
     content = data["choices"][0]["message"].get("content") or "{}"
     content = engine.THINK.sub("", content).strip()
     try:
-        return validate(json.loads(content))
+        return validate(json.loads(content), max_reply)
     except ValueError:
         return "Sorry, I couldn't work out what to do. Try saying it another way.", []
 

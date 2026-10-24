@@ -1,8 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Kulan Assistant
-Comment=Ask questions, get things done, writing help and summaries, all on this computer
-Keywords=assistant;ai;agent;do it for me;writing;proofread;rewrite;summarise;summarize;translate;
+Name=Ask Kulan
+GenericName=Assistant
+Comment=Ask questions and get things done, in a conversation that stays on this computer
+Keywords=assistant;ai;agent;chat;kulan assistant;do it for me;writing;proofread;rewrite;summarise;summarize;translate;
 Exec=kulan-assistant do
 Actions=settings;
 Icon=org.kulan.Assistant
