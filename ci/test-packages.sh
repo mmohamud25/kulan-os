@@ -856,6 +856,7 @@ with mock.patch.object(f, "erase_check", return_value=(False, "not allowed on th
     assert events == [] and not er.called and not f.ERASE_PENDING.exists()
 print("fleet erase notice test passed")
 PYERASE
+check "Fleet people, every case" "create, conflicts and bad input refused, setup code, passwords both ways, promote, rename, disable, re-enable, remove with and without files (real accounts)" bash -c 'out="$(python3 -I -B ci/test-fleet-people.py 2>&1)"; echo "$out" | tail -n 3; echo "$out" | grep -qx "people test passed"'
 # People (2.8): the organisation's accounts made, a changed password sent
 # back, a removal keeping the files.
 check "Fleet people" "an account made from the organisation's list (its uid, setup code, change at first sign-in); a new password sent with the next report; removed with its files kept for handover" python3 -I -B - <<'PYPEOPLE'
