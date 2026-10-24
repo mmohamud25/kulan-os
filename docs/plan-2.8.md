@@ -39,7 +39,7 @@ Fleet accounts take its place.
 
 ## How People works (design)
 Server (Supabase, private fleet schema):
-- fleet.people: organisation, username, full name, uid (61000-69999, given
+- fleet.people: organisation, username, full name, uid (70000-79999, given
   by the server so a person has the same uid on every computer), role
   (owner, admin, employee), enabled, password_hash, must_change,
   password_changed_at, all_computers; fleet.person_computers for chosen

@@ -96,6 +96,9 @@ FILES=(
 	usr/share/kulan/xdg/applications/org.gnome.baobab.desktop
 	usr/share/kulan/xdg/applications/gufw.desktop
 	usr/share/kulan/xdg/applications/org.gnome.Software.desktop
+	etc/pam.d/gdm-password
+	etc/pam.d/gdm-autologin
+	etc/pam.d/login
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -246,6 +249,7 @@ check "Live session" "screen stays on in the live session" has_path etc/xdg/auto
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
 check "Graphics helper" "Kulan's renderer helper and the EGL and OpenGL ES libraries it uses are there, for Kulan Settings › About's 3D acceleration line" bash -c "$(declare -f has_path); WORK='${WORK}'; has_path usr/lib/kulan/graphics-renderer && grep -q 'squashfs-root/usr/lib/[^/]*/libEGL.so.1\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/[^/]*/libGLESv2.so.2\$' '${WORK}/listing'"
+check "Lost mode stops sign-in" "GDM's sign-in (password and automatic) and the console's honour /etc/nologin (pam_nologin), which Kulan Fleet's lost mode uses" bash -c "for f in gdm-password gdm-autologin login; do grep -Eq '^auth[[:space:]]+(requisite|required)[[:space:]]+pam_nologin.so' '${R}/etc/pam.d/'\$f || { echo \"no pam_nologin in \$f\"; exit 1; }; done"
 check "Backups" "Deja Dup installed" installed deja-dup
 check "Network privacy" "Wi-Fi MAC randomization config" test -s "${R}/etc/NetworkManager/conf.d/80-kulan-privacy.conf"
 check "Browser privacy" "Firefox policies valid JSON" python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${R}/etc/firefox/policies/policies.json"

@@ -856,6 +856,56 @@ with mock.patch.object(f, "erase_check", return_value=(False, "not allowed on th
     assert events == [] and not er.called and not f.ERASE_PENDING.exists()
 print("fleet erase notice test passed")
 PYERASE
+# Shut down and Lost mode (2.8). Stand-ins for the sign-in files and for
+# signing people out; the real nologin and banner text are checked.
+check "Fleet shut down and lost mode" "switch off in 5 minutes with a notice; lost mode stops sign-ins first (nologin, sign-in screen banner), then signs everyone out after a notice; release removes only Fleet's own files; leaving releases it" python3 -I -B - <<'PYLOST'
+import importlib.machinery, importlib.util, subprocess, tempfile
+from pathlib import Path
+from unittest import mock
+loader = importlib.machinery.SourceFileLoader("kulan_fleet", "/usr/bin/kulan-fleet")
+spec = importlib.util.spec_from_loader("kulan_fleet", loader); f = importlib.util.module_from_spec(spec); loader.exec_module(f)
+tmp = Path(tempfile.mkdtemp())
+f.CONFIG, f.LOST, f.NOLOGIN, f.LOST_BANNER = tmp / "fleet.json", tmp / "lost", tmp / "nologin", tmp / "gdm.d" / "90-lost"
+f.write_json(f.CONFIG, {"organisation": "O'Neil & Co"}, 0o600)
+for kind in ("shutdown", "lost-mode-on", "lost-mode-off"):
+    assert kind in f.ALLOWED_ACTIONS, kind
+calls, events = [], []
+def run(argv, timeout=60):
+    calls.append(argv)
+    if argv[:2] == ["loginctl", "list-users"]:
+        return subprocess.CompletedProcess(argv, 0, "   0 root\n1000 mohamed\n70001 amina\n", "")
+    return subprocess.CompletedProcess(argv, 0, "", "")
+with mock.patch.object(f, "run", side_effect=run), \
+        mock.patch.object(f, "warn_users", side_effect=lambda t, b: events.append(("notice", f.NOLOGIN.exists(), t, b))), \
+        mock.patch.object(f.time, "sleep", side_effect=lambda s: events.append(("wait", s))):
+    ok, detail = f.do_action("shutdown")
+    assert ok and calls[-1][:3] == ["shutdown", "-h", "+5"] and "O'Neil & Co" in calls[-1][3], calls[-1]
+    calls.clear()
+    ok, detail = f.do_action("lost-mode-on")
+    assert ok and detail == "lost mode on: nobody can sign in; 2 signed out", detail
+    # Sign-ins stopped before the notice; then a wait; then everyone signed out (not root).
+    assert events[0][:3] == ("notice", True, "This computer is in lost mode") and events[1] == ("wait", f.LOST_NOTICE_S), events
+    assert [c for c in calls if c[:2] == ["loginctl", "terminate-user"]] == [["loginctl", "terminate-user", "1000"], ["loginctl", "terminate-user", "70001"]], calls
+    text = f.NOLOGIN.read_text()
+    assert text.startswith(f.LOST_MARK) and "please return it to O'Neil & Co" in text, text
+    banner = f.LOST_BANNER.read_text()
+    assert "banner-message-enable=true" in banner and "O\\'Neil & Co" in banner and ["dconf", "update"] in calls, banner
+    assert f.state(f.read_json(f.CONFIG, {}))["lost_mode"] is True
+    # Asked again: no second notice, still locked.
+    events.clear()
+    assert f.do_action("lost-mode-on")[0] and events == []
+    # Released: sign-in works again.
+    assert f.do_action("lost-mode-off") == (True, "released from lost mode")
+    assert not f.NOLOGIN.exists() and not f.LOST_BANNER.exists() and not f.LOST.exists()
+    assert f.do_action("lost-mode-off") == (True, "wasn't in lost mode")
+    # Someone else's nologin is kept as it is, and not removed on release.
+    f.NOLOGIN.write_text("maintenance tonight\n")
+    f.do_action("lost-mode-on")
+    assert f.NOLOGIN.read_text() == "maintenance tonight\n"
+    f.do_action("lost-mode-off")
+    assert f.NOLOGIN.read_text() == "maintenance tonight\n"
+print("fleet lost mode test passed")
+PYLOST
 check "Fleet people, every case" "create, conflicts and bad input refused, setup code, passwords both ways, promote, rename, disable, re-enable, remove with and without files (real accounts)" bash -c 'out="$(python3 -I -B ci/test-fleet-people.py 2>&1)"; echo "$out" | tail -n 3; echo "$out" | grep -qx "people test passed"'
 # People (2.8): the organisation's accounts made, a changed password sent
 # back, a removal keeping the files.
@@ -865,7 +915,7 @@ from pathlib import Path
 def shadow(u):
     return [l for l in open("/etc/shadow") if l.startswith(u + ":")][0].split(":")
 u = pwd.getpwnam("fleetamina")
-assert u.pw_uid == 61901 and u.pw_gecos == "Amina Yusuf" and Path(u.pw_dir).is_dir(), u
+assert u.pw_uid == 71901 and u.pw_gecos == "Amina Yusuf" and Path(u.pw_dir).is_dir(), u
 assert shadow("fleetamina")[2] == "0", "the setup code must be changed at first sign-in"
 assert "fleetamina" in json.load(open("/var/lib/kulan/fleet-people.json"))["people"]
 assert oct(Path("/var/lib/kulan/fleet-people.json").stat().st_mode)[-3:] == "600"
@@ -890,8 +940,10 @@ subprocess.run(["rm", "-rf", "/home/.kulan-left"], check=True)
 print("fleet people passed")
 PYPEOPLE
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
+# As if it were in lost mode: leaving releases it.
+mkdir -p /etc/dconf/db/gdm.d && printf 'Kulan Fleet lost mode\nlost\n' >/etc/nologin && touch /var/lib/kulan/fleet-lost /etc/dconf/db/gdm.d/90-kulan-fleet-lost
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
-check "Fleet leave" "the server is told; key, status, any pending erase and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-erase-pending && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
+check "Fleet leave" "the server is told; key, status, any pending erase, lost mode and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-erase-pending && test ! -e /var/lib/kulan/fleet-lost && test ! -e /etc/dconf/db/gdm.d/90-kulan-fleet-lost && test ! -e /etc/nologin && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).

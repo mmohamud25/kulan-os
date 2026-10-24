@@ -32,7 +32,7 @@
 //   POST {op: "admins", organisation_id}                   -> admins, owner
 //   POST {op: "add-admin" | "remove-admin", organisation_id, email}
 //   POST {op: "set-owner", organisation_id, email}         -> {recovery_code} (admins for all organisations)
-//   POST {op: "recover-owner", organisation_id, recovery_code} -> {recovery_code}
+//   POST {op: "recover-owner", recovery_code}               -> {organisation, recovery_code}
 //        signed in with a new email: the recovery code (shown once when the
 //        Owner was set) makes that email the Owner, and a new code is given.
 //
@@ -180,20 +180,20 @@ Deno.serve(async (req: Request) => {
     if (!email) return reply(401, { error: "please sign in" });
     const body = await req.json().catch(() => ({}));
     if (body?.op === "recover-owner") {
-      const org = uuid(body.organisation_id);
       const given = normalCode(body.recovery_code);
-      if (!org || given.length !== 20) return reply(403, { error: "that recovery code isn't right" });
+      if (given.length !== 20) return reply(403, { error: "that recovery code isn't right" });
       const fresh = recoveryCode();
       const moved = await sql.begin(async (tx) => {
         const rows = await tx`update fleet.organisations set owner_email = ${email}, recovery_hash = ${await sha256(normalCode(fresh))}
-                              where id = ${org} and recovery_hash = ${await sha256(given)} returning id`;
-        if (!rows.length) return false;
+                              where recovery_hash = ${await sha256(given)} returning id, name`;
+        if (rows.length !== 1) return null;
+        const org = rows[0].id;
         await tx`insert into fleet.admins (email, organisation_id) values (${email}, ${org}) on conflict do nothing`;
         await tx`insert into fleet.audit (organisation_id, email, what) values (${org}, ${email}, 'became the Owner with the recovery code')`;
-        return true;
+        return rows[0];
       });
       if (!moved) return reply(403, { error: "that recovery code isn't right" });
-      return reply(200, { recovery_code: fresh });
+      return reply(200, { organisation: { id: moved.id, name: moved.name }, recovery_code: fresh });
     }
     const admins = await sql`select organisation_id from fleet.admins where email = ${email}`;
     if (admins.length === 0) return reply(403, { error: "this account isn't a fleet admin" });

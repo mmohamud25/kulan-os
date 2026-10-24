@@ -7,7 +7,7 @@ Accepts the one-time code TEST-CODE, gives out a device ID and key, answers
 the first report with a "refresh", an action Kulan OS doesn't allow
 ("run-command") and an "erase" this computer hasn't allowed, always sends
 the organisation's policy, and writes every request it gets to LOG.json.
-People: every report lists one person, fleetamina (uid 61901, setup code
+People: every report lists one person, fleetamina (uid 71901, setup code
 SETUP-CODE); once a report brings her new password, she's sent back with it,
 and the report after that removes her (keeping her files).
 """
@@ -24,7 +24,7 @@ seen = []
 reports = 0
 SETUP_HASH = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input="SETUP-CODE", capture_output=True,
                             text=True, check=True).stdout.strip()
-amina = {"username": "fleetamina", "full_name": "Amina Yusuf", "uid": 61901, "role": "employee",
+amina = {"username": "fleetamina", "full_name": "Amina Yusuf", "uid": 71901, "role": "employee",
          "password_hash": SETUP_HASH, "must_change": True, "password_changed_at": 1}
 people_round = {"n": 0}
 
@@ -67,7 +67,7 @@ class Handler(BaseHTTPRequestHandler):
             remove_now = people_round["n"] >= 2
             if people_round["n"] == 1:
                 people_round["n"] = 2  # the next report removes her
-            accounts = ([{"username": "fleetamina", "uid": 61901, "removed": True, "remove_files": False}]
+            accounts = ([{"username": "fleetamina", "uid": 71901, "removed": True, "remove_files": False}]
                         if remove_now else [amina])
             return self.reply(200, {"actions": actions, "policy": POLICY, "accounts": accounts})
         return self.reply(200, {})

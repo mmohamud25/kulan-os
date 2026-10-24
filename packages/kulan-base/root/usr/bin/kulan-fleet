@@ -20,6 +20,12 @@ The server can only answer with these actions, nothing else:
   compliance-on    turn compliance mode on
   lock-screen      lock the screen now
   restart          restart in 5 minutes, with a notice to whoever is using it
+  shutdown         switch off in 5 minutes, with the same notice
+  lost-mode-on     lost mode: nobody can sign in (the sign-in screen says the
+                   computer is lost and whom to tell), and anyone signed in
+                   is signed out after a 20-second notice; it keeps reporting,
+                   so the organisation can find it and release it
+  lost-mode-off    release it from lost mode
   erase            make the disk unreadable and switch off: only when this
                    computer's user allowed it (allow-erase on) and the disk is
                    encrypted (its keys are destroyed; nothing can be recovered)
@@ -35,7 +41,7 @@ The protocol (JSON over HTTPS, version 1):
   POST {server}/v1/enrol   {code, hostname, os, kulan_version}
                            -> {device_id, token, organisation}
   POST {server}/v1/report  Authorization: Bearer {token}, {device_id, ...status}
-                           -> {actions: [{id, type}]}
+                           -> {actions: [{id, type}], policy, accounts}
   POST {server}/v1/actions/{id}   {device_id, status: done|failed, detail}
   POST {server}/v1/leave   {device_id}
 """
@@ -80,7 +86,16 @@ POLICY_LOCKS = Path("/etc/dconf/db/local.d/locks/60-kulan-fleet")
 OLD_POLICY_FILES = (Path("/etc/dconf/db/local.d/40-kulan-fleet"), Path("/etc/dconf/db/local.d/locks/40-kulan-fleet"))
 COMPLIANCE_DCONF = Path("/etc/dconf/db/local.d/50-kulan-compliance")
 DCONF_DB = Path("/etc/dconf/db/local")
-ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase")
+ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart", "shutdown",
+                   "lost-mode-on", "lost-mode-off", "erase")
+# Lost mode: /etc/nologin stops every sign-in but root's (pam_nologin, in
+# GDM's and the console's sign-in), and stays across restarts; the sign-in
+# screen shows why. Only a nologin file starting with LOST_MARK is ours.
+LOST = Path("/var/lib/kulan/fleet-lost")
+NOLOGIN = Path("/etc/nologin")
+LOST_MARK = "Kulan Fleet lost mode"
+LOST_BANNER = Path("/etc/dconf/db/gdm.d/90-kulan-fleet-lost")
+LOST_NOTICE_S = 20
 SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version and kernel",
           "Waiting updates and whether a restart is needed", "Compliance mode results", "TPM unlock on or off",
           "Disk encryption and firewall on or off", "Names and versions of installed apps (once a day)",
@@ -318,7 +333,8 @@ def encrypted() -> bool:
 
 def state(config: dict) -> dict:
     return {"encrypted": encrypted(), "firewall": firewall_on(), "auto_updates": auto_updates_on(),
-            "erase_allowed": bool(config.get("allow_erase")), "screen_lock_minutes": screen_lock_minutes()}
+            "erase_allowed": bool(config.get("allow_erase")), "screen_lock_minutes": screen_lock_minutes(),
+            "lost_mode": LOST.exists()}
 
 
 def screen_lock_minutes() -> int:
@@ -489,11 +505,74 @@ def do_action(kind: str) -> tuple[bool, str]:
         return r.returncode == 0, "screen locked" if r.returncode == 0 else r.stderr.strip()[:200]
     if kind == "erase":
         return erase()
-    if kind == "restart":
-        org = read_json(CONFIG, {}).get("organisation", "Your organisation")
-        r = run(["shutdown", "-r", "+5", f"{org} is restarting this computer in 5 minutes to finish updates."])
-        return r.returncode == 0, "restart in 5 minutes" if r.returncode == 0 else r.stderr.strip()[:200]
+    if kind in ("restart", "shutdown"):
+        org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
+        if kind == "restart":
+            argv = ["shutdown", "-r", "+5", f"{org} is restarting this computer in 5 minutes to finish updates."]
+        else:
+            argv = ["shutdown", "-h", "+5", f"{org} is switching this computer off in 5 minutes. Please save your work."]
+        r = run(argv)
+        what = "restart" if kind == "restart" else "switch off"
+        return r.returncode == 0, f"{what} in 5 minutes" if r.returncode == 0 else r.stderr.strip()[:200]
+    if kind == "lost-mode-on":
+        return lost_mode_on()
+    if kind == "lost-mode-off":
+        return lost_mode_off()
     return False, "not an action Kulan OS allows"
+
+
+def gvariant_string(text: str) -> str:
+    return "'" + " ".join(text.split()).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def lost_mode_on(notice_s: int = LOST_NOTICE_S) -> tuple[bool, str]:
+    """Nobody can sign in until the organisation releases the computer, and
+    whoever is signed in is signed out after a short notice. Sign-ins stop
+    first, so nobody new gets in during the notice."""
+    org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
+    already = LOST.exists()
+    message = (f"This computer was reported lost. {org} has locked it: nobody can sign in. "
+               f"If you found it, please return it to {org}.")
+    try:
+        current = NOLOGIN.read_text()
+    except OSError:
+        current = None
+    own = current is None or current.startswith(LOST_MARK)
+    if own:  # someone else's /etc/nologin already stops sign-ins: left as it is
+        NOLOGIN.write_text(f"{LOST_MARK}\n{message}\n")
+        os.chmod(NOLOGIN, 0o644)
+    write_json(LOST, {"since": int(time.time()), "own_nologin": own}, 0o600)
+    LOST_BANNER.parent.mkdir(parents=True, exist_ok=True)
+    LOST_BANNER.write_text("# Kulan Fleet lost mode (kulan-fleet removes this when the computer is released)\n"
+                           "[org/gnome/login-screen]\nbanner-message-enable=true\n"
+                           f"banner-message-text={gvariant_string(message)}\n")
+    run(["dconf", "update"])
+    if not already:
+        warn_users("This computer is in lost mode",
+                   f"{org} reported it lost. Everyone is signed out in {notice_s} seconds: save your work now.")
+        time.sleep(notice_s)
+    signed_out = 0
+    for line in run(["loginctl", "list-users", "--no-legend"]).stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].isdigit() and int(parts[0]) >= 1000:
+            signed_out += run(["loginctl", "terminate-user", parts[0]]).returncode == 0
+    return True, f"lost mode on: nobody can sign in; {signed_out} signed out"
+
+
+def lost_mode_off() -> tuple[bool, str]:
+    """Released: sign-in works again (only Fleet's own nologin is removed)."""
+    try:
+        if NOLOGIN.read_text().startswith(LOST_MARK):
+            NOLOGIN.unlink()
+    except OSError:
+        pass
+    had_banner = LOST_BANNER.exists()
+    LOST_BANNER.unlink(missing_ok=True)
+    if had_banner:
+        run(["dconf", "update"])
+    was = LOST.exists()
+    LOST.unlink(missing_ok=True)
+    return True, "released from lost mode" if was else "wasn't in lost mode"
 
 
 def erase_check() -> tuple[bool, list[str] | str]:
@@ -754,6 +833,7 @@ def leave() -> int:
     remove_policy()  # automatic updates and the firewall stay as they are
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
+    lost_mode_off()  # nor keep it locked as lost
     # Its accounts stay as ordinary accounts on this computer, no longer managed.
     people.STATE.unlink(missing_ok=True)
     publish(None)

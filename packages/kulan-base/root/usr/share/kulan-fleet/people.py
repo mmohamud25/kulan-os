@@ -3,7 +3,7 @@ manages (kulan-fleet report runs this as root).
 
 Each report's reply lists the people allowed on this computer:
 
-    {"username": "amina", "full_name": "Amina Yusuf", "uid": 61001,
+    {"username": "amina", "full_name": "Amina Yusuf", "uid": 70001,
      "role": "employee" | "admin" | "owner", "enabled": true,
      "password_hash": "$y$...", "must_change": true,
      "password_changed_at": 1792850000}
@@ -43,7 +43,7 @@ STATE = Path("/var/lib/kulan/fleet-people.json")  # root only: who Fleet made he
 PASSWD = Path("/etc/passwd")
 SHADOW = Path("/etc/shadow")
 LEFT = Path("/home/.kulan-left")
-UID_MIN, UID_MAX = 61000, 69999
+UID_MIN, UID_MAX = 70000, 79999
 USERNAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # Hashes crypt(3) understands: yescrypt, SHA-512, SHA-256, bcrypt. No ":" or
 # newlines, so nothing can spill into /etc/shadow's other fields.

@@ -117,12 +117,12 @@ const C = (await call("fleet", "/v1/enrol", { code: otherCode, hostname: "elsewh
 // --- adding people ----------------------------------------------------------------------
 const add = (who, p) => admin(who, { op: "add-person", organisation_id: org, password_hash: HASH("setup"), ...p });
 r = await add(HELPER, { username: "amina", full_name: "Amina: Yusuf,\nHR", email: "Amina@Acme.test", role: "employee" });
-ok(r.status === 200 && r.body.uid === 61000, "an admin adds an employee, first uid", r);
+ok(r.status === 200 && r.body.uid === 70000, "an admin adds an employee, first uid", r);
 const amina = r.body.id;
 r = await add(HELPER, { username: "omar", role: "admin" });
 ok(r.status === 403, "an admin can't make an admin", r);
 r = await add(OWNER, { username: "omar", full_name: "Omar Ali", role: "admin", all_computers: false, computers: [B.device_id] });
-ok(r.status === 200 && r.body.uid === 61001, "the Owner adds an admin for laptop-b only", r);
+ok(r.status === 200 && r.body.uid === 70001, "the Owner adds an admin for laptop-b only", r);
 const omar = r.body.id;
 r = await add(OWNER, { username: "mo", role: "owner" });
 ok(r.status === 200, "the Owner's own account", r);
@@ -154,7 +154,7 @@ r = await report(A);
 const namesA = r.body.accounts.map((a) => a.username).sort();
 ok(r.status === 200 && JSON.stringify(namesA) === '["amina","mo"]', "laptop-a: amina and mo, not omar", r.body.accounts);
 const aA = r.body.accounts.find((a) => a.username === "amina");
-ok(aA.uid === 61000 && aA.role === "employee" && aA.enabled === true && aA.must_change === true &&
+ok(aA.uid === 70000 && aA.role === "employee" && aA.enabled === true && aA.must_change === true &&
    aA.password_hash === HASH("setup") && typeof aA.password_changed_at === "number" && !("email" in aA),
    "amina as the computer reads her", aA);
 r = await report(B);
@@ -233,7 +233,7 @@ r = await admin(HELPER, { op: "remove-person", person_id: amina, remove_files: t
 ok(r.status === 200, "an admin removes amina, files deleted", r);
 r = await report(A);
 const aR = r.body.accounts.find((a) => a.username === "amina");
-ok(JSON.stringify(aR) === JSON.stringify({ username: "amina", uid: 61000, removed: true, remove_files: true }),
+ok(JSON.stringify(aR) === JSON.stringify({ username: "amina", uid: 70000, removed: true, remove_files: true }),
    "removed: the computer is told, nothing else about her", aR);
 r = await admin(HELPER, { op: "people", organisation_id: org });
 ok(!r.body.people.some((p) => p.username === "amina"), "not in the People list");
@@ -242,7 +242,7 @@ ok(r.status === 404, "a removed person can't be changed", r);
 r = await add(HELPER, { username: "amina" });
 ok(r.status === 409 && r.body.error.includes("30 days"), "her username isn't reused for 30 days", r);
 r = await add(HELPER, { username: "hodan" });
-ok(r.body.uid === 61003, "uids keep going up (not reused)", r);
+ok(r.body.uid === 70003, "uids keep going up (not reused)", r);
 await db`update fleet.people set removed_at = now() - interval '31 days' where id = ${amina}`;
 await db`select fleet.prune_people()`;
 r = await report(A);
@@ -260,16 +260,17 @@ ok(r.status === 400, "unknown action refused", r);
 
 // --- the Owner's recovery code -------------------------------------------------------------
 const NEWOWNER = "owner.new@acme.test";
-r = await admin(NEWOWNER, { op: "recover-owner", organisation_id: org, recovery_code: "AAAAA-BBBBB-CCCCC-DDDDD" });
+r = await admin(NEWOWNER, { op: "recover-owner", recovery_code: "AAAAA-BBBBB-CCCCC-DDDDD" });
 ok(r.status === 403, "a wrong recovery code", r);
-r = await admin(NEWOWNER, { op: "recover-owner", organisation_id: org, recovery_code: recovery.toLowerCase().replaceAll("-", " ") });
-ok(r.status === 200 && r.body.recovery_code && r.body.recovery_code !== recovery, "the recovery code moves ownership", r);
+r = await admin(NEWOWNER, { op: "recover-owner", recovery_code: recovery.toLowerCase().replaceAll("-", " ") });
+ok(r.status === 200 && r.body.recovery_code && r.body.recovery_code !== recovery && r.body.organisation?.id === org &&
+   r.body.organisation.name === "Acme", "the recovery code alone moves ownership (typed loosely)", r);
 r = await admin(NEWOWNER, { op: "admins", organisation_id: org });
 ok(r.status === 200 && r.body.owner === NEWOWNER && r.body.is_owner && r.body.admins.some((a) => a.email === NEWOWNER),
    "the new email is the Owner and an admin", r.body);
 r = await admin(OWNER, { op: "add-admin", organisation_id: org, email: "late@x.test" });
 ok(r.status === 403, "the old email is no longer the Owner", r);
-r = await admin("thief@x.test", { op: "recover-owner", organisation_id: org, recovery_code: recovery });
+r = await admin("thief@x.test", { op: "recover-owner", recovery_code: recovery });
 ok(r.status === 403, "an old recovery code doesn't work twice", r);
 r = await admin(HELPER, { op: "set-owner", organisation_id: org, email: HELPER });
 ok(r.status === 403, "only admins for all organisations set the Owner", r);

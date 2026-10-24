@@ -10,6 +10,9 @@
 alter table fleet.organisations
   add column if not exists owner_email text check (owner_email is null or (owner_email = lower(owner_email) and position('@' in owner_email) > 1)),
   add column if not exists recovery_hash text check (recovery_hash is null or recovery_hash ~ '^[0-9a-f]{64}$');
+-- The recovery code alone finds its organisation (100 random bits each).
+create unique index if not exists organisations_recovery_idx on fleet.organisations (recovery_hash)
+  where recovery_hash is not null;
 
 -- The people who use the organisation's computers. Passwords are never
 -- stored: only a one-way crypt(3) hash (yescrypt or SHA-512), made on the
@@ -23,7 +26,7 @@ create table if not exists fleet.people (
                          'proxy', 'www-data', 'backup', 'list', 'irc', 'nobody', 'admin', 'sudo', 'kulan', 'gdm', 'systemd')),
   full_name text not null default '' check (char_length(full_name) <= 80 and full_name !~ '[:,=\n\r\t\\]'),
   email text check (email is null or (email = lower(email) and position('@' in email) > 1 and char_length(email) <= 254)),
-  uid integer not null check (uid between 61000 and 69999),
+  uid integer not null check (uid between 70000 and 79999),
   role text not null default 'employee' check (role in ('owner', 'admin', 'employee')),
   enabled boolean not null default true,
   password_hash text check (password_hash is null or password_hash ~ '^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$'),
@@ -53,6 +56,10 @@ create index if not exists person_computers_device_idx on fleet.person_computers
 alter table fleet.person_computers enable row level security;
 revoke all on fleet.person_computers from public, anon, authenticated;
 
+-- uids 70000-79999: above the range Debian gives local accounts (1000-60000,
+-- so Fleet's never push the next local one up), clear of systemd's own
+-- (homed 60001-60513, DynamicUser 61184-65519, nobody 65534) and below the
+-- subordinate ids for containers (100000 up).
 -- The uid for a new person (the same uid on every computer): one above the
 -- highest so far, so a uid isn't given to someone else while an old computer
 -- might still have the account; only when the range is used up, the lowest
@@ -64,8 +71,8 @@ security invoker
 set search_path = ''
 as $$
   select coalesce(
-    (select max(uid) + 1 from fleet.people where organisation_id = org having max(uid) < 69999),
-    (select min(u) from generate_series(61000, 69999) u
+    (select max(uid) + 1 from fleet.people where organisation_id = org having max(uid) < 79999),
+    (select min(u) from generate_series(70000, 79999) u
      where not exists (select 1 from fleet.people p where p.organisation_id = org and p.uid = u)),
     0);
 $$;
