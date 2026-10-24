@@ -402,10 +402,11 @@ def privacy() -> str:
 IDs, and it never sends what you do on your computer, your files, or what you type. The only thing it sends about
 itself is an anonymous weekly count, described below, which you can switch off.</p>"""),
         ("The anonymous weekly count", f"""<p>To know roughly how many computers run {e(NAME)}, and which versions
-to keep supporting, each installed computer is counted once a week. It sends exactly three things:</p>
+to keep supporting, each installed computer is counted once a week. It sends exactly four things:</p>
 <ul><li>the {e(NAME)} version, like 2.6;</li><li>whether it’s a PC (amd64) or a Mac or other Arm computer
 (arm64);</li><li>roughly how long it’s been installed: under a week, under a month, under six months, or
-longer.</li></ul>
+longer;</li><li>which week it’s counting (the same for every computer that week), so a count sent just before
+midnight isn’t added to the next week as well.</li></ul>
 <p>There’s no ID, name, account, serial number or hardware detail, and nothing about how you use the computer. The
 server only adds one to that week’s total for that version, kind of computer and age, so no week can be linked to
 another, or to a computer or a person. Computers started from the USB stick (the live session) aren’t counted.</p>

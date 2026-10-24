@@ -226,7 +226,8 @@ class AboutPage(Page):
                 rows.append(policy)
             erase = Adw.SwitchRow(title="Allow erasing this computer if it’s lost or stolen",
                                   subtitle="Your organisation can then make everything on its disk unreadable from "
-                                           "afar. Only works when the disk is encrypted", subtitle_lines=0,
+                                           "afar, after a 20-second notice on the screen. Only works when the "
+                                           "disk is encrypted", subtitle_lines=0,
                                   active=bool(data.get("allow_erase")))
             erase.connect("notify::active", self.on_allow_erase)
             self.erase_row = erase

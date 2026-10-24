@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import pwd
 import shutil
 import socket
 import subprocess
@@ -60,6 +61,12 @@ PUBLIC = Path("/var/lib/kulan/fleet-public.json")  # what anyone may see
 UPDATES = Path("/var/lib/kulan/updates.json")
 POLICY_PUBLIC = Path("/var/lib/kulan/fleet-policy.json")  # the policy kept to, for Kulan Settings
 APPS_SENT = Path("/var/lib/kulan/fleet-apps-sent")
+# An erase that was asked for and allowed: written before the notice, so
+# switching the computer off during it doesn't stop the erase (the next
+# report, 5 minutes after start-up, finishes it first, online or not).
+ERASE_PENDING = Path("/var/lib/kulan/fleet-erase-pending")
+ERASE_NOTICE_S = 20
+NOTICE = Path("/usr/lib/kulan/oom-notice")  # shows a notification in someone's session
 # After compliance mode's 50-kulan-compliance, so this file decides; it holds
 # the stricter of the two screen locks (see set_screen_lock).
 POLICY_DCONF = Path("/etc/dconf/db/local.d/60-kulan-fleet")
@@ -511,6 +518,70 @@ def erase() -> tuple[bool, str]:
     return True, f"erased {len(devices)} encrypted partition(s); switching off"
 
 
+def warn_users(title: str, body: str) -> None:
+    """Tell everyone using the computer: a notification on each signed-in
+    desktop, and a message in every terminal."""
+    run(["wall", f"{title}. {body}"], timeout=10)
+    if not NOTICE.exists():
+        return
+    for bus in sorted(Path("/run/user").glob("*/bus")):
+        uid = bus.parent.name
+        if not uid.isdigit() or int(uid) < 1000:
+            continue
+        try:
+            user = pwd.getpwuid(int(uid)).pw_name
+        except KeyError:
+            continue
+        run(["runuser", "-u", user, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
+             f"XDG_RUNTIME_DIR={bus.parent}", str(NOTICE), "notify", title, body], timeout=20)
+
+
+def erase_with_notice(action_id: str, resumed: bool = False) -> tuple[bool, str]:
+    """Erase, after a short notice to whoever is using the computer. The
+    pending mark is written first, so the erase still happens if the
+    computer is switched off during the notice."""
+    ok, why = erase_check()
+    if not ok:
+        ERASE_PENDING.unlink(missing_ok=True)
+        return False, str(why)
+    write_json(ERASE_PENDING, {"action": action_id, "since": int(time.time())}, 0o600)
+    org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
+    if resumed:
+        warn_users("This computer is being erased",
+                   f"{org} asked for it to be erased, and it was switched off before that finished. "
+                   "It's being erased now and will switch off.")
+    else:
+        warn_users("This computer will be erased",
+                   f"{org} is erasing this computer, as it was allowed to if the computer was lost. "
+                   f"In {ERASE_NOTICE_S} seconds everything on it becomes unreadable and it switches off.")
+        time.sleep(ERASE_NOTICE_S)
+    result = erase()
+    ERASE_PENDING.unlink(missing_ok=True)
+    return result
+
+
+def resume_erase(config: dict) -> bool:
+    """An erase interrupted by switching off: finish it first. True if the
+    computer was erased (and is switching off)."""
+    pending = read_json(ERASE_PENDING, None)
+    if not isinstance(pending, dict):
+        return False
+    action_id = str(pending.get("action", ""))
+    ok, detail = erase_with_notice(action_id, resumed=True)
+    say(f"erase (interrupted earlier): {'done' if ok else 'failed'} ({detail})")
+    if action_id:
+        try:
+            post(config["server"], f"/v1/actions/{urllib.parse.quote(action_id, safe='')}",
+                 {"device_id": config["device_id"], "status": "done" if ok else "failed", "detail": detail},
+                 config["token"])
+        except (RuntimeError, KeyError):
+            pass  # offline: the erase matters, not the report
+    if ok:
+        say("Erased, as the organisation asked: switching off")
+        power_off()
+    return ok
+
+
 def power_off() -> None:
     run(["sync"])
     run(["systemctl", "poweroff", "--force", "--force"])
@@ -574,6 +645,8 @@ def report() -> int:
         say("This computer hasn't joined an organisation")
         return 3
     server, token, device_id = config["server"], config["token"], config["device_id"]
+    if resume_erase(config):
+        return 0
     erasing = False
     for _round in range(3):  # "refresh" asks for another report straight away; at most three
         body = status_report(device_id)
@@ -606,6 +679,8 @@ def report() -> int:
             kind, action_id = str(action.get("type", "")), str(action.get("id", ""))
             if kind not in ALLOWED_ACTIONS:
                 ok, detail = False, "not an action Kulan OS allows"
+            elif kind == "erase":
+                ok, detail = erase_with_notice(action_id)
             else:
                 ok, detail = do_action(kind)
             again = again or kind == "refresh"

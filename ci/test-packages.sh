@@ -238,21 +238,27 @@ assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age"}, d
 assert d["sends"]["version"] == ".".join(vid.split(".")[:2]) and d["sends"]["arch"] in ("amd64", "arm64") and d["sends"]["age"] == 1, d
 assert d["to"].startswith("https://"), d'
 check "Count off switch" "update-run countme-off stops the count; countme-on brings it back" bash -c '/usr/lib/kulan/update-run countme-off && test -e /etc/kulan/no-countme && /usr/lib/kulan/countme send | grep -q "switched off" && /usr/lib/kulan/update-run countme-on && test ! -e /etc/kulan/no-countme'
-check "Count reaches the server" "a real HTTP POST with only the three fields (to a local test server)" python3 -I -B - <<'PY2'
+check "Count reaches the server" "a real HTTP POST with only the four fields (to a local test server); a server from before 2.7 gets the three it knows" python3 -I -B - <<'PY2'
 import http.server, importlib.machinery, importlib.util, json, threading
 got = []
+old_server = [False]
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        got.append((self.headers.get("Content-Type"), json.loads(self.rfile.read(int(self.headers["Content-Length"]))),
-                    self.headers.get("Cookie")))
-        self.send_response(204); self.end_headers()
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        got.append((self.headers.get("Content-Type"), body, self.headers.get("Cookie")))
+        self.send_response(400 if old_server[0] and "week" in body else 204); self.end_headers()
     def log_message(self, *a): pass
 srv = http.server.HTTPServer(("127.0.0.1", 0), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 loader = importlib.machinery.SourceFileLoader("countme", "/usr/lib/kulan/countme")
 spec = importlib.util.spec_from_loader("countme", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
-m.send({"version": "2.6", "arch": "amd64", "age": 2}, url=f"http://127.0.0.1:{srv.server_port}/countme/v1")
-assert got == [("application/json", {"version": "2.6", "arch": "amd64", "age": 2}, None)], got
+url = f"http://127.0.0.1:{srv.server_port}/countme/v1"
+body = {"version": "2.7", "arch": "amd64", "age": 2, "week": "2026-10-26"}
+m.send(dict(body), url=url)
+assert got == [("application/json", body, None)], got
+got.clear(); old_server[0] = True
+m.send(dict(body), url=url)
+assert [g[1] for g in got] == [body, {"version": "2.7", "arch": "amd64", "age": 2}], got
 srv.shutdown()
 PY2
 check "Lighter mode" "on, off and automatic are remembered and applied: shell flag, file search priority and zram size only when on" bash -c '
@@ -767,6 +773,58 @@ assert not ok and "erase failed on /dev/fake-luks2" in detail and "not switched 
 assert subprocess.run(["kulan-fleet", "allow-erase", "off"], capture_output=True).returncode == 0
 assert kf.erase() == (False, "not allowed on this computer (Kulan Settings > About > Organisation)")
 PY
+# Erasing a lost computer (2.7): a notice first, and switching off during
+# it doesn't stop the erase. Stand-ins for the disk: nothing is erased here.
+check "Fleet erase notice" "signed-in people are told 20 seconds before; the erase is noted first, so a switch-off during the notice is finished at the next report; not allowed means no notice" python3 -I -B - <<'PYERASE'
+import importlib.machinery, importlib.util, sys, tempfile
+from pathlib import Path
+from unittest import mock
+path = "/usr/bin/kulan-fleet"
+loader = importlib.machinery.SourceFileLoader("kulan_fleet", path)
+spec = importlib.util.spec_from_loader("kulan_fleet", loader); f = importlib.util.module_from_spec(spec); loader.exec_module(f)
+tmp = Path(tempfile.mkdtemp())
+f.ERASE_PENDING = tmp / "erase-pending"
+f.CONFIG = tmp / "fleet.json"
+f.write_json(f.CONFIG, {"server": "https://x", "device_id": "d1", "token": "t", "organisation": "Test Org", "allow_erase": True}, 0o600)
+events = []
+def notice(title, body):
+    events.append(("notice", f.ERASE_PENDING.exists(), title))
+with mock.patch.object(f, "erase_check", return_value=(True, ["/dev/fake"])), \
+        mock.patch.object(f, "erase", side_effect=lambda: (events.append(("erase",)), (True, "erased 1"))[1]), \
+        mock.patch.object(f, "warn_users", side_effect=notice), \
+        mock.patch.object(f.time, "sleep", side_effect=lambda s: events.append(("wait", s))), \
+        mock.patch.object(f, "power_off", side_effect=lambda: events.append(("off",))), \
+        mock.patch.object(f, "post", side_effect=lambda *a, **k: events.append(("post", a[1], a[2]["status"])) or {}):
+    # 1. Asked for and allowed: noticed first (with the mark already written), then a wait, then erased.
+    assert f.erase_with_notice("a1") == (True, "erased 1")
+    assert events == [("notice", True, "This computer will be erased"), ("wait", f.ERASE_NOTICE_S), ("erase",)], events
+    assert not f.ERASE_PENDING.exists()
+    # 2. Switched off during the notice: the mark stays...
+    events.clear()
+    with mock.patch.object(f.time, "sleep", side_effect=SystemExit("power cut")):
+        try:
+            f.erase_with_notice("a2")
+        except SystemExit:
+            pass
+    assert f.ERASE_PENDING.exists() and ("erase",) not in events
+    # ...and the next report finishes it first, with no wait, reports it and switches off.
+    events.clear()
+    assert f.resume_erase(f.read_json(f.CONFIG, {})) is True
+    assert events[0] == ("notice", True, "This computer is being erased") and ("wait", f.ERASE_NOTICE_S) not in events, events
+    assert ("erase",) in events and ("post", "/v1/actions/a2", "done") in events and events[-1] == ("off",), events
+    assert not f.ERASE_PENDING.exists()
+    # Nothing pending: nothing happens.
+    events.clear()
+    assert f.resume_erase(f.read_json(f.CONFIG, {})) is False and events == []
+# 3. Not allowed (or not encrypted): no notice, no mark, refused.
+events.clear()
+with mock.patch.object(f, "erase_check", return_value=(False, "not allowed on this computer")), \
+        mock.patch.object(f, "warn_users", side_effect=notice), mock.patch.object(f, "erase") as er:
+    f.write_json(f.ERASE_PENDING, {"action": "old"}, 0o600)
+    assert f.erase_with_notice("a3") == (False, "not allowed on this computer")
+    assert events == [] and not er.called and not f.ERASE_PENDING.exists()
+print("fleet erase notice test passed")
+PYERASE
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
 check "Fleet leave" "the server is told; key, status and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'

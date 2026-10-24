@@ -768,9 +768,10 @@ class FleetWindow(Adw.ApplicationWindow):
     def ask_erase(self, d: dict) -> Adw.AlertDialog:
         name = d.get("hostname") or ""
         dialog = Adw.AlertDialog(heading=f"Erase {name}?",
-                                 body="At its next report it makes everything on its disk unreadable, for good, and "
-                                      "switches off. Nobody can undo this or get the files back. To confirm, type "
-                                      "the computer’s name.")
+                                 body="At its next report it tells whoever is using it, 20 seconds later makes "
+                                      "everything on its disk unreadable, for good, and switches off. Switching it "
+                                      "off then only delays it. Nobody can undo this or get the files back. To "
+                                      "confirm, type the computer’s name.")
         entry = Adw.EntryRow(title=f"Type {name}")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         box.append(entry)
