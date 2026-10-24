@@ -1,11 +1,38 @@
 # Kulan OS 2.8 plan
 
-One headline, agreed with Mohamud on 24 October 2026: People in Kulan Fleet
-(Fleet accounts). Everything else that was here moved to docs/plan-2.9.md.
-The whole Fleet roadmap: docs/fleet-roadmap.md. Nothing here reaches main or
-the update channel until he says "release it".
+2.8 is Kulan Fleet, all of it (agreed with Mohamud, 24 October 2026): the
+roadmap in docs/fleet-roadmap.md, released in steps 2.8a, 2.8b, ... until it
+is done, instead of one Fleet stage per version number. Each step is tested
+fully and reaches main and the update channel only when he says "release
+it". Other work stays in docs/plan-2.9.md.
 
-## People in Kulan Fleet (agreed 24 October 2026)
+## The steps
+Shown as 2.8a, 2.8b... in Kulan Settings and on the website; inside, the
+packages are 2.8.1, 2.8.2... (apt versions and the weekly count take plain
+numbers; the count still says 2.8).
+- 2.8a People: accounts, setup codes, roles with the Owner and recovery
+  code, disable, remove; Shut down and Lost mode; in the Kulan Fleet app
+  and the web dashboard. (Built and tested; below.)
+- 2.8b Groups and policies: groups of people and computers; a policy per
+  group on top of the organisation's (the stricter rule wins); USB storage
+  blocked, or approved drives only; required and blocked apps; install an
+  app on a group once.
+- 2.8c Security, activity and computers: a weekly security report;
+  "who still has admin rights?" reviews; the activity log exported for
+  auditors; who uses which computer.
+- 2.8d Stronger sign-in: two-step sign-in on the computers (phone code or
+  security key); security keys for the Owner and admins in Kulan Fleet.
+- 2.8e Organisation: Google Workspace mailboxes made (and suspended) with
+  People through the Directory API, and the email connection settings,
+  built so Kulan's own mail server can take Google's place later.
+Not in 2.8: the Work edition (Fleet set up while Kulan OS installs) stays
+3.0; single sign-on to other apps stays 3.x.
+
+Every rule is off until the organisation turns it on, and only computers
+that joined an organisation (with the person seeing what's shared) are
+affected; leaving removes every rule.
+
+## 2.8a People in Kulan Fleet (agreed 24 October 2026)
 Mohamud's employees use Kulan OS laptops with accounts managed in Kulan
 Fleet: an Entra ID and Intune of Kulan's own, for Kulan OS. Email stays on
 Google Workspace (Business Starter); his own mail server comes later.
@@ -27,11 +54,7 @@ Google Workspace (Business Starter); his own mail server comes later.
   report); the admin keeps their files for handover or removes them.
 - Every change (created, disabled, made admin) in the activity log, with who
   did it.
-- Optional, same form: also create (and later suspend) their Google
-  Workspace mailbox through Google's Directory API (works on Business
-  Starter; one-time setup in the Google Admin console). Built so another
-  mail service can plug in instead (Stalwart or Migadu, both have an API)
-  when Kulan has its own mail server.
+- Google Workspace mailboxes: moved to 2.8e.
 - Tested with two VMs, then a real laptop (separate from the UTM VM).
 
 Not doing for now: Google Secure LDAP sign-in (needs Business Plus);
@@ -89,8 +112,16 @@ changes, every change in the activity log.
 - Kulan Fleet app: People page, person page, add (setup code made and
   hashed on the admin's computer, shown once), admins and the Owner,
   recovery, shut down and lost mode.
+- Web dashboard: People, admins and the Owner, recovery, shut down and
+  lost mode; setup codes hashed in the browser (sha512crypt.js, matches
+  openssl).
 - Tests: fleet/test against real Postgres (Fleet server workflow), the
-  package tests, the app's self-test.
+  package tests, the app's self-test, People across two computers
+  (ci/fleet-two-computers.sh, required before publishing), the test
+  server set up and removed in CI. fleet/test-server runs the real
+  functions on a test computer for trying it on VMs.
+- Still to see by eye: the sign-in screen with a setup code, on a VM or
+  the test laptop (a used ThinkPad T490).
 - At release, with Mohamud's go-ahead: apply the migration, deploy fleet
   and fleet-admin, then release the packages (old computers ignore the
   new reply fields).

@@ -1,9 +1,8 @@
 # Kulan OS 2.9 plan (draft)
 
 Moved from 2.8 with Mohamud, 24 October 2026, so 2.8 has one headline
-(People in Kulan Fleet). Fleet's own next step (groups and policies per
-group) is in docs/fleet-roadmap.md; one headline per release, chosen when
-2.8 is out. Nothing here reaches main or the update channel until he says
+(People in Kulan Fleet). All of Kulan Fleet is now 2.8, in steps 2.8a to
+2.8e (docs/plan-2.8.md); 2.9's headline is chosen when 2.8 is done. Nothing here reaches main or the update channel until he says
 "release it".
 
 ## Moved from 2.8 (first moved from 2.6, then 2.7)
