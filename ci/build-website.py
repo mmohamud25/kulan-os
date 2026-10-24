@@ -40,7 +40,8 @@ def conf() -> dict[str, str]:
 
 
 C = conf()
-VERSION = C["KULAN_VERSION"]
+VERSION = C["KULAN_VERSION"]          # 2.8.1: release notes and anchors (#v2.8.1)
+LABEL = C.get("KULAN_VERSION_LABEL") or VERSION  # 2.8a: what people see
 NAME = C["KULAN_NAME"]
 e = html.escape
 
@@ -139,10 +140,10 @@ def home(notes: list[dict]) -> str:
     body = f"""
 <section class="wrap hero">
 <div>
-<a class="pill" href="/whats-new/#v{e(latest['version'])}">New in {e(latest['version'])}: {e(latest.get('title', ''))} →</a>
+<a class="pill" href="/whats-new/#v{e(latest['version'])}">New in {e(latest.get('label') or latest['version'])}: {e(latest.get('title', ''))} →</a>
 <h1>A calm, secure desktop that just works.</h1>
 <p class="lead">{e(NAME)} is a free desktop built on Debian {e(C.get('KULAN_DEBIAN_VERSION', '13'))}. Signed updates, disk encryption, a private built-in assistant and a simple installer, ready the moment you turn it on.</p>
-<div class="actions"><a class="btn btn-primary" href="/download/">{ICONS['download']}Download {e(NAME)} {e(VERSION)}</a><a class="btn btn-ghost" href="/install/">How to install</a></div>
+<div class="actions"><a class="btn btn-primary" href="/download/">{ICONS['download']}Download {e(NAME)} {e(LABEL)}</a><a class="btn btn-ghost" href="/install/">How to install</a></div>
 <p class="muted">Free · PC and ARM versions · No account needed</p>
 </div>
 <div class="shot"><img src="/images/desktop-settings.jpg" width="1600" height="900" alt="The {e(NAME)} desktop with Kulan Settings open on the Wi-Fi and network page"></div>
@@ -166,7 +167,7 @@ def home(notes: list[dict]) -> str:
 def download() -> str:
     body = f"""
 <section class="wrap stack">
-<div class="head" style="margin-bottom:12px"><h1>Download {e(NAME)} {e(VERSION)}</h1><p class="lead">Free, with no account needed. Pick the version for your computer. Most Windows laptops and desktops need the PC version.</p></div>
+<div class="head" style="margin-bottom:12px"><h1>Download {e(NAME)} {e(LABEL)}</h1><p class="lead">Free, with no account needed. Pick the version for your computer. Most Windows laptops and desktops need the PC version.</p></div>
 <p class="note" id="dl-wait" hidden>The newest download is being prepared. Please check back in a little while.</p>
 <div class="grid-2">
 <div class="card dl main">
@@ -229,7 +230,7 @@ def download() -> str:
   }});
 }})();
 </script>"""
-    return page("/download/", "Download", f"Download {NAME} {VERSION} for PC or ARM. Free, no account needed.",
+    return page("/download/", "Download", f"Download {NAME} {LABEL} for PC or ARM. Free, no account needed.",
                 body, script)
 
 
@@ -311,8 +312,9 @@ def whats_new(notes: list[dict]) -> str:
     for i, note in enumerate(notes):
         version = str(note.get("version", ""))
         items = [str(x) for x in note.get("items", [])]
-        title = str(note.get("title") or f"{NAME} {version}")
-        heading = title if title.startswith(NAME) else f"{version}: {title}"
+        shown_version = str(note.get("label") or version)
+        title = str(note.get("title") or f"{NAME} {shown_version}")
+        heading = title if title.startswith(NAME) else f"{shown_version}: {title}"
         latest = ' <span class="tag teal">Latest</span>' if i == 0 else ""
         shown, rest = (items, []) if i == 0 else (items[:3], items[3:])
         more = (f'<details class="more"><summary>{len(rest)} more</summary><ul class="items">{note_items(rest)}</ul>'
@@ -437,7 +439,7 @@ listed in <a href="/whats-new/">What’s new</a> with the release that brings it
     ]
     parts = "".join(f'<section class="stack"><h2>{e(title)}</h2>{text}</section>' for title, text in sections)
     body = f"""<section class="wrap narrow stack"><h1>Privacy policy</h1><p class="lead">What {e(NAME)} sends, and
-what it never does.</p><p class="muted">For {e(NAME)} {e(VERSION)} and later.</p>{parts}</section>"""
+what it never does.</p><p class="muted">For {e(NAME)} {e(LABEL)} and later.</p>{parts}</section>"""
     return page("/privacy/", "Privacy policy", f"What {NAME} sends, and what it never does.", body)
 
 
@@ -466,7 +468,7 @@ def main(argv: list[str]) -> int:
     for folder in ("fonts", "images"):
         shutil.copytree(WEB / folder, out / folder, dirs_exist_ok=True)
     (out / "robots.txt").write_text("User-agent: *\nDisallow: /apt/\n")
-    print(f"Website: {len(pages)} pages for {NAME} {VERSION} in {out}")
+    print(f"Website: {len(pages)} pages for {NAME} {LABEL} in {out}")
     return 0
 
 

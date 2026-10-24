@@ -22,6 +22,8 @@ trap 'rm -rf "${WORK}"' EXIT
 # after 2.4.202610201905, and "2.4.1.2026…" would sort before it (1 < 2026…),
 # which apt treats as a downgrade. os-release still says 2.4.1.
 KULAN_SERIES="$(cut -d. -f1-2 <<<"${KULAN_VERSION}")"
+# What people see (kulan.conf: 2.8a for 2.8.1); os-release's VERSION_ID keeps the number.
+KULAN_LABEL="${KULAN_VERSION_LABEL:-${KULAN_VERSION}}"
 if [[ -z "${KULAN_PKG_VERSION:-}" ]]; then
 	if STAMP="$(git -C "${ROOT}" log -1 --format=%ct 2>/dev/null)" && [[ -n "${STAMP}" ]]; then
 		:
@@ -57,10 +59,10 @@ generate_kulan_base() {
 	local root="$1"
 	install -d "${root}/usr/lib" "${root}/usr/share/kulan"
 	cat > "${root}/usr/lib/os-release" <<EOF
-PRETTY_NAME="${KULAN_NAME} ${KULAN_VERSION}"
+PRETTY_NAME="${KULAN_NAME} ${KULAN_LABEL}"
 NAME="${KULAN_NAME}"
 VERSION_ID="${KULAN_VERSION}"
-VERSION="${KULAN_VERSION} (based on Debian ${KULAN_DEBIAN_VERSION})"
+VERSION="${KULAN_LABEL} (based on Debian ${KULAN_DEBIAN_VERSION})"
 VERSION_CODENAME=${KULAN_DEBIAN_SUITE}
 DEBIAN_CODENAME=${KULAN_DEBIAN_SUITE}
 ID=${KULAN_ID}

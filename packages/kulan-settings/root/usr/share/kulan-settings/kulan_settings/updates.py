@@ -38,6 +38,12 @@ NOTES_JSON = f"{SITE}/release-notes.json"
 
 def notes_url(version: str) -> str:
     return f"{SITE}/whats-new/#v{version}"
+
+
+def shown_version(release: dict) -> str:
+    """The version as people see it: os-release's VERSION without "(based on
+    Debian 13)", so 2.8a for 2.8.1; VERSION_ID if there's no VERSION."""
+    return release.get("VERSION", "").split(" (")[0].strip() or release.get("VERSION_ID", "")
 # What a restart finishes, in plain words (package name prefix -> words).
 RESTART_WORDS = [
     (("linux-image", "linux-signed"), "the Linux kernel"),
@@ -292,7 +298,7 @@ class UpdatesPage(Page):
         self.summary = updatelist.summarize(available, self.release.get("VERSION_ID", ""))
         new_version = self.release_offered()
         name = self.release.get("NAME", "Kulan OS")
-        current = self.release.get("VERSION_ID", "")
+        current = shown_version(self.release)
         restart = self.restart_needed()
         self.action = ""
         self.status_icon.set_pixel_size(64)
@@ -310,7 +316,7 @@ class UpdatesPage(Page):
             # A new Kulan OS version: the headline, with its name from the website.
             self.status_icon.set_from_icon_name("kulan-logo")
             self.status_icon.set_pixel_size(88)
-            self.status_title.set_label(f"{name} {new_version}")
+            self.status_title.set_label(f"{name} {(self.note_for(new_version) or {}).get('label') or new_version}")
             notes = self.note_for(new_version)
             self.status_subtitle.set_label(notes["title"] if notes and notes.get("title") else "A new version")
             self.action = "install"
@@ -498,7 +504,7 @@ class UpdatesPage(Page):
         page.add(group)
         notes = Adw.PreferencesGroup()
         link = Adw.ActionRow(title=f"What’s new in {self.release.get('NAME', 'Kulan OS')} "
-                                   f"{self.release.get('VERSION_ID', '')}".strip(), activatable=True)
+                                   f"{shown_version(self.release)}".strip(), activatable=True)
         link.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
         link.connect("activated", lambda _r: self.open_url(notes_url(self.release.get("VERSION_ID", ""))))
         notes.add(link)

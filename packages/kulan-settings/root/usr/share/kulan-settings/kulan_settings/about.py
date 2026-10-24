@@ -180,7 +180,8 @@ class AboutPage(Page):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, margin_top=12, margin_bottom=12)
         box.append(Gtk.Image(icon_name=release.get("LOGO", "kulan-logo"), pixel_size=112))
         box.append(Gtk.Label(label=release.get("NAME", "Kulan OS"), css_classes=["title-1"]))
-        version = release.get("VERSION_ID", "")
+        # As people see it (2.8a), not the plain number (2.8.1) apt uses.
+        version = release.get("VERSION", "").split(" (")[0].strip() or release.get("VERSION_ID", "")
         build = release.get("BUILD_ID", "")
         line = f"Version {version}" + (f" · Build {build}" if build and build != "local" else "")
         box.append(Gtk.Label(label=line, css_classes=["dim-label"]))

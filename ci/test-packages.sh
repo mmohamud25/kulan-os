@@ -127,6 +127,21 @@ fi
 
 # --- Identity ---------------------------------------------------------------------
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' /usr/lib/os-release
+check "Version shown" "os-release's VERSION_ID is kulan.conf's number (2.8.1) and what people see (PRETTY_NAME, VERSION, Kulan Settings) its label (2.8a)" python3 -I -B - <<'PYVER'
+import re, sys
+conf = dict(re.findall(r'^([A-Z_]+)="(.*)"$', open("kulan.conf").read(), re.M))
+rel = dict(re.findall(r'^([A-Z_]+)="?([^"\n]*)"?$', open("/usr/lib/os-release").read(), re.M))
+label = conf.get("KULAN_VERSION_LABEL") or conf["KULAN_VERSION"]
+assert rel["VERSION_ID"] == conf["KULAN_VERSION"], rel
+assert rel["PRETTY_NAME"] == f"Kulan OS {label}" and rel["VERSION"].startswith(f"{label} (based on Debian"), rel
+sys.path.insert(0, "/usr/share/kulan-settings")
+sys.dont_write_bytecode = True
+src = open("/usr/share/kulan-settings/kulan_settings/updates.py").read()
+ns = {}
+exec(re.search(r"def shown_version.*?\n\n", src + "\n\n", re.S).group(0), ns)
+assert ns["shown_version"](rel) == label, ns["shown_version"](rel)
+print("version shown as", label)
+PYVER
 check "Identity is upgrade-safe" "os-release diverted by kulan-base" bash -c 'dpkg-divert --list /usr/lib/os-release | grep -q "by kulan-base$"'
 check "Debian's copy kept" "os-release.debian is Debian's" grep -q '^ID=debian' /usr/lib/os-release.debian
 check "Build number" "os-release has BUILD_ID" grep -q '^BUILD_ID=' /usr/lib/os-release
