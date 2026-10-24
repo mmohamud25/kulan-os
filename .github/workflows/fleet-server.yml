@@ -52,6 +52,7 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           node --experimental-strip-types functions.test.mjs
+          node sha512crypt.test.mjs
 
   test-server:
     name: Test server (setup, sign-in, teardown)
