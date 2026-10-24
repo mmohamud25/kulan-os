@@ -22,6 +22,7 @@ they type it and choose their own password straight away.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import shutil
@@ -48,7 +49,9 @@ except (ValueError, ImportError):
     Secret = None
 
 APP_ID = "org.kulan.Fleet"
-SUPABASE_URL = "https://xegnwqxpegznsufulclx.supabase.co"
+# KULAN_FLEET_URL: a Kulan Fleet test server instead (fleet/test-server in the
+# Kulan OS source), for trying a release before it goes live.
+SUPABASE_URL = os.environ.get("KULAN_FLEET_URL", "").rstrip("/") or "https://xegnwqxpegznsufulclx.supabase.co"
 PUBLISHABLE_KEY = "sb_publishable_Z7MrJQBPYz3_CmXviZuTJA_kWNAMOA1"  # public by design
 API = f"{SUPABASE_URL}/functions/v1/fleet-admin"
 FLEET_SERVER = f"{SUPABASE_URL}/functions/v1/fleet"

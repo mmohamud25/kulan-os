@@ -38,6 +38,8 @@ jobs:
       - name: Type-check the functions
         run: |
           for f in fleet fleet-admin countme; do deno check "fleet/supabase/functions/$f/index.ts"; done
+          deno check fleet/test-server/serve.ts
+          bash -n fleet/test-server/setup.sh && bash -n fleet/test-server/run.sh && bash -n fleet/test-server/teardown.sh
       - name: Weekly count
         working-directory: fleet/supabase/functions/countme
         run: |
@@ -50,3 +52,39 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           node --experimental-strip-types functions.test.mjs
+
+  test-server:
+    name: Test server (setup, sign-in, teardown)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set it up as on a test computer
+        working-directory: fleet/test-server
+        run: sudo ./setup.sh ci@kulan.example
+      - name: Sign in, add an organisation, join a computer
+        working-directory: fleet/test-server
+        run: |
+          set -euo pipefail
+          sudo ./run.sh > /tmp/server.log 2>&1 &
+          IP="$(sudo cat /opt/kulan-fleet-test/address)"
+          B="https://${IP}:8443"
+          for i in $(seq 60); do curl -fs "${B}/kulan-fleet-test-ca.crt" -o /dev/null && break; sleep 2; done
+          curl -fsS -X POST "${B}/auth/v1/otp" -d '{"email":"ci@kulan.example"}'
+          CODE="$(grep -o 'ci@kulan.example: [0-9]*' /tmp/server.log | awk '{print $2}')"
+          TOK="$(curl -fsS -X POST "${B}/auth/v1/verify" -d "{\"type\":\"email\",\"email\":\"ci@kulan.example\",\"token\":\"${CODE}\"}" | jq -r .access_token)"
+          adm() { curl -fsS -X POST "${B}/functions/v1/fleet-admin" -H "Authorization: Bearer ${TOK}" -d "$1"; }
+          ORG="$(adm '{"op":"new-organisation","name":"CI"}' | jq -r .id)"
+          JOIN="$(adm "{\"op\":\"new-code\",\"organisation_id\":\"${ORG}\"}" | jq -r .code)"
+          DEV="$(curl -fsS -X POST "${B}/functions/v1/fleet/v1/enrol" -d "{\"code\":\"${JOIN}\",\"hostname\":\"ci\"}")"
+          echo "${DEV}" | jq -e '.device_id and .token' >/dev/null
+          adm '{"op":"overview"}' | jq -e '.devices | length == 1' >/dev/null
+          echo "test server works"
+          cat /tmp/server.log
+      - name: Teardown leaves nothing
+        working-directory: fleet/test-server
+        run: |
+          sudo pkill -f 'deno run' || true
+          sudo ./teardown.sh
+          test ! -e /opt/kulan-fleet-test && test ! -e /usr/local/share/ca-certificates/kulan-fleet-test.crt
+          # PostgreSQL stays only if it was there before (it is on GitHub's runners); the test database doesn't.
+          if command -v psql >/dev/null && systemctl is-active -q postgresql; then ! sudo -u postgres psql -lqt | cut -d'|' -f1 | grep -qw kulanfleet; fi
