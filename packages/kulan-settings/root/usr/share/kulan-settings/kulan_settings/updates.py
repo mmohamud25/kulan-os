@@ -294,6 +294,9 @@ class UpdatesPage(Page):
     def render_status(self) -> None:
         if self.working:
             return  # the running action owns the status area
+        # Read again each time: automatic updates can install a new Kulan OS
+        # version while this page is open, and it must say so.
+        self.release = os_release()
         available = self.available()
         self.summary = updatelist.summarize(available, self.release.get("VERSION_ID", ""))
         new_version = self.release_offered()
@@ -474,7 +477,8 @@ class UpdatesPage(Page):
             except (OSError, ValueError):
                 return
             if isinstance(data, list):
-                notes = [{"version": str(n.get("version")), "title": str(n.get("title") or "")}
+                notes = [{"version": str(n.get("version")), "title": str(n.get("title") or ""),
+                          "label": str(n.get("label") or "")}
                          for n in data if isinstance(n, dict) and n.get("version")]
                 GLib.idle_add(self.notes_arrived, notes)
 
