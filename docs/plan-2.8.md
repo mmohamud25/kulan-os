@@ -37,6 +37,38 @@ Google Workspace (Business Starter); his own mail server comes later.
 Not doing for now: Google Secure LDAP sign-in (needs Business Plus);
 Fleet accounts take its place.
 
+## How People works (design)
+Server (Supabase, private fleet schema):
+- fleet.people: organisation, username, full name, uid (61000-69999, given
+  by the server so a person has the same uid on every computer), role
+  (owner, admin, employee), enabled, password_hash, must_change,
+  password_changed_at, all_computers; fleet.person_computers for chosen
+  computers. The Owner is a person with role owner; only one per
+  organisation.
+- Each report's reply carries "accounts": the people allowed on that
+  computer (never anyone else's hash).
+- A report may carry "passwords": hashes changed on that computer (after a
+  first sign-in or a password change); the newest wins.
+Setup codes are made in the Kulan Fleet app, never on the server: the app
+makes the code, hashes it (yescrypt, else SHA-512 crypt) and sends only the
+hash with must_change. The admin sees the code once to hand over.
+On each computer (kulan-fleet report, as root):
+- Create: useradd with the server's uid, the hash, and "change at first
+  sign-in" (chage -d 0), so typing the setup code at the sign-in screen
+  asks for a new password at once. Admins join the sudo group.
+- Update: name, role, a newer hash from another computer.
+- Disable: lock the password, expire the account, end their sessions.
+- No longer allowed here: account removed; files moved to
+  /home/.kulan-left/<user>-<date> (root only) unless the admin chose to
+  delete them.
+- Never touches accounts Fleet didn't make; a username already used by
+  someone else on that computer is left alone and reported.
+- Local password changes are noticed in /etc/shadow and sent with the next
+  report.
+Kulan Fleet app: a People page (add, edit role and computers, disable,
+re-enable, remove with or without files, new setup code), Owner-only admin
+changes, every change in the activity log.
+
 ## Small Fleet additions
 - Shut down, with the same 5-minute notice as Restart.
 - Lost mode: nobody can use the computer until an admin releases it
