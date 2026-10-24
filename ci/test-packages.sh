@@ -444,6 +444,28 @@ check "Restore point limits" "newest 2 update-time points kept, own ones never d
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
+check "3D acceleration in About" "drawn by the graphics chip, or by the processor (a virtual machine without 3D), read like GNOME Settings does" python3 -I -B - <<'PYACC'
+import os, stat, sys, tempfile
+sys.path.insert(0, "/usr/share/kulan-settings")
+import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
+from kulan_settings import about
+d = tempfile.mkdtemp()
+def helper(text):
+    p = os.path.join(d, f"r{len(os.listdir(d))}")
+    with open(p, "w") as f:
+        f.write(f"#!/bin/sh\necho '{text}'\n")
+    os.chmod(p, 0o755)
+    return p
+on, name = about.acceleration(helper("llvmpipe (LLVM 19.1.7, 256 bits)"))
+assert on is False and name.startswith("llvmpipe"), (on, name)
+assert about.acceleration_text(on, name).startswith("Off: everything on the screen is drawn by the processor")
+on, name = about.acceleration(helper("Mesa Intel(R) UHD Graphics 620 (KBL GT2)"))
+assert on is True and about.acceleration_text(on, name) == "On (Mesa Intel(R) UHD Graphics 620 (KBL GT2))"
+assert about.acceleration(helper("virgl (Apple M5)"))[0] is True, "a virtual machine with 3D on"
+assert about.acceleration(os.path.join(d, "missing")) == (None, "") and about.acceleration_text(None, "") == ""
+assert about.acceleration(helper("")) == (None, "")
+print("acceleration check passed")
+PYACC
 check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "(2[1-9]|[3-9][0-9])/\1 pages built" && ! echo "$out" | grep -q Traceback'
 # Saved passwords after automatic sign-in (2.6.1): against a real GNOME Keyring on a private bus.
 cat >/tmp/keyring-test.sh <<'KEYRING'

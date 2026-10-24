@@ -233,6 +233,7 @@ check "Installer swap" "no swap partition or file (compressed memory instead)" b
 check "Live session" "screen stays on in the live session" has_path etc/xdg/autostart/org.kulan.LiveSession.desktop
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
+check "Graphics helper" "GNOME Settings' renderer helper is there for Kulan Settings › About's 3D acceleration line" test -x "${R}/usr/libexec/gnome-control-center-print-renderer"
 check "Backups" "Deja Dup installed" installed deja-dup
 check "Network privacy" "Wi-Fi MAC randomization config" test -s "${R}/etc/NetworkManager/conf.d/80-kulan-privacy.conf"
 check "Browser privacy" "Firefox policies valid JSON" python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${R}/etc/firefox/policies/policies.json"

@@ -113,6 +113,34 @@ def graphics() -> str:
     return " · ".join(dict.fromkeys(names))
 
 
+RENDERER_HELPER = "/usr/libexec/gnome-control-center-print-renderer"  # GNOME Settings' own
+SOFTWARE_RENDERERS = ("llvmpipe", "softpipe", "swrast", "software rasterizer", "lavapipe")
+
+
+def acceleration(helper: str = RENDERER_HELPER) -> tuple[bool | None, str]:
+    """Whether the screen is drawn by the graphics chip (True) or by the
+    processor (False), and the renderer's name; (None, "") if unknown."""
+    try:
+        out = subprocess.run([helper], capture_output=True, text=True, timeout=10, check=False,
+                             env={**os.environ, "LC_ALL": "C"}).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return None, ""
+    name = out.splitlines()[0].strip() if out else ""
+    if not name:
+        return None, ""
+    return not any(s in name.lower() for s in SOFTWARE_RENDERERS), name
+
+
+def acceleration_text(on: bool | None, name: str) -> str:
+    if on is None:
+        return ""
+    if on:
+        return f"On ({name})"
+    return (f"Off: everything on the screen is drawn by the processor ({name}), so animations can be slow. "
+            "In a virtual machine, turn on 3D or GPU acceleration in its display settings; on a computer, a "
+            "graphics driver may be missing.")
+
+
 def firmware() -> str:
     version = read_text("/sys/class/dmi/id/bios_version")
     date = read_text("/sys/class/dmi/id/bios_date")
@@ -164,6 +192,7 @@ class AboutPage(Page):
                 ("Kernel", f"Linux {uname.release} ({uname.machine})"),
                 ("Hardware model", hardware_model()),
                 ("Graphics", graphics()),
+                ("3D acceleration", acceleration_text(*acceleration())),
                 ("Firmware", firmware()),
                 ("Desktop", desktop_version())):
             if not value:
