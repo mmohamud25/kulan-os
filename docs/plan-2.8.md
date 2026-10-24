@@ -1,22 +1,11 @@
-# Kulan OS 2.8 plan (draft)
+# Kulan OS 2.8 plan
 
-Moved from 2.7 with Mohamud, 24 October 2026, so 2.7 ships sooner (see
-docs/plan-2.7.md). He liked all of these on 23 October. Nothing here reaches
-main or the update channel until he says "release it".
+One headline, agreed with Mohamud on 24 October 2026: People in Kulan Fleet
+(Fleet accounts). Everything else that was here moved to docs/plan-2.9.md.
+The whole Fleet roadmap: docs/fleet-roadmap.md. Nothing here reaches main or
+the update channel until he says "release it".
 
-## Moved from 2.7 (first moved from 2.6)
-- A native Sharing page in Kulan Settings (remote desktop, files, media).
-  Until then, GNOME Settings' Sharing stays linked from Kulan Settings.
-- Security: signed, measured start-up files (unified kernel images) so
-  someone with the computer for a few minutes can't tamper with /boot; a
-  passphrase-protected update signing key with a rotation plan.
-- Hardware: NVIDIA driver add-on with Secure Boot (MOK) signing; Broadcom wl.
-- Tests: sleep and wake; install next to Windows; a real restore-point
-  restore.
-- Downloads on Cloudflare R2 before the PC ISO nears GitHub's 2 GiB limit
-  (needs a Cloudflare account from Mohamud).
-
-## The headline: Fleet accounts (agreed 24 October 2026)
+## People in Kulan Fleet (agreed 24 October 2026)
 Mohamud's employees use Kulan OS laptops with accounts managed in Kulan
 Fleet: an Entra ID and Intune of Kulan's own, for Kulan OS. Email stays on
 Google Workspace (Business Starter); his own mail server comes later.
@@ -29,7 +18,10 @@ Google Workspace (Business Starter); his own mail server comes later.
   sends it only to the computers they may use, so sign-in works offline; a
   change on one computer reaches the others at their next report. Safe
   because Fleet requires encrypted disks.
-- Roles: employees get standard accounts; admins get administrator rights.
+- Roles: Owner (one; only the Owner adds or removes admins or deletes the
+  organisation; a recovery code printed when the organisation is made),
+  admins (administrator rights on the computers, manage people and
+  computers) and employees (standard accounts).
 - Leaving: disable in Fleet and their account is locked everywhere at the
   next report (within the hour) or at once with "Lock now"; the admin keeps
   their files for handover or removes them.
@@ -45,34 +37,9 @@ Google Workspace (Business Starter); his own mail server comes later.
 Not doing for now: Google Secure LDAP sign-in (needs Business Plus);
 Fleet accounts take its place.
 
-## Proposed additions (23 October 2026)
-User friendly:
-- Reset Kulan OS, keeping your files (like Pop!_OS recovery / Powerwash).
-- Move from Windows or Mac: bookmarks and saved passwords, Wi-Fi networks,
-  the wallpaper (files already work).
-- Choose a desktop layout: Kulan, Windows-like or Mac-like (like Zorin).
-- Website to app (like Linux Mint's Web Apps).
-Powerful:
-- Kulan Shortcuts: routines built from Ask Kulan's actions ("at 9 am:
-  Focus on, open Firefox"; "when my backup drive is plugged in: back up").
-Secure:
-- Find My Computer: Fleet v2's lock and erase for one person, with the same
-  consent rules.
-- Private folder: an encrypted folder with its own password (like KDE Vaults).
-- Battery care: stop charging at 80%.
-- Fingerprint sign-in set up in Kulan Settings › Users; the security
-  checkup runs weekly and only speaks up when something needs fixing.
+## Small Fleet additions
+- Shut down, with the same 5-minute notice as Restart.
+- Lost mode: nobody can use the computer until an admin releases it
+  (between Lock and Erase).
+- Already on this branch: the countme server's reply() fix and its test.
 
-## After 2.8 (was proposed for 2.8; moves back one release)
-- Gaming: the Steam add-on (already there, with Proton) gains GameMode and
-  controller support in the same step (becomes the Gaming edition in 3.0);
-  Android apps (Waydroid); live captions (on the computer, with Dictation's
-  speech model); apps from other Linux systems (Distrobox). Sending files to
-  nearby computers is already the Nearby Share add-on (LocalSend).
-- Newer hardware support: a newer kernel from Debian backports.
-- Graphics switching for laptops with two graphics chips.
-- Offline learning library add-on (Wikipedia, lessons, books; fits Kulan
-  Institute and places with poor internet); guest session that's wiped at
-  log-out.
-- The big safety project: updates you can start the previous version from
-  (btrfs snapshots in the start menu, like openSUSE and Fedora Silverblue).
