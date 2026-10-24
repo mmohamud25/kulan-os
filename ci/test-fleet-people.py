@@ -26,16 +26,16 @@ for u in ("zzamina", "zzomar", "zztaken"):
 subprocess.run(["useradd", "zztaken"], check=True)  # someone already on this computer
 try:
     code = h("K7Q4-9XPA")
-    accts = [{"username": "zzamina", "full_name": "Amina Yusuf", "uid": 71901, "role": "employee", "password_hash": code, "must_change": True, "password_changed_at": 100},
-             {"username": "zzomar", "full_name": "Omar: Ali", "uid": 71902, "role": "admin", "password_hash": h("omar-pass"), "password_changed_at": 100},
-             {"username": "zztaken", "full_name": "X", "uid": 71903},
-             {"username": "root", "uid": 71904}, {"username": "bad:name", "uid": 71905}, {"username": "zzbaduid", "uid": 1000},
-             {"username": "zzbadhash", "uid": 71906, "password_hash": "x:0:0"}]
+    accts = [{"username": "zzamina", "full_name": "Amina Yusuf", "uid": 79901, "role": "employee", "password_hash": code, "must_change": True, "password_changed_at": 100},
+             {"username": "zzomar", "full_name": "Omar: Ali", "uid": 79902, "role": "admin", "password_hash": h("omar-pass"), "password_changed_at": 100},
+             {"username": "zztaken", "full_name": "X", "uid": 79903},
+             {"username": "root", "uid": 79904}, {"username": "bad:name", "uid": 79905}, {"username": "zzbaduid", "uid": 1000},
+             {"username": "zzbadhash", "uid": 79906, "password_hash": "x:0:0"}]
     st, status = P.apply(accts, run, state={"people": {}}, left=left)
     assert status["zzamina"] == "created" and status["zzomar"] == "created", status
     assert status["zztaken"].startswith("conflict"), status
     assert "root" not in status and "bad:name" not in status and "zzbaduid" not in status, status
-    assert pwd.getpwnam("zzamina").pw_uid == 71901 and pwd.getpwnam("zzomar").pw_gecos == "Omar  Ali"
+    assert pwd.getpwnam("zzamina").pw_uid == 79901 and pwd.getpwnam("zzomar").pw_gecos == "Omar  Ali"
     assert shadow("zzamina")[1] == code and shadow("zzamina")[2] == "0", "setup code, change at first sign-in"
     assert "zzomar" in grp.getgrnam("sudo").gr_mem and "zzamina" not in grp.getgrnam("sudo").gr_mem
     assert Path("/home/zzamina").is_dir()
@@ -85,13 +85,13 @@ try:
     assert shadow("zzamina")[1] == mine_now and status["zzamina"] == "up to date", (status, shadow("zzamina")[1])
     # The server now has a different person called zzomar (another uid): his
     # account here isn't handed to them.
-    other = [dict(accts[0]), dict(accts[1], uid=71950)]
+    other = [dict(accts[0]), dict(accts[1], uid=79950)]
     st, status = P.apply(other, run, state=st, left=left)
-    assert status["zzomar"].startswith("conflict") and pwd.getpwnam("zzomar").pw_uid == 71902, status
+    assert status["zzomar"].startswith("conflict") and pwd.getpwnam("zzomar").pw_uid == 79902, status
     # Removed: Omar keeping his files, Amina with hers deleted.
     Path("/home/zzomar/report.txt").write_text("handover")
-    accts = [{"username": "zzomar", "uid": 71902, "removed": True, "remove_files": False},
-             {"username": "zzamina", "uid": 71901, "removed": True, "remove_files": True}]
+    accts = [{"username": "zzomar", "uid": 79902, "removed": True, "remove_files": False},
+             {"username": "zzamina", "uid": 79901, "removed": True, "remove_files": True}]
     st, status = P.apply(accts, run, state=st, left=left)
     kept = list(left.glob("zzomar-*"))
     assert kept and (kept[0] / "report.txt").read_text() == "handover" and oct(left.stat().st_mode)[-3:] == "700", (status, kept)
