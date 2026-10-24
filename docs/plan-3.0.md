@@ -15,7 +15,7 @@ editions are what's added on top of the same system.
   right graphics drivers (NVIDIA included), and a graphics check that says
   plainly when a computer can't game well. Not offered on Arm (Mac).
 - Work: join the organisation's Fleet during setup, connect to its
-  accounts (Google Workspace sign-in, from 2.8) in the same step, compliance
+  accounts (Fleet accounts, from 2.8) in the same step, compliance
   mode on, encryption required, and an automatic-install file for IT. The
   employee then signs in with their work account and policies and apps
   arrive by themselves.
