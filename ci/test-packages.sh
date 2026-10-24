@@ -230,11 +230,14 @@ check "A failing setup step can't block updates" "when one of Kulan's desktop se
 check "Firmware updates" "device firmware from fwupd shows in Software Update" bash -c 'printf "{\"Devices\": [{\"Name\": \"Test Dock\", \"DeviceId\": \"abc\", \"Version\": \"1.0\", \"Releases\": [{\"Version\": \"1.1\", \"Summary\": \"Fixes\"}]}]}" > /var/lib/kulan/firmware-updates.json && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); f = [u for u in d[\"available\"] if u.get(\"kind\") == \"firmware\"]; assert f and f[0][\"name\"] == \"Test Dock\" and f[0][\"to\"] == \"1.1\", f"; ok=$?; rm -f /var/lib/kulan/firmware-updates.json; /usr/lib/kulan/update-status refresh; exit $ok'
 check "Anonymous count" "countme's own tests: exactly version, PC or Mac, and rough age; once a week; off means nothing is sent" /usr/lib/kulan/countme self-test
 check "Anonymous count on by default" "weekly count timer enabled, its own user, no off file" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-countme.timer && getent passwd kulan-countme >/dev/null && test ! -e /etc/kulan/no-countme && grep -qx "ConditionPathExists=!/etc/kulan/no-countme" /usr/lib/systemd/system/kulan-countme.service'
-check "What the count sends" "only version, PC or Mac and age; the version matches Kulan OS" python3 -c '
+check "What the count sends" "only version, PC or Mac, age and the week (this Monday); the version matches Kulan OS" python3 -c '
 import json, subprocess
 d = json.loads(subprocess.run(["/usr/lib/kulan/countme", "show"], capture_output=True, text=True, check=True).stdout)
 vid = [l.split("=", 1)[1].strip().strip("\"") for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]
-assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age"}, d
+assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age", "week"}, d
+import datetime
+today = datetime.datetime.now(datetime.timezone.utc).date()
+assert d["sends"]["week"] == (today - datetime.timedelta(days=today.weekday())).isoformat(), d
 assert d["sends"]["version"] == ".".join(vid.split(".")[:2]) and d["sends"]["arch"] in ("amd64", "arm64") and d["sends"]["age"] == 1, d
 assert d["to"].startswith("https://"), d'
 check "Count off switch" "update-run countme-off stops the count; countme-on brings it back" bash -c '/usr/lib/kulan/update-run countme-off && test -e /etc/kulan/no-countme && /usr/lib/kulan/countme send | grep -q "switched off" && /usr/lib/kulan/update-run countme-on && test ! -e /etc/kulan/no-countme'
@@ -860,6 +863,19 @@ cat >/tmp/store-test.sh <<'STORE'
 #!/bin/bash
 set -uo pipefail
 DEB="$1"
+RULE=/etc/polkit-1/rules.d/00-kulan-store-test.rules
+# Always put things back, pass or fail: a PackageKit left mid-install would
+# hold the package lock and break the removal checks that follow.
+cleanup() {
+	pkill -x gnome-software 2>/dev/null
+	rm -f /etc/apt/sources.list.d/kulan-store-test.list "${RULE}"
+	apt-get update -q >/dev/null 2>&1 || true
+	# Last: refreshing the lists wakes PackageKit up again.
+	pkill -x packagekitd 2>/dev/null
+	sleep 2
+	pkill -9 -x packagekitd 2>/dev/null
+}
+trap cleanup EXIT
 apt-get install -y -q --no-install-recommends gnome-software packagekit polkitd appstream apt-utils dbus xvfb xauth >/tmp/store-apt.log 2>&1 || { tail -n 3 /tmp/store-apt.log; echo "GNOME Software isn't installable"; exit 1; }
 CMD=/usr/libexec/gnome-software-cmd
 # GNOME's sample Editor's Choice list arrives set aside: Kulan's picks are the list.
@@ -877,6 +893,12 @@ appstreamcli refresh-cache --force >/dev/null 2>&1
 appstreamcli get org.kulan.Fleet | grep -qx "Package: kulan-fleet-admin" || { echo "Kulan Fleet isn't in the app catalogue"; exit 1; }
 mkdir -p /run/dbus
 [ -S /run/dbus/system_bus_socket ] || dbus-daemon --system --fork
+# The container has no desktop session to ask for a password: let root
+# install for this test only (removed by cleanup), as an admin would be asked.
+mkdir -p "$(dirname "${RULE}")"
+printf '%s\n' 'polkit.addRule(function (action, subject) {' \
+	'  if (action.id.indexOf("org.freedesktop.packagekit.") === 0 && subject.user === "root") return polkit.Result.YES;' \
+	'});' > "${RULE}"
 pgrep -x polkitd >/dev/null || { /usr/lib/polkit-1/polkitd --no-debug >/tmp/polkitd.log 2>&1 & }
 pgrep -x packagekitd >/dev/null || { /usr/libexec/packagekitd >/tmp/packagekitd.log 2>&1 & }
 sleep 3
@@ -887,10 +909,14 @@ found="$(gs --refine-flags=origin,license --show-results search fleet)"
 echo "${found}" | grep -q "unique-id: .*kulan-apps/org.kulan.Fleet" || { echo "${found}" | grep -vE "fd limit|libEGL|proxy" | tail -n 5; apt-cache policy kulan-fleet-admin | head -n 3; echo "the Store didn't find Kulan Fleet"; exit 1; }
 echo "${found}" | awk '/^GsApp:/ { if (f && a) ok = 1; f = a = 0 } /^id: *org\.kulan\.Fleet$/ { f = 1 } /^state: *available$/ { a = 1 } END { if (f && a) ok = 1; exit !ok }' ||
 	{ echo "Kulan Fleet isn't installable in the Store"; exit 1; }
-gs action install org.kulan.Fleet | tail -n 3
-dpkg -s kulan-fleet-admin 2>/dev/null | grep -qx "Status: install ok installed" || { tail -n 5 /tmp/packagekitd.log; echo "the Store didn't install it"; exit 1; }
-rm -f /etc/apt/sources.list.d/kulan-store-test.list
-pkill -x packagekitd || true
+pgrep -x polkitd >/dev/null || echo "note: polkitd isn't running ($(tail -n 1 /tmp/polkitd.log 2>/dev/null))"
+gs action install org.kulan.Fleet > /tmp/store-install.log
+if ! dpkg -s kulan-fleet-admin 2>/dev/null | grep -qx "Status: install ok installed"; then
+	grep -ivE "fd limit|libEGL|proxy|CRITICAL" /tmp/store-install.log | grep -iE "fail|error|denied|auth|polkit|not " | tail -n 3
+	grep -ivE "CRITICAL|^$" /tmp/packagekitd.log | tail -n 2
+	echo "the Store didn't install it"
+	exit 1
+fi
 echo "store test passed"
 STORE
 check "Store installs Kulan Fleet" "found in Kulan's catalogue by GNOME Software and installed from Kulan's channel through PackageKit" bash -c "bash /tmp/store-test.sh ./${FLEET_ADMIN[0]} >/tmp/store.out 2>&1; rc=\$?; tail -n 4 /tmp/store.out; [ \$rc -eq 0 ] && grep -qx 'store test passed' /tmp/store.out"
@@ -927,7 +953,7 @@ if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-upda
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
-	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c 'for f in /usr/share/plymouth/themes/kulan /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override /var/lib/kulan/updates.json /var/lib/kulan-countme /etc/kulan/no-countme /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf /usr/share/kulan-settings /var/lib/kulan-assistant /usr/share/kulan-assistant /usr/bin/__pycache__; do test -e "$f" && echo "left: $f"; done; ! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c 'for f in /usr/share/plymouth/themes/kulan /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override /var/lib/kulan/updates.json /var/lib/kulan-countme /etc/kulan/no-countme /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf /usr/share/kulan-settings /var/lib/kulan-assistant /usr/share/kulan-assistant /usr/bin/__pycache__; do test -e "$f" && echo "left: $f $(find "$f" -mindepth 1 2>/dev/null | head -n 3 | tr "\n" " ")"; done; ! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi
