@@ -14,3 +14,5 @@ interest-noawait /usr/share/applications/simple-scan.desktop
 interest-noawait /usr/share/applications/org.gnome.SimpleScan.desktop
 interest-noawait /usr/share/applications/org.gnome.Evince.desktop
 interest-noawait /usr/share/applications/org.gnome.Papers.desktop
+interest-noawait /usr/share/applications/org.gnome.baobab.desktop
+interest-noawait /usr/share/applications/gufw.desktop

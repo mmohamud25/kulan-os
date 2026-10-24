@@ -242,6 +242,8 @@ def counted(updates: list[dict]) -> tuple[int, int]:
     bar says the same number. Kulan Settings' own grouping when it's there."""
     try:
         sys.path.insert(0, "/usr/share/kulan-settings")
+        # Runs as root: don't leave compiled copies in kulan-settings' folder.
+        sys.dont_write_bytecode = True
         from kulan_settings import updatelist  # noqa: PLC0415 - optional, from kulan-settings
         version = ""
         with open("/etc/os-release", encoding="utf-8") as fh:

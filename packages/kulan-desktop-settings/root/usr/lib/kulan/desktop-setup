@@ -84,7 +84,7 @@ if [ -f /usr/share/applications/org.gnome.Ptyxis.desktop ]; then
 else
 	rm -f "${HIDDEN_CONSOLE}"
 fi
-# GNOME Software is the Kulan Store: same app, Kulan's name and icon (its
+# GNOME Software is the Store: same app, Kulan's name and icon (its
 # updates live in Kulan Settings > Software Update). Made from the real
 # launcher each time, so changes in GNOME Software's own launcher carry over.
 STORE_SRC=/usr/share/applications/org.gnome.Software.desktop
@@ -94,9 +94,10 @@ if [ -f "${STORE_SRC}" ]; then
 	sed -E \
 		-e '/^(Name|GenericName|X-GNOME-FullName|Comment|Icon)(\[[^]]*\])?=/d' \
 		-e '0,/^\[Desktop Entry\]$/s//[Desktop Entry]\
-# Kulan OS: GNOME Software, as the Kulan Store.\
-Name=Kulan Store\
+# Kulan OS: GNOME Software, as the Store.\
+Name=Store\
 GenericName=App Store\
+X-GNOME-FullName=Store\
 Comment=Find and install apps, checked for Kulan OS\
 Icon=kulan-store/' \
 		"${STORE_SRC}" > "${STORE}.tmp"
@@ -125,7 +126,10 @@ for SPEC in \
 	"simple-scan.desktop:Scanner" \
 	"org.gnome.SimpleScan.desktop:Scanner" \
 	"org.gnome.Evince.desktop:PDF Viewer" \
-	"org.gnome.Papers.desktop:PDF Viewer"; do
+	"org.gnome.Papers.desktop:PDF Viewer" \
+	"org.gnome.Ptyxis.desktop:Terminal" \
+	"org.gnome.baobab.desktop:Disk Usage" \
+	"gufw.desktop:Firewall"; do
 	ID="${SPEC%%:*}"
 	SHORT="${SPEC#*:}"
 	SRC="/usr/share/applications/${ID}"

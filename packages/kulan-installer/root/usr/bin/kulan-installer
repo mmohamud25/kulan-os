@@ -542,7 +542,7 @@ class Installer(Adw.ApplicationWindow):
         box.append(self.bar)
         box.append(self.status)
         tips = Gtk.Label(wrap=True, xalign=0, margin_top=24,
-                         label="While you wait: Kulan Settings has everything in one place, the Kulan Store has "
+                         label="While you wait: Kulan Settings has everything in one place, the Store has "
                                "apps checked for Kulan OS, and Cmd+Space finds apps, files and settings.")
         box.append(tips)
         page = self.page("installing", "Installing", "Installing", "Installing Kulan OS", None, box, next_label=None)

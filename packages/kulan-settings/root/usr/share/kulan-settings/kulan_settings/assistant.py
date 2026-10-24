@@ -115,6 +115,19 @@ class AssistantPage(Page):
         features.add(choice_row("Translate to", None, choices, lambda: self.settings.get_string("translate-to"),
                                 lambda v: self.settings.set_string("translate-to", v)))
 
+        # The Ask Kulan app's conversations (kept only on this computer, for you).
+        if self.settings.props.settings_schema.has_key("keep-conversations"):
+            chats = self.add_group("Ask Kulan conversations",
+                                   "The Ask Kulan app keeps your conversations on this computer so you can go back "
+                                   "to them. Only you can read them, and they never leave the computer.")
+            self.add_rows(chats, switch_row(self.settings, "keep-conversations", "Keep conversations",
+                                            "Off: nothing is saved, and a conversation ends when you close the app"))
+            clear = Adw.ActionRow(title="Delete all conversations…", activatable=True,
+                                  subtitle="Removes them from this computer")
+            clear.add_suffix(Gtk.Image(icon_name="user-trash-symbolic"))
+            clear.connect("activated", lambda _r: self.confirm_delete_conversations())
+            chats.add(clear)
+
         # Reminders set with Ask Kulan: see what's coming, cancel one.
         self.reminders_group = self.add_group(
             "Reminders", "Ask Kulan sets them (Shift+Super+Space: “remind me at 5 to call Amina”). They come even "
@@ -138,6 +151,34 @@ class AssistantPage(Page):
                 self.watch(self.settings, f"changed::{key}", lambda *_a: GLib.idle_add(lambda: self.shown() and False))
         self.listen_busy(self.on_busy)
         self.shown()
+
+    @staticmethod
+    def conversations_dir() -> Path:
+        return Path(GLib.get_user_data_dir()) / "kulan-assistant" / "conversations"
+
+    def confirm_delete_conversations(self) -> None:
+        dialog = Adw.AlertDialog(heading="Delete all conversations?",
+                                 body="Ask Kulan’s conversations are removed from this computer and can’t be "
+                                      "brought back.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete all")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+
+        def answered(_d, response: str) -> None:
+            if response != "delete":
+                return
+            count = 0
+            folder = self.conversations_dir()
+            for f in folder.glob("*.json") if folder.is_dir() else []:
+                try:
+                    f.unlink()
+                    count += 1
+                except OSError:
+                    pass
+            self.toast("Conversations deleted" if count else "There were no conversations to delete")
+        dialog.connect("response", answered)
+        dialog.present(self.window)
 
     def show_reminders(self) -> None:
         for row in self.reminder_rows:

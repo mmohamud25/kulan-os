@@ -444,13 +444,13 @@ export class AskKulan {
         if (reply.confirm) {
             this._plan = {id: reply.id, text: this._entry.get_text()};
             this._addButtons([
-                ['Continue in Kulan Assistant', () => this._continue(text), false],
+                ['Continue in the app', () => this._continue(text), false],
                 ['Cancel', () => this.close(), false],
                 ['Do it', () => this._run(), true],
             ]);
         } else {
             this._addButtons([
-                ['Continue in Kulan Assistant', () => this._continue(text), false],
+                ['Continue in the app', () => this._continue(text), false],
                 ['Done', () => this.close(), true],
             ]);
         }

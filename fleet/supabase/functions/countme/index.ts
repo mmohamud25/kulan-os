@@ -1,6 +1,8 @@
 // Kulan OS weekly count (the other end of /usr/lib/kulan/countme).
 //
-//   POST /countme/v1   {version: "2.6", arch: "amd64"|"arm64", age: 1-4}  -> 204
+//   POST /countme/v1   {version: "2.6", arch: "amd64"|"arm64", age: 1-4, week: "2026-10-19"}  -> 204
+//                      (week, the Monday being counted, from Kulan OS 2.7; older
+//                      computers leave it out and are filed under this week)
 //   GET  /countme/v1   totals for the last 12 weeks (anonymous already)
 //
 // This function stores nothing about the sender: not the address, not a
@@ -12,19 +14,12 @@
 // computers have no account, and there's nothing private to protect here.
 // Data lives in the private "stats" schema, over a direct Postgres connection.
 import postgres from "npm:postgres@3.4.5";
+import { acceptedWeek } from "./week.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false });
 const VERSION = /^[0-9]{1,2}\.[0-9]{1,2}$/;
 const ARCHES = new Set(["amd64", "arm64"]);
 const AGES = ["under a week", "under a month", "under six months", "longer"];
-
-function reply(status: number, body?: unknown): Response {
-  return new Response(body === undefined ? null : JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-  });
-}
-
 Deno.serve(async (req: Request) => {
   const path = new URL(req.url).pathname.replace(/^.*\/countme(?=\/v1)/, "");
   if (path !== "/v1") return reply(404, { error: "not found" });
@@ -54,14 +49,17 @@ Deno.serve(async (req: Request) => {
     return reply(400, { error: "JSON object expected" });
   }
   const { version, arch, age } = body;
-  if (Object.keys(body).length !== 3 || typeof version !== "string" || !VERSION.test(version) ||
+  const keys = Object.keys(body).sort().join(",");
+  const week = acceptedWeek(body.week, new Date());
+  if ((keys !== "age,arch,version" && keys !== "age,arch,version,week") || week === null ||
+      typeof version !== "string" || !VERSION.test(version) ||
       typeof arch !== "string" || !ARCHES.has(arch) ||
       typeof age !== "number" || !Number.isInteger(age) || age < 1 || age > 4) {
-    return reply(400, { error: "expected exactly {version, arch, age}" });
+    return reply(400, { error: "expected exactly {version, arch, age} and optionally week (this or last week's Monday)" });
   }
   await sql`
     insert into stats.weekly_computers (week, version, arch, age, computers)
-    values ((date_trunc('week', now() at time zone 'utc'))::date, ${version}, ${arch}, ${age}, 1)
+    values (${week}::date, ${version}, ${arch}, ${age}, 1)
     on conflict (week, version, arch, age) do update
       set computers = stats.weekly_computers.computers + 1`;
   return reply(204);

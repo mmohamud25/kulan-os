@@ -41,7 +41,7 @@ QUESTION_WORDS = {"the", "my", "a", "an", "from", "about", "with", "last", "ago"
                   "recent", "latest", "sent", "received", "made", "wrote", "written"}
 MAX_RESULTS = 8
 # The first result for anything that reads like a request or a question:
-# "Ask Kulan", which opens Kulan Assistant with it (answers, or does it).
+# "Ask Kulan", which opens Ask Kulan with it (answers, or does it).
 ASK_PREFIX = "kulan-ask:"
 ASK_MIN_WORDS = 2
 IDLE_EXIT_S = 300
@@ -319,7 +319,7 @@ class Provider:
 
 def ask_kulan(text: str) -> None:
     """Open Ask Kulan with the words: the panel in the desktop (Kulan Shell)
-    when it's there, else Kulan Assistant's window. Either answers a question,
+    when it's there, else the Ask Kulan app. Either answers a question,
     or shows the plan for something to do (nothing happens until Do it)."""
     if not text:
         return

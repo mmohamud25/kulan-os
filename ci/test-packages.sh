@@ -230,29 +230,38 @@ check "A failing setup step can't block updates" "when one of Kulan's desktop se
 check "Firmware updates" "device firmware from fwupd shows in Software Update" bash -c 'printf "{\"Devices\": [{\"Name\": \"Test Dock\", \"DeviceId\": \"abc\", \"Version\": \"1.0\", \"Releases\": [{\"Version\": \"1.1\", \"Summary\": \"Fixes\"}]}]}" > /var/lib/kulan/firmware-updates.json && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); f = [u for u in d[\"available\"] if u.get(\"kind\") == \"firmware\"]; assert f and f[0][\"name\"] == \"Test Dock\" and f[0][\"to\"] == \"1.1\", f"; ok=$?; rm -f /var/lib/kulan/firmware-updates.json; /usr/lib/kulan/update-status refresh; exit $ok'
 check "Anonymous count" "countme's own tests: exactly version, PC or Mac, and rough age; once a week; off means nothing is sent" /usr/lib/kulan/countme self-test
 check "Anonymous count on by default" "weekly count timer enabled, its own user, no off file" bash -c 'test -L /etc/systemd/system/timers.target.wants/kulan-countme.timer && getent passwd kulan-countme >/dev/null && test ! -e /etc/kulan/no-countme && grep -qx "ConditionPathExists=!/etc/kulan/no-countme" /usr/lib/systemd/system/kulan-countme.service'
-check "What the count sends" "only version, PC or Mac and age; the version matches Kulan OS" python3 -c '
+check "What the count sends" "only version, PC or Mac, age and the week (this Monday); the version matches Kulan OS" python3 -c '
 import json, subprocess
 d = json.loads(subprocess.run(["/usr/lib/kulan/countme", "show"], capture_output=True, text=True, check=True).stdout)
 vid = [l.split("=", 1)[1].strip().strip("\"") for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]
-assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age"}, d
+assert d["on"] is True and set(d["sends"]) == {"version", "arch", "age", "week"}, d
+import datetime
+today = datetime.datetime.now(datetime.timezone.utc).date()
+assert d["sends"]["week"] == (today - datetime.timedelta(days=today.weekday())).isoformat(), d
 assert d["sends"]["version"] == ".".join(vid.split(".")[:2]) and d["sends"]["arch"] in ("amd64", "arm64") and d["sends"]["age"] == 1, d
 assert d["to"].startswith("https://"), d'
 check "Count off switch" "update-run countme-off stops the count; countme-on brings it back" bash -c '/usr/lib/kulan/update-run countme-off && test -e /etc/kulan/no-countme && /usr/lib/kulan/countme send | grep -q "switched off" && /usr/lib/kulan/update-run countme-on && test ! -e /etc/kulan/no-countme'
-check "Count reaches the server" "a real HTTP POST with only the three fields (to a local test server)" python3 -I -B - <<'PY2'
+check "Count reaches the server" "a real HTTP POST with only the four fields (to a local test server); a server from before 2.7 gets the three it knows" python3 -I -B - <<'PY2'
 import http.server, importlib.machinery, importlib.util, json, threading
 got = []
+old_server = [False]
 class H(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
-        got.append((self.headers.get("Content-Type"), json.loads(self.rfile.read(int(self.headers["Content-Length"]))),
-                    self.headers.get("Cookie")))
-        self.send_response(204); self.end_headers()
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        got.append((self.headers.get("Content-Type"), body, self.headers.get("Cookie")))
+        self.send_response(400 if old_server[0] and "week" in body else 204); self.end_headers()
     def log_message(self, *a): pass
 srv = http.server.HTTPServer(("127.0.0.1", 0), H)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 loader = importlib.machinery.SourceFileLoader("countme", "/usr/lib/kulan/countme")
 spec = importlib.util.spec_from_loader("countme", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
-m.send({"version": "2.6", "arch": "amd64", "age": 2}, url=f"http://127.0.0.1:{srv.server_port}/countme/v1")
-assert got == [("application/json", {"version": "2.6", "arch": "amd64", "age": 2}, None)], got
+url = f"http://127.0.0.1:{srv.server_port}/countme/v1"
+body = {"version": "2.7", "arch": "amd64", "age": 2, "week": "2026-10-26"}
+m.send(dict(body), url=url)
+assert got == [("application/json", body, None)], got
+got.clear(); old_server[0] = True
+m.send(dict(body), url=url)
+assert [g[1] for g in got] == [body, {"version": "2.7", "arch": "amd64", "age": 2}], got
 srv.shutdown()
 PY2
 check "Lighter mode" "on, off and automatic are remembered and applied: shell flag, file search priority and zram size only when on" bash -c '
@@ -400,7 +409,7 @@ check "Short app names" "long names cut off in the app grid get short ones (GIMP
 	/usr/lib/kulan/desktop-setup >/dev/null 2>&1; ok=1
 	grep -qx "Name=GIMP" "$dst" && grep -qx "X-GNOME-FullName=GNU Image Manipulation Program" "$dst" && grep -qx "Name=New Window" "$dst" && grep -qx "Name\[de\]=GNU Bildbearbeitung" "$dst" && desktop-file-validate "$dst" && ok=0
 	rm -f "$src"; /usr/lib/kulan/desktop-setup >/dev/null 2>&1; [ ! -e "$dst" ] || ok=1; exit $ok'
-check "Kulan Store" "GNOME Software shown as Kulan Store with its icon; Kulan picks in the catalogue" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Kulan Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml'
+check "Store" "GNOME Software shown as Store with Kulan's icon; Kulan picks and Kulan's own apps in the catalogue; Kulan counted as official" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml && grep -q "<pkgname>kulan-fleet-admin</pkgname>" /usr/share/swcatalog/xml/kulan-apps.xml && test -s /usr/share/swcatalog/icons/kulan-apps/64x64/org.kulan.Fleet.png && grep -qx "official-repos=\[.debian-\*., .kulan-\*.\]" /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && [ "$(dpkg-divert --listpackage /usr/share/swcatalog/xml/org.gnome.Software.Curated.xml)" = kulan-desktop-settings ]'
 check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
 check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I -B - <<'PY'
 import os, sys, tempfile
@@ -438,6 +447,34 @@ check "Restore point limits" "newest 2 update-time points kept, own ones never d
 check "Release notes" "notes exist for this version" python3 -c 'import json, shlex; v = [shlex.split(l.split("=",1)[1])[0] for l in open("/usr/lib/os-release") if l.startswith("VERSION_ID=")][0]; assert any(n["version"] == v for n in json.load(open("/usr/share/kulan/release-notes.json"))), v'
 check "Kulan Settings compiles" "every Python file parses" bash -c "$(declare -f pycheck); pycheck /usr/bin/kulan-settings /usr/lib/kulan/update-status /usr/share/kulan-settings/kulan_settings/*.py"
 # shellcheck disable=SC2016  # expanded by the inner bash
+check "3D acceleration in About" "drawn by the graphics chip, or by the processor (a virtual machine without 3D), read like GNOME Settings does" python3 -I -B - <<'PYACC'
+import os, stat, sys, tempfile
+sys.path.insert(0, "/usr/share/kulan-settings")
+import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
+from kulan_settings import about
+d = tempfile.mkdtemp()
+def helper(text):
+    p = os.path.join(d, f"r{len(os.listdir(d))}")
+    with open(p, "w") as f:
+        f.write(f"#!/bin/sh\necho '{text}'\n")
+    os.chmod(p, 0o755)
+    return p
+on, name = about.acceleration(helper("llvmpipe (LLVM 19.1.7, 256 bits)"))
+assert on is False and name.startswith("llvmpipe"), (on, name)
+assert about.acceleration_text(on, name).startswith("Off: everything on the screen is drawn by the processor")
+on, name = about.acceleration(helper("Mesa Intel(R) UHD Graphics 620 (KBL GT2)"))
+assert on is True and about.acceleration_text(on, name) == "On (Mesa Intel(R) UHD Graphics 620 (KBL GT2))"
+assert about.acceleration(helper("virgl (Apple M5)"))[0] is True, "a virtual machine with 3D on"
+assert about.acceleration(os.path.join(d, "missing")) == (None, "") and about.acceleration_text(None, "") == ""
+assert about.acceleration(helper("")) == (None, "")
+# Kulan's own helper runs without a screen: a renderer name, or nothing (exit 1); never a crash.
+import subprocess
+r = subprocess.run(["/usr/lib/kulan/graphics-renderer"], capture_output=True, text=True, timeout=60)
+assert (r.returncode == 0 and r.stdout.strip()) or (r.returncode == 1 and not r.stdout.strip()), (r.returncode, r.stdout, r.stderr[-300:])
+assert "Traceback" not in r.stderr, r.stderr[-300:]
+print("renderer here:", r.stdout.strip() or "unknown")
+print("acceleration check passed")
+PYACC
 check "Kulan Settings opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-settings --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "(2[1-9]|[3-9][0-9])/\1 pages built" && ! echo "$out" | grep -q Traceback'
 # Saved passwords after automatic sign-in (2.6.1): against a real GNOME Keyring on a private bus.
 cat >/tmp/keyring-test.sh <<'KEYRING'
@@ -610,6 +647,8 @@ check "Assistant in GNOME" "app entry, Activities search provider and its D-Bus 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Assistant actions" "tidying, reminders and plans checked without a model (kulan-assistant self-test)" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | tail -n 3; echo "$out" | grep -qx "agent self-test passed" && echo "$out" | grep -qx "ask service self-test passed"'
 check "Instant answers" "the time, date, battery and free space answered with no model; requests like \"set a timer\" still go to the assistant" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | grep -qx "instant answers self-test passed" || { echo "$out" | tail -n 5; false; }'
+check "Ask Kulan app" "conversations kept privately, answers, Do it and Undo, follow-ups see earlier messages, no-model and history-off states (built with Debian's GTK 4 and libadwaita, no model)" bash -c 'out="$(HOME=$(mktemp -d) timeout 180 xvfb-run -a dbus-run-session -- kulan-assistant app-self-test 2>&1)"; echo "$out" | grep -E "Traceback|Error|assert" | head -n 5; echo "$out" | grep -qx "Ask Kulan app self-test passed"'
+check "Ask Kulan conversations" "saved only for you (0600 in a 0700 folder), damaged files skipped, oldest trimmed" bash -c 'out="$(HOME=$(mktemp -d) kulan-assistant self-test 2>&1)"; echo "$out" | grep -qx "conversation self-test passed" || { echo "$out" | tail -n 5; false; }'
 check "Ask Kulan" "panel in Kulan Shell, Shift+Cmd+Space, and the assistant's Ask service for it" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; grep -q AskKulan \$d/extension.js && grep -q org.kulan.Assistant.Ask \$d/askkulan.js && grep -q kulan-ask \$d/stylesheet-dark.css && grep -q kulan-ask \$d/stylesheet-light.css && gs org.kulan.desktop ask-shortcut | grep -q '<Shift><Super>space' && grep -qx 'Exec=/usr/bin/kulan-assistant ask-service' /usr/share/dbus-1/services/org.kulan.Assistant.Ask.service"
 # A window whose app ID has no launcher shows in the dock as its raw ID
 # ("org.kulan.Assistant.Agent") with a blank icon.
@@ -664,7 +703,17 @@ if [[ ${#ENGINE[@]} -eq 1 ]]; then
 	check "Ask Kulan answers" "a question gets an answer through the Ask service" bash -c 'out="$(timeout 600 dbus-run-session -- gdbus call --session --timeout 590 --dest org.kulan.Assistant.Ask --object-path /org/kulan/Assistant/Ask --method org.kulan.Assistant.Ask.Ask "How much memory does this computer have?" 2>/tmp/ask.err)"; tail -n 3 /tmp/ask.err; echo "$out" | cut -c1-300; echo "$out" | python3 -c "import ast, json, sys; d = json.loads(ast.literal_eval(sys.stdin.read().strip())[0]); assert len(d[\"reply\"]) > 10 and \"error\" not in d, d"'
 	check "Assistant plans tidying" "\"tidy up my Downloads\" becomes tidy_folder downloads" bash -c 'out="$(timeout 600 kulan-assistant plan "Tidy up my Downloads folder" 2>&1)"; echo "$out" | tr -s " \n" " " | cut -c1-300; echo "$out" | python3 -c "import json, sys; d = json.load(sys.stdin); assert {\"action\": \"tidy_folder\", \"args\": {\"where\": \"downloads\"}} in [{\"action\": s[\"action\"], \"args\": s[\"args\"]} for s in d[\"steps\"]], d"'
 	check "Assistant plans reminders" "\"remind me in 20 minutes\" becomes set_reminder 20" bash -c 'out="$(timeout 600 kulan-assistant plan "Remind me in 20 minutes to call Amina" 2>&1)"; echo "$out" | tr -s " \n" " " | cut -c1-300; echo "$out" | python3 -c "import json, sys; d = json.load(sys.stdin); r = [s for s in d[\"steps\"] if s[\"action\"] == \"set_reminder\"]; assert r and r[0][\"args\"][\"minutes\"] == 20 and \"amina\" in r[0][\"args\"][\"message\"].lower(), d"'
-	check "Do it for me window" "the window builds with Debian's GTK 4 and libadwaita" bash -c 'HOME=$(mktemp -d) timeout 60 xvfb-run -a dbus-run-session -- python3 -c "import sys; sys.path.insert(0, \"/usr/share/kulan-assistant\"); import gi; gi.require_version(\"Gtk\", \"4.0\"); gi.require_version(\"Adw\", \"1\"); from gi.repository import Adw; Adw.init(); from kulan_assistant import agent_window; app = Adw.Application(application_id=\"org.kulan.Assistant.Test\"); w = agent_window.AgentWindow(app, \"\"); print(\"built\")" 2>&1 | grep -qx built'
+	check "Ask Kulan follow-ups" "after tidying Downloads, \"and the Desktop too\" plans tidying the Desktop (the app sends the conversation)" bash -c 'timeout 600 python3 -B -c "
+import sys
+sys.path.insert(0, \"/usr/share/kulan-assistant\")
+from kulan_assistant import agent
+history = [{\"user\": \"Tidy up my Downloads folder\", \"reply\": \"I will tidy your Downloads folder.\", \"steps\": [{\"action\": \"tidy_folder\", \"args\": {\"where\": \"downloads\"}}]}]
+reply, steps = agent.plan(\"and the Desktop too\", history=history, long=True)
+got = [(s.action.id, s.args) for s in steps]
+print(reply[:200], got)
+assert (\"tidy_folder\", {\"where\": \"desktop\"}) in got, got
+assert (\"tidy_folder\", {\"where\": \"downloads\"}) not in got, \"repeated what was already done\"
+"'
 	pkill -f /usr/lib/kulan-assistant/engine/llama-server || true
 	check "Dictation engine" "whisper.cpp starts and has its CPU code" bash -c '/usr/lib/kulan-assistant/whisper/whisper-cli --help 2>&1 | grep -q "supported audio formats" && ls /usr/lib/kulan-assistant/whisper/libggml-cpu-*.so >/dev/null'
 	check "Dictation model download" "Quick speech model downloaded and its SHA-256 checked" timeout 600 /usr/lib/kulan/update-run assistant-model whisper-base
@@ -755,12 +804,132 @@ assert not ok and "erase failed on /dev/fake-luks2" in detail and "not switched 
 assert subprocess.run(["kulan-fleet", "allow-erase", "off"], capture_output=True).returncode == 0
 assert kf.erase() == (False, "not allowed on this computer (Kulan Settings > About > Organisation)")
 PY
+# Erasing a lost computer (2.7): a notice first, and switching off during
+# it doesn't stop the erase. Stand-ins for the disk: nothing is erased here.
+check "Fleet erase notice" "signed-in people are told 20 seconds before; the erase is noted first, so a switch-off during the notice is finished at the next report; not allowed means no notice" python3 -I -B - <<'PYERASE'
+import importlib.machinery, importlib.util, sys, tempfile
+from pathlib import Path
+from unittest import mock
+path = "/usr/bin/kulan-fleet"
+loader = importlib.machinery.SourceFileLoader("kulan_fleet", path)
+spec = importlib.util.spec_from_loader("kulan_fleet", loader); f = importlib.util.module_from_spec(spec); loader.exec_module(f)
+tmp = Path(tempfile.mkdtemp())
+f.ERASE_PENDING = tmp / "erase-pending"
+f.CONFIG = tmp / "fleet.json"
+f.write_json(f.CONFIG, {"server": "https://x", "device_id": "d1", "token": "t", "organisation": "Test Org", "allow_erase": True}, 0o600)
+events = []
+def notice(title, body):
+    events.append(("notice", f.ERASE_PENDING.exists(), title))
+with mock.patch.object(f, "erase_check", return_value=(True, ["/dev/fake"])), \
+        mock.patch.object(f, "erase", side_effect=lambda: (events.append(("erase",)), (True, "erased 1"))[1]), \
+        mock.patch.object(f, "warn_users", side_effect=notice), \
+        mock.patch.object(f.time, "sleep", side_effect=lambda s: events.append(("wait", s))), \
+        mock.patch.object(f, "power_off", side_effect=lambda: events.append(("off",))), \
+        mock.patch.object(f, "post", side_effect=lambda *a, **k: events.append(("post", a[1], a[2]["status"])) or {}):
+    # 1. Asked for and allowed: noticed first (with the mark already written), then a wait, then erased.
+    assert f.erase_with_notice("a1") == (True, "erased 1")
+    assert events == [("notice", True, "This computer will be erased"), ("wait", f.ERASE_NOTICE_S), ("erase",)], events
+    assert not f.ERASE_PENDING.exists()
+    # 2. Switched off during the notice: the mark stays...
+    events.clear()
+    with mock.patch.object(f.time, "sleep", side_effect=SystemExit("power cut")):
+        try:
+            f.erase_with_notice("a2")
+        except SystemExit:
+            pass
+    assert f.ERASE_PENDING.exists() and ("erase",) not in events
+    # ...and the next report finishes it first, with no wait, reports it and switches off.
+    events.clear()
+    assert f.resume_erase(f.read_json(f.CONFIG, {})) is True
+    assert events[0] == ("notice", True, "This computer is being erased") and ("wait", f.ERASE_NOTICE_S) not in events, events
+    assert ("erase",) in events and ("post", "/v1/actions/a2", "done") in events and events[-1] == ("off",), events
+    assert not f.ERASE_PENDING.exists()
+    # Nothing pending: nothing happens.
+    events.clear()
+    assert f.resume_erase(f.read_json(f.CONFIG, {})) is False and events == []
+# 3. Not allowed (or not encrypted): no notice, no mark, refused.
+events.clear()
+with mock.patch.object(f, "erase_check", return_value=(False, "not allowed on this computer")), \
+        mock.patch.object(f, "warn_users", side_effect=notice), mock.patch.object(f, "erase") as er:
+    f.write_json(f.ERASE_PENDING, {"action": "old"}, 0o600)
+    assert f.erase_with_notice("a3") == (False, "not allowed on this computer")
+    assert events == [] and not er.called and not f.ERASE_PENDING.exists()
+print("fleet erase notice test passed")
+PYERASE
 check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c '! kulan-fleet join http://example.com </dev/null'
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
-check "Fleet leave" "the server is told; key, status and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
+check "Fleet leave" "the server is told; key, status, any pending erase and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-erase-pending && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).
+# The Store (GNOME Software) finds Kulan Fleet in Kulan's catalogue and
+# installs it from a copy of Kulan's update channel, through PackageKit, as it
+# does on a computer.
+cat >/tmp/store-test.sh <<'STORE'
+#!/bin/bash
+set -uo pipefail
+DEB="$1"
+RULE=/etc/polkit-1/rules.d/00-kulan-store-test.rules
+# Always put things back, pass or fail: a PackageKit left mid-install would
+# hold the package lock and break the removal checks that follow.
+cleanup() {
+	pkill -x gnome-software 2>/dev/null
+	rm -f /etc/apt/sources.list.d/kulan-store-test.list "${RULE}"
+	apt-get update -q >/dev/null 2>&1 || true
+	# Last: refreshing the lists wakes PackageKit up again.
+	pkill -x packagekitd 2>/dev/null
+	sleep 2
+	pkill -9 -x packagekitd 2>/dev/null
+}
+trap cleanup EXIT
+apt-get install -y -q --no-install-recommends gnome-software packagekit polkitd appstream apt-utils dbus xvfb xauth >/tmp/store-apt.log 2>&1 || { tail -n 3 /tmp/store-apt.log; echo "GNOME Software isn't installable"; exit 1; }
+CMD=/usr/libexec/gnome-software-cmd
+# GNOME's sample Editor's Choice list arrives set aside: Kulan's picks are the list.
+[ ! -e /usr/share/swcatalog/xml/org.gnome.Software.Curated.xml ] || { echo "GNOME's own Editor's Choice list is still in use"; exit 1; }
+[ -x "${CMD}" ] || { echo "no ${CMD}"; exit 1; }
+REPO="$(mktemp -d)"
+chmod 0755 "${REPO}"  # apt reads it as the _apt user
+cp "${DEB}" "${REPO}/"
+chmod 0644 "${REPO}"/*.deb
+(cd "${REPO}" && apt-ftparchive packages . > Packages && apt-ftparchive -o "APT::FTPArchive::Release::Origin=Kulan OS" release . > Release)
+echo "deb [trusted=yes] file:${REPO} ./" > /etc/apt/sources.list.d/kulan-store-test.list
+apt-get update -q >/dev/null 2>&1
+apt-get remove -y -q kulan-fleet-admin >/dev/null 2>&1 || true
+appstreamcli refresh-cache --force >/dev/null 2>&1
+appstreamcli get org.kulan.Fleet | grep -qx "Package: kulan-fleet-admin" || { echo "Kulan Fleet isn't in the app catalogue"; exit 1; }
+mkdir -p /run/dbus
+[ -S /run/dbus/system_bus_socket ] || dbus-daemon --system --fork
+# The container has no desktop session to ask for a password: let root
+# install for this test only (removed by cleanup), as an admin would be asked.
+mkdir -p "$(dirname "${RULE}")"
+printf '%s\n' 'polkit.addRule(function (action, subject) {' \
+	'  if (action.id.indexOf("org.freedesktop.packagekit.") === 0 && subject.user === "root") return polkit.Result.YES;' \
+	'});' > "${RULE}"
+pgrep -x polkitd >/dev/null || { /usr/lib/polkit-1/polkitd --no-debug >/tmp/polkitd.log 2>&1 & }
+pgrep -x packagekitd >/dev/null || { /usr/libexec/packagekitd >/tmp/packagekitd.log 2>&1 & }
+sleep 3
+gs() { XDG_RUNTIME_DIR="$(mktemp -d)" timeout 300 xvfb-run -a dbus-run-session -- "${CMD}" --plugin-blocklist=fwupd,snap "$@" 2>&1; }
+# --refine-flags: GNOME Software looks up each app's state (without it, apps
+# whose state is unknown are left out of the results).
+found="$(gs --refine-flags=origin,license --show-results search fleet)"
+echo "${found}" | grep -q "unique-id: .*kulan-apps/org.kulan.Fleet" || { echo "${found}" | grep -vE "fd limit|libEGL|proxy" | tail -n 5; apt-cache policy kulan-fleet-admin | head -n 3; echo "the Store didn't find Kulan Fleet"; exit 1; }
+echo "${found}" | awk '/^GsApp:/ { if (f && a) ok = 1; f = a = 0 } /^id: *org\.kulan\.Fleet$/ { f = 1 } /^state: *available$/ { a = 1 } END { if (f && a) ok = 1; exit !ok }' ||
+	{ echo "Kulan Fleet isn't installable in the Store"; exit 1; }
+pgrep -x polkitd >/dev/null || echo "note: polkitd isn't running ($(tail -n 1 /tmp/polkitd.log 2>/dev/null))"
+# "install" in GNOME Software 48 (Debian 13); "action install" in older ones.
+gs install org.kulan.Fleet > /tmp/store-install.log
+if grep -q "Did not recognise option" /tmp/store-install.log; then
+	gs action install org.kulan.Fleet > /tmp/store-install.log
+fi
+if ! dpkg -s kulan-fleet-admin 2>/dev/null | grep -qx "Status: install ok installed"; then
+	grep -ivE "fd limit|libEGL|proxy|CRITICAL" /tmp/store-install.log | grep -iE "fail|error|denied|auth|polkit|not " | tail -n 3
+	grep -ivE "CRITICAL|^$" /tmp/packagekitd.log | tail -n 2
+	echo "the Store didn't install it"
+	exit 1
+fi
+echo "store test passed"
+STORE
+check "Store installs Kulan Fleet" "found in Kulan's catalogue by GNOME Software and installed from Kulan's channel through PackageKit" bash -c "bash /tmp/store-test.sh ./${FLEET_ADMIN[0]} >/tmp/store.out 2>&1; rc=\$?; tail -n 4 /tmp/store.out; [ \$rc -eq 0 ] && grep -qx 'store test passed' /tmp/store.out"
 check "Kulan Fleet app installs" "kulan-fleet-admin with its Debian dependencies" bash -c "apt-get install -y -q ./${FLEET_ADMIN[0]} >/tmp/fleet-admin.log 2>&1 || { tail -n 5 /tmp/fleet-admin.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Fleet.desktop && test -s /usr/share/icons/hicolor/scalable/apps/org.kulan.Fleet.svg"
 check "Kulan Fleet app opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-fleet-admin --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Fleet: every page built"'
 check "Kulan Fleet sign-in" "the code, the email's link, and the browser's address however it was copied" python3 -I -B ci/fleet-signin-test.py /usr/bin/kulan-fleet-admin
@@ -794,7 +963,7 @@ if dpkg --purge kulan-assistant kulan-assistant-engine kulan-settings kulan-upda
 	check "Removal" "Debian's os-release restored" grep -q '^ID=debian' /usr/lib/os-release
 	# shellcheck disable=SC2016  # expanded by the inner bash
 	check "Removal restores logos" "vendor-logos back to Debian's" bash -c 'case "$(readlink -f /usr/share/images/vendor-logos)" in /usr/share/desktop-base/*) ;; *) readlink -f /usr/share/images/vendor-logos; exit 1 ;; esac'
-	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c 'for f in /usr/share/plymouth/themes/kulan /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override /var/lib/kulan/updates.json /var/lib/kulan-countme /etc/kulan/no-countme /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf /usr/share/kulan-settings /var/lib/kulan-assistant /usr/share/kulan-assistant /usr/bin/__pycache__; do test -e "$f" && echo "left: $f"; done; ! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
+	check "Removal cleans up" "no diversion, splash theme, generated settings or update status left" bash -c 'for f in /usr/share/plymouth/themes/kulan /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override /var/lib/kulan/updates.json /var/lib/kulan-countme /etc/kulan/no-countme /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf /usr/share/kulan-settings /var/lib/kulan-assistant /usr/share/kulan-assistant /usr/bin/__pycache__; do test -e "$f" && echo "left: $f $(find "$f" -mindepth 1 2>/dev/null | head -n 3 | tr "\n" " ")"; done; ! dpkg-divert --list | grep -q kulan && test ! -e /usr/share/plymouth/themes/kulan && test ! -e /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && test ! -e /var/lib/kulan/updates.json && test ! -e /var/lib/kulan-countme && test ! -e /etc/kulan/no-countme && test ! -e /etc/kulan/lighter-mode && test ! -e /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf && test ! -e /usr/share/kulan-settings && test ! -e /var/lib/kulan-assistant && test ! -e /usr/share/kulan-assistant && test ! -e /usr/bin/__pycache__'
 else
 	result fail "Removal" "dpkg --purge failed: $(tail -n 3 /tmp/purge.log | tr '\n' ' ')"
 fi

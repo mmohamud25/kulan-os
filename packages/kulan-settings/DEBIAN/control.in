@@ -5,7 +5,7 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: gnome
 Priority: optional
 Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), gir1.2-nm-1.0
-Recommends: gnome-control-center, gnome-shell, upower, bluez, power-profiles-daemon, accountsservice, locales, openssl, cups, cups-client, kulan-desktop-settings (= @VERSION@)
+Recommends: gnome-control-center, gnome-shell, libegl1, libgles2, upower, bluez, power-profiles-daemon, accountsservice, locales, openssl, cups, cups-client, kulan-desktop-settings (= @VERSION@)
 Breaks: kulan-update-center (<< 2.2~)
 Replaces: kulan-update-center (<< 2.2~)
 Homepage: @HOME_URL@

@@ -66,6 +66,8 @@ def countme_text(report: dict | None) -> str:
     lines = [f"Kulan OS version: {sends['version']}",
              f"Kind of computer: {ARCH_WORDS.get(sends['arch'], sends['arch'])}",
              f"Installed for: {report.get('age_means') or sends['age']}"]
+    if sends.get("week"):
+        lines.append(f"Week counted: the week of {sends['week']} (the same for every computer)")
     text = "Once a week, only this:\n\n" + "\n".join(lines)
     text += ("\n\nNo ID, account, name, address or anything about how you use the computer. The server only "
              "adds one to that week’s total, so one week can’t be linked to the next.")

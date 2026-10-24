@@ -47,5 +47,10 @@
       <summary>Dictation language</summary>
       <description>Two-letter code of the language you speak; empty means detect it each time.</description>
     </key>
+    <key name="keep-conversations" type="b">
+      <default>true</default>
+      <summary>Keep conversations</summary>
+      <description>Keep Ask Kulan's conversations on this computer, so you can go back to them. Off: nothing is saved.</description>
+    </key>
   </schema>
 </schemalist>

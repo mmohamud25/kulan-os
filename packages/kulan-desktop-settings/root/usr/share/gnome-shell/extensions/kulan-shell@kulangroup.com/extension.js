@@ -137,7 +137,7 @@ function tidyAppGrid() {
 // once: a user who removes the line keeps it removed.
 // Kulan's window buttons for GTK apps. Each user's gtk.css imports a copy
 // kept next to it (kulan-window-buttons.css), not the file in /usr/share:
-// apps from the Kulan Store (Flatpak) can read ~/.config/gtk-*.0 (Kulan
+// apps from the Store (Flatpak) can read ~/.config/gtk-*.0 (Kulan
 // allows that for every Flatpak) but not /usr/share. The copy is refreshed at
 // every sign-in, so updates to the style reach everyone.
 const GTK_DIRS = ['gtk-4.0', 'gtk-3.0'];
@@ -302,7 +302,7 @@ class KulanMenu extends PanelMenu.Button {
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Kulan Settings…', () => openKulanSettings(null));
         this.menu.addAction('Software Update…', () => openKulanSettings('updates'));
-        this.menu.addAction('Kulan Store…', () => launchApp('org.gnome.Software.desktop'));
+        this.menu.addAction('Store…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
         this.menu.addAction('Log Out…', () => actions.activateLogout());

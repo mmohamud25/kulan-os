@@ -6,7 +6,7 @@
   kulan-assistant ask TASK [TEXT]                         print the result (no window)
   kulan-assistant dictate AUDIO                           print the words spoken in a recording
   kulan-assistant status                                  engine, model and memory
-  kulan-assistant do [REQUEST]                            "Do it for me": plan Kulan actions, then do them
+  kulan-assistant do [REQUEST]                            the Ask Kulan app (asks REQUEST in a new conversation)
   kulan-assistant plan REQUEST                            print the plan as JSON (nothing is done)
   kulan-assistant search-provider                         the Activities search service (D-Bus)
   kulan-assistant ask-service                             Ask Kulan's service for the desktop (D-Bus)
@@ -14,6 +14,7 @@
   kulan-assistant reminders                               list reminders still to come, as JSON
   kulan-assistant reminder-cancel ID                      cancel a reminder
   kulan-assistant self-test                               check the actions and instant answers without a model
+  kulan-assistant app-self-test                           check the Ask Kulan app without a model (needs a display)
 
 TASK is one of: proofread, rewrite, friendly, professional, shorter, summary,
 key-points, translate, explain.
@@ -52,8 +53,9 @@ def main(argv: list[str]) -> int:
     cancel = sub.add_parser("reminder-cancel", help="cancel a reminder")
     cancel.add_argument("id")
     sub.add_parser("self-test", help="check the actions without a model")
-    do = sub.add_parser("do", help="\"Do it for me\": a window that plans Kulan actions and does them")
-    do.add_argument("request", nargs="*", help="what to do (or type it in the window)")
+    sub.add_parser("app-self-test", help="check the Ask Kulan app without a model (needs a display)")
+    do = sub.add_parser("do", help="the Ask Kulan app: a conversation that answers and does things")
+    do.add_argument("request", nargs="*", help="a question or request to ask in a new conversation")
     plan = sub.add_parser("plan", help="print the plan for a request as JSON; nothing is done")
     plan.add_argument("request", nargs="+")
     args = parser.parse_args(argv[1:])
@@ -104,14 +106,20 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.command == "do":
-        from kulan_assistant import agent_window
-        return agent_window.show(" ".join(args.request))
+        from kulan_assistant import app
+        return app.show(" ".join(args.request))
+
+    if args.command == "app-self-test":
+        from kulan_assistant import app
+        app.self_test()
+        return 0
 
     if args.command == "self-test":
-        from kulan_assistant import agent, ask_service, instant
+        from kulan_assistant import agent, ask_service, conversation, instant
         agent.self_test()
         ask_service.self_test()
         instant.self_test()
+        conversation.self_test()
         return 0
 
     if args.command == "reminders":

@@ -2,12 +2,15 @@
 """Count this computer, anonymously, once a week (Fedora's "countme" idea).
 
 Kulan OS doesn't track people. To know roughly how many computers run it,
-once a week this sends exactly three things and nothing else:
+once a week this sends exactly four things and nothing else:
 
     version   the Kulan OS version, like "2.6"
     arch      "amd64" (PC) or "arm64" (Mac and other Arm computers)
     age       how long since this computer first counted itself:
               1 under a week, 2 under a month, 3 under six months, 4 longer
+    week      the week being counted (its Monday, UTC), so a count sent just
+              before midnight on Sunday isn't filed under the next week and
+              then counted again (the same for every computer that week)
 
 There's no ID, so one week's count can't be linked to the next, or to a
 computer or a person. The server only adds one to that week's total (see
@@ -25,6 +28,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -65,6 +69,10 @@ def arch() -> str | None:
 def week_of(day: datetime.date) -> str:
     year, week, _ = day.isocalendar()
     return f"{year}-W{week:02d}"
+
+
+def monday_of(day: datetime.date) -> datetime.date:
+    return day - datetime.timedelta(days=day.weekday())
 
 
 def age_bucket(first: datetime.date, today: datetime.date) -> int:
@@ -117,15 +125,27 @@ def report(state: Path, today: datetime.date, write: bool = False) -> dict | Non
     v, a = version(), arch()
     if not v or not a:
         return None
-    return {"version": v, "arch": a, "age": age_bucket(first_seen(state, today, write), today)}
+    return {"version": v, "arch": a, "age": age_bucket(first_seen(state, today, write), today),
+            "week": monday_of(today).isoformat()}
 
 
-def send(body: dict, url: str = URL) -> None:
+def post(body: dict, url: str) -> None:
     request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                      headers={"Content-Type": "application/json", "User-Agent": "Kulan OS"})
     with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:  # noqa: S310 - fixed https URL
         if response.status not in (200, 204):
             raise OSError(f"the server answered {response.status}")
+
+
+def send(body: dict, url: str = URL) -> None:
+    try:
+        post(body, url)
+    except urllib.error.HTTPError as exc:
+        # A server from before 2.7 takes only the first three fields (it then
+        # files the count under the week it arrives in, as before).
+        if exc.code != 400 or "week" not in body:
+            raise
+        post({k: v for k, v in body.items() if k != "week"}, url)
 
 
 def cmd_send() -> int:
@@ -191,16 +211,35 @@ def self_test() -> None:
             [1, 1, 2, 2, 3, 3, 4, 4]
         assert week_of(datetime.date(2026, 10, 19)) == week_of(datetime.date(2026, 10, 25)) == "2026-W43"
         assert week_of(datetime.date(2027, 1, 1)) == "2026-W53"
+        sunday_night, monday = datetime.date(2026, 10, 25), datetime.date(2026, 10, 26)
+        assert monday_of(sunday_night) == datetime.date(2026, 10, 19) and monday_of(monday) == monday
 
         state = Path(tmp, "state")
         assert first_seen(state, d, write=False) == d and not state.exists()
         assert first_seen(state, d, write=True) == d
         assert first_seen(state, d + datetime.timedelta(days=40), write=True) == d  # kept, not reset
 
-        # Exactly three fields, nothing that could identify the computer.
+        # Exactly four fields, nothing that could identify the computer.
         with mock.patch(f"{__name__}.version", return_value="2.6"), mock.patch(f"{__name__}.arch", return_value="arm64"):
             body = report(state, d + datetime.timedelta(days=40))
-        assert body == {"version": "2.6", "arch": "arm64", "age": 3}, body
+        assert body == {"version": "2.6", "arch": "arm64", "age": 3, "week": "2026-11-30"}, body
+
+        # A server from before 2.7 refuses the week (400): sent again without it.
+        posted: list[dict] = []
+
+        def old_server(b, url):
+            posted.append(b)
+            if "week" in b:
+                raise urllib.error.HTTPError(url, 400, "expected exactly {version, arch, age}", {}, None)
+        with mock.patch(f"{__name__}.post", side_effect=old_server):
+            send(dict(body))
+        assert [set(b) for b in posted] == [{"version", "arch", "age", "week"}, {"version", "arch", "age"}], posted
+        with mock.patch(f"{__name__}.post", side_effect=urllib.error.HTTPError(URL, 500, "down", {}, None)):
+            try:
+                send(dict(body))
+                raise AssertionError("a server error must not count as sent")
+            except urllib.error.HTTPError:
+                pass
 
         # Once a week; offline is fine and tries again; off means nothing is sent.
         global STATE, OFF  # noqa: PLW0603 - the test points them at a temporary folder
@@ -218,7 +257,8 @@ def self_test() -> None:
                 with mock.patch(f"{__name__}.send", side_effect=lambda b, url=URL: sent.append(b)):
                     cmd_send()
                     cmd_send()  # the same week: nothing more
-                    assert len(sent) == 1 and sent[0] == {"version": "2.6", "arch": "amd64", "age": 1}, sent
+                    assert len(sent) == 1 and set(sent[0]) == {"version", "arch", "age", "week"}, sent
+                    assert sent[0]["week"] == monday_of(datetime.datetime.now(datetime.timezone.utc).date()).isoformat()
                     OFF.write_text("")
                     (STATE / "last-week").unlink()
                     cmd_send()  # switched off

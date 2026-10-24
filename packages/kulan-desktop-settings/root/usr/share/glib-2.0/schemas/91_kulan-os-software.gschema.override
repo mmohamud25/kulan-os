@@ -6,3 +6,9 @@
 allow-updates=false
 download-updates=false
 download-updates-notify=false
+# Kulan's own apps (kulan-apps) and picks (kulan-picks) come from Kulan, not a
+# third party; Debian's catalogue stays official too.
+official-repos=['debian-*', 'kulan-*']
+# Kulan's picks and Kulan's own apps get their own section on the Explore
+# page (GNOME Software 47 and later; apps marked GnomeSoftware::DeploymentFeatured).
+deployment-featured=['Kulan']

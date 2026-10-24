@@ -18,6 +18,12 @@ case "$1" in
 			dpkg-divert --package kulan-desktop-settings --remove --rename \
 				--divert /etc/skel/.face.debian /etc/skel/.face
 		fi
+		# Give GNOME Software its own Editor's Choice list back.
+		if dpkg-divert --list /usr/share/swcatalog/xml/org.gnome.Software.Curated.xml | grep -q 'by kulan-desktop-settings$'; then
+			dpkg-divert --package kulan-desktop-settings --remove --rename \
+				--divert /usr/share/swcatalog/org.gnome.Software.Curated.xml.gnome \
+				/usr/share/swcatalog/xml/org.gnome.Software.Curated.xml
+		fi
 		rm -f /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
 		rm -f /usr/share/kulan/xdg/applications/org.gnome.Console.desktop
 		# The short-name launcher copies (desktop-setup).
