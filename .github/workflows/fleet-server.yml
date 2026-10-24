@@ -1,0 +1,52 @@
+name: Fleet server
+
+# The Kulan Fleet and weekly-count servers (Supabase Edge Functions and their
+# migrations), tested before anything is deployed: every migration on a real
+# Postgres (twice, to show they're safe to run again), the functions'
+# TypeScript checked with Deno, and the functions run against that database.
+# Deploying stays a separate, deliberate step at release.
+on:
+  push:
+    paths: ["fleet/**", ".github/workflows/fleet-server.yml"]
+  pull_request:
+    paths: ["fleet/**", ".github/workflows/fleet-server.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Fleet server tests
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.5.x
+      - name: Type-check the functions
+        run: |
+          for f in fleet fleet-admin countme; do deno check "fleet/supabase/functions/$f/index.ts"; done
+      - name: Weekly count
+        working-directory: fleet/supabase/functions/countme
+        run: |
+          node --experimental-strip-types week.test.ts
+          node --experimental-strip-types index.test.mjs
+      - name: Fleet and People against Postgres
+        working-directory: fleet/test
+        env:
+          FLEET_TEST_DB: postgres://postgres@localhost:5432/postgres
+        run: |
+          npm ci --no-audit --no-fund
+          node --experimental-strip-types functions.test.mjs

@@ -16,7 +16,8 @@ and this computer makes its accounts match:
   computer), their password hash and, for a setup code, "change at first
   sign-in", so typing the code at the sign-in screen asks for a new password
   at once; admins and the Owner join the sudo group;
-- changed: name, role, a newer password from another computer;
+- changed: name, role, a password new on the server (chosen on another
+  computer, or a new setup code);
 - disabled: password locked, account expired, their sessions ended;
 - no longer listed: account removed; their files moved to
   /home/.kulan-left/<user>-<date> (only root can open it), or deleted if the
@@ -46,7 +47,7 @@ UID_MIN, UID_MAX = 61000, 69999
 USERNAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # Hashes crypt(3) understands: yescrypt, SHA-512, SHA-256, bcrypt. No ":" or
 # newlines, so nothing can spill into /etc/shadow's other fields.
-HASH = re.compile(r"^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,300}$")
+HASH = re.compile(r"^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$")
 ROLES = ("owner", "admin", "employee")
 RESERVED = {"root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
             "www-data", "backup", "list", "irc", "nobody", "admin", "sudo", "kulan", "gdm", "systemd"}
@@ -191,6 +192,9 @@ def apply(raw, run, state: dict | None = None, passwd: Path = PASSWD, shadow: Pa
         if user in users and not mine:
             status[user] = "conflict: this computer already has an account with that name"
             continue
+        if mine is not None and mine.get("uid") != a["uid"]:
+            status[user] = "conflict: a different person had this username here (their account is kept)"
+            continue
         if mine is None and a["uid"] in users.values():
             status[user] = "conflict: this computer already uses that user ID"
             continue
@@ -207,7 +211,7 @@ def apply(raw, run, state: dict | None = None, passwd: Path = PASSWD, shadow: Pa
                 _disable(run, user)
             managed[user] = {"uid": a["uid"], "role": a["role"], "enabled": a["enabled"],
                              "full_name": a["full_name"], "hash": a["password_hash"] or "",
-                             "changed_at": a["password_changed_at"]}
+                             "server_hash": a["password_hash"] or ""}
             status[user] = "created" if a["enabled"] else "created (disabled)"
             continue
         # An account Fleet made here: bring it up to date.
@@ -220,12 +224,19 @@ def apply(raw, run, state: dict | None = None, passwd: Path = PASSWD, shadow: Pa
             _set_role(run, user, a["role"])
             mine["role"] = a["role"]
             changes.append("role")
+        # A password the server has newly (a change on another computer, or a
+        # new setup code from an admin). Compared with the last one the server
+        # sent, not by clocks: a password chosen here and not yet taken by the
+        # server is never overwritten by the server's older one.
         local_hash, _day = shadow_entry(user, shadow)
-        if (a["password_hash"] and a["password_hash"] != local_hash
-                and a["password_changed_at"] > int(mine.get("changed_at", 0))):
-            _set_hash(run, user, a["password_hash"], a["must_change"])
-            mine["hash"], mine["changed_at"] = a["password_hash"], a["password_changed_at"]
+        server_hash = a["password_hash"] or ""
+        if server_hash and server_hash != mine.get("server_hash", mine.get("hash")) and server_hash != local_hash:
+            _set_hash(run, user, server_hash, a["must_change"])
+            if not a["enabled"] and not mine.get("enabled", True):
+                run(["usermod", "-L", user])  # a new password doesn't unlock someone disabled
+            mine["hash"] = server_hash
             changes.append("password")
+        mine["server_hash"] = server_hash
         if a["enabled"] != mine.get("enabled", True):
             (_enable if a["enabled"] else _disable)(run, user)
             mine["enabled"] = a["enabled"]
@@ -259,4 +270,4 @@ def sent(state: dict, passwords: list[dict]) -> None:
     for p in passwords:
         mine = state.get("people", {}).get(p["username"])
         if mine is not None:
-            mine["hash"], mine["changed_at"] = p["password_hash"], p["changed_at"]
+            mine["hash"] = p["password_hash"]

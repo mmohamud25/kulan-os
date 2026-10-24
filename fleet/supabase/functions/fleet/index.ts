@@ -1,10 +1,16 @@
 // Kulan OS fleet server, protocol v1 (the other end of /usr/bin/kulan-fleet).
 //
 //   POST /fleet/v1/enrol          {code, hostname, os, kulan_version} -> {device_id, token, organisation}
-//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?}
-//                                 -> {actions: [{id, type}], policy: {...}}
+//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?}
+//                                 -> {actions: [{id, type}], policy: {...}, accounts: [...]}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
+//
+// People (Kulan OS 2.8): each reply lists the organisation's accounts allowed
+// on that computer, with their password hashes (one-way; never a password),
+// and people removed in the last 30 days so the computer removes them too.
+// A report may carry hashes of passwords people changed on that computer;
+// the server takes one only from a computer that person may use.
 //
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
@@ -13,9 +19,53 @@
 import postgres from "npm:postgres@3.4.5";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
+// Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
+const json = (v: unknown) => sql.json(v as Parameters<typeof sql.json>[0]);
 const MAX_BODY = 512 * 1024; // a report with a full app list
-const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase"]);
+const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
+                         "shutdown", "lost-mode-on", "lost-mode-off"]);
 const MAX_APPS = 3000;
+const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
+// crypt(3) hashes: yescrypt, SHA-512, SHA-256, bcrypt; nothing that could
+// spill into /etc/shadow's other fields.
+const HASH = /^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$/;
+const MAX_PASSWORDS = 50;
+
+// Passwords changed on a computer: [{username, password_hash}] (well-formed only).
+export function cleanPasswords(value: unknown): { username: string; hash: string }[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.slice(0, MAX_PASSWORDS).flatMap((p) => {
+    if (typeof p !== "object" || p === null) return [];
+    const { username, password_hash } = p as Record<string, unknown>;
+    if (typeof username !== "string" || !USERNAME.test(username) || seen.has(username)) return [];
+    if (typeof password_hash !== "string" || !HASH.test(password_hash)) return [];
+    seen.add(username);
+    return [{ username, hash: password_hash }];
+  });
+}
+
+// How the accounts are doing on a computer ({username: "created" ...}), kept in its report.
+export function cleanPeopleStatus(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [user, status] of Object.entries(value).slice(0, 500)) {
+    if (USERNAME.test(user) && typeof status === "string") out[user] = status.slice(0, 160);
+  }
+  return out;
+}
+
+type PersonRow = Record<string, any>;
+
+// One person as the computer reads it (kulan-fleet's people.py).
+export function account(p: PersonRow): Record<string, unknown> {
+  if (p.removed_at) return { username: p.username, uid: p.uid, removed: true, remove_files: p.remove_files === true };
+  return {
+    username: p.username, full_name: p.full_name ?? "", uid: p.uid, role: p.role, enabled: p.enabled === true,
+    password_hash: p.password_hash ?? null, must_change: p.must_change === true,
+    password_changed_at: Number(p.password_changed_at ?? 0),
+  };
+}
 
 // The apps a computer sends once a day: names, versions and where from, nothing else.
 function cleanApps(value: unknown): { name: string; version: string; source: string }[] | null {
@@ -51,7 +101,7 @@ async function device(req: Request, body: Record<string, unknown>) {
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return null;
   const hash = await sha256(auth.slice(7).trim());
-  const rows = await sql`select id, organisation_id from fleet.devices
+  const rows = await sql`select id, organisation_id, hostname from fleet.devices
                          where token_hash = ${hash} and left_at is null`;
   if (rows.length !== 1 || rows[0].id !== body.device_id) return null;
   return rows[0];
@@ -102,10 +152,33 @@ Deno.serve(async (req: Request) => {
     if (path === "/v1/report") {
       const apps = cleanApps(body.apps);
       delete body.apps; // kept on the computer's row, not in every hourly report
-      if (apps) await sql`update fleet.devices set apps = ${sql.json(apps)}, apps_at = now() where id = ${dev.id}`;
-      await sql`insert into fleet.reports (device_id, report) values (${dev.id}, ${sql.json(body)})`;
-      if (Math.random() < 0.01) await sql`select fleet.prune_reports()`;
-      await sql`update fleet.devices set last_seen = now(), last_report = ${sql.json(body)},
+      const passwords = cleanPasswords(body.passwords);
+      delete body.passwords; // into fleet.people only, never into the reports
+      const peopleStatus = cleanPeopleStatus(body.people_status);
+      if (peopleStatus === undefined) delete body.people_status;
+      else body.people_status = peopleStatus;
+      // A new password from a person on this computer: taken if they may use
+      // it, aren't disabled or removed, and it really is new. The latest to
+      // arrive wins (the server's clock, not the computer's).
+      for (const p of passwords) {
+        const changed = await sql`
+          update fleet.people pe set password_hash = ${p.hash}, must_change = false,
+                 password_changed_at = greatest(extract(epoch from now())::bigint, pe.password_changed_at + 1)
+          where pe.organisation_id = ${dev.organisation_id} and pe.username = ${p.username}
+            and pe.removed_at is null and pe.enabled and pe.password_hash is distinct from ${p.hash}
+            and (pe.all_computers or exists (select 1 from fleet.person_computers pc
+                                             where pc.person_id = pe.id and pc.device_id = ${dev.id}))
+          returning pe.id`;
+        if (changed.length) {
+          await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+                    values (${dev.organisation_id}, ${dev.id}, ${p.username}, 'changed their password on a computer',
+                            ${json({ username: p.username, computer: dev.hostname })})`;
+        }
+      }
+      if (apps) await sql`update fleet.devices set apps = ${json(apps)}, apps_at = now() where id = ${dev.id}`;
+      await sql`insert into fleet.reports (device_id, report) values (${dev.id}, ${json(body)})`;
+      if (Math.random() < 0.01) await sql`select fleet.prune_reports(), fleet.prune_people()`;
+      await sql`update fleet.devices set last_seen = now(), last_report = ${json(body)},
                   hostname = coalesce(${text(body.hostname, 120)}, hostname),
                   os = coalesce(${text(body.os, 120)}, os),
                   kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version)
@@ -114,14 +187,28 @@ Deno.serve(async (req: Request) => {
       await sql`update fleet.actions set status = 'expired', finished_at = now()
                 where device_id = ${dev.id} and status = 'pending' and type = 'erase'
                   and created_at < now() - interval '30 days'`;
-      const actions = await sql`update fleet.actions set status = 'sent', sent_at = now()
-                                where id in (select id from fleet.actions where device_id = ${dev.id}
-                                             and status = 'pending' order by created_at limit 10)
-                                returning id, type`;
+      // In the order they were asked for.
+      const actions = await sql`with sent as (
+                                  update fleet.actions set status = 'sent', sent_at = now()
+                                  where id in (select id from fleet.actions where device_id = ${dev.id}
+                                               and status = 'pending' order by created_at limit 10)
+                                  returning id, type, created_at)
+                                select id, type from sent order by created_at`;
       const [org] = await sql`select policy from fleet.organisations where id = ${dev.organisation_id}`;
+      // The people allowed on this computer, and anyone removed in the last 30 days.
+      const people = await sql`
+        select pe.username, pe.full_name, pe.uid, pe.role, pe.enabled, pe.password_hash, pe.must_change,
+               pe.password_changed_at, pe.removed_at, pe.remove_files
+        from fleet.people pe
+        where pe.organisation_id = ${dev.organisation_id}
+          and (pe.removed_at is null or pe.removed_at > now() - interval '30 days')
+          and (pe.all_computers or exists (select 1 from fleet.person_computers pc
+                                           where pc.person_id = pe.id and pc.device_id = ${dev.id}))
+        order by pe.uid`;
       return reply(200, {
         actions: actions.filter((a) => ACTIONS.has(a.type)).map((a) => ({ id: a.id, type: a.type })),
         policy: org?.policy ?? {},
+        accounts: people.map(account),
       });
     }
 

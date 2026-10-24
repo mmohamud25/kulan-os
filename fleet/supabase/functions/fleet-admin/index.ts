@@ -16,15 +16,80 @@
 //        "erase" needs confirm = the computer's name, and only works on a
 //        computer that's encrypted and whose user allowed it there.
 //
+// People (Kulan OS 2.8): the accounts on the organisation's computers.
+//   POST {op: "people", organisation_id}                   -> people (no hashes), each computer's status
+//   POST {op: "add-person", organisation_id, username, full_name, email?, role,
+//         all_computers, computers?, password_hash}         -> {id, uid}
+//   POST {op: "edit-person", person_id, full_name?, email?, role?, all_computers?, computers?}
+//   POST {op: "set-person-enabled", person_id, enabled}
+//   POST {op: "new-setup-code", person_id, password_hash}
+//   POST {op: "remove-person", person_id, remove_files, confirm}   (confirm = their username)
+//        password_hash is the crypt(3) hash of a setup code the Kulan Fleet app
+//        made and shows the admin once: the code itself never comes here.
+// The Owner (the organisation's owner_email, or an admin for all
+// organisations) is the only one who gives or takes the admin or owner role
+// and changes who the Kulan Fleet admins are:
+//   POST {op: "admins", organisation_id}                   -> admins, owner
+//   POST {op: "add-admin" | "remove-admin", organisation_id, email}
+//   POST {op: "set-owner", organisation_id, email}         -> {recovery_code} (admins for all organisations)
+//   POST {op: "recover-owner", organisation_id, recovery_code} -> {recovery_code}
+//        signed in with a new email: the recovery code (shown once when the
+//        Owner was set) makes that email the Owner, and a new code is given.
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
+// Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
+const json = (v: unknown) => sql.json(v as Parameters<typeof sql.json>[0]);
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ALLOWED_ORIGINS = (Deno.env.get("FLEET_DASHBOARD_ORIGINS") ?? "https://os.kulangroup.com,https://mmohamud25.github.io")
   .split(",").map((o) => o.trim()).filter(Boolean);
-const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase"]);
+const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
+                         "shutdown", "lost-mode-on", "lost-mode-off"]);
 const STALE_DAYS = 3;
+const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
+const RESERVED = new Set(["root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
+                          "www-data", "backup", "list", "irc", "nobody", "admin", "sudo", "kulan", "gdm", "systemd"]);
+const HASH = /^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$/;
+const EMAIL = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]+$/;
+const ROLES = new Set(["owner", "admin", "employee"]);
+const MAX_PEOPLE = 5000;
+
+// A full name as the computers will show it: no characters /etc/passwd uses.
+export function cleanName(v: unknown): string | null {
+  if (v === undefined) return null;
+  return typeof v === "string" ? v.replace(/[:,=\n\r\t\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+}
+
+export function cleanEmail(v: unknown): string | null | false {
+  if (v === undefined || v === null || v === "") return null;
+  if (typeof v !== "string") return false;
+  const e = v.trim().toLowerCase();
+  return EMAIL.test(e) && e.length <= 254 ? e : false;
+}
+
+export function usernameProblem(u: unknown): string | null {
+  if (typeof u !== "string" || !USERNAME.test(u)) {
+    return "a username is lower-case letters, digits, - or _, starting with a letter, up to 32";
+  }
+  return RESERVED.has(u) ? "that username is kept for the system" : null;
+}
+
+function recoveryCode(): string {
+  // 20 characters from 32 (100 bits), in groups of five: easy to write down.
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const chars = Array.from(bytes, (b) => letters[b % 32]).join("");
+  return chars.match(/.{5}/g)!.join("-");
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const normalCode = (v: unknown) => typeof v === "string" ? v.toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
 
 // A policy as the computers will read it: only known keys, sensible values.
 function cleanPolicy(value: unknown): Record<string, unknown> | null {
@@ -113,27 +178,66 @@ Deno.serve(async (req: Request) => {
   try {
     const email = await signedInEmail(req);
     if (!email) return reply(401, { error: "please sign in" });
+    const body = await req.json().catch(() => ({}));
+    if (body?.op === "recover-owner") {
+      const org = uuid(body.organisation_id);
+      const given = normalCode(body.recovery_code);
+      if (!org || given.length !== 20) return reply(403, { error: "that recovery code isn't right" });
+      const fresh = recoveryCode();
+      const moved = await sql.begin(async (tx) => {
+        const rows = await tx`update fleet.organisations set owner_email = ${email}, recovery_hash = ${await sha256(normalCode(fresh))}
+                              where id = ${org} and recovery_hash = ${await sha256(given)} returning id`;
+        if (!rows.length) return false;
+        await tx`insert into fleet.admins (email, organisation_id) values (${email}, ${org}) on conflict do nothing`;
+        await tx`insert into fleet.audit (organisation_id, email, what) values (${org}, ${email}, 'became the Owner with the recovery code')`;
+        return true;
+      });
+      if (!moved) return reply(403, { error: "that recovery code isn't right" });
+      return reply(200, { recovery_code: fresh });
+    }
     const admins = await sql`select organisation_id from fleet.admins where email = ${email}`;
     if (admins.length === 0) return reply(403, { error: "this account isn't a fleet admin" });
     const global = admins.some((a) => a.organisation_id === null);
     const orgs: string[] = admins.map((a) => a.organisation_id).filter(Boolean);
-    const body = await req.json().catch(() => ({}));
 
     const canOrg = (id: string) => global || orgs.includes(id);
     const audit = (org: string | null, device: string | null, what: string, detail: unknown = null) =>
       sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
-          values (${org}, ${device}, ${email}, ${what}, ${detail === null ? null : sql.json(detail)})`;
+          values (${org}, ${device}, ${email}, ${what}, ${detail === null ? null : json(detail)})`;
     const deviceOrg = async (id: string | null) => {
       if (!id) return null;
       const rows = await sql`select organisation_id from fleet.devices where id = ${id}`;
       return rows.length && canOrg(rows[0].organisation_id) ? rows[0].organisation_id : null;
     };
+    const isOwner = async (org: string) => {
+      if (global) return true;
+      const rows = await sql`select owner_email from fleet.organisations where id = ${org}`;
+      return rows.length === 1 && rows[0].owner_email === email;
+    };
+    // A person this admin may manage (not removed).
+    const person = async (id: string | null) => {
+      if (!id) return null;
+      const rows = await sql`select id, organisation_id, username, role, enabled, all_computers from fleet.people
+                             where id = ${id} and removed_at is null`;
+      return rows.length && canOrg(rows[0].organisation_id) ? rows[0] : null;
+    };
+    // Chosen computers: only the organisation's own, still in it.
+    const computersOf = async (org: string, value: unknown): Promise<string[] | null> => {
+      if (!Array.isArray(value) || value.length > 1000) return null;
+      const ids = [...new Set(value.map(uuid))];
+      if (ids.includes(null)) return null;
+      const rows = ids.length ? await sql`select id from fleet.devices where organisation_id = ${org} and left_at is null
+                                           and id = any(${ids as string[]}::uuid[])` : [];
+      return rows.length === ids.length ? ids as string[] : null;
+    };
 
     switch (body.op) {
       case "overview": {
         const organisations = global
-          ? await sql`select id, name, created_at, policy from fleet.organisations order by name`
-          : await sql`select id, name, created_at, policy from fleet.organisations where id = any(${orgs}::uuid[]) order by name`;
+          ? await sql`select id, name, created_at, policy, owner_email, (${global} or owner_email = ${email}) as is_owner
+                      from fleet.organisations order by name`
+          : await sql`select id, name, created_at, policy, owner_email, owner_email = ${email} as is_owner
+                      from fleet.organisations where id = any(${orgs}::uuid[]) order by name`;
         const ids = organisations.map((o) => o.id);
         const devices = await sql`
           select id, organisation_id, hostname, os, kulan_version, enrolled_at, last_seen, left_at,
@@ -181,7 +285,7 @@ Deno.serve(async (req: Request) => {
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
         const policy = cleanPolicy(body.policy);
         if (!policy) return reply(400, { error: "a policy object is needed" });
-        await sql`update fleet.organisations set policy = ${sql.json(policy)} where id = ${org}`;
+        await sql`update fleet.organisations set policy = ${json(policy)} where id = ${org}`;
         await audit(org, null, "changed the policy", policy);
         return reply(200, { policy });
       }
@@ -189,9 +293,209 @@ Deno.serve(async (req: Request) => {
         if (!global) return reply(403, { error: "only admins for all organisations can add one" });
         const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
         if (!name) return reply(400, { error: "a name is needed" });
-        const [org] = await sql`insert into fleet.organisations (name) values (${name}) returning id`;
-        await audit(org.id, null, "added the organisation", { name });
-        return reply(200, { id: org.id });
+        const owner = cleanEmail(body.owner_email);
+        if (owner === false) return reply(400, { error: "the Owner's email doesn't look right" });
+        const code = recoveryCode();
+        const org = await sql.begin(async (tx) => {
+          const [o] = await tx`insert into fleet.organisations (name, owner_email, recovery_hash)
+                               values (${name}, ${owner ?? email}, ${await sha256(normalCode(code))}) returning id`;
+          if ((owner ?? email) !== email) {
+            await tx`insert into fleet.admins (email, organisation_id) values (${owner ?? email}, ${o.id}) on conflict do nothing`;
+          }
+          return o;
+        });
+        await audit(org.id, null, "added the organisation", { name, owner: owner ?? email });
+        return reply(200, { id: org.id, recovery_code: code });
+      }
+
+      // --- People ------------------------------------------------------------------------
+      case "people": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const people = await sql`
+          select p.id, p.username, p.full_name, p.email, p.uid, p.role, p.enabled, p.must_change,
+                 p.password_changed_at, p.all_computers, p.created_at, p.created_by,
+                 coalesce((select array_agg(pc.device_id) from fleet.person_computers pc where pc.person_id = p.id), '{}') as computers
+          from fleet.people p where p.organisation_id = ${org} and p.removed_at is null order by p.username`;
+        const devices = await sql`select id, hostname, last_report->'people_status' as people_status
+                                  from fleet.devices where organisation_id = ${org} and left_at is null`;
+        return reply(200, {
+          people: people.map((p) => ({
+            ...p, password_changed_at: Number(p.password_changed_at),
+            on: devices.filter((d) => p.all_computers || p.computers.includes(d.id))
+              .map((d) => ({ device_id: d.id, hostname: d.hostname, status: d.people_status?.[p.username] ?? "not yet" })),
+          })),
+          is_owner: await isOwner(org),
+        });
+      }
+      case "add-person": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const problem = usernameProblem(body.username);
+        if (problem) return reply(400, { error: problem });
+        const role = ROLES.has(body.role) ? body.role : "employee";
+        if (role !== "employee" && !(await isOwner(org))) {
+          return reply(403, { error: "only the Owner can give someone the admin or owner role" });
+        }
+        if (typeof body.password_hash !== "string" || !HASH.test(body.password_hash)) {
+          return reply(400, { error: "a setup code is needed" });
+        }
+        const email2 = cleanEmail(body.email);
+        if (email2 === false) return reply(400, { error: "that email doesn't look right" });
+        const all = body.all_computers !== false;
+        const chosen = all ? [] : await computersOf(org, body.computers);
+        if (chosen === null) return reply(400, { error: "choose computers from this organisation" });
+        const old = await sql`select removed_at from fleet.people where organisation_id = ${org} and username = ${body.username}`;
+        if (old.length) {
+          return reply(409, { error: old[0].removed_at
+            ? "someone with that username was removed in the last 30 days: choose another username for now"
+            : "someone already has that username" });
+        }
+        const [{ count }] = await sql`select count(*)::int as count from fleet.people where organisation_id = ${org}`;
+        if (count >= MAX_PEOPLE) return reply(400, { error: "that's the most people an organisation can have" });
+        let added: Record<string, any> | null = null;
+        for (let attempt = 0; attempt < 3 && !added; attempt++) {
+          try {
+            added = await sql.begin(async (tx) => {
+              const [{ uid }] = await tx`select fleet.next_uid(${org}) as uid`;
+              if (!uid) throw new Error("no uid left");
+              const [p] = await tx`
+                insert into fleet.people (organisation_id, username, full_name, email, uid, role, password_hash,
+                                          must_change, password_changed_at, all_computers, created_by)
+                values (${org}, ${body.username}, ${cleanName(body.full_name) ?? ""}, ${email2}, ${uid}, ${role},
+                        ${body.password_hash}, true, extract(epoch from now())::bigint, ${all}, ${email})
+                returning id, uid`;
+              for (const d of chosen) await tx`insert into fleet.person_computers (person_id, device_id) values (${p.id}, ${d})`;
+              return p;
+            });
+          } catch (e) {
+            const code = (e as { code?: string }).code;
+            const constraint = (e as { constraint_name?: string }).constraint_name;
+            if (code === "23505" && constraint === "people_org_uid_idx") continue; // two added at once: next uid
+            if (code === "23505" && constraint === "people_one_owner_idx") {
+              return reply(409, { error: "the organisation already has an Owner's account" });
+            }
+            if (code === "23505") return reply(409, { error: "someone already has that username" });
+            throw e;
+          }
+        }
+        if (!added) return reply(500, { error: "couldn't give them a user ID: try again" });
+        await audit(org, null, `added ${body.username}`, { role, all_computers: all, computers: chosen.length });
+        return reply(200, { id: added.id, uid: added.uid });
+      }
+      case "edit-person": {
+        const p = await person(uuid(body.person_id));
+        if (!p) return reply(404, { error: "no such person" });
+        const org = p.organisation_id;
+        const name = cleanName(body.full_name);
+        const email2 = cleanEmail(body.email);
+        if (body.email !== undefined && email2 === false) return reply(400, { error: "that email doesn't look right" });
+        const role = body.role === undefined ? p.role : body.role;
+        if (!ROLES.has(role)) return reply(400, { error: "the role is owner, admin or employee" });
+        if (role !== p.role && !(await isOwner(org))) {
+          return reply(403, { error: "only the Owner can give or take the admin or owner role" });
+        }
+        const all = body.all_computers === undefined ? p.all_computers : body.all_computers !== false;
+        const chosen = all ? [] : await computersOf(org, body.computers ?? []);
+        if (chosen === null) return reply(400, { error: "choose computers from this organisation" });
+        try {
+          await sql.begin(async (tx) => {
+            await tx`update fleet.people set full_name = coalesce(${name}, full_name),
+                       email = ${body.email === undefined ? sql`email` : email2},
+                       role = ${role}, all_computers = ${all}
+                     where id = ${p.id}`;
+            if (body.all_computers !== undefined || body.computers !== undefined) {
+              await tx`delete from fleet.person_computers where person_id = ${p.id}`;
+              for (const d of chosen) await tx`insert into fleet.person_computers (person_id, device_id) values (${p.id}, ${d})`;
+            }
+          });
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "the organisation already has an Owner's account" });
+          throw e;
+        }
+        const changed = [name !== null && "name", body.email !== undefined && "email", role !== p.role && `role ${role}`,
+                         (body.all_computers !== undefined || body.computers !== undefined) && "computers"].filter(Boolean);
+        await audit(org, null, `changed ${p.username}`.slice(0, 80), { changed });
+        return reply(200, {});
+      }
+      case "set-person-enabled": {
+        const p = await person(uuid(body.person_id));
+        if (!p) return reply(404, { error: "no such person" });
+        if (typeof body.enabled !== "boolean") return reply(400, { error: "enabled is true or false" });
+        if (p.role !== "employee" && !(await isOwner(p.organisation_id))) {
+          return reply(403, { error: "only the Owner can disable an admin or the Owner" });
+        }
+        await sql`update fleet.people set enabled = ${body.enabled} where id = ${p.id}`;
+        await audit(p.organisation_id, null, `${body.enabled ? "enabled" : "disabled"} ${p.username}`);
+        return reply(200, {});
+      }
+      case "new-setup-code": {
+        const p = await person(uuid(body.person_id));
+        if (!p) return reply(404, { error: "no such person" });
+        if (typeof body.password_hash !== "string" || !HASH.test(body.password_hash)) {
+          return reply(400, { error: "a setup code is needed" });
+        }
+        if (p.role !== "employee" && !(await isOwner(p.organisation_id))) {
+          return reply(403, { error: "only the Owner can give an admin or the Owner a new setup code" });
+        }
+        await sql`update fleet.people set password_hash = ${body.password_hash}, must_change = true,
+                    password_changed_at = greatest(extract(epoch from now())::bigint, password_changed_at + 1)
+                  where id = ${p.id}`;
+        await audit(p.organisation_id, null, `gave ${p.username} a new setup code`);
+        return reply(200, {});
+      }
+      case "remove-person": {
+        const p = await person(uuid(body.person_id));
+        if (!p) return reply(404, { error: "no such person" });
+        if (body.confirm !== p.username) return reply(400, { error: "type their username to confirm" });
+        if (p.role !== "employee" && !(await isOwner(p.organisation_id))) {
+          return reply(403, { error: "only the Owner can remove an admin or the Owner" });
+        }
+        const removeFiles = body.remove_files === true;
+        await sql`update fleet.people set removed_at = now(), remove_files = ${removeFiles}, enabled = false
+                  where id = ${p.id}`;
+        await audit(p.organisation_id, null, `removed ${p.username}`, { files: removeFiles ? "deleted" : "kept" });
+        return reply(200, {});
+      }
+
+      // --- Admins and the Owner ---------------------------------------------------------
+      case "admins": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const rows = await sql`select email, created_at from fleet.admins where organisation_id = ${org} order by email`;
+        const [o] = await sql`select owner_email from fleet.organisations where id = ${org}`;
+        return reply(200, { admins: rows, owner: o?.owner_email ?? null, is_owner: await isOwner(org) });
+      }
+      case "add-admin":
+      case "remove-admin": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner can change who the admins are" });
+        const who = cleanEmail(body.email);
+        if (!who) return reply(400, { error: "that email doesn't look right" });
+        if (body.op === "add-admin") {
+          await sql`insert into fleet.admins (email, organisation_id) values (${who}, ${org}) on conflict do nothing`;
+        } else {
+          const [o] = await sql`select owner_email from fleet.organisations where id = ${org}`;
+          if (o?.owner_email === who) return reply(400, { error: "the Owner stays an admin" });
+          await sql`delete from fleet.admins where email = ${who} and organisation_id = ${org}`;
+        }
+        await audit(org, null, `${body.op === "add-admin" ? "added" : "removed"} admin ${who}`.slice(0, 80));
+        return reply(200, {});
+      }
+      case "set-owner": {
+        if (!global) return reply(403, { error: "only admins for all organisations can set the Owner" });
+        const org = uuid(body.organisation_id);
+        const who = cleanEmail(body.email);
+        if (!org) return reply(404, { error: "no such organisation" });
+        if (!who) return reply(400, { error: "that email doesn't look right" });
+        const code = recoveryCode();
+        const rows = await sql`update fleet.organisations set owner_email = ${who}, recovery_hash = ${await sha256(normalCode(code))}
+                               where id = ${org} returning id`;
+        if (!rows.length) return reply(404, { error: "no such organisation" });
+        await sql`insert into fleet.admins (email, organisation_id) values (${who}, ${org}) on conflict do nothing`;
+        await audit(org, null, `made ${who} the Owner`.slice(0, 80));
+        return reply(200, { recovery_code: code });
       }
       case "new-code": {
         const org = uuid(body.organisation_id);

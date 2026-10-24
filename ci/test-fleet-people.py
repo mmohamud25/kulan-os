@@ -65,9 +65,29 @@ try:
     assert shadow("zzomar")[1].startswith("!") and shadow("zzomar")[7] == "0", ("locked and expired", shadow("zzomar"))
     assert status["zzomar"] == "updated: disabled", status
     # Re-enabled.
+    # A new setup code while he's disabled doesn't unlock him.
+    omar_code = h("NEW-CODE-1")
+    accts[1].update(password_hash=omar_code, must_change=True)
+    st, status = P.apply(accts, run, state=st, left=left)
+    assert shadow("zzomar")[1] == "!" + omar_code and status["zzomar"] == "updated: password", (status, shadow("zzomar"))
     accts[1]["enabled"] = True
     st, status = P.apply(accts, run, state=st, left=left)
     assert not shadow("zzomar")[1].startswith("!") and shadow("zzomar")[7] == "", shadow("zzomar")
+    assert shadow("zzomar")[1] == omar_code and shadow("zzomar")[2] == "0", "the new code asks for a new password"
+    # Amina changes hers here but the server doesn't take it (a reply still with
+    # the hash it had): hers stays, by comparing hashes, whatever the clocks say.
+    mine_now = h("amina-third")
+    subprocess.run(["usermod", "-p", mine_now, "zzamina"], check=True)
+    ch = P.changed_passwords(st, now=1)
+    assert [c["password_hash"] for c in ch] == [mine_now], ch
+    P.sent(st, ch)
+    st, status = P.apply(accts, run, state=st, left=left)
+    assert shadow("zzamina")[1] == mine_now and status["zzamina"] == "up to date", (status, shadow("zzamina")[1])
+    # The server now has a different person called zzomar (another uid): his
+    # account here isn't handed to them.
+    other = [dict(accts[0]), dict(accts[1], uid=61950)]
+    st, status = P.apply(other, run, state=st, left=left)
+    assert status["zzomar"].startswith("conflict") and pwd.getpwnam("zzomar").pw_uid == 61902, status
     # Removed: Omar keeping his files, Amina with hers deleted.
     Path("/home/zzomar/report.txt").write_text("handover")
     accts = [{"username": "zzomar", "uid": 61902, "removed": True, "remove_files": False},
