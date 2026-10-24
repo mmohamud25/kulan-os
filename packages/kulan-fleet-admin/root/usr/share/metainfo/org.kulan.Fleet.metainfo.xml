@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.kulan.Fleet</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Kulan Fleet</name>
+  <summary>Look after your organisation's Kulan OS computers</summary>
+  <description>
+    <p>For IT admins: see every computer that joined your organisation, and keep them safe and up to date from this one.</p>
+    <ul>
+      <li>Which computers need security updates, and which don't meet the organisation's policy</li>
+      <li>Policies for automatic updates, the firewall, the screen lock and disk encryption</li>
+      <li>Each computer's apps, alerts and an activity log</li>
+      <li>Lock, restart or erase a lost or stolen computer, only when its user allowed it and its disk is encrypted</li>
+    </ul>
+    <p>Sign in with your work email: Kulan Fleet sends you a one-time code. Computers join from Kulan Settings › About.</p>
+  </description>
+  <launchable type="desktop-id">org.kulan.Fleet.desktop</launchable>
+  <developer id="com.kulangroup">
+    <name>Kulan Group</name>
+  </developer>
+  <url type="homepage">https://os.kulangroup.com</url>
+  <url type="help">https://os.kulangroup.com/help/</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Every computer in the organisation, and what needs attention</caption>
+      <image>https://os.kulangroup.com/images/store/kulan-fleet-1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>One computer's details</caption>
+      <image>https://os.kulangroup.com/images/store/kulan-fleet-2.png</image>
+    </screenshot>
+  </screenshots>
+  <provides>
+    <binary>kulan-fleet-admin</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="2.7" date="2026-10-24"/>
+  </releases>
+</component>

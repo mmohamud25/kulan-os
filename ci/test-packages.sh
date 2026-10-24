@@ -400,7 +400,7 @@ check "Short app names" "long names cut off in the app grid get short ones (GIMP
 	/usr/lib/kulan/desktop-setup >/dev/null 2>&1; ok=1
 	grep -qx "Name=GIMP" "$dst" && grep -qx "X-GNOME-FullName=GNU Image Manipulation Program" "$dst" && grep -qx "Name=New Window" "$dst" && grep -qx "Name\[de\]=GNU Bildbearbeitung" "$dst" && desktop-file-validate "$dst" && ok=0
 	rm -f "$src"; /usr/lib/kulan/desktop-setup >/dev/null 2>&1; [ ! -e "$dst" ] || ok=1; exit $ok'
-check "Kulan Store" "GNOME Software shown as Kulan Store with its icon; Kulan picks in the catalogue" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Kulan Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml'
+check "Store" "GNOME Software shown as Store with Kulan's icon; Kulan picks and Kulan's own apps in the catalogue; Kulan counted as official" bash -c 'f=/usr/share/kulan/xdg/applications/org.gnome.Software.desktop; if [ -f /usr/share/applications/org.gnome.Software.desktop ]; then grep -qx "Name=Store" "$f" && grep -qx "Icon=kulan-store" "$f" && [ "$(grep -c "^Name" "$f")" -eq 1 ] && desktop-file-validate "$f"; fi; test -s /usr/share/icons/hicolor/scalable/apps/kulan-store.svg && grep -q "GnomeSoftware::popular" /usr/share/swcatalog/xml/kulan-picks.xml && grep -q "<pkgname>kulan-fleet-admin</pkgname>" /usr/share/swcatalog/xml/kulan-apps.xml && test -s /usr/share/swcatalog/icons/kulan-apps/64x64/org.kulan.Fleet.png && grep -qx "official-repos=\[.debian-\*., .kulan-\*.\]" /usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override && [ "$(dpkg-divert --listpackage /usr/share/swcatalog/xml/org.gnome.Software.Curated.xml)" = kulan-desktop-settings ]'
 check "Tags in Files" "Tags menu, dots and search are installed; tag words understood" bash -c "$(declare -f pycheck); pycheck /usr/share/nautilus-python/extensions/kulan-tags.py /usr/share/kulan/python/kulan_tags.py /usr/lib/kulan/tags-search-provider && test -s /usr/share/icons/Kulan/scalable/emblems/emblem-kulan-tag-red.svg && grep -qx 'DesktopId=org.gnome.Nautilus.desktop' /usr/share/gnome-shell/search-providers/org.kulan.Tags.search-provider.ini && python3 -c 'import sys; sys.path.insert(0, \"/usr/share/kulan/python\"); import kulan_tags as k; assert k.tag_for_words([\"tag\", \"Gray\"]) == \"grey\" and k.tag_for_words([\"red\", \"car\"]) is None and k._clean([\"Blue\", \"x\", \"red\"]) == [\"red\", \"blue\"]'"
 check "Tag folders" "each tag in use gets a folder of links for Files' sidebar; real files there are kept" python3 -I -B - <<'PY'
 import os, sys, tempfile
@@ -773,6 +773,47 @@ check "Fleet leave" "the server is told; key, status and the policy's screen loc
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).
+# The Store (GNOME Software) finds Kulan Fleet in Kulan's catalogue and
+# installs it from a copy of Kulan's update channel, through PackageKit, as it
+# does on a computer.
+cat >/tmp/store-test.sh <<'STORE'
+#!/bin/bash
+set -uo pipefail
+DEB="$1"
+apt-get install -y -q --no-install-recommends gnome-software packagekit polkitd appstream apt-utils dbus xvfb xauth >/tmp/store-apt.log 2>&1 || { tail -n 3 /tmp/store-apt.log; echo "GNOME Software isn't installable"; exit 1; }
+CMD=/usr/libexec/gnome-software-cmd
+# GNOME's sample Editor's Choice list arrives set aside: Kulan's picks are the list.
+[ ! -e /usr/share/swcatalog/xml/org.gnome.Software.Curated.xml ] || { echo "GNOME's own Editor's Choice list is still in use"; exit 1; }
+[ -x "${CMD}" ] || { echo "no ${CMD}"; exit 1; }
+REPO="$(mktemp -d)"
+chmod 0755 "${REPO}"  # apt reads it as the _apt user
+cp "${DEB}" "${REPO}/"
+chmod 0644 "${REPO}"/*.deb
+(cd "${REPO}" && apt-ftparchive packages . > Packages && apt-ftparchive -o "APT::FTPArchive::Release::Origin=Kulan OS" release . > Release)
+echo "deb [trusted=yes] file:${REPO} ./" > /etc/apt/sources.list.d/kulan-store-test.list
+apt-get update -q >/dev/null 2>&1
+apt-get remove -y -q kulan-fleet-admin >/dev/null 2>&1 || true
+appstreamcli refresh-cache --force >/dev/null 2>&1
+appstreamcli get org.kulan.Fleet | grep -qx "Package: kulan-fleet-admin" || { echo "Kulan Fleet isn't in the app catalogue"; exit 1; }
+mkdir -p /run/dbus
+[ -S /run/dbus/system_bus_socket ] || dbus-daemon --system --fork
+pgrep -x polkitd >/dev/null || { /usr/lib/polkit-1/polkitd --no-debug >/tmp/polkitd.log 2>&1 & }
+pgrep -x packagekitd >/dev/null || { /usr/libexec/packagekitd >/tmp/packagekitd.log 2>&1 & }
+sleep 3
+gs() { XDG_RUNTIME_DIR="$(mktemp -d)" timeout 300 xvfb-run -a dbus-run-session -- "${CMD}" --plugin-blocklist=fwupd,snap "$@" 2>&1; }
+# --refine-flags: GNOME Software looks up each app's state (without it, apps
+# whose state is unknown are left out of the results).
+found="$(gs --refine-flags=origin,license --show-results search fleet)"
+echo "${found}" | grep -q "unique-id: .*kulan-apps/org.kulan.Fleet" || { echo "${found}" | grep -vE "fd limit|libEGL|proxy" | tail -n 5; apt-cache policy kulan-fleet-admin | head -n 3; echo "the Store didn't find Kulan Fleet"; exit 1; }
+echo "${found}" | awk '/^GsApp:/ { if (f && a) ok = 1; f = a = 0 } /^id: *org\.kulan\.Fleet$/ { f = 1 } /^state: *available$/ { a = 1 } END { if (f && a) ok = 1; exit !ok }' ||
+	{ echo "Kulan Fleet isn't installable in the Store"; exit 1; }
+gs action install org.kulan.Fleet | tail -n 3
+dpkg -s kulan-fleet-admin 2>/dev/null | grep -qx "Status: install ok installed" || { tail -n 5 /tmp/packagekitd.log; echo "the Store didn't install it"; exit 1; }
+rm -f /etc/apt/sources.list.d/kulan-store-test.list
+pkill -x packagekitd || true
+echo "store test passed"
+STORE
+check "Store installs Kulan Fleet" "found in Kulan's catalogue by GNOME Software and installed from Kulan's channel through PackageKit" bash -c "bash /tmp/store-test.sh ./${FLEET_ADMIN[0]} >/tmp/store.out 2>&1; rc=\$?; tail -n 4 /tmp/store.out; [ \$rc -eq 0 ] && grep -qx 'store test passed' /tmp/store.out"
 check "Kulan Fleet app installs" "kulan-fleet-admin with its Debian dependencies" bash -c "apt-get install -y -q ./${FLEET_ADMIN[0]} >/tmp/fleet-admin.log 2>&1 || { tail -n 5 /tmp/fleet-admin.log; exit 1; }; desktop-file-validate /usr/share/applications/org.kulan.Fleet.desktop && test -s /usr/share/icons/hicolor/scalable/apps/org.kulan.Fleet.svg"
 check "Kulan Fleet app opens" "every page builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-fleet-admin --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback" | head -n 3; echo "$out" | grep -qx "Kulan Fleet: every page built"'
 check "Kulan Fleet sign-in" "the code, the email's link, and the browser's address however it was copied" python3 -I -B ci/fleet-signin-test.py /usr/bin/kulan-fleet-admin

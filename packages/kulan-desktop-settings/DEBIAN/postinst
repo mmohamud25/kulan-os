@@ -85,6 +85,20 @@ account_picture() {
 	return 0
 }
 
+# Editor's Choice in the Store is Kulan's picks (swcatalog/xml/kulan-picks.xml):
+# GNOME Software's own sample list of GNOME apps, which it says distributions
+# should replace, is set aside (and put back if this package is removed).
+GNOME_CURATED=/usr/share/swcatalog/xml/org.gnome.Software.Curated.xml
+curated_list() {
+	DIVERTED_BY="$(dpkg-divert --listpackage "${GNOME_CURATED}")"
+	if [ -n "${DIVERTED_BY}" ] && [ "${DIVERTED_BY}" != kulan-desktop-settings ]; then
+		return 0
+	fi
+	# Outside the xml folder, so the Store doesn't read the set-aside copy.
+	[ -n "${DIVERTED_BY}" ] || dpkg-divert --package kulan-desktop-settings --add --rename \
+		--divert /usr/share/swcatalog/org.gnome.Software.Curated.xml.gnome "${GNOME_CURATED}"
+}
+
 # Only Bibata Modern Classic is used: drop the other variants' cursor pictures
 # (already installed ones; /etc/dpkg/dpkg.cfg.d/kulan-lean keeps them out of
 # later updates).
@@ -105,6 +119,7 @@ case "$1" in
 		soft splash_logo
 		soft lean_cursors
 		soft account_picture
+		soft curated_list
 		apply
 		# Most-used apps read into memory after sign-in (kulan-prewarm), for
 		# every account; "systemctl --user disable kulan-prewarm.timer" opts out.
@@ -117,7 +132,7 @@ case "$1" in
 			# TPM unlock (kulan-tpm) builds the start-up image with dracut.
 			dracut --force --regenerate-all >/dev/null 2>&1 || true
 		fi
-		# Apps from the Kulan Store (Flatpak) may read the GTK settings folders,
+		# Apps from the Store (Flatpak) may read the GTK settings folders,
 		# so they get Kulan's window buttons too, and Qt ones open through
 		# XWayland when they're allowed to (else Wayland, as before). Once;
 		# removing it with "flatpak override --system --reset" is respected.

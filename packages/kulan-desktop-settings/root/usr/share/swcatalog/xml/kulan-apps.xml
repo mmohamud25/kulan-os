@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Kulan OS: Kulan's own apps in the Store. Each one installs its Debian
+     package (pkgname) from Kulan's update channel, signed like every other
+     Kulan update. Icons: usr/share/swcatalog/icons/kulan-apps (made by
+     scripts/render-assets.py); screenshots: os.kulangroup.com/images/store
+     (scripts/render-store-screenshots.py). A new Kulan app gets a component
+     here and a metainfo file in its own package. -->
+<components version="0.16" origin="kulan-apps">
+  <component type="desktop-application">
+    <id>org.kulan.Fleet</id>
+    <pkgname>kulan-fleet-admin</pkgname>
+    <name>Kulan Fleet</name>
+    <summary>Look after your organisation's Kulan OS computers</summary>
+    <description>
+      <p>For IT admins: see every computer that joined your organisation, and keep them safe and up to date from this one.</p>
+      <ul>
+        <li>Which computers need security updates, and which don't meet the organisation's policy</li>
+        <li>Policies for automatic updates, the firewall, the screen lock and disk encryption</li>
+        <li>Each computer's apps, alerts and an activity log</li>
+        <li>Lock, restart or erase a lost or stolen computer, only when its user allowed it and its disk is encrypted</li>
+      </ul>
+      <p>Sign in with your work email: Kulan Fleet sends you a one-time code. Computers join from Kulan Settings › About.</p>
+    </description>
+    <icon type="cached" width="64" height="64">org.kulan.Fleet.png</icon>
+    <icon type="cached" width="128" height="128">org.kulan.Fleet.png</icon>
+    <categories>
+      <category>System</category>
+      <category>Settings</category>
+    </categories>
+    <keywords>
+      <keyword>fleet</keyword>
+      <keyword>admin</keyword>
+      <keyword>devices</keyword>
+      <keyword>organisation</keyword>
+      <keyword>compliance</keyword>
+    </keywords>
+    <launchable type="desktop-id">org.kulan.Fleet.desktop</launchable>
+    <developer id="com.kulangroup">
+      <name>Kulan Group</name>
+    </developer>
+    <project_license>LicenseRef-proprietary</project_license>
+    <url type="homepage">https://os.kulangroup.com</url>
+    <url type="help">https://os.kulangroup.com/help/</url>
+    <screenshots>
+      <screenshot type="default">
+        <caption>Every computer in the organisation, and what needs attention</caption>
+        <image type="source" width="1100" height="720">https://os.kulangroup.com/images/store/kulan-fleet-1.png</image>
+      </screenshot>
+      <screenshot>
+        <caption>One computer's details</caption>
+        <image type="source" width="1100" height="720">https://os.kulangroup.com/images/store/kulan-fleet-2.png</image>
+      </screenshot>
+    </screenshots>
+    <content_rating type="oars-1.1"/>
+    <kudos>
+      <kudo>GnomeSoftware::popular</kudo>
+    </kudos>
+    <custom>
+      <value key="GnomeSoftware::DeploymentFeatured">Kulan</value>
+    </custom>
+  </component>
+</components>

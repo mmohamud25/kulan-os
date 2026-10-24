@@ -46,7 +46,7 @@ LAYOUT_LEFT = "close,minimize,maximize:appmenu"
 LAYOUT_RIGHT = "appmenu:minimize,maximize,close"
 
 
-# Each gtk.css imports a copy kept next to it, so apps from the Kulan Store
+# Each gtk.css imports a copy kept next to it, so apps from the Store
 # (Flatpak), which can read ~/.config/gtk-*.0 but not /usr/share, get the
 # buttons too. Kulan Shell refreshes the copy at every sign-in.
 GTK_COPY = "kulan-window-buttons.css"

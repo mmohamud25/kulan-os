@@ -453,6 +453,13 @@ def main() -> int:
 </svg>''',
         CHROOT / "usr/share/kulan/calamares/slide1.png",
     )
+    # Store listings for Kulan's own apps (usr/share/swcatalog/xml/kulan-apps.xml):
+    # the Store shows these icons before the app is installed.
+    for app_id, pkg in (("org.kulan.Fleet", "kulan-fleet-admin"),):
+        svg = (ROOT / "packages" / pkg / "root/usr/share/icons/hicolor/scalable/apps" / f"{app_id}.svg").read_text()
+        for size in (64, 128):
+            render(svg, CHROOT / f"usr/share/swcatalog/icons/kulan-apps/{size}x{size}/{app_id}.png", size, size)
+
     print("Done.")
     return 0
 
