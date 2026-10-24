@@ -42,8 +42,15 @@ function random(bytes = 32): string {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+// The web dashboard (fleet/dashboard) signs in from its own address too.
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info, x-supabase-api-version",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
 function json(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS } });
 }
 
 function session(user: User): Response {
@@ -54,6 +61,7 @@ function session(user: User): Response {
 }
 
 async function auth(req: Request, path: string): Promise<Response> {
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
   if (path === "/auth/v1/otp") {
     const email = String(body.email ?? "").trim().toLowerCase();
@@ -85,7 +93,7 @@ async function auth(req: Request, path: string): Promise<Response> {
   }
   if (path === "/auth/v1/logout") {
     access.delete(token);
-    return new Response(null, { status: 204 });
+    return new Response(null, { status: 204, headers: CORS });
   }
   return json(404, { msg: "not found" });
 }

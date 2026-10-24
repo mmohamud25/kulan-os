@@ -218,7 +218,10 @@ Deno.serve(async (req: Request) => {
     // A person this admin may manage (not removed).
     const person = async (id: string | null) => {
       if (!id) return null;
-      const rows = await sql`select id, organisation_id, username, role, enabled, all_computers from fleet.people
+      const rows = await sql`select id, organisation_id, username, full_name, email, role, enabled, all_computers,
+                                    coalesce((select array_agg(pc.device_id::text order by pc.device_id)
+                                              from fleet.person_computers pc where pc.person_id = fleet.people.id), '{}') as computers
+                             from fleet.people
                              where id = ${id} and removed_at is null`;
       return rows.length && canOrg(rows[0].organisation_id) ? rows[0] : null;
     };
@@ -414,8 +417,12 @@ Deno.serve(async (req: Request) => {
           if ((e as { code?: string }).code === "23505") return reply(409, { error: "the organisation already has an Owner's account" });
           throw e;
         }
-        const changed = [name !== null && "name", body.email !== undefined && "email", role !== p.role && `role ${role}`,
-                         (body.all_computers !== undefined || body.computers !== undefined) && "computers"].filter(Boolean);
+        // Only what really changed goes in the activity log.
+        const sameComputers = all === p.all_computers && (all || [...chosen].sort().join() === p.computers.join());
+        const changed = [name !== null && name !== p.full_name && "name",
+                         body.email !== undefined && email2 !== (p.email ?? null) && "email",
+                         role !== p.role && `role ${role}`, !sameComputers && "computers"].filter(Boolean);
+        if (!changed.length) return reply(200, {});
         await audit(org, null, `changed ${p.username}`.slice(0, 80), { changed });
         return reply(200, {});
       }
