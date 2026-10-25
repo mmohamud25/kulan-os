@@ -19,6 +19,16 @@ sudo ./run.sh
 open the Kulan Fleet app against this server:
 `KULAN_FLEET_URL=https://<address>:8443 kulan-fleet-admin`.
 
+## Google Workspace mailboxes (2.8e)
+The test server has a stand-in Google, so mailboxes with People can be
+tried without a real Workspace: in the Kulan Fleet app, Settings › Google
+Workspace, paste any service account JSON key (one made with
+`openssl genpkey -algorithm RSA -out key.pem` and put in
+`{"type":"service_account","client_email":"test-kulan@test-project.iam.gserviceaccount.com","private_key":"…"}` works)
+and act as `it@<your test domain>`. What it does is printed in the
+server's terminal. To try a real Workspace instead (careful: it really
+makes mailboxes), start it with `sudo KULAN_FLEET_REAL_GOOGLE=1 ./run.sh`.
+
 ## On each other test computer
 Trust the test authority (check its fingerprint matches the one `setup.sh`
 printed), then join with the server address:
