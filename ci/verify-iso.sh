@@ -99,6 +99,8 @@ FILES=(
 	etc/pam.d/gdm-password
 	etc/pam.d/gdm-autologin
 	etc/pam.d/login
+	etc/pam.d/common-auth
+	etc/group
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -250,7 +252,7 @@ check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.
 check "Firewall app" "gufw installed" installed gufw
 check "Graphics helper" "Kulan's renderer helper and the EGL and OpenGL ES libraries it uses are there, for Kulan Settings › About's 3D acceleration line" bash -c "$(declare -f has_path); WORK='${WORK}'; has_path usr/lib/kulan/graphics-renderer && grep -q 'squashfs-root/usr/lib/[^/]*/libEGL.so.1\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/[^/]*/libGLESv2.so.2\$' '${WORK}/listing'"
 check "Lost mode stops sign-in" "GDM's sign-in (password and automatic) and the console's honour /etc/nologin (pam_nologin), which Kulan Fleet's lost mode uses" bash -c "for f in gdm-password gdm-autologin login; do grep -Eq '^auth[[:space:]]+(requisite|required)[[:space:]]+pam_nologin.so' '${R}/etc/pam.d/'\$f || { echo \"no pam_nologin in \$f\"; exit 1; }; done"
-check "Two-step sign-in ready" "Kulan Fleet's two-step profile is in common-auth, after the password, and only asks members of kulan-two-step (nobody on a new install)" bash -c "f='${R}/etc/pam.d/common-auth'; grep -q 'pam_succeed_if.so quiet user ingroup kulan-two-step' \"\$f\" || { echo 'not in common-auth:'; grep -v '^#' \"\$f\" | grep . | head -n 12; ls '${R}/usr/share/pam-configs/'; exit 1; }; grep -Eq '^kulan-two-step:x:[0-9]+:$' '${R}/etc/group' || { echo \"group: \$(grep kulan-two-step '${R}/etc/group' || echo missing)\"; exit 1; }; ls '${R}'/usr/lib/*-linux-gnu/security/pam_oath.so >/dev/null 2>&1 || { echo 'no pam_oath.so'; exit 1; }; awk '/pam_unix.so/ {u=NR} /ingroup kulan-two-step/ {k=NR} END {exit !(u && k > u)}' \"\$f\" || { echo 'not after pam_unix'; exit 1; }"
+check "Two-step sign-in ready" "Kulan Fleet's two-step profile is in common-auth, after the password, and only asks members of kulan-two-step (nobody on a new install)" bash -c "f='${R}/etc/pam.d/common-auth'; grep -q 'pam_succeed_if.so quiet user ingroup kulan-two-step' \"\$f\" || { echo 'not in common-auth:'; grep -v '^#' \"\$f\" | grep . | head -n 12; ls '${R}/usr/share/pam-configs/'; exit 1; }; grep -Eq '^kulan-two-step:x:[0-9]+:$' '${R}/etc/group' || { echo \"group: \$(grep kulan-two-step '${R}/etc/group' || echo missing)\"; exit 1; }; grep -q 'squashfs-root/usr/lib/[a-z0-9_]*-linux-gnu/security/pam_oath.so\$' '${WORK}/listing' || { echo 'no pam_oath.so'; exit 1; }; awk '/pam_unix.so/ {u=NR} /ingroup kulan-two-step/ {k=NR} END {exit !(u && k > u)}' \"\$f\" || { echo 'not after pam_unix'; exit 1; }"
 check "Backups" "Deja Dup installed" installed deja-dup
 check "Network privacy" "Wi-Fi MAC randomization config" test -s "${R}/etc/NetworkManager/conf.d/80-kulan-privacy.conf"
 check "Browser privacy" "Firefox policies valid JSON" python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${R}/etc/firefox/policies/policies.json"
