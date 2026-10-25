@@ -209,3 +209,39 @@ Who uses which computer:
   "what's shared" in Kulan Settings.
 - Shown on each computer's page (who signs in there) and each person's
   (where they last signed in). The admin-rights review uses it too.
+
+## 2.8d Stronger sign-in: how it works (design)
+Agreed 25 October 2026: Kulan Fleet admins get an authenticator app code
+now (Supabase's MFA, which is stable; security keys for admins come when
+Supabase's passkeys stop being experimental); on the computers, people can
+use a security key or a phone code, either or both.
+
+Kulan Fleet admins (the app and the dashboard):
+- After the email code, an admin who has set up an authenticator app types
+  its 6-digit code (Supabase MFA: the session becomes "aal2").
+- Each admin sets it up from Kulan Fleet (a QR code to scan, then a code
+  to check it). The Owner can require it for the organisation's admins:
+  then fleet-admin answers only aal2 sessions for that organisation, and
+  an admin without it is shown how to set it up.
+- Lost phone: the Owner (or Kulan) removes that admin's authenticator so
+  they can set it up again; the Owner who loses theirs uses the recovery
+  code from a new email, as now. Both in the activity log.
+
+On the computers (people Kulan Fleet manages):
+- A policy setting: two-step sign-in off, for admins, or for everyone
+  (groups can make it stricter, as with every rule).
+- Each person sets it up in Kulan Settings › Users › Two-step sign-in:
+  add a security key (touch it; pam_u2f, the same origin on every
+  computer so the key works on all of them) and/or a phone code (a QR
+  code for an authenticator app, checked before it's saved).
+- What's set up goes to Kulan Fleet with the next report and on to every
+  computer the person may use: a security key's public key (safe to
+  share), a phone code's secret (kept encrypted on the server with a key
+  only the fleet function has, and root-only on each computer).
+- Signing in (sign-in screen, unlocking, the console): password, then the
+  key or the code. Until someone has set it up they sign in as before and
+  are reminded each time; Kulan Fleet and the weekly report list who
+  hasn't. An admin can reset someone's two-step (lost key or phone), and
+  they set it up again.
+- Leaving the organisation removes the two-step settings from the
+  computer; the person signs in with their password again.
