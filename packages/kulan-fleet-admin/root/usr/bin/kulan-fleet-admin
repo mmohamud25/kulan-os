@@ -2918,8 +2918,9 @@ class FleetApp(Adw.Application):
                                     "detail": {"n": 1}}])
                     assert csv.splitlines()[1] == "2026-10-26T10:00:00Z,a@x,'=HYPERLINK(1),\"pc, one\",\"{\"\"n\"\": 1}\"", csv
                     # Stronger sign-in (2.8d): the code, setting one up, the menu, the Owner's resets.
-                    win.two_step_needed("code").force_close()
-                    assert win.two_step_needed("code") is None, "one code dialog at a time"
+                    first = win.two_step_needed("code")
+                    assert first is not None and win.two_step_needed("code") is None, "one code dialog at a time"
+                    first.force_close()
                     win.two_step_dialog = None
                     win.two_step_needed("set-up").force_close()
                     win.two_step_dialog = None
