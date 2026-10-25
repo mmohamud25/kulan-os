@@ -35,6 +35,10 @@ alter table fleet.people add column if not exists mailbox_state text
   check (mailbox_state is null or mailbox_state in ('active', 'suspended', 'deleted'));
 alter table fleet.people add column if not exists mailbox_todo text
   check (mailbox_todo is null or mailbox_todo in ('suspend', 'unsuspend', 'delete', 'rename'));
+-- Google's own id for it (never changes, unlike the address), so Kulan Fleet
+-- only ever acts on the mailbox it made or linked.
+alter table fleet.people add column if not exists mailbox_google_id text
+  check (mailbox_google_id is null or char_length(mailbox_google_id) <= 64);
 alter table fleet.people add column if not exists mailbox_error text
   check (mailbox_error is null or char_length(mailbox_error) <= 300);
 -- One person per mailbox in an organisation (removed people's included

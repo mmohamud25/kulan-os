@@ -173,18 +173,18 @@ grep -q "(stand-in Google) made amina@kulan.example" "${LOG}" && pass "stand-in 
 report laptop-a
 report laptop-b
 for host in laptop-a laptop-b; do
-	expect "${host}: offers amina her work email (anyone may read the address, nothing else)" on "${host}" \
-		'python3 -c "import json; d = json.load(open(\"/var/lib/kulan/fleet-mail.json\")); assert d == {\"amina\": {\"address\": \"amina@kulan.example\", \"provider\": \"google\"}}, d" && test "$(stat -c %a /var/lib/kulan/fleet-mail.json)" = 644'
+	expect "${host}: offers amina her work email (her own file, only she can read it)" on "${host}" \
+		'python3 -c "import json; d = json.load(open(\"/var/lib/kulan/fleet-mail/amina\")); assert d == {\"address\": \"amina@kulan.example\", \"provider\": \"google\"}, d" && test "$(stat -c %a:%U /var/lib/kulan/fleet-mail/amina)" = 600:amina && test "$(ls /var/lib/kulan/fleet-mail)" = amina'
 done
 expect "laptop-a: Geary not asked for while a policy blocks it" on laptop-a \
 	'! python3 -c "import json, sys; p = json.load(open(\"/var/lib/kulan/fleet-policy.json\"))[\"policy\"]; sys.exit(0 if any(a[\"id\"] == \"geary\" for a in p.get(\"required_apps\", [])) else 1)"'
 adm "{\"op\":\"set-person-enabled\",\"person_id\":\"${AMINA}\",\"enabled\":false}" >/dev/null
 grep -q "(stand-in Google) changed amina@kulan.example: suspended" "${LOG}" && pass "disabled: her mailbox suspended in Google" || fail "disabled: her mailbox suspended in Google"
 report laptop-a
-expect "laptop-a: disabled, her work email no longer offered" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail.json'
+expect "laptop-a: disabled, her work email no longer offered" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail/amina'
 adm "{\"op\":\"set-person-enabled\",\"person_id\":\"${AMINA}\",\"enabled\":true}" >/dev/null
 report laptop-a
-expect "laptop-a: enabled again, offered again" on laptop-a 'grep -q amina@kulan.example /var/lib/kulan/fleet-mail.json'
+expect "laptop-a: enabled again, offered again" on laptop-a 'grep -q amina@kulan.example /var/lib/kulan/fleet-mail/amina'
 adm "{\"op\":\"set-policy\",\"organisation_id\":\"${ORG}\",\"policy\":{}}" >/dev/null
 
 step "Who uses which computer (2.8c)"
@@ -250,7 +250,7 @@ done
 step "Teardown"
 for host in laptop-a laptop-b; do on "${host}" "kulan-fleet leave >/dev/null 2>&1" || true; done
 expect "laptop-a: leaving takes the USB rule and the pin away, apps stay" on laptop-a 'test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules && test ! -e /etc/apt/preferences.d/60-kulan-fleet-blocked && dpkg -s sl >/dev/null 2>&1'
-expect "laptop-a: no work email offered after leaving" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail.json'
+expect "laptop-a: no work email offered after leaving" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail'
 cleanup
 sudo "${HERE}/fleet/test-server/teardown.sh"
 expect "the test server leaves nothing" test ! -e /opt/kulan-fleet-test

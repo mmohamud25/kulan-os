@@ -21,8 +21,8 @@ from pathlib import Path
 from gi.repository import Gio, GLib
 
 REMINDER = "/usr/lib/kulan/fleet-work-email"
-PUBLIC = Path("/var/lib/kulan/fleet-mail.json")
 me = pwd.getpwuid(os.getuid())
+PUBLIC = Path("/var/lib/kulan/fleet-mail") / me.pw_name  # this account's own
 home = Path(tempfile.mkdtemp())
 fakebin = Path(tempfile.mkdtemp())
 opened = fakebin / "opened"
@@ -82,7 +82,7 @@ def reminder(timeout=60):
 
 try:
     PUBLIC.parent.mkdir(parents=True, exist_ok=True)
-    PUBLIC.write_text(json.dumps({me.pw_name: {"address": "amina@acme.test", "provider": "google"}}))
+    PUBLIC.write_text(json.dumps({"address": "amina@acme.test", "provider": "google"}))
     r = reminder()
     assert r.returncode == 0, r.stderr
     assert len(shown) == 1, shown
@@ -98,7 +98,7 @@ try:
     r = reminder(30)
     assert r.returncode == 0 and len(shown) == 1, (r.stderr, shown)
     # Nobody with a mailbox: nothing, at once.
-    PUBLIC.write_text("{}")
+    PUBLIC.unlink()
     r = subprocess.run([REMINDER], env=env, capture_output=True, text=True, timeout=10)
     assert r.returncode == 0 and len(shown) == 1, (r.stderr, shown)
 finally:

@@ -200,7 +200,7 @@ async function auth(req: Request, path: string): Promise<Response> {
 // fleet-admin's Google calls come here: any service account key is accepted
 // (for super admin it@<domain>), mailboxes live in memory. Enough to try
 // mailboxes with People on test computers without a real Workspace.
-type GUser = { primaryEmail: string; name: { givenName: string; familyName: string }; suspended: boolean;
+type GUser = { id: string; primaryEmail: string; name: { givenName: string; familyName: string }; suspended: boolean;
                isAdmin: boolean; changePasswordAtNextLogin?: boolean };
 const gusers = new Map<string, GUser>();
 async function google(req: Request, path: string): Promise<Response> {
@@ -226,12 +226,12 @@ async function google(req: Request, path: string): Promise<Response> {
   }
   if (!who && req.method === "POST") {
     if (gusers.has(body.primaryEmail)) return json(409, { error: { message: "Entity already exists." } });
-    gusers.set(body.primaryEmail, { primaryEmail: body.primaryEmail, name: body.name, suspended: false, isAdmin: false,
-                                    changePasswordAtNextLogin: true });
+    gusers.set(body.primaryEmail, { id: String(100000 + gusers.size), primaryEmail: body.primaryEmail, name: body.name,
+                                    suspended: false, isAdmin: false, changePasswordAtNextLogin: true });
     console.log(`(stand-in Google) made ${body.primaryEmail}`);
     return json(200, show(gusers.get(body.primaryEmail)!));
   }
-  const u = who ? gusers.get(who) : undefined;
+  const u = who ? gusers.get(who) ?? [...gusers.values()].find((x) => x.id === who) : undefined;
   if (!u) return json(404, { error: { message: "Resource Not Found: userKey" } });
   if (req.method === "GET") return json(200, show(u));
   if (req.method === "PATCH") {

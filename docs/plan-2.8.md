@@ -301,3 +301,20 @@ On the computers ("the email connection settings"):
   policy blocks it.
 - Leaving the organisation removes the work email settings (not the
   person's Online Accounts, which are theirs to remove).
+
+2.8e security review (25 October 2026), all fixed and tested:
+- Google's access tokens are remembered per organisation and exact key,
+  and connecting always asks Google (a different key with the same
+  service account and super admin names never gets through); one
+  organisation per Google domain unless Kulan's admins decide otherwise.
+- The service account key is sealed with its own key (HKDF from
+  FLEET_FACTOR_KEY) and bound to its organisation.
+- Kulan Fleet keeps Google's id for each mailbox and acts only on that
+  one, never on whoever an address now points to (a rename, an alias).
+- Only the Owner changes an admin's or the Owner's mailbox (renames too);
+  a Google admin's, delegated admins included, only the Owner.
+- A rename never hides a waiting suspend or delete (that's done first);
+  an admin can't forget or unlink a waiting suspend or delete; disconnecting
+  keeps what's left to do; removed people's waits are in the weekly report.
+- Admins make mailboxes on the connected domain only.
+- On the computers, each person's work email is a file only they can read.

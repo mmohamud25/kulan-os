@@ -2941,7 +2941,8 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog = Adw.AlertDialog(heading="Disconnect Google Workspace?",
                                  body="Kulan Fleet forgets the key. Mailboxes stay in Google as they are, but they're "
                                       "no longer made, suspended or removed with People, and computers stop offering "
-                                      "them. To stop the key working too, delete it in Google Cloud.")
+                                      "them. Mailboxes still to suspend or delete stay on the list, to do by hand. To stop the key working too, "
+                                      "delete it in Google Cloud.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Disconnect")
         dialog.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)

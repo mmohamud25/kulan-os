@@ -8,8 +8,8 @@ connected with GNOME Online Accounts (mail in Geary, calendar, contacts,
 Google Drive in Files); a later provider (Kulan's own mail server) only adds
 a branch here and to connect_command().
 
-  /var/lib/kulan/fleet-mail.json   {username: {address, provider}}  (anyone may read:
-                                   addresses, never passwords; kept by kulan-fleet)
+  /var/lib/kulan/fleet-mail/<username>   {address, provider}: each person's own,
+                                         readable only by them (kept by kulan-fleet)
 
 Run as the person themselves (fleet-work-email at sign-in, Kulan Settings):
 mine(), connected() and ask_today() read their own files only.
@@ -19,11 +19,12 @@ from __future__ import annotations
 import configparser
 import json
 import os
+import pwd
 import re
 import time
 from pathlib import Path
 
-PUBLIC = Path("/var/lib/kulan/fleet-mail.json")
+PUBLIC = Path("/var/lib/kulan/fleet-mail")
 PROVIDERS = ("google",)
 ADDRESS = re.compile(r"^[a-z0-9](?:[a-z0-9._'-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 USERNAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -45,38 +46,70 @@ def from_accounts(accounts, managed) -> dict[str, dict]:
     return out
 
 
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".kulan-new")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+def _write_own(path: Path, text: str, uid: int, gid: int) -> None:
+    """A file only its person can read (root writes it; never through a link)."""
+    tmp = path.with_name("." + path.name + ".kulan-new")
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w") as fh:
         fh.write(text)
-    os.chmod(tmp, 0o644)
+    os.chown(tmp, uid, gid)
     os.replace(tmp, path)
 
 
-def apply(accounts, managed, public: Path | None = None) -> dict[str, dict]:
-    """After a report: who has a work mailbox here."""
+def apply(accounts, managed, public: Path | None = None, owner=None) -> dict[str, dict]:
+    """After a report: each person with a work mailbox here gets their own
+    file; nobody else's are kept. owner(username) -> (uid, gid) or None (the
+    tests' stand-in for the password database)."""
     public = public or PUBLIC
+    owner = owner or _owner
     mail = from_accounts(accounts, managed)
-    if mail:
-        _write(public, json.dumps(mail, sort_keys=True))
-    else:
-        public.unlink(missing_ok=True)
-    return mail
+    public.mkdir(mode=0o755, parents=True, exist_ok=True)
+    os.chmod(public, 0o755)
+    written = set()
+    for user, entry in mail.items():
+        ids = owner(user)
+        if ids is None:  # no account here yet: next report
+            continue
+        text = json.dumps(entry, sort_keys=True)
+        path = public / user
+        try:
+            same = path.read_text() == text and path.stat().st_uid == ids[0]
+        except OSError:
+            same = False
+        if not same:
+            _write_own(path, text, *ids)
+        written.add(user)
+    for f in public.iterdir():
+        if f.name not in written:
+            f.unlink(missing_ok=True)
+    return {u: mail[u] for u in written}
+
+
+def _owner(user: str):
+    try:
+        p = pwd.getpwnam(user)
+        return p.pw_uid, p.pw_gid
+    except KeyError:
+        return None
 
 
 def remove_all(public: Path | None = None) -> None:
     """Leaving the organisation: no work email offered (people's own Online Accounts stay theirs)."""
-    (public or PUBLIC).unlink(missing_ok=True)
+    public = public or PUBLIC
+    if public.is_dir():
+        for f in public.iterdir():
+            f.unlink(missing_ok=True)
+        public.rmdir()
 
 
 def mine(username: str, public: Path | None = None) -> dict | None:
     try:
-        entry = json.loads((public or PUBLIC).read_text()).get(username)
-    except (OSError, ValueError, AttributeError):
+        entry = json.loads(((public or PUBLIC) / username).read_text())
+    except (OSError, ValueError):
         return None
-    if isinstance(entry, dict) and isinstance(entry.get("address"), str) and entry.get("provider") in PROVIDERS:
+    if isinstance(entry, dict) and isinstance(entry.get("address"), str) and ADDRESS.match(entry["address"]) and \
+            entry.get("provider") in PROVIDERS:
         return entry
     return None
 

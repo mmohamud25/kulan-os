@@ -27,12 +27,23 @@ export class GoogleError extends Error {
 }
 
 // --- the sealed private key -------------------------------------------------------------------
+// Its own AES key, derived from FLEET_FACTOR_KEY (HKDF, so it isn't the key
+// that seals 2.8d's phone codes), and each sealed key is bound to its
+// organisation (AES-GCM's associated data): copied to another organisation's
+// row, it doesn't open.
 let sealKey: CryptoKey | null | undefined;
-async function factorKey(): Promise<CryptoKey | null> {
+async function mailKey(): Promise<CryptoKey | null> {
   if (sealKey !== undefined) return sealKey;
   try {
     const raw = Uint8Array.from(atob(Deno.env.get("FLEET_FACTOR_KEY") ?? ""), (c) => c.charCodeAt(0));
-    sealKey = raw.length === 32 ? await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]) : null;
+    if (raw.length !== 32) {
+      sealKey = null;
+    } else {
+      const base = await crypto.subtle.importKey("raw", raw, "HKDF", false, ["deriveKey"]);
+      sealKey = await crypto.subtle.deriveKey(
+        { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: new TextEncoder().encode("kulan-fleet google key v1") },
+        base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    }
   } catch {
     sealKey = null;
   }
@@ -44,26 +55,28 @@ const toB64 = (bytes: Uint8Array) => {
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 };
+const bound = (org: string) => new TextEncoder().encode(`mail:${org}`);
 
-// "v1:" + base64(12-byte IV + AES-GCM ciphertext), as the fleet function keeps phone codes;
-// null when Kulan Fleet's key isn't set.
-export async function sealText(text: string): Promise<string | null> {
-  const key = await factorKey();
+// "m1:" + base64(12-byte IV + AES-GCM ciphertext); null when Kulan Fleet's key isn't set.
+export async function sealText(text: string, org: string): Promise<string | null> {
+  const key = await mailKey();
   if (!key) return null;
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(text)));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: bound(org) }, key,
+                                                        new TextEncoder().encode(text)));
   const all = new Uint8Array(12 + ct.length);
   all.set(iv);
   all.set(ct, 12);
-  return "v1:" + toB64(all);
+  return "m1:" + toB64(all);
 }
 
-export async function openText(sealed: string): Promise<string | null> {
-  const key = await factorKey();
-  if (!key || !sealed.startsWith("v1:")) return null;
+export async function openText(sealed: string, org: string): Promise<string | null> {
+  const key = await mailKey();
+  if (!key || !sealed.startsWith("m1:")) return null;
   try {
     const all = Uint8Array.from(atob(sealed.slice(3)), (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: all.slice(0, 12) }, key, all.slice(12)));
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: all.slice(0, 12), additionalData: bound(org) },
+                                                                key, all.slice(12)));
   } catch {
     return null;
   }
@@ -103,15 +116,23 @@ const b64url = (bytes: Uint8Array) => toB64(bytes).replaceAll("+", "-").replaceA
 const jsonPart = (o: unknown) => b64url(new TextEncoder().encode(JSON.stringify(o)));
 
 // --- talking to Google --------------------------------------------------------------------------
-export type Connection = { domain: string; admin_email: string; client_email: string; pem: string };
+export type Connection = { organisation_id: string; domain: string; admin_email: string; client_email: string; pem: string };
 
 const tokens = new Map<string, { token: string; until: number }>();
 
-// An access token for the service account acting as the super admin (OAuth 2.0 JWT bearer grant).
-export async function accessToken(c: Connection): Promise<string> {
-  const cacheKey = `${c.client_email} ${c.admin_email} ${c.pem.length}`;
+// Kept per organisation and per exact key: one organisation's token can never
+// be another's, even for the same service account and super admin.
+async function cacheKeyOf(c: Connection): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${c.organisation_id}\n${c.client_email}\n${c.admin_email}\n${c.pem}`));
+  return toB64(new Uint8Array(d));
+}
+
+// An access token for the service account acting as the super admin (OAuth
+// 2.0 JWT bearer grant). fresh: always ask Google (connecting checks the key).
+export async function accessToken(c: Connection, fresh = false): Promise<string> {
+  const cacheKey = await cacheKeyOf(c);
   const cached = tokens.get(cacheKey);
-  if (cached && cached.until > Date.now()) return cached.token;
+  if (!fresh && cached && cached.until > Date.now()) return cached.token;
   let key: CryptoKey;
   try {
     key = await signingKey(c.pem);
@@ -151,8 +172,8 @@ export async function accessToken(c: Connection): Promise<string> {
   return body.access_token;
 }
 
-async function call(c: Connection, method: string, path: string, body?: unknown): Promise<{ status: number; body: any }> {
-  const token = await accessToken(c);
+async function call(c: Connection, method: string, path: string, body?: unknown, fresh = false): Promise<{ status: number; body: any }> {
+  const token = await accessToken(c, fresh);
   let res: Response;
   try {
     res = await fetch(`${apiUrl()}/admin/directory/v1${path}`, {
@@ -183,10 +204,12 @@ function failed(r: { status: number; body: any }, c: Connection, what: string): 
   return new GoogleError(r.status >= 500 ? 502 : 400, `Google couldn't ${what}` + (said ? `: ${said}` : ""));
 }
 
-export type GoogleUser = { address: string; name: string; suspended: boolean; admin: boolean };
+// id: Google's own, which never changes (an address can be renamed, or become another user's alias).
+export type GoogleUser = { id: string; address: string; name: string; suspended: boolean; admin: boolean };
 
 function user(u: any): GoogleUser {
   return {
+    id: typeof u?.id === "string" ? u.id : "",
     address: String(u?.primaryEmail ?? "").toLowerCase(),
     name: String(u?.name?.fullName ?? "").slice(0, 120),
     suspended: u?.suspended === true,
@@ -194,11 +217,12 @@ function user(u: any): GoogleUser {
   };
 }
 
-const at = (address: string) => `/users/${encodeURIComponent(address)}`;
+// A user by Google id or address (Google takes either).
+const at = (key: string) => `/users/${encodeURIComponent(key)}`;
 
 // The mailbox, or null if Google has none with that address.
-export async function getUser(c: Connection, address: string): Promise<GoogleUser | null> {
-  const r = await call(c, "GET", at(address));
+export async function getUser(c: Connection, key: string): Promise<GoogleUser | null> {
+  const r = await call(c, "GET", at(key));
   if (r.status === 404) return null;
   if (r.status !== 200) throw failed(r, c, "look up that mailbox");
   return user(r.body);
@@ -221,34 +245,36 @@ export async function listUsers(c: Connection): Promise<GoogleUser[]> {
 
 // Checks the connection works: a token, then one mailbox of the domain.
 export async function check(c: Connection): Promise<void> {
-  const r = await call(c, "GET", `/users?${new URLSearchParams({ domain: c.domain, maxResults: "1" })}`);
+  const r = await call(c, "GET", `/users?${new URLSearchParams({ domain: c.domain, maxResults: "1" })}`, undefined, true);
   if (r.status !== 200) throw failed(r, c, `list the mailboxes of ${c.domain}`);
 }
 
-export async function createUser(c: Connection, address: string, name: { given: string; family: string }, password: string) {
+// Returns the new mailbox's Google id.
+export async function createUser(c: Connection, address: string, name: { given: string; family: string }, password: string): Promise<string> {
   const r = await call(c, "POST", "/users", {
     primaryEmail: address, name: { givenName: name.given, familyName: name.family }, password,
     changePasswordAtNextLogin: true });
   if (r.status !== 200 && r.status !== 201) throw failed(r, c, "make that mailbox");
+  return typeof r.body?.id === "string" ? r.body.id : "";
 }
 
-export async function setSuspended(c: Connection, address: string, suspended: boolean) {
-  const r = await call(c, "PATCH", at(address), { suspended });
+export async function setSuspended(c: Connection, key: string, suspended: boolean) {
+  const r = await call(c, "PATCH", at(key), { suspended });
   if (r.status !== 200) throw failed(r, c, suspended ? "suspend that mailbox" : "unsuspend that mailbox");
 }
 
-export async function rename(c: Connection, address: string, name: { given: string; family: string }) {
-  const r = await call(c, "PATCH", at(address), { name: { givenName: name.given, familyName: name.family } });
+export async function rename(c: Connection, key: string, name: { given: string; family: string }) {
+  const r = await call(c, "PATCH", at(key), { name: { givenName: name.given, familyName: name.family } });
   if (r.status !== 200) throw failed(r, c, "change the name on that mailbox");
 }
 
-export async function setPassword(c: Connection, address: string, password: string) {
-  const r = await call(c, "PATCH", at(address), { password, changePasswordAtNextLogin: true });
+export async function setPassword(c: Connection, key: string, password: string) {
+  const r = await call(c, "PATCH", at(key), { password, changePasswordAtNextLogin: true });
   if (r.status !== 200) throw failed(r, c, "give that mailbox a new password");
 }
 
-export async function deleteUser(c: Connection, address: string) {
-  const r = await call(c, "DELETE", at(address));
+export async function deleteUser(c: Connection, key: string) {
+  const r = await call(c, "DELETE", at(key));
   if (r.status !== 204 && r.status !== 200 && r.status !== 404) throw failed(r, c, "delete that mailbox");
 }
 

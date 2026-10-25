@@ -40,24 +40,30 @@ G = lambda address: {"address": address, "provider": "google"}  # noqa: E731
 
 with tempfile.TemporaryDirectory() as tmp:
     t = Path(tmp)
-    public = t / "fleet-mail.json"
+    public = t / "fleet-mail"
+    import os
+    me = (os.getuid(), os.getgid())
+    owner = lambda u: me if u in ("amina", "omar") else None  # noqa: E731  (accounts that exist here)
     accounts = [acct("amina", G("amina@acme.test")), acct("omar"), acct("local", G("boss@acme.test")),
                 acct("gone", G("gone@acme.test"), removed=True), acct("off", G("off@acme.test"), enabled=False),
                 acct("bad", {"address": "not an address", "provider": "google"}),
                 acct("other", {"address": "o@acme.test", "provider": "exchange"}),
                 acct("Bad:Name", G("x@acme.test")), "junk"]
-    got = wm.apply(accounts, {"amina", "omar", "gone", "off", "bad", "other", "Bad:Name"}, public)
+    got = wm.apply(accounts, {"amina", "omar", "gone", "off", "bad", "other", "Bad:Name"}, public, owner)
     check("only managed, enabled accounts with a well-formed google mailbox", got == {"amina": G("amina@acme.test")}, got)
-    check("anyone may read the list (addresses only)", oct(public.stat().st_mode & 0o777) == "0o644" and
-          json.loads(public.read_text()) == {"amina": G("amina@acme.test")})
+    check("her own file, only she can read it", sorted(f.name for f in public.iterdir()) == ["amina"] and
+          oct((public / "amina").stat().st_mode & 0o777) == "0o600" and (public / "amina").stat().st_uid == me[0] and
+          json.loads((public / "amina").read_text()) == G("amina@acme.test"))
     check("mine", wm.mine("amina", public) == G("amina@acme.test") and wm.mine("omar", public) is None)
-    wm.apply([acct("amina")], {"amina"}, public)
-    check("nobody with a mailbox: no file", not public.exists())
+    check("no account here yet: no file until there is", wm.apply([acct("new", G("new@acme.test"))], {"new"}, public, owner) == {}
+          and not (public / "new").exists() and not (public / "amina").exists())
+    wm.apply([acct("amina")], {"amina"}, public, owner)
+    check("nobody with a mailbox: no files", list(public.iterdir()) == [])
     check("mine with no file", wm.mine("amina", public) is None)
-    wm.apply(accounts, {"amina"}, public)
-    public.write_text("not json")
+    (public / "amina").write_text("not json")
     check("mine with a broken file", wm.mine("amina", public) is None)
-    wm.apply(accounts, {"amina"}, public)
+    wm.apply(accounts, {"amina"}, public, owner)
+    check("a broken file is replaced", wm.mine("amina", public) == G("amina@acme.test"))
 
     # Connected: a GNOME Online Accounts Google account for that address.
     home = t / "home"
@@ -96,6 +102,12 @@ with tempfile.TemporaryDirectory() as tmp:
 
     wm.remove_all(public)
     check("leaving: no work email offered", not public.exists() and wm.mine("amina", public) is None)
+    public.mkdir()
+    (t / "elsewhere").write_text("keep")
+    (public / "amina").symlink_to(t / "elsewhere")
+    wm.apply(accounts, {"amina"}, public, owner)
+    check("a link put in its place is replaced, never written through", (t / "elsewhere").read_text() == "keep" and
+          not (public / "amina").is_symlink() and wm.mine("amina", public) == G("amina@acme.test"))
     wm.remove_all(public)  # twice is fine
 
     # Kulan Settings' row (under xvfb-run, when given its source).
@@ -111,16 +123,17 @@ with tempfile.TemporaryDirectory() as tmp:
         about.AboutPage.WORKMAIL = SRC
         loaded = about.AboutPage.workmail()
         check("Settings loads the module", loaded is not None)
+        public.mkdir(exist_ok=True)
         loaded.PUBLIC = public
         about.AboutPage.workmail = classmethod(lambda cls: loaded)
         page = about.AboutPage.__new__(about.AboutPage)
         me = getpass.getuser()
-        public.write_text(json.dumps({me: G("me@acme.test")}))
+        (public / me).write_text(json.dumps(G("me@acme.test")))
         row = page.work_email_row()
         check("Settings: not connected yet, with a Connect button",
               row is not None and "not connected yet" in row.get_subtitle() and "me@acme.test" in row.get_subtitle(),
               row and row.get_subtitle())
-        public.write_text("{}")
+        (public / me).unlink()
         check("Settings: no row without a work mailbox", page.work_email_row() is None)
 
 if failures:

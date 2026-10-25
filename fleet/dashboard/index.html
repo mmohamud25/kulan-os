@@ -1394,7 +1394,7 @@ $("add-person").addEventListener("click", addPerson);
 $("mail-connect").addEventListener("click", connectMail);
 $("mail-users").addEventListener("click", mailUsers);
 $("mail-disconnect").addEventListener("click", async () => {
-  if (!confirm("Disconnect Google Workspace? Kulan Fleet forgets the key. Mailboxes stay in Google as they are, but they're no longer made, suspended or removed with People, and computers stop offering them. To stop the key working too, delete it in Google Cloud.")) return;
+  if (!confirm("Disconnect Google Workspace? Kulan Fleet forgets the key. Mailboxes stay in Google as they are, but they're no longer made, suspended or removed with People, and computers stop offering them. Mailboxes still to suspend or delete stay on the list, to do by hand. To stop the key working too, delete it in Google Cloud.")) return;
   try { await api({ op: "disconnect-mail", organisation_id: $("org").value }); $("app-msg").textContent = "Google Workspace disconnected."; await load(); }
   catch (e) { $("app-msg").textContent = e.message; }
 });
