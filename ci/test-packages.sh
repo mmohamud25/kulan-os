@@ -798,6 +798,28 @@ assert "run_script" not in p and p["screen_lock_minutes"] == 5, p
 assert s["screen_lock_minutes"] == "met" and s["require_encryption"] == "not met", s
 assert set(s) == {"auto_updates", "firewall", "screen_lock_minutes", "require_encryption"}, s
 PY
+check "Fleet USB and apps" "2.8b: USB storage blocked or approved drives only, apps required and blocked, every case" python3 -I -B ci/fleetpolicy-test.py /usr/share/kulan-fleet/fleetpolicy.py
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet USB rule" "the rule udev gets is valid; the udev helper is there" bash -c 'r="$(mktemp --suffix=.rules)"; python3 -I -B -c "import sys; sys.path.insert(0, \"/usr/share/kulan-fleet\"); import fleetpolicy; print(fleetpolicy.usb_rules(\"approved\", [{\"vendor_id\": \"0781\", \"product_id\": \"5583\", \"serial\": \"4C530001\"}]), end=\"\")" >"$r" && udevadm verify "$r" >/dev/null && test -x /usr/lib/kulan/fleet-usb-seen && DEVPATH=/nope /usr/lib/kulan/fleet-usb-seen'
+check "Fleet policy keys" "kulan-fleet keeps usb and apps from the policy; install-app only with an app it can install" python3 -I -B - <<'PY'
+import importlib.machinery, importlib.util
+loader = importlib.machinery.SourceFileLoader("kf_policy", "/usr/bin/kulan-fleet")
+spec = importlib.util.spec_from_loader("kf_policy", loader)
+kf = importlib.util.module_from_spec(spec)
+loader.exec_module(kf)
+p = kf.clean_policy({"usb": "approved", "usb_drives": [{"vendor_id": "0781", "product_id": "5583", "serial": "4C530001"}, {"vendor_id": "bad"}],
+                     "required_apps": [{"source": "debian", "id": "gimp"}, {"source": "snap", "id": "x"}],
+                     "blocked_apps": [{"source": "flatpak", "id": "com.valvesoftware.Steam"}], "run_script": "rm -rf /"})
+assert p == {"usb": "approved", "usb_drives": [{"vendor_id": "0781", "product_id": "5583", "serial": "4C530001"}],
+             "required_apps": [{"source": "debian", "id": "gimp"}],
+             "blocked_apps": [{"source": "flatpak", "id": "com.valvesoftware.Steam"}]}, p
+assert kf.clean_policy({"usb": "block", "usb_drives": [{"vendor_id": "0781", "product_id": "5583", "serial": "4C530001"}]}) == {"usb": "block"}
+assert kf.clean_policy({"usb": "everything"}) == {}
+assert "install-app" in kf.ALLOWED_ACTIONS
+assert kf.do_action("install-app", {"source": "debian", "id": "; rm -rf /"})[0] is False
+assert kf.do_action("install-app", None)[0] is False
+assert any("USB" in line for line in kf.SHARED)
+PY
 check "Fleet erase" "allowed only by this computer's user, and only on an encrypted disk" python3 -I -B - <<'PY'
 import importlib.machinery, importlib.util, subprocess
 assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode == 0
@@ -959,6 +981,25 @@ check "Fleet: HTTPS only" "a plain http:// address elsewhere is refused" bash -c
 mkdir -p /etc/dconf/db/gdm.d && printf 'Kulan Fleet lost mode\nlost\n' >/etc/nologin && touch /var/lib/kulan/fleet-lost /etc/dconf/db/gdm.d/90-kulan-fleet-lost
 kulan-fleet leave >/tmp/fleet-leave.log 2>&1
 check "Fleet leave" "the server is told; key, status, any pending erase, lost mode and the policy's screen lock removed" bash -c 'test ! -e /etc/kulan/fleet.json && test ! -e /var/lib/kulan/fleet-erase-pending && test ! -e /var/lib/kulan/fleet-lost && test ! -e /etc/dconf/db/gdm.d/90-kulan-fleet-lost && test ! -e /etc/nologin && test ! -e /var/lib/kulan/fleet-public.json && test ! -e /var/lib/kulan/fleet-policy.json && test ! -e /etc/dconf/db/local.d/60-kulan-fleet && grep -q /v1/leave /tmp/fleet-log.json'
+cat >/tmp/fleet-policy-ui.py <<'PYUI'
+import json, sys
+from pathlib import Path
+sys.path.insert(0, "/usr/share/kulan-settings")
+import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1")
+from gi.repository import Adw
+Adw.init()
+from kulan_settings import about
+Path("/var/lib/kulan/fleet-policy.json").write_text(json.dumps({
+    "policy": {"firewall": True, "usb": "approved", "required_apps": [{"source": "debian", "id": "gimp"}],
+               "blocked_apps": [{"source": "debian", "id": "steam"}]},
+    "status": {"firewall": "met", "usb": "met", "app:install:debian:gimp": "met",
+               "app:block:debian:steam": "kept: removing it would also remove 2 other package(s)"}}))
+row = about.AboutPage.fleet_policy()
+assert row is not None and row.get_subtitle() == "1 not met: your organisation is told", row.get_subtitle()
+Path("/var/lib/kulan/fleet-policy.json").unlink()
+print("policy rows built")
+PYUI
+check "Fleet policy in Settings" "USB and app lines shown, with why one isn't met" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 -I -B /tmp/fleet-policy-ui.py 2>&1)"; rm -f /var/lib/kulan/fleet-policy.json; echo "$out" | grep -qx "policy rows built" || { echo "$out" | tail -n 4; exit 1; }'
 kill "${FLEET_MOCK}" 2>/dev/null
 
 # The administrators' app: installs on its own and builds every page (sample data, no network).

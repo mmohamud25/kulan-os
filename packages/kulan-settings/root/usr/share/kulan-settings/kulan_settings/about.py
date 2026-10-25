@@ -292,19 +292,32 @@ class AboutPage(Page):
             return None
         words = {"auto_updates": "Automatic updates on", "firewall": "Firewall on",
                  "require_encryption": "Disk encryption"}
-        items = [(words[k], status.get(k)) for k in words if policy.get(k)]
+        # (title, status, what to say when it isn't met)
+        items = [(words[k], status.get(k), "Not met. For disk encryption, Kulan OS has to be installed again with "
+                  "encryption on" if k == "require_encryption" else "Not met yet") for k in words if policy.get(k)]
         if policy.get("screen_lock_minutes"):
             items.append((f"Screen locks after {policy['screen_lock_minutes']} minutes",
-                          status.get("screen_lock_minutes")))
-        missing = sum(1 for _t, s in items if s != "met")
+                          status.get("screen_lock_minutes"), "Not met yet"))
+        if policy.get("usb") == "block":
+            items.append(("USB drives don’t work", status.get("usb"),
+                          "Not met yet. Keyboards, mice and other USB devices still work"))
+        elif policy.get("usb") == "approved":
+            items.append(("Only USB drives your organisation approved work", status.get("usb"),
+                          "Not met yet. Keyboards, mice and other USB devices still work"))
+        for kind, verb in (("required_apps", "installed"), ("blocked_apps", "not allowed")):
+            for app in policy.get(kind) or []:
+                if not isinstance(app, dict) or not app.get("id"):
+                    continue
+                key = f"app:{'install' if kind == 'required_apps' else 'block'}:{app.get('source')}:{app['id']}"
+                state = status.get(key)
+                items.append((f"{app['id']} {verb}", state,
+                              (state[:1].upper() + state[1:]) if isinstance(state, str) and state else "Not met yet"))
+        missing = sum(1 for _t, s, _w in items if s != "met")
         row = Adw.ExpanderRow(title="Your organisation’s policy",
                               subtitle="All met" if not missing else
                               f"{missing} not met: your organisation is told")
-        for title, state in items:
-            item = Adw.ActionRow(title=title, subtitle="Met" if state == "met" else
-                                 "Not met. For disk encryption, Kulan OS has to be installed again with "
-                                 "encryption on" if title == "Disk encryption" else "Not met yet",
-                                 subtitle_lines=0)
+        for title, state, why in items:
+            item = Adw.ActionRow(title=title, subtitle="Met" if state == "met" else why, subtitle_lines=0)
             item.add_prefix(Gtk.Image(icon_name="object-select-symbolic" if state == "met" else
                                       "dialog-warning-symbolic"))
             row.add_row(item)
