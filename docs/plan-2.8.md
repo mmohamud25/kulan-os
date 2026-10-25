@@ -21,7 +21,9 @@ numbers; the count still says 2.8).
   and fleet-admin, then merge.)
 - 2.8c Security, activity and computers: a weekly security report;
   "who still has admin rights?" reviews; the activity log exported for
-  auditors; who uses which computer.
+  auditors; who uses which computer. (Built as 2.8.3; waiting for "release it".
+  Release order: apply 20261026120000_fleet_security.sql, deploy fleet and
+  fleet-admin, then merge.)
 - 2.8d Stronger sign-in: two-step sign-in on the computers (phone code or
   security key); security keys for the Owner and admins in Kulan Fleet.
 - 2.8e Organisation: Google Workspace mailboxes made (and suspended) with

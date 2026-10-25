@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.8.3",
+    "label": "2.8c",
+    "title": "Security and activity in Kulan Fleet",
+    "items": [
+      "A weekly security report in Kulan Fleet: which computers need security updates or a restart, which aren't encrypted, have the firewall off, fail compliance or haven't reported for a week, plus people and the week's changes, compared with last week. Save it as a PDF",
+      "Admin-rights reviews: everyone with administrator rights, on the computers and in Kulan Fleet, with when they last used them. The Owner keeps or takes away each one and the review is recorded; it's due every 90 days",
+      "The activity log can be searched by date, by who and by what, and exported as a CSV file for auditors",
+      "Who uses which computer: each computer reports which accounts use it and when each was last used (never what they do). Kulan Settings lists this under what's shared"
+    ]
+  },
+  {
     "version": "2.8.2",
     "label": "2.8b",
     "title": "Groups and policies in Kulan Fleet",
