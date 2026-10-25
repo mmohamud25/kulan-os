@@ -2,7 +2,7 @@
 //
 //   POST /fleet/v1/enrol          {code, hostname, os, kulan_version} -> {device_id, token, organisation}
 //   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?, usb_seen?,
-//                                 sign_ins?}
+//                                 sign_ins?, factors?, factors_removed?}
 //                                 -> {actions: [{id, type, payload?}], policy: {...}, accounts: [...]}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
@@ -19,6 +19,12 @@
 //
 // Who uses which computer (2.8c): a report may list each account's last
 // sign-in there and whether it's signed in now; nothing else about it.
+//
+// Two-step sign-in (2.8d): a person sets up a security key or a phone code on
+// one computer; it comes here with that computer's report and goes to every
+// computer they may use, in their account ("two_step"). A phone code's
+// secret is kept sealed (AES-GCM, FLEET_FACTOR_KEY, which only this function
+// has) and opened only to send it to the person's own computers.
 //
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
@@ -41,6 +47,10 @@ const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
 const HASH = /^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$/;
 const MAX_PASSWORDS = 50;
 const MAX_SIGN_INS = 200;
+const MAX_FACTORS = 10; // per person
+const U2F = /^[A-Za-z0-9+\/=_-]{16,1024},[A-Za-z0-9+\/=_-]{16,1024},(es256|eddsa|rs256),[+a-z]{0,40}$/;
+const TOTP_HEX = /^[0-9a-f]{40}$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // Passwords changed on a computer: [{username, password_hash}] (well-formed only).
 export function cleanPasswords(value: unknown): { username: string; hash: string }[] {
@@ -96,15 +106,74 @@ export function cleanSignIns(value: unknown): { username: string; last: number |
   });
 }
 
+// Second steps set up on a computer: [{username, id, kind: key|code, label, data}].
+export type FactorIn = { username: string; id: string; kind: "key" | "code"; label: string; data: string };
+export function cleanFactors(value: unknown): FactorIn[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).flatMap((f) => {
+    if (typeof f !== "object" || f === null) return [];
+    const { username, id, kind, label, data } = f as Record<string, unknown>;
+    if (typeof username !== "string" || !USERNAME.test(username) || typeof id !== "string" || !UUID.test(id)) return [];
+    if (kind === "key" ? !(typeof data === "string" && U2F.test(data))
+        : kind === "code" ? !(typeof data === "string" && TOTP_HEX.test(data)) : true) return [];
+    const name = typeof label === "string" ? label.replace(/[^\w .,'()+-]/g, "").trim().slice(0, 60) : "";
+    return [{ username, id, kind: kind as FactorIn["kind"], label: name, data: data as string }];
+  });
+}
+
+export function cleanRemovedFactors(value: unknown): { username: string; id: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 20).flatMap((f) => {
+    const { username, id } = (typeof f === "object" && f !== null ? f : {}) as Record<string, unknown>;
+    return typeof username === "string" && USERNAME.test(username) && typeof id === "string" && UUID.test(id)
+      ? [{ username, id }] : [];
+  });
+}
+
+let sealKey: CryptoKey | null | undefined;
+async function factorKey(): Promise<CryptoKey | null> {
+  if (sealKey !== undefined) return sealKey;
+  try {
+    const raw = Uint8Array.from(atob(Deno.env.get("FLEET_FACTOR_KEY") ?? ""), (c) => c.charCodeAt(0));
+    sealKey = raw.length === 32 ? await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["encrypt", "decrypt"]) : null;
+  } catch {
+    sealKey = null;
+  }
+  return sealKey;
+}
+
+// A phone code's secret, sealed for keeping: "v1:" + base64(12-byte IV + AES-GCM ciphertext).
+export async function sealCode(hex: string, key: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(hex)));
+  const all = new Uint8Array(12 + ct.length);
+  all.set(iv);
+  all.set(ct, 12);
+  return "v1:" + btoa(String.fromCharCode(...all));
+}
+
+export async function openCode(sealed: string, key: CryptoKey): Promise<string | null> {
+  try {
+    if (!sealed.startsWith("v1:")) return null;
+    const all = Uint8Array.from(atob(sealed.slice(3)), (c) => c.charCodeAt(0));
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: all.slice(0, 12) }, key, all.slice(12));
+    const hex = new TextDecoder().decode(plain);
+    return TOTP_HEX.test(hex) ? hex : null;
+  } catch {
+    return null;
+  }
+}
+
 type PersonRow = Record<string, any>;
 
 // One person as the computer reads it (kulan-fleet's people.py).
-export function account(p: PersonRow): Record<string, unknown> {
+export function account(p: PersonRow, twoStep?: { required: boolean; factors: Record<string, string>[] }): Record<string, unknown> {
   if (p.removed_at) return { username: p.username, uid: p.uid, removed: true, remove_files: p.remove_files === true };
   return {
     username: p.username, full_name: p.full_name ?? "", uid: p.uid, role: p.role, enabled: p.enabled === true,
     password_hash: p.password_hash ?? null, must_change: p.must_change === true,
     password_changed_at: Number(p.password_changed_at ?? 0),
+    two_step: twoStep ?? { required: false, factors: [] },
   };
 }
 
@@ -204,6 +273,56 @@ Deno.serve(async (req: Request) => {
       const signIns = cleanSignIns(body.sign_ins);
       if (signIns === undefined) delete body.sign_ins;
       else body.sign_ins = signIns;
+      const factorsAdded = cleanFactors(body.factors);
+      const factorsRemoved = cleanRemovedFactors(body.factors_removed);
+      delete body.factors; // into fleet.person_factors only, never into the reports
+      delete body.factors_removed;
+      // A person on this computer, if they may use it and aren't disabled or removed.
+      const allowedHere = async (username: string): Promise<string | null> => {
+        const rows = await sql`
+          select pe.id from fleet.people pe
+          where pe.organisation_id = ${dev.organisation_id} and pe.username = ${username}
+            and pe.removed_at is null and pe.enabled
+            and (pe.all_computers
+                 or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
+                 or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
+                            where pg.person_id = pe.id and gd.device_id = ${dev.id}))`;
+        return rows.length ? rows[0].id : null;
+      };
+      for (const f of factorsAdded) {
+        const pid = await allowedHere(f.username);
+        if (!pid) continue;
+        let data = f.data;
+        if (f.kind === "code") {
+          const key = await factorKey();
+          if (!key) {
+            console.error("fleet: FLEET_FACTOR_KEY isn't set: a phone code can't be kept");
+            continue;
+          }
+          data = await sealCode(f.data, key);
+        }
+        const [{ n }] = await sql`select count(*)::int as n from fleet.person_factors where person_id = ${pid}`;
+        if (n >= MAX_FACTORS) continue;
+        const added = await sql`insert into fleet.person_factors (id, person_id, kind, label, data, created_on)
+                                values (${f.id}, ${pid}, ${f.kind}, ${f.label}, ${data}, ${text(dev.hostname, 120)})
+                                on conflict (id) do nothing returning id`;
+        if (added.length) {
+          await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+                    values (${dev.organisation_id}, ${dev.id}, ${f.username},
+                            ${f.kind === "key" ? "set up a security key for signing in" : "set up a phone code for signing in"},
+                            ${json({ label: f.label, computer: dev.hostname })})`;
+        }
+      }
+      for (const f of factorsRemoved) {
+        const pid = await allowedHere(f.username);
+        if (!pid) continue;
+        const gone = await sql`delete from fleet.person_factors where id = ${f.id} and person_id = ${pid} returning kind, label`;
+        if (gone.length) {
+          await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+                    values (${dev.organisation_id}, ${dev.id}, ${f.username}, 'removed a second step for signing in',
+                            ${json({ kind: gone[0].kind, label: gone[0].label, computer: dev.hostname })})`;
+        }
+      }
       // A new password from a person on this computer: taken if they may use
       // it, aren't disabled or removed, and it really is new. The latest to
       // arrive wins (the server's clock, not the computer's).
@@ -255,7 +374,7 @@ Deno.serve(async (req: Request) => {
       }
       // The people allowed on this computer, and anyone removed in the last 30 days.
       const people = await sql`
-        select pe.username, pe.full_name, pe.uid, pe.role, pe.enabled, pe.password_hash, pe.must_change,
+        select pe.id, pe.username, pe.full_name, pe.uid, pe.role, pe.enabled, pe.password_hash, pe.must_change,
                pe.password_changed_at, pe.removed_at, pe.remove_files
         from fleet.people pe
         where pe.organisation_id = ${dev.organisation_id}
@@ -265,11 +384,22 @@ Deno.serve(async (req: Request) => {
                or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
                           where pg.person_id = pe.id and gd.device_id = ${dev.id}))
         order by pe.uid`;
+      // Their second steps for signing in, and whether this computer's policy asks for one.
+      const live = people.filter((p) => !p.removed_at).map((p) => p.id);
+      const factorRows = live.length ? await sql`select person_id, id, kind, label, data from fleet.person_factors
+                                                  where person_id = any(${live}::uuid[]) order by created_at` : [];
+      const key = factorRows.some((f) => f.kind === "code") ? await factorKey() : null;
+      const factorsOf: Record<string, Record<string, string>[]> = {};
+      for (const f of factorRows) {
+        const data = f.kind === "code" ? (key ? await openCode(f.data, key) : null) : f.data;
+        if (data) (factorsOf[f.person_id] ??= []).push({ id: f.id, kind: f.kind, label: f.label, data });
+      }
+      const requiredFor = (p: PersonRow) => policy.two_step === "everyone" || (policy.two_step === "admins" && p.role !== "employee");
       return reply(200, {
         actions: actions.filter((a) => ACTIONS.has(a.type))
           .map((a) => a.payload ? { id: a.id, type: a.type, payload: a.payload } : { id: a.id, type: a.type }),
         policy: sent,
-        accounts: people.map(account),
+        accounts: people.map((p) => account(p, { required: requiredFor(p), factors: factorsOf[p.id] ?? [] })),
       });
     }
 

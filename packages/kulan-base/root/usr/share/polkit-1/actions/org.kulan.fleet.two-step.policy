@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Kulan Fleet two-step sign-in: each person sets up or removes their own
+     security key or phone code with their own password (not an
+     administrator's); the helper only ever changes the caller's own. -->
+<policyconfig>
+  <vendor>Kulan OS</vendor>
+  <vendor_url>https://github.com/mmohamud25/kulan-os</vendor_url>
+  <icon_name>kulan-logo</icon_name>
+  <action id="org.kulan.fleet.two-step">
+    <description>Set up your two-step sign-in</description>
+    <message>Type your password to change your two-step sign-in</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/kulan/fleet-two-step</annotate>
+  </action>
+</policyconfig>

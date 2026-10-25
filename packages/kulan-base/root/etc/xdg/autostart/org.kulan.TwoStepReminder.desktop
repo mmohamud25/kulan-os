@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Two-step sign-in reminder
+Comment=Reminds you to set up two-step sign-in if your organisation asks for it
+Exec=/usr/lib/kulan/fleet-two-step-reminder
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications
+OnlyShowIn=GNOME;

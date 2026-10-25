@@ -7,6 +7,8 @@
 //   screen_lock_minutes                           1-60
 //   usb                                           "block" | "approved" (approved drives only)
 //   required_apps, blocked_apps                   [{source: "debian" | "flatpak", id}]
+//   two_step                                      "admins" | "everyone" (2.8d: a security key or a
+//                                                 phone code after the password, on the computers)
 
 export type App = { source: "debian" | "flatpak"; id: string };
 export type Policy = {
@@ -17,6 +19,7 @@ export type Policy = {
   usb?: "block" | "approved";
   required_apps?: App[];
   blocked_apps?: App[];
+  two_step?: "admins" | "everyone";
 };
 
 export const MAX_APPS = 50;
@@ -60,6 +63,8 @@ export function cleanPolicy(value: unknown): Policy | null {
   }
   if (v.usb === "block" || v.usb === "approved") policy.usb = v.usb;
   else if (v.usb !== undefined && v.usb !== null && v.usb !== "") return null;
+  if (v.two_step === "admins" || v.two_step === "everyone") policy.two_step = v.two_step;
+  else if (v.two_step !== undefined && v.two_step !== null && v.two_step !== "") return null;
   const required = cleanApps(v.required_apps, false);
   const blocked = cleanApps(v.blocked_apps, true);
   if (required === null || blocked === null) return null;
@@ -69,6 +74,7 @@ export function cleanPolicy(value: unknown): Policy | null {
 }
 
 const USB_RANK = { approved: 1, block: 2 } as const;
+const TWO_STEP_RANK = { admins: 1, everyone: 2 } as const;
 
 // One computer's policy from its organisation's and its groups': the
 // stricter rule always wins, so adding a computer to a group can only make
@@ -87,6 +93,7 @@ export function mergePolicies(policies: unknown[]): { policy: Policy; conflicts:
       out.screen_lock_minutes = p.screen_lock_minutes;
     }
     if (p.usb && (!out.usb || USB_RANK[p.usb] > USB_RANK[out.usb])) out.usb = p.usb;
+    if (p.two_step && (!out.two_step || TWO_STEP_RANK[p.two_step] > TWO_STEP_RANK[out.two_step])) out.two_step = p.two_step;
     for (const a of p.required_apps ?? []) required.set(`${a.source}:${a.id}`, a);
     for (const a of p.blocked_apps ?? []) blocked.set(`${a.source}:${a.id}`, a);
   }

@@ -63,6 +63,18 @@
 //   entry id, for the next page) and limit (up to 10000), for exporting.
 //   "people" and "overview" include who signs in where (the computers' reports).
 //
+// Stronger sign-in (2.8d):
+//   Kulan Fleet admins: an authenticator app code after the email code
+//   (Supabase MFA). Anyone who has set one up must use it ("aal2" session);
+//   the Owner can require it for every admin of the organisation:
+//   POST {op: "set-admin-two-step", organisation_id, required}          (the Owner)
+//   POST {op: "reset-admin-two-step", organisation_id, email}           (the Owner: a lost phone)
+//   Without the code where it's needed, every op answers 403 with
+//   two_step: "code" (type it) or "set-up" (set one up first).
+//   On the computers: policy two_step ("admins" | "everyone"); people's
+//   second steps are listed in "people" (never their data), and
+//   POST {op: "reset-two-step", person_id} removes them (a lost key or phone).
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 import { cleanPolicy, mergePolicies } from "./policy.ts";
@@ -152,7 +164,8 @@ export function reviewDue(lastAt: string | Date | null, orgCreated: string | Dat
 // The weekly security report, from the organisation's computers, people,
 // the week's activity and the last review.
 export function weeklySummary(devices: Device[], people: Record<string, any>[], activity: Record<string, any>[],
-                              review: { at: string | null; by: string | null; due: boolean }, now: number) {
+                              review: { at: string | null; by: string | null; due: boolean }, now: number,
+                              twoStep?: string) {
   const names = (list: Device[]) => list.map((d) => d.hostname || "(no name)").slice(0, LIST_MAX);
   const live = devices.filter((d) => !d.left_at);
   const seen = (d: Device) => d.last_seen ? now - Date.parse(d.last_seen) : Infinity;
@@ -178,6 +191,8 @@ export function weeklySummary(devices: Device[], people: Record<string, any>[], 
   const disabled = active.filter((p) => !p.enabled);
   const unused = active.filter((p) => p.enabled && p.must_change && now - Number(p.password_changed_at) * 1000 > 7 * DAY_MS);
   const admins = active.filter((p) => p.role !== "employee");
+  const noTwoStep = twoStep ? active.filter((p) => p.enabled && !p.has_two_step &&
+    (twoStep === "everyone" || p.role !== "employee")) : [];
   return {
     computers: {
       // The lists name at most 50; counts has how many there really are.
@@ -201,11 +216,14 @@ export function weeklySummary(devices: Device[], people: Record<string, any>[], 
       versions,
     },
     people: {
-      counts: { disabled: disabled.length, setup_code_unused: unused.length, admins: admins.length },
+      counts: { disabled: disabled.length, setup_code_unused: unused.length, admins: admins.length,
+                two_step_missing: noTwoStep.length },
       total: active.length,
       disabled: disabled.map((p) => p.username).slice(0, LIST_MAX),
       setup_code_unused: unused.map((p) => p.username).slice(0, LIST_MAX),
       admins: admins.map((p) => p.username).slice(0, LIST_MAX),
+      two_step: twoStep ?? null,
+      two_step_missing: noTwoStep.map((p) => p.username).slice(0, LIST_MAX),
     },
     activity: {
       changes: activity.length,
@@ -277,7 +295,19 @@ function cors(origin: string | null): Record<string, string> {
   };
 }
 
-async function signedInEmail(req: Request): Promise<string | null> {
+// The session's assurance level from its access token (already checked by
+// Supabase Auth in signedIn): "aal2" after an authenticator app code.
+export function aalOf(token: string): string {
+  try {
+    const part = token.split(".")[1].replaceAll("-", "+").replaceAll("_", "/");
+    const claims = JSON.parse(atob(part + "=".repeat((4 - (part.length % 4)) % 4)));
+    return claims?.aal === "aal2" ? "aal2" : "aal1";
+  } catch {
+    return "aal1";
+  }
+}
+
+async function signedIn(req: Request): Promise<{ email: string; id: string | null; aal: string; hasCode: boolean } | null> {
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return null;
   const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
@@ -286,7 +316,17 @@ async function signedInEmail(req: Request): Promise<string | null> {
   if (!res.ok) return null;
   const user = await res.json();
   if (!user?.email || !user?.email_confirmed_at) return null;
-  return String(user.email).toLowerCase();
+  const hasCode = Array.isArray(user.factors) &&
+    user.factors.some((f: Record<string, unknown>) => f?.factor_type === "totp" && f?.status === "verified");
+  return { email: String(user.email).toLowerCase(), id: typeof user.id === "string" ? user.id : null,
+           aal: aalOf(auth.slice(7).trim()), hasCode };
+}
+
+// Supabase Auth's admin API (the service key, only here): an admin's
+// authenticator apps, to remove them when the Owner resets a lost phone.
+async function authAdmin(path: string, method = "GET"): Promise<Response> {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  return await fetch(`${SUPABASE_URL}/auth/v1/admin${path}`, { method, headers: { Authorization: `Bearer ${key}`, apikey: key } });
 }
 
 function uuid(v: unknown): string | null {
@@ -302,8 +342,9 @@ Deno.serve(async (req: Request) => {
   if (origin && !ALLOWED_ORIGINS.includes(origin)) return reply(403, { error: "not from the dashboard" });
 
   try {
-    const email = await signedInEmail(req);
-    if (!email) return reply(401, { error: "please sign in" });
+    const me = await signedIn(req);
+    if (!me) return reply(401, { error: "please sign in" });
+    const email = me.email;
     const body = await req.json().catch(() => ({}));
     if (body?.op === "recover-owner") {
       const given = normalCode(body.recovery_code);
@@ -325,6 +366,16 @@ Deno.serve(async (req: Request) => {
     if (admins.length === 0) return reply(403, { error: "this account isn't a fleet admin" });
     const global = admins.some((a) => a.organisation_id === null);
     const orgs: string[] = admins.map((a) => a.organisation_id).filter(Boolean);
+    // An authenticator app code: needed by anyone who has set one up, and by
+    // every admin of an organisation that requires it.
+    if (me.aal !== "aal2") {
+      const requiring = orgs.length ? await sql`select 1 from fleet.organisations where id = any(${orgs}::uuid[]) and admin_two_step` : [];
+      if (me.hasCode || requiring.length) {
+        return reply(403, me.hasCode
+          ? { error: "type the code from your authenticator app", two_step: "code" }
+          : { error: "your organisation asks Kulan Fleet admins to set up an authenticator app first", two_step: "set-up" });
+      }
+    }
 
     const canOrg = (id: string) => global || orgs.includes(id);
     const audit = (org: string | null, device: string | null, what: string, detail: unknown = null) =>
@@ -390,9 +441,9 @@ Deno.serve(async (req: Request) => {
     switch (body.op) {
       case "overview": {
         const organisations = global
-          ? await sql`select id, name, created_at, policy, owner_email, (${global} or owner_email = ${email}) as is_owner
+          ? await sql`select id, name, created_at, policy, owner_email, admin_two_step, (${global} or owner_email = ${email}) as is_owner
                       from fleet.organisations order by name`
-          : await sql`select id, name, created_at, policy, owner_email, owner_email = ${email} as is_owner
+          : await sql`select id, name, created_at, policy, owner_email, admin_two_step, owner_email = ${email} as is_owner
                       from fleet.organisations where id = any(${orgs}::uuid[]) order by name`;
         const ids = organisations.map((o) => o.id);
         const devices = await sql`
@@ -426,7 +477,8 @@ Deno.serve(async (req: Request) => {
                                           : `Admin-rights review due: the last was ${due.days} days ago` } as any);
           }
         }
-        return reply(200, { email, global, organisations, devices, actions, alerts });
+        return reply(200, { email, global, organisations, devices, actions, alerts,
+                            me: { aal: me.aal, authenticator: me.hasCode } });
       }
       case "report": {
         const id = uuid(body.device_id);
@@ -509,9 +561,14 @@ Deno.serve(async (req: Request) => {
                                          coalesce((select array_agg(gd.group_id) from fleet.group_devices gd where gd.device_id = d.id), '{}') as groups
                                   from fleet.devices d where d.organisation_id = ${org} and d.left_at is null`;
         const signIns = signInsByUser(devices);
+        const factors = await sql`select f.person_id, f.id, f.kind, f.label, f.created_at, f.created_on
+                                  from fleet.person_factors f join fleet.people p on p.id = f.person_id
+                                  where p.organisation_id = ${org} order by f.created_at`;
         return reply(200, {
           people: people.map((p) => ({
             ...p, password_changed_at: Number(p.password_changed_at), signed_in: signIns[p.username] ?? [],
+            two_step: factors.filter((f) => f.person_id === p.id)
+              .map((f) => ({ id: f.id, kind: f.kind, label: f.label, created_at: f.created_at, created_on: f.created_on })),
             on: devices.filter((d) => p.all_computers || p.computers.includes(d.id)
                                      || d.groups.some((g: string) => p.groups.includes(g)))
               .map((d) => ({ device_id: d.id, hostname: d.hostname, status: d.people_status?.[p.username] ?? "not yet" })),
@@ -887,14 +944,19 @@ Deno.serve(async (req: Request) => {
                  last_report->'state' as state, last_report->'policy_status' as policy_status,
                  last_report->'compliance'->'passed' as compliance_passed, last_report->'compliance'->'total' as compliance_total
           from fleet.devices where organisation_id = ${org} and left_at is null order by hostname`;
-        const people = await sql`select username, role, enabled, must_change, password_changed_at, removed_at
-                                 from fleet.people where organisation_id = ${org} and removed_at is null order by username`;
+        const people = await sql`select p.username, p.role, p.enabled, p.must_change, p.password_changed_at, p.removed_at,
+                                        exists (select 1 from fleet.person_factors f where f.person_id = p.id) as has_two_step
+                                 from fleet.people p where p.organisation_id = ${org} and p.removed_at is null order by p.username`;
+        // Two-step sign-in asked for by the organisation's policy or any group's (the strictest).
+        const [{ policy: orgPolicy }] = await sql`select policy from fleet.organisations where id = ${org}`;
+        const groupPolicies = await sql`select policy from fleet.groups where organisation_id = ${org}`;
+        const twoStep = mergePolicies([orgPolicy ?? {}, ...groupPolicies.map((g) => g.policy)]).policy.two_step;
         const activity = await sql`select what from fleet.audit where organisation_id = ${org} and at > now() - interval '7 days'`;
         const [last] = await sql`select reviewed_at, reviewed_by from fleet.access_reviews where organisation_id = ${org}
                                  order by reviewed_at desc limit 1`;
         const due = reviewDue(last?.reviewed_at ?? null, o?.created_at ?? null, now);
         const summary = weeklySummary(devices, people, activity,
-          { at: last?.reviewed_at ?? null, by: last?.reviewed_by ?? null, due: due.due }, now);
+          { at: last?.reviewed_at ?? null, by: last?.reviewed_by ?? null, due: due.due }, now, twoStep);
         const week = mondayOf(new Date(now));
         try {  // the snapshot is for next week's comparison; the report doesn't depend on it
           await sql`insert into fleet.weekly_reports (organisation_id, week, summary) values (${org}, ${week}, ${json(summary)})
@@ -969,6 +1031,53 @@ Deno.serve(async (req: Request) => {
         await audit(org, null, `reviewed admin rights (kept ${total - removed}, removed ${removed})`.slice(0, 80),
                     { admin_role_taken: people.map((p) => p!.username), fleet_access_taken: removeAdmins });
         return reply(200, { kept: total - removed, removed });
+      }
+      // --- Stronger sign-in (2.8d) ------------------------------------------------------------
+      case "set-admin-two-step": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner decides this" });
+        if (typeof body.required !== "boolean") return reply(400, { error: "required is true or false" });
+        if (body.required && me.aal !== "aal2") {
+          return reply(400, { error: "set up your own authenticator app first, so you aren't locked out", two_step: "set-up" });
+        }
+        await sql`update fleet.organisations set admin_two_step = ${body.required} where id = ${org}`;
+        await audit(org, null, body.required ? "required an authenticator app for Kulan Fleet admins"
+                                             : "stopped requiring an authenticator app for Kulan Fleet admins");
+        return reply(200, {});
+      }
+      case "reset-admin-two-step": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner resets an admin's authenticator app" });
+        const who = cleanEmail(body.email);
+        if (!who) return reply(400, { error: "that email doesn't look right" });
+        const isAdmin = await sql`select 1 from fleet.admins where email = ${who} and organisation_id = ${org}`;
+        if (!isAdmin.length) return reply(400, { error: "choose one of the organisation's admins" });
+        const [user] = await sql`select id from auth.users where lower(email) = ${who} limit 1`;
+        let removed = 0;
+        if (user) {
+          const list = await authAdmin(`/users/${user.id}/factors`);
+          if (!list.ok) return reply(502, { error: "Supabase Auth didn't answer: try again" });
+          for (const f of (await list.json()) as Record<string, unknown>[]) {
+            if (f?.factor_type !== "totp" || typeof f.id !== "string") continue;
+            const del = await authAdmin(`/users/${user.id}/factors/${f.id}`, "DELETE");
+            if (!del.ok) return reply(502, { error: "Supabase Auth didn't answer: try again" });
+            removed++;
+          }
+        }
+        await audit(org, null, `reset ${who}'s authenticator app`.slice(0, 80), { removed });
+        return reply(200, { removed });
+      }
+      case "reset-two-step": {
+        const p = await person(uuid(body.person_id));
+        if (!p) return reply(404, { error: "no such person" });
+        if (p.role !== "employee" && !(await isOwner(p.organisation_id))) {
+          return reply(403, { error: "only the Owner resets an admin's or the Owner's two-step sign-in" });
+        }
+        const gone = await sql`delete from fleet.person_factors where person_id = ${p.id} returning id`;
+        await audit(p.organisation_id, null, `reset ${p.username}'s two-step sign-in`.slice(0, 80), { removed: gone.length });
+        return reply(200, { removed: gone.length });
       }
       case "cancel-action": {
         const id = uuid(body.action_id);

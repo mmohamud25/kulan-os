@@ -30,7 +30,8 @@ const ok = (cond, msg, extra) => {
 await db.unsafe(`drop schema if exists fleet cascade; drop schema if exists stats cascade;
   do $$ begin create role anon; exception when duplicate_object then null; end $$;
   do $$ begin create role authenticated; exception when duplicate_object then null; end $$;
-  create schema if not exists extensions; create extension if not exists pgcrypto schema extensions;`);
+  create schema if not exists extensions; create extension if not exists pgcrypto schema extensions;
+  create schema if not exists auth; create table if not exists auth.users (id text primary key, email text);`);
 // (Supabase keeps pgcrypto in the "extensions" schema.)
 const migrations = path.join(here, "..", "supabase", "migrations");
 for (const f of fs.readdirSync(migrations).filter((f) => f.endsWith(".sql")).sort()) {
@@ -45,16 +46,39 @@ for (const f of fs.readdirSync(migrations).filter((f) => f >= "20261024" && f.en
 const handlers = {};
 let serving = "";
 globalThis.Deno = {
-  env: { get: (k) => ({ SUPABASE_DB_URL: DB, SUPABASE_URL: "http://auth.test", SUPABASE_ANON_KEY: "anon" })[k] },
+  env: { get: (k) => ({ SUPABASE_DB_URL: DB, SUPABASE_URL: "http://auth.test", SUPABASE_ANON_KEY: "anon",
+                        SUPABASE_SERVICE_ROLE_KEY: "service", FLEET_FACTOR_KEY: btoa("k".repeat(32)) })[k] },
   serve: (h) => { handlers[serving] = h; },
 };
 const realFetch = globalThis.fetch;
+// Stand-in Supabase Auth: a token is an unsigned JWT with the email and the
+// session's assurance level; authFactors holds each email's authenticator apps.
+const authFactors = {};
+const b64url = (o) => btoa(JSON.stringify(o)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+const tokenFor = (email, aal = "aal1") => `${b64url({ alg: "none" })}.${b64url({ email, aal })}.sig`;
+const authCalls = [];
 globalThis.fetch = async (url, init) => {
-  if (String(url) === "http://auth.test/auth/v1/user") {
+  const u = String(url);
+  if (u === "http://auth.test/auth/v1/user") {
     const auth = new Headers(init?.headers).get("Authorization") ?? "";
-    const m = auth.match(/^Bearer user:(.+)$/);
-    return m ? new Response(JSON.stringify({ email: m[1], email_confirmed_at: "2026-01-01" }), { status: 200 })
-      : new Response("{}", { status: 401 });
+    try {
+      const { email } = JSON.parse(atob(auth.replace(/^Bearer /, "").split(".")[1].replaceAll("-", "+").replaceAll("_", "/")));
+      return new Response(JSON.stringify({ id: `id-${email}`, email, email_confirmed_at: "2026-01-01", factors: authFactors[email] ?? [] }),
+                          { status: 200 });
+    } catch {
+      return new Response("{}", { status: 401 });
+    }
+  }
+  const admin = u.match(/^http:\/\/auth\.test\/auth\/v1\/admin\/users\/id-([^/]+)\/factors(?:\/(.+))?$/);
+  if (admin) {
+    authCalls.push([init?.method ?? "GET", u]);
+    const email = decodeURIComponent(admin[1]);
+    if (new Headers(init?.headers).get("Authorization") !== "Bearer service") return new Response("{}", { status: 401 });
+    if ((init?.method ?? "GET") === "DELETE") {
+      authFactors[email] = (authFactors[email] ?? []).filter((f) => f.id !== admin[2]);
+      return new Response("{}", { status: 200 });
+    }
+    return new Response(JSON.stringify(authFactors[email] ?? []), { status: 200 });
   }
   return realFetch(url, init);
 };
@@ -81,7 +105,7 @@ const call = async (fn, route, body, token) => {
   const text = await res.text();
   return { status: res.status, body: text ? JSON.parse(text) : null };
 };
-const admin = (who, body) => call("fleet-admin", "", body, `user:${who}`);
+const admin = (who, body, aal = "aal1") => call("fleet-admin", "", body, tokenFor(who, aal));
 const computer = (c, route, body = {}) => call("fleet", route, { device_id: c.device_id, ...body }, c.token);
 // A well-formed SHA-512 crypt hash standing in for each password (crypt's alphabet only).
 const HASH = (s) => `$6$saltsalt$${s.replace(/[^A-Za-z0-9]/g, ".").padEnd(20, "x")}`;
@@ -493,6 +517,101 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.status === 200 && r.body.entries.length === 0, "search text taken literally", r.body);
   r = await admin(NEWOWNER, { op: "log", organisation_id: org, limit: 50000 });
   ok(r.status === 200 && r.body.entries.length <= 10000, "at most 10,000 a page", r.body.entries.length);
+}
+
+// --- stronger sign-in (2.8d) ------------------------------------------------------------
+{
+  const KEY = "kh0123456789abcdefKH,pk0123456789abcdefPK+/=,es256,+presence";
+  const SECRET = "3132333435363738393031323334353637383930";
+  const id = (n) => `00000000-0000-4000-8000-00000000000${n}`;
+  r = await admin(HELPER, { op: "set-policy", organisation_id: org, policy: { two_step: "sometimes" } });
+  ok(r.status === 400, "two_step is admins or everyone", r);
+  r = await admin(HELPER, { op: "set-policy", organisation_id: org, policy: { firewall: true, two_step: "admins" } });
+  ok(r.status === 200 && r.body.policy.two_step === "admins", "two-step sign-in for admins", r);
+
+  // mo sets up a security key and a phone code on laptop-a; junk and other people's are ignored.
+  await report(A, { factors: [
+    { username: "mo", id: id(1), kind: "key", label: "YubiKey 5", data: KEY },
+    { username: "mo", id: id(2), kind: "code", label: "Phone", data: SECRET },
+    { username: "omar", id: id(3), kind: "code", label: "x", data: SECRET },      // omar can't use laptop-a
+    { username: "mo", id: id(4), kind: "key", label: "x", data: "not a credential" },
+    { username: "mo", id: "not-a-uuid", kind: "code", label: "x", data: SECRET },
+    { username: "mo", id: id(5), kind: "sms", label: "x", data: SECRET }] });
+  const stored = await db`select id, kind, data from fleet.person_factors order by id`;
+  ok(stored.length === 2 && stored[0].data === KEY && stored[1].data.startsWith("v1:") && !stored[1].data.includes(SECRET),
+     "a key kept as it is (a public key), a phone code's secret sealed", stored);
+  const lastA = await db`select last_report from fleet.devices where id = ${A.device_id}`;
+  ok(!JSON.stringify(lastA[0].last_report).includes(SECRET), "never kept in the computer's report");
+
+  // Every computer mo may use gets them; who must use them follows the policy.
+  r = await report(B);
+  const moB = r.body.accounts.find((x) => x.username === "mo"), omarB = r.body.accounts.find((x) => x.username === "omar");
+  ok(moB.two_step.required === true && moB.two_step.factors.length === 2 &&
+     moB.two_step.factors.find((f) => f.kind === "code")?.data === SECRET &&
+     moB.two_step.factors.find((f) => f.kind === "key")?.data === KEY, "laptop-b gets mo's key and code (opened)", moB.two_step);
+  ok(omarB.two_step.required === false && omarB.two_step.factors.length === 0, "omar, an employee, isn't asked (admins only)", omarB.two_step);
+  await admin(HELPER, { op: "set-policy", organisation_id: org, policy: { firewall: true, two_step: "everyone" } });
+  ok((await report(B)).body.accounts.find((x) => x.username === "omar").two_step.required === true, "everyone: omar too");
+
+  // Admins see what's set up, never the secrets.
+  r = await admin(HELPER, { op: "people", organisation_id: org });
+  const moP = r.body.people.find((x) => x.username === "mo");
+  ok(moP.two_step.length === 2 && moP.two_step[0].label === "YubiKey 5" && moP.two_step[0].created_on === "laptop-a" &&
+     !JSON.stringify(r.body).includes(SECRET) && !JSON.stringify(r.body).includes("v1:"), "people: what's set up, no secrets", moP.two_step);
+  r = await admin(HELPER, { op: "weekly-report", organisation_id: org });
+  ok(r.body.summary.people.two_step === "everyone" && r.body.summary.people.two_step_missing.includes("omar") &&
+     !r.body.summary.people.two_step_missing.includes("mo"), "the weekly report lists who hasn't set it up", r.body.summary.people);
+
+  // mo removes the phone code on laptop-b; an admin resets two-step (a lost key).
+  await report(B, { factors_removed: [{ username: "mo", id: id(2) }, { username: "omar", id: id(1) }] });
+  ok((await db`select id from fleet.person_factors`).map((x) => x.id).join() === id(1), "the code removed; someone else's can't be", 0);
+  r = await admin(HELPER, { op: "reset-two-step", person_id: moP.id });
+  ok(r.status === 403, "an admin can't reset the Owner's account's two-step", r);
+  r = await admin(NEWOWNER, { op: "reset-two-step", person_id: moP.id });
+  ok(r.status === 200 && r.body.removed === 1, "the Owner resets it", r);
+  ok((await report(A)).body.accounts.find((x) => x.username === "mo").two_step.factors.length === 0, "and the computers drop it");
+
+  // Kulan Fleet admins: an authenticator app code once set up; required by the Owner.
+  authFactors[HELPER] = [{ id: "f1", factor_type: "totp", status: "verified" }];
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.status === 403 && r.body.two_step === "code", "set up: the code is needed (an email code alone isn't enough)", r);
+  r = await admin(HELPER, { op: "overview" }, "aal2");
+  ok(r.status === 200 && r.body.me.aal === "aal2" && r.body.me.authenticator === true, "with the code, in", r.body?.me);
+  r = await admin(HELPER, { op: "set-admin-two-step", organisation_id: org, required: true }, "aal2");
+  ok(r.status === 403, "only the Owner requires it", r);
+  r = await admin(NEWOWNER, { op: "set-admin-two-step", organisation_id: org, required: true });
+  ok(r.status === 400 && r.body.two_step === "set-up", "the Owner sets theirs up first (no locking themselves out)", r);
+  authFactors[NEWOWNER] = [{ id: "f2", factor_type: "totp", status: "verified" }];
+  r = await admin(NEWOWNER, { op: "set-admin-two-step", organisation_id: org, required: true }, "aal2");
+  ok(r.status === 200, "the Owner requires it for the organisation's admins", r);
+  await admin(NEWOWNER, { op: "add-admin", organisation_id: org, email: "new.admin@acme.test" }, "aal2");
+  r = await admin("new.admin@acme.test", { op: "overview" });
+  ok(r.status === 403 && r.body.two_step === "set-up", "a new admin is asked to set one up", r);
+  r = await admin(BOSS, { op: "overview" });
+  ok(r.status === 200 && r.body.organisations.find((o) => o.id === org).admin_two_step === true, "Kulan's own admins aren't locked out", r.status);
+
+  // A lost phone: the Owner resets that admin's authenticator app.
+  await db`insert into auth.users (id, email) values (${"id-" + HELPER}, ${HELPER})`;
+  r = await admin(HELPER, { op: "reset-admin-two-step", organisation_id: org, email: NEWOWNER }, "aal2");
+  ok(r.status === 403, "an admin can't reset another's", r);
+  r = await admin(NEWOWNER, { op: "reset-admin-two-step", organisation_id: org, email: "stranger@x.test" }, "aal2");
+  ok(r.status === 400, "only the organisation's admins", r);
+  r = await admin(NEWOWNER, { op: "reset-admin-two-step", organisation_id: org, email: HELPER }, "aal2");
+  ok(r.status === 200 && r.body.removed === 1 && (authFactors[HELPER] ?? []).length === 0 &&
+     authCalls.some(([m]) => m === "DELETE"), "the Owner resets it through Supabase Auth", r);
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.status === 403 && r.body.two_step === "set-up", "they set it up again", r);
+  r = await admin(NEWOWNER, { op: "set-admin-two-step", organisation_id: org, required: false }, "aal2");
+  ok(r.status === 200, "the Owner stops requiring it", r);
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.status === 200, "no code set up, not required: in with the email code", r.status);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "authenticator" }, "aal2");
+  ok(r.body.entries.map((e) => e.what).includes(`reset ${HELPER}'s authenticator app`) &&
+     r.body.entries.map((e) => e.what).includes("required an authenticator app for Kulan Fleet admins"), "in the log", r.body.entries);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "sign" }, "aal2");
+  ok(r.body.entries.some((e) => e.what === "set up a security key for signing in" && e.email === "mo") &&
+     r.body.entries.some((e) => e.what === "removed a second step for signing in"), "the person's own changes too", r.body.entries.map((e) => e.what));
+  delete authFactors[NEWOWNER];
 }
 
 // --- the activity log ------------------------------------------------------------------------
