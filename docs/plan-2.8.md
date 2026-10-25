@@ -125,3 +125,30 @@ changes, every change in the activity log.
 - At release, with Mohamud's go-ahead: apply the migration, deploy fleet
   and fleet-admin, then release the packages (old computers ignore the
   new reply fields).
+
+## 2.8b Groups and policies: how it works (design)
+Server (fleet schema):
+- fleet.groups: name, organisation, its own policy (same keys as the
+  organisation's). Members: computers (fleet.group_devices) and people
+  (fleet.group_people). A person may also be allowed on a group's computers
+  (people.computer_groups), so "Sales can use the Sales laptops" follows
+  laptops added later.
+- One policy per computer, worked out on the server: the organisation's,
+  then every group the computer is in. The stricter rule always wins:
+  any "on" wins, the shortest screen lock wins, USB "block" beats
+  "approved only" beats nothing, required and blocked apps are joined
+  (an app both required and blocked is blocked, and Fleet says so).
+- fleet.approved_drives: USB drives allowed where a policy says "approved
+  only" (vendor, product and serial, a name). Computers report the USB
+  drives they've seen (just those three and a name) so an admin can approve
+  one from the list.
+- Actions gain a payload, for "install-app" once on a group's computers.
+On the computer (kulan-fleet, as root):
+- USB: a udev rule stops USB storage (interface class 08) unless the drive
+  is approved; keyboards, mice, phones and chargers keep working.
+- Required apps: installed from Kulan's and Debian's sources or Flathub;
+  blocked apps: removed and held off (apt pin, flatpak mask). Never removes
+  a package something essential needs (it simulates first) or a Kulan OS
+  part. Each app's state goes in the report.
+Kulan Fleet app and dashboard: Groups (members, policy), approved drives,
+apps. Every change in the activity log.

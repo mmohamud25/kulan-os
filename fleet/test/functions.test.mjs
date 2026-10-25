@@ -35,8 +35,10 @@ const migrations = path.join(here, "..", "supabase", "migrations");
 for (const f of fs.readdirSync(migrations).filter((f) => f.endsWith(".sql")).sort()) {
   await db.unsafe(fs.readFileSync(path.join(migrations, f), "utf8"));
 }
-// The migrations run again change nothing (if not exists / or replace / drop if exists).
-await db.unsafe(fs.readFileSync(path.join(migrations, "20261024120000_fleet_people.sql"), "utf8"));
+// The 2.8 migrations run again (in order) change nothing (if not exists / or replace / drop if exists).
+for (const f of fs.readdirSync(migrations).filter((f) => f >= "20261024" && f.endsWith(".sql")).sort()) {
+  await db.unsafe(fs.readFileSync(path.join(migrations, f), "utf8"));
+}
 
 // --- the functions, with Deno and Supabase Auth stood in for ------------------------------
 const handlers = {};
@@ -62,6 +64,8 @@ for (const name of ["fleet", "fleet-admin"]) {
     .replace('import postgres from "npm:postgres@3.4.5";', 'import postgres from "postgres";');
   const file = path.join(run, `${name}.ts`);
   fs.writeFileSync(file, src);
+  // policy.ts: the same file in both functions (checked in CI); either copy will do here.
+  fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "policy.ts"), path.join(run, "policy.ts"));
   serving = name;
   await import(file);
 }
@@ -279,6 +283,101 @@ r = await admin(HELPER, { op: "set-owner", organisation_id: org, email: HELPER }
 ok(r.status === 403, "only admins for all organisations set the Owner", r);
 r = await admin(BOSS, { op: "set-owner", organisation_id: other, email: "o@other.test" });
 ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an older organisation", r);
+
+// --- groups and policies (2.8b) -----------------------------------------------------------
+{
+  const policyOf = async (c) => (await report(c)).body.policy;
+  const deb = (id) => ({ source: "debian", id }), flat = (id) => ({ source: "flatpak", id });
+  r = await admin(HELPER, { op: "set-policy", organisation_id: org, policy: { blocked_apps: [deb("kulan-base")] } });
+  ok(r.status === 400, "Kulan OS itself can't be blocked", r);
+  r = await admin(HELPER, { op: "set-policy", organisation_id: org, policy: { required_apps: [deb("not a package")] } });
+  ok(r.status === 400, "an app name that isn't one is refused", r);
+  r = await admin(HELPER, { op: "set-policy", organisation_id: org, policy: {
+    firewall: true, screen_lock_minutes: 10, usb: "approved", required_apps: [deb("libreoffice"), deb("vlc")] } });
+  ok(r.status === 200, "organisation policy with USB approved-only and required apps", r);
+  r = await admin(HELPER, { op: "add-group", organisation_id: org, name: "Finance", policy: {
+    screen_lock_minutes: 5, usb: "block", required_apps: [flat("org.gnome.Calculator")],
+    blocked_apps: [deb("vlc"), flat("com.valvesoftware.Steam")] } });
+  ok(r.status === 200 && r.body.id, "a group with its own policy", r);
+  const finance = r.body.id;
+  r = await admin(HELPER, { op: "add-group", organisation_id: org, name: "finance" });
+  ok(r.status === 409, "group names are unique (whatever the capitals)", r);
+  r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [B.device_id] });
+  ok(r.status === 200, "laptop-b put in Finance", r);
+  r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [C.device_id] });
+  ok(r.status === 400, "another organisation's computer can't join a group", r);
+
+  let pb = await policyOf(B);
+  ok(pb.screen_lock_minutes === 5 && pb.usb === "block" && pb.firewall === true, "laptop-b: the stricter rules win", pb);
+  ok(JSON.stringify(pb.required_apps) === JSON.stringify([deb("libreoffice"), flat("org.gnome.Calculator")]),
+     "laptop-b: required apps joined, vlc dropped as it's blocked", pb.required_apps);
+  ok(pb.blocked_apps.length === 2 && !("usb_drives" in pb), "laptop-b: blocked apps; no drive list when USB is blocked", pb);
+  let pa = await policyOf(A);
+  ok(pa.screen_lock_minutes === 10 && pa.usb === "approved" && !pa.blocked_apps && Array.isArray(pa.usb_drives) && pa.usb_drives.length === 0,
+     "laptop-a: only the organisation's policy", pa);
+  r = await admin(HELPER, { op: "device-policy", device_id: B.device_id });
+  ok(r.body.conflicts.join() === "debian:vlc" && r.body.groups[0].name === "Finance", "conflicts and groups shown for a computer", r.body);
+
+  // USB drives: seen on laptop-a, approved, then sent to the computers that allow approved drives.
+  await report(A, { usb_seen: [{ vendor_id: "0781", product_id: "5581", serial: "4C530001", name: "SanDisk Ultra" },
+                               { vendor_id: "zz", product_id: "1", serial: "x" }] });
+  r = await admin(HELPER, { op: "drives", organisation_id: org });
+  ok(r.body.seen.length === 1 && r.body.seen[0].serial === "4C530001" && r.body.seen[0].computers[0] === "laptop-a",
+     "drives a computer has seen are listed (malformed ones dropped)", r.body);
+  r = await admin(HELPER, { op: "approve-drive", organisation_id: org, name: "Finance backup drive", vendor_id: "0781", product_id: "5581", serial: "4C530001" });
+  ok(r.status === 200, "a drive approved", r);
+  r = await admin(HELPER, { op: "drives", organisation_id: org });
+  ok(r.body.approved.length === 1 && r.body.seen.length === 0, "approved, no longer in the seen list", r.body);
+  pa = await policyOf(A);
+  ok(pa.usb_drives?.[0]?.serial === "4C530001", "laptop-a gets the approved drive", pa.usb_drives);
+
+  // People allowed on a group's computers.
+  r = await add(HELPER, { username: "farah", all_computers: false, groups: [finance] });
+  ok(r.status === 200, "a person allowed on Finance's computers", r);
+  const farah = r.body.id;
+  ok((await report(B)).body.accounts.some((x) => x.username === "farah"), "farah's account on laptop-b (in Finance)");
+  ok(!(await report(A)).body.accounts.some((x) => x.username === "farah"), "but not on laptop-a");
+  r = await admin(HELPER, { op: "people", organisation_id: org });
+  const fp = r.body.people.find((x) => x.username === "farah");
+  ok(fp.on.map((o) => o.hostname).join() === "laptop-b" && fp.groups.length === 1, "the People list shows where through groups", fp);
+  r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [A.device_id, B.device_id] });
+  ok((await report(A)).body.accounts.some((x) => x.username === "farah"), "a computer added to the group gets her account too");
+
+  // Asking a whole group.
+  r = await admin(HELPER, { op: "group-action", group_id: finance, type: "install-app", payload: flat("org.gnome.Maps") });
+  ok(r.status === 200 && r.body.count === 2, "install an app once on the group's computers", r);
+  const acts = (await report(B)).body.actions;
+  ok(acts.some((x) => x.type === "install-app" && x.payload?.id === "org.gnome.Maps"), "laptop-b gets it, with the app", acts);
+  await report(A);
+  r = await admin(HELPER, { op: "group-action", group_id: finance, type: "erase" });
+  ok(r.status === 400, "erase can't be asked of a group", r);
+  r = await admin(HELPER, { op: "group-action", group_id: finance, type: "install-app", payload: deb("bad name!") });
+  ok(r.status === 400, "install-app needs a real app name", r);
+  r = await admin(HELPER, { op: "action", device_id: A.device_id, type: "install-app", payload: deb("gimp") });
+  ok(r.status === 200, "install-app on one computer", r);
+  ok((await report(A)).body.actions.some((x) => x.payload?.id === "gimp"), "with its app");
+
+  // Policy alerts from a computer.
+  await report(A, { policy_status: { "app:install:debian:vlc": "couldn't install: not found", firewall: "met" } });
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.body.alerts.some((x) => x.text.startsWith("vlc isn't installed as the policy says")), "an app the policy needs shows as an alert", r.body.alerts);
+
+  // Removing the group: laptop-b back to the organisation's policy.
+  r = await admin(HELPER, { op: "remove-group", group_id: finance, confirm: "finance" });
+  ok(r.status === 400, "removing a group needs its exact name", r);
+  r = await admin(HELPER, { op: "remove-group", group_id: finance, confirm: "Finance" });
+  ok(r.status === 200, "group removed", r);
+  pb = await policyOf(B);
+  ok(pb.screen_lock_minutes === 10 && pb.usb === "approved" && !pb.blocked_apps, "laptop-b back to the organisation's policy", pb);
+  ok(!(await report(B)).body.accounts.some((x) => x.username === "farah"), "and farah, allowed only through the group, is no longer on it");
+  r = await admin(HELPER, { op: "log", organisation_id: org });
+  const groupLog = r.body.entries.map((e) => e.what);
+  for (const want of ["added group Finance", "changed group Finance", "approved USB drive Finance backup drive",
+                      "asked group Finance: install-app", "removed group Finance"]) {
+    ok(groupLog.includes(want), `in the activity log: ${want}`, groupLog);
+  }
+  void farah;
+}
 
 // --- the activity log ------------------------------------------------------------------------
 r = await admin(NEWOWNER, { op: "log", organisation_id: org });

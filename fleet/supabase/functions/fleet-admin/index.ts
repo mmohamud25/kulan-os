@@ -36,8 +36,24 @@
 //        signed in with a new email: the recovery code (shown once when the
 //        Owner was set) makes that email the Owner, and a new code is given.
 //
+// Groups (2.8b): computers and people in groups, a policy per group (the
+// stricter rule wins, policy.ts), approved USB drives, an app installed once
+// on a group's computers.
+//   POST {op: "groups", organisation_id}                   -> groups with members and policy
+//   POST {op: "add-group", organisation_id, name, policy?} -> {id}
+//   POST {op: "edit-group", group_id, name?, policy?, devices?, people?}
+//   POST {op: "remove-group", group_id, confirm}           (confirm = its name)
+//   POST {op: "device-policy", device_id}                  -> its policy, groups and any conflicts
+//   POST {op: "drives", organisation_id}                   -> approved drives and drives computers have seen
+//   POST {op: "approve-drive", organisation_id, vendor_id, product_id, serial, name}
+//   POST {op: "remove-drive", drive_id}
+//   POST {op: "group-action", group_id, type, payload?}    -> {count}  (refresh, install-updates,
+//                                                             install-app, lock-screen, restart, shutdown)
+//   add-person and edit-person also take groups: the groups whose computers they may use.
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
+import { cleanPolicy, mergePolicies } from "./policy.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
 // Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
@@ -46,7 +62,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ALLOWED_ORIGINS = (Deno.env.get("FLEET_DASHBOARD_ORIGINS") ?? "https://os.kulangroup.com,https://mmohamud25.github.io")
   .split(",").map((o) => o.trim()).filter(Boolean);
 const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
-                         "shutdown", "lost-mode-on", "lost-mode-off"]);
+                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app"]);
+// What may be asked of a whole group at once (never erase or lost mode).
+const GROUP_ACTIONS = new Set(["refresh", "install-updates", "install-app", "lock-screen", "restart", "shutdown"]);
+const HEX4 = /^[0-9a-f]{4}$/;
+const SERIAL = /^[A-Za-z0-9._-]{4,64}$/;
 const STALE_DAYS = 3;
 const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
 const RESERVED = new Set(["root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
@@ -91,19 +111,10 @@ async function sha256(text: string): Promise<string> {
 
 const normalCode = (v: unknown) => typeof v === "string" ? v.toUpperCase().replace(/[^A-Z0-9]/g, "") : "";
 
-// A policy as the computers will read it: only known keys, sensible values.
-function cleanPolicy(value: unknown): Record<string, unknown> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const v = value as Record<string, unknown>;
-  const policy: Record<string, unknown> = {};
-  for (const key of ["auto_updates", "firewall", "require_encryption"]) {
-    if (v[key] === true) policy[key] = true;
-  }
-  const minutes = v.screen_lock_minutes;
-  if (typeof minutes === "number" && Number.isInteger(minutes) && minutes >= 1 && minutes <= 60) {
-    policy.screen_lock_minutes = minutes;
-  }
-  return policy;
+// An app to install once: {source: "debian" | "flatpak", id}.
+export function cleanApp(v: unknown): { source: string; id: string } | null {
+  const p = cleanPolicy({ required_apps: [v] });
+  return p?.required_apps?.length === 1 ? p.required_apps[0] : null;
 }
 
 type Device = Record<string, any>;
@@ -129,7 +140,11 @@ function alertsFor(d: Device, policy: Record<string, unknown>, now: number): { k
     out.push({ kind: "compliance", text: `${d.compliance_total - d.compliance_passed} compliance checks failing` });
   }
   for (const [key, status] of Object.entries(d.policy_status ?? {})) {
-    if (status !== "met" && status !== "n/a") out.push({ kind: "policy", text: `Policy not met: ${key.replaceAll("_", " ")}` });
+    if (status === "met" || status === "n/a") continue;
+    const app = key.match(/^app:(install|block):(debian|flatpak):(.+)$/);
+    out.push({ kind: "policy", text: app
+      ? `${app[3]} ${app[1] === "install" ? "isn't installed" : "isn't removed"} as the policy says: ${String(status).slice(0, 120)}`
+      : `Policy not met: ${key.replaceAll("_", " ")}` });
   }
   return out;
 }
@@ -220,10 +235,37 @@ Deno.serve(async (req: Request) => {
       if (!id) return null;
       const rows = await sql`select id, organisation_id, username, full_name, email, role, enabled, all_computers,
                                     coalesce((select array_agg(pc.device_id::text order by pc.device_id)
-                                              from fleet.person_computers pc where pc.person_id = fleet.people.id), '{}') as computers
+                                              from fleet.person_computers pc where pc.person_id = fleet.people.id), '{}') as computers,
+                                    coalesce((select array_agg(pg.group_id::text order by pg.group_id)
+                                              from fleet.person_groups pg where pg.person_id = fleet.people.id), '{}') as groups
                              from fleet.people
                              where id = ${id} and removed_at is null`;
       return rows.length && canOrg(rows[0].organisation_id) ? rows[0] : null;
+    };
+    // A group this admin may manage.
+    const group = async (id: string | null) => {
+      if (!id) return null;
+      const rows = await sql`select id, organisation_id, name, policy from fleet.groups where id = ${id}`;
+      return rows.length && canOrg(rows[0].organisation_id) ? rows[0] : null;
+    };
+    // Chosen groups: only the organisation's own.
+    const groupsOf = async (org: string, value: unknown): Promise<string[] | null> => {
+      if (value === undefined) return [];
+      if (!Array.isArray(value) || value.length > 200) return null;
+      const ids = [...new Set(value.map(uuid))];
+      if (ids.includes(null)) return null;
+      const rows = ids.length ? await sql`select id from fleet.groups where organisation_id = ${org}
+                                           and id = any(${ids as string[]}::uuid[])` : [];
+      return rows.length === ids.length ? ids as string[] : null;
+    };
+    // Chosen people: only the organisation's own, not removed.
+    const peopleOf = async (org: string, value: unknown): Promise<string[] | null> => {
+      if (!Array.isArray(value) || value.length > 5000) return null;
+      const ids = [...new Set(value.map(uuid))];
+      if (ids.includes(null)) return null;
+      const rows = ids.length ? await sql`select id from fleet.people where organisation_id = ${org} and removed_at is null
+                                           and id = any(${ids as string[]}::uuid[])` : [];
+      return rows.length === ids.length ? ids as string[] : null;
     };
     // Chosen computers: only the organisation's own, still in it.
     const computersOf = async (org: string, value: unknown): Promise<string[] | null> => {
@@ -288,7 +330,7 @@ Deno.serve(async (req: Request) => {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
         const policy = cleanPolicy(body.policy);
-        if (!policy) return reply(400, { error: "a policy object is needed" });
+        if (!policy) return reply(400, { error: "something in that policy can't be used (an app name, or a part of Kulan OS that can't be blocked)" });
         await sql`update fleet.organisations set policy = ${json(policy)} where id = ${org}`;
         await audit(org, null, "changed the policy", policy);
         return reply(200, { policy });
@@ -319,14 +361,17 @@ Deno.serve(async (req: Request) => {
         const people = await sql`
           select p.id, p.username, p.full_name, p.email, p.uid, p.role, p.enabled, p.must_change,
                  p.password_changed_at, p.all_computers, p.created_at, p.created_by,
-                 coalesce((select array_agg(pc.device_id) from fleet.person_computers pc where pc.person_id = p.id), '{}') as computers
+                 coalesce((select array_agg(pc.device_id) from fleet.person_computers pc where pc.person_id = p.id), '{}') as computers,
+                 coalesce((select array_agg(pg.group_id) from fleet.person_groups pg where pg.person_id = p.id), '{}') as groups
           from fleet.people p where p.organisation_id = ${org} and p.removed_at is null order by p.username`;
-        const devices = await sql`select id, hostname, last_report->'people_status' as people_status
-                                  from fleet.devices where organisation_id = ${org} and left_at is null`;
+        const devices = await sql`select d.id, d.hostname, d.last_report->'people_status' as people_status,
+                                         coalesce((select array_agg(gd.group_id) from fleet.group_devices gd where gd.device_id = d.id), '{}') as groups
+                                  from fleet.devices d where d.organisation_id = ${org} and d.left_at is null`;
         return reply(200, {
           people: people.map((p) => ({
             ...p, password_changed_at: Number(p.password_changed_at),
-            on: devices.filter((d) => p.all_computers || p.computers.includes(d.id))
+            on: devices.filter((d) => p.all_computers || p.computers.includes(d.id)
+                                     || d.groups.some((g: string) => p.groups.includes(g)))
               .map((d) => ({ device_id: d.id, hostname: d.hostname, status: d.people_status?.[p.username] ?? "not yet" })),
           })),
           is_owner: await isOwner(org),
@@ -347,8 +392,10 @@ Deno.serve(async (req: Request) => {
         const email2 = cleanEmail(body.email);
         if (email2 === false) return reply(400, { error: "that email doesn't look right" });
         const all = body.all_computers !== false;
-        const chosen = all ? [] : await computersOf(org, body.computers);
+        const chosen = all ? [] : await computersOf(org, body.computers ?? []);
         if (chosen === null) return reply(400, { error: "choose computers from this organisation" });
+        const chosenGroups = all ? [] : await groupsOf(org, body.groups);
+        if (chosenGroups === null) return reply(400, { error: "choose groups from this organisation" });
         const old = await sql`select removed_at from fleet.people where organisation_id = ${org} and username = ${body.username}`;
         if (old.length) {
           return reply(409, { error: old[0].removed_at
@@ -370,6 +417,7 @@ Deno.serve(async (req: Request) => {
                         ${body.password_hash}, true, extract(epoch from now())::bigint, ${all}, ${email})
                 returning id, uid`;
               for (const d of chosen) await tx`insert into fleet.person_computers (person_id, device_id) values (${p.id}, ${d})`;
+              for (const g of chosenGroups) await tx`insert into fleet.person_groups (person_id, group_id) values (${p.id}, ${g})`;
               return p;
             });
           } catch (e) {
@@ -384,7 +432,7 @@ Deno.serve(async (req: Request) => {
           }
         }
         if (!added) return reply(500, { error: "couldn't give them a user ID: try again" });
-        await audit(org, null, `added ${body.username}`, { role, all_computers: all, computers: chosen.length });
+        await audit(org, null, `added ${body.username}`, { role, all_computers: all, computers: chosen.length, groups: chosenGroups.length });
         return reply(200, { id: added.id, uid: added.uid });
       }
       case "edit-person": {
@@ -402,15 +450,20 @@ Deno.serve(async (req: Request) => {
         const all = body.all_computers === undefined ? p.all_computers : body.all_computers !== false;
         const chosen = all ? [] : await computersOf(org, body.computers ?? []);
         if (chosen === null) return reply(400, { error: "choose computers from this organisation" });
+        const chosenGroups = all ? [] : await groupsOf(org, body.groups ?? []);
+        if (chosenGroups === null) return reply(400, { error: "choose groups from this organisation" });
+        const changeWhere = body.all_computers !== undefined || body.computers !== undefined || body.groups !== undefined;
         try {
           await sql.begin(async (tx) => {
             await tx`update fleet.people set full_name = coalesce(${name}, full_name),
                        email = ${body.email === undefined ? sql`email` : email2},
                        role = ${role}, all_computers = ${all}
                      where id = ${p.id}`;
-            if (body.all_computers !== undefined || body.computers !== undefined) {
+            if (changeWhere) {
               await tx`delete from fleet.person_computers where person_id = ${p.id}`;
               for (const d of chosen) await tx`insert into fleet.person_computers (person_id, device_id) values (${p.id}, ${d})`;
+              await tx`delete from fleet.person_groups where person_id = ${p.id}`;
+              for (const g of chosenGroups) await tx`insert into fleet.person_groups (person_id, group_id) values (${p.id}, ${g})`;
             }
           });
         } catch (e) {
@@ -418,7 +471,8 @@ Deno.serve(async (req: Request) => {
           throw e;
         }
         // Only what really changed goes in the activity log.
-        const sameComputers = all === p.all_computers && (all || [...chosen].sort().join() === p.computers.join());
+        const sameComputers = !changeWhere || (all === p.all_computers
+          && (all || ([...chosen].sort().join() === p.computers.join() && [...chosenGroups].sort().join() === p.groups.join())));
         const changed = [name !== null && name !== p.full_name && "name",
                          body.email !== undefined && email2 !== (p.email ?? null) && "email",
                          role !== p.role && `role ${role}`, !sameComputers && "computers"].filter(Boolean);
@@ -528,10 +582,157 @@ Deno.serve(async (req: Request) => {
           if (!d.state?.erase_allowed) return reply(400, { error: "the computer's user hasn't allowed erasing it from afar" });
           if (!d.state?.encrypted) return reply(400, { error: "only encrypted computers can be erased from afar" });
         }
-        const [row] = await sql`insert into fleet.actions (device_id, type, requested_by)
-                                values (${id}, ${body.type}, ${email}) returning id`;
-        await audit(org, id, `asked: ${body.type}`);
+        let payload: Record<string, unknown> | null = null;
+        if (body.type === "install-app") {
+          payload = cleanApp(body.payload);
+          if (!payload) return reply(400, { error: "which app? (a Debian package or a Flathub app id)" });
+        }
+        const [row] = await sql`insert into fleet.actions (device_id, type, requested_by, payload)
+                                values (${id}, ${body.type}, ${email}, ${payload === null ? null : json(payload)}) returning id`;
+        await audit(org, id, `asked: ${body.type}`, payload);
         return reply(200, { id: row.id });
+      }
+      // --- Groups --------------------------------------------------------------------------
+      case "groups": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const groups = await sql`
+          select g.id, g.name, g.policy, g.created_at, g.created_by,
+                 coalesce((select array_agg(gd.device_id) from fleet.group_devices gd join fleet.devices d on d.id = gd.device_id
+                           where gd.group_id = g.id and d.left_at is null), '{}') as devices,
+                 coalesce((select array_agg(gp.person_id) from fleet.group_people gp join fleet.people p on p.id = gp.person_id
+                           where gp.group_id = g.id and p.removed_at is null), '{}') as people
+          from fleet.groups g where g.organisation_id = ${org} order by lower(g.name)`;
+        return reply(200, { groups });
+      }
+      case "add-group": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const name = typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ").slice(0, 60) : "";
+        if (!name) return reply(400, { error: "a group needs a name" });
+        const policy = body.policy === undefined ? {} : cleanPolicy(body.policy);
+        if (!policy) return reply(400, { error: "something in that policy can't be used (an app name, or a part of Kulan OS that can't be blocked)" });
+        try {
+          const [g] = await sql`insert into fleet.groups (organisation_id, name, policy, created_by)
+                                values (${org}, ${name}, ${json(policy)}, ${email}) returning id`;
+          await audit(org, null, `added group ${name}`.slice(0, 80), { policy });
+          return reply(200, { id: g.id });
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "there's already a group with that name" });
+          throw e;
+        }
+      }
+      case "edit-group": {
+        const g = await group(uuid(body.group_id));
+        if (!g) return reply(404, { error: "no such group" });
+        const org = g.organisation_id;
+        const name = body.name === undefined ? g.name : (typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ").slice(0, 60) : "");
+        if (!name) return reply(400, { error: "a group needs a name" });
+        const policy = body.policy === undefined ? g.policy : cleanPolicy(body.policy);
+        if (!policy) return reply(400, { error: "something in that policy can't be used (an app name, or a part of Kulan OS that can't be blocked)" });
+        const devices = body.devices === undefined ? null : await computersOf(org, body.devices);
+        if (body.devices !== undefined && devices === null) return reply(400, { error: "choose computers from this organisation" });
+        const members = body.people === undefined ? null : await peopleOf(org, body.people);
+        if (body.people !== undefined && members === null) return reply(400, { error: "choose people from this organisation" });
+        try {
+          await sql.begin(async (tx) => {
+            await tx`update fleet.groups set name = ${name}, policy = ${json(policy)} where id = ${g.id}`;
+            if (devices) {
+              await tx`delete from fleet.group_devices where group_id = ${g.id}`;
+              for (const d of devices) await tx`insert into fleet.group_devices (group_id, device_id) values (${g.id}, ${d})`;
+            }
+            if (members) {
+              await tx`delete from fleet.group_people where group_id = ${g.id}`;
+              for (const m of members) await tx`insert into fleet.group_people (group_id, person_id) values (${g.id}, ${m})`;
+            }
+          });
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "there's already a group with that name" });
+          throw e;
+        }
+        const changed = [name !== g.name && "name", JSON.stringify(policy) !== JSON.stringify(g.policy) && "policy",
+                         devices && "computers", members && "people"].filter(Boolean);
+        if (changed.length) await audit(org, null, `changed group ${name}`.slice(0, 80), { changed, ...(changed.includes("policy") ? { policy } : {}) });
+        return reply(200, {});
+      }
+      case "remove-group": {
+        const g = await group(uuid(body.group_id));
+        if (!g) return reply(404, { error: "no such group" });
+        if (body.confirm !== g.name) return reply(400, { error: "type the group's name to confirm" });
+        await sql`delete from fleet.groups where id = ${g.id}`;
+        await audit(g.organisation_id, null, `removed group ${g.name}`.slice(0, 80));
+        return reply(200, {});
+      }
+      case "device-policy": {
+        const id = uuid(body.device_id);
+        const org = await deviceOrg(id);
+        if (!org) return reply(404, { error: "no such computer" });
+        const [o] = await sql`select policy from fleet.organisations where id = ${org}`;
+        const groups = await sql`select g.id, g.name, g.policy from fleet.groups g join fleet.group_devices gd on gd.group_id = g.id
+                                 where gd.device_id = ${id} order by lower(g.name)`;
+        const { policy, conflicts } = mergePolicies([o?.policy ?? {}, ...groups.map((g) => g.policy)]);
+        return reply(200, { policy, conflicts, groups: groups.map((g) => ({ id: g.id, name: g.name })) });
+      }
+      case "drives": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const approved = await sql`select id, name, vendor_id, product_id, serial, created_at, created_by
+                                   from fleet.approved_drives where organisation_id = ${org} order by lower(name)`;
+        const rows = await sql`select hostname, last_report->'usb_seen' as seen from fleet.devices
+                               where organisation_id = ${org} and left_at is null and last_report ? 'usb_seen'`;
+        const known = new Set(approved.map((a) => `${a.vendor_id}:${a.product_id}:${a.serial}`));
+        const seen = new Map<string, Record<string, unknown>>();
+        for (const r of rows) {
+          for (const d of Array.isArray(r.seen) ? r.seen : []) {
+            const key = `${d.vendor_id}:${d.product_id}:${d.serial}`;
+            if (known.has(key)) continue;
+            const s = seen.get(key) ?? { ...d, computers: [] as string[] };
+            (s.computers as string[]).push(r.hostname ?? "");
+            seen.set(key, s);
+          }
+        }
+        return reply(200, { approved, seen: [...seen.values()].slice(0, 200) });
+      }
+      case "approve-drive": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const { vendor_id, product_id, serial } = body;
+        const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
+        if (!name || typeof vendor_id !== "string" || !HEX4.test(vendor_id) || typeof product_id !== "string" ||
+            !HEX4.test(product_id) || typeof serial !== "string" || !SERIAL.test(serial)) {
+          return reply(400, { error: "a drive needs a name, and the vendor, product and serial its computer reported" });
+        }
+        await sql`insert into fleet.approved_drives (organisation_id, name, vendor_id, product_id, serial, created_by)
+                  values (${org}, ${name}, ${vendor_id}, ${product_id}, ${serial}, ${email})
+                  on conflict (organisation_id, vendor_id, product_id, serial) do update set name = excluded.name`;
+        await audit(org, null, `approved USB drive ${name}`.slice(0, 80), { vendor_id, product_id, serial });
+        return reply(200, {});
+      }
+      case "remove-drive": {
+        const id = uuid(body.drive_id);
+        const rows = id ? await sql`select organisation_id, name from fleet.approved_drives where id = ${id}` : [];
+        if (!rows.length || !canOrg(rows[0].organisation_id)) return reply(404, { error: "no such drive" });
+        await sql`delete from fleet.approved_drives where id = ${id}`;
+        await audit(rows[0].organisation_id, null, `removed USB drive ${rows[0].name}`.slice(0, 80));
+        return reply(200, {});
+      }
+      case "group-action": {
+        const g = await group(uuid(body.group_id));
+        if (!g) return reply(404, { error: "no such group" });
+        if (!GROUP_ACTIONS.has(body.type)) return reply(400, { error: "that can't be asked of a whole group" });
+        let payload: Record<string, unknown> | null = null;
+        if (body.type === "install-app") {
+          payload = cleanApp(body.payload);
+          if (!payload) return reply(400, { error: "which app? (a Debian package or a Flathub app id)" });
+        }
+        const rows = await sql`
+          insert into fleet.actions (device_id, type, requested_by, payload)
+          select gd.device_id, ${body.type}, ${email}, ${payload === null ? null : json(payload)}
+          from fleet.group_devices gd join fleet.devices d on d.id = gd.device_id
+          where gd.group_id = ${g.id} and d.left_at is null
+          returning id`;
+        await audit(g.organisation_id, null, `asked group ${g.name}: ${body.type}`.slice(0, 80), { computers: rows.length, ...(payload ?? {}) });
+        return reply(200, { count: rows.length });
       }
       case "cancel-action": {
         const id = uuid(body.action_id);
