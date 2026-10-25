@@ -47,6 +47,18 @@ lock-screen, restart):
   asked a computer to do something, and when.
 - Hourly reports older than 90 days are pruned.
 
+## Secrets and Google Workspace (Kulan OS 2.8d, 2.8e)
+
+- `FLEET_FACTOR_KEY` (32 random bytes, base64): seals people's phone-code
+  secrets (2.8d) and organisations' Google service account keys (2.8e).
+  Never change or lose it: sealed data can't be opened without it.
+- Google Workspace (`supabase/functions/fleet-admin/google.ts`,
+  `fleet.mail_connections`): the Owner connects a service account with
+  domain-wide delegation for `admin.directory.user`; mailboxes are made,
+  suspended, renamed and deleted with People. The guide for organisations
+  is `docs/fleet-google-workspace.md`. Fleet's own change never waits for
+  Google: what's left is kept on the person (`mailbox_todo`) as an alert.
+
 ## Dashboard
 
 `dashboard/` is a static page for GitHub Pages (repository
