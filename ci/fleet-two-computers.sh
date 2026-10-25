@@ -160,6 +160,33 @@ TOK="${TOK2}"
 aal2_in() { adm '{"op":"overview"}' | jq -e '.me.aal == "aal2"' >/dev/null; }
 expect "server: with the authenticator app's code, in" aal2_in
 
+step "Work email with Google Workspace (2.8e)"
+# The test server's stand-in Google, its made-up service account key, acting as it@<domain>.
+KEY="$(sudo cat /opt/kulan-fleet-test/google-test-key.json)"
+connected() { adm "$(jq -n --arg o "${ORG}" --arg k "${KEY}" '{op: "connect-mail", organisation_id: $o, key: $k, admin_email: "it@kulan.example"}')" | jq -e '.domain == "kulan.example"' >/dev/null; }
+expect "server: Google Workspace connected (the key checked first, kept sealed)" connected
+# Geary would be a big download in these containers: blocked here, so the server doesn't ask for it.
+adm "{\"op\":\"set-policy\",\"organisation_id\":\"${ORG}\",\"policy\":{\"blocked_apps\":[{\"source\":\"debian\",\"id\":\"geary\"}]}}" >/dev/null
+made() { adm "{\"op\":\"mailbox\",\"person_id\":\"${AMINA}\",\"action\":\"create\",\"address\":\"amina@kulan.example\"}" | jq -e '.mailbox == "amina@kulan.example" and (.mailbox_password | test("^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){3}$"))' >/dev/null; }
+expect "server: a mailbox for amina, with a first Google password" made
+grep -q "(stand-in Google) made amina@kulan.example" "${LOG}" && pass "stand-in Google: the mailbox was made" || fail "stand-in Google: the mailbox was made"
+report laptop-a
+report laptop-b
+for host in laptop-a laptop-b; do
+	expect "${host}: offers amina her work email (her own file, only she can read it)" on "${host}" \
+		'python3 -c "import json; d = json.load(open(\"/var/lib/kulan/fleet-mail/amina\")); assert d == {\"address\": \"amina@kulan.example\", \"provider\": \"google\"}, d" && test "$(stat -c %a:%U /var/lib/kulan/fleet-mail/amina)" = 600:amina && test "$(ls /var/lib/kulan/fleet-mail)" = amina'
+done
+expect "laptop-a: Geary not asked for while a policy blocks it" on laptop-a \
+	'! python3 -c "import json, sys; p = json.load(open(\"/var/lib/kulan/fleet-policy.json\"))[\"policy\"]; sys.exit(0 if any(a[\"id\"] == \"geary\" for a in p.get(\"required_apps\", [])) else 1)"'
+adm "{\"op\":\"set-person-enabled\",\"person_id\":\"${AMINA}\",\"enabled\":false}" >/dev/null
+grep -q "(stand-in Google) changed amina@kulan.example: suspended" "${LOG}" && pass "disabled: her mailbox suspended in Google" || fail "disabled: her mailbox suspended in Google"
+report laptop-a
+expect "laptop-a: disabled, her work email no longer offered" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail/amina'
+adm "{\"op\":\"set-person-enabled\",\"person_id\":\"${AMINA}\",\"enabled\":true}" >/dev/null
+report laptop-a
+expect "laptop-a: enabled again, offered again" on laptop-a 'grep -q amina@kulan.example /var/lib/kulan/fleet-mail/amina'
+adm "{\"op\":\"set-policy\",\"organisation_id\":\"${ORG}\",\"policy\":{}}" >/dev/null
+
 step "Who uses which computer (2.8c)"
 sign_ins_sent() { adm '{"op":"overview"}' | jq -e '[.devices[] | select(.hostname == "laptop-a") | .sign_ins | type] == ["array"]' >/dev/null; }
 expect "server: laptop-a reports who uses it (here, in a container, nobody)" sign_ins_sent
@@ -202,10 +229,11 @@ adm "{\"op\":\"remove-person\",\"person_id\":\"${HODAN}\",\"remove_files\":true,
 
 step "Leaving the organisation's people"
 on laptop-a "echo handover > /home/amina/report.txt"
-adm "{\"op\":\"remove-person\",\"person_id\":\"${AMINA}\",\"remove_files\":false,\"confirm\":\"amina\"}" >/dev/null
+adm "{\"op\":\"remove-person\",\"person_id\":\"${AMINA}\",\"remove_files\":false,\"confirm\":\"amina\",\"mailbox\":\"delete\"}" >/dev/null
 adm "{\"op\":\"remove-person\",\"person_id\":\"${OMAR}\",\"remove_files\":true,\"confirm\":\"omar\"}" >/dev/null
 report laptop-a
 report laptop-b
+grep -q "(stand-in Google) deleted amina@kulan.example" "${LOG}" && pass "removed with 'delete': her mailbox deleted in Google" || fail "removed with 'delete': her mailbox deleted in Google"
 expect "laptop-a: amina's account removed, her files kept for handover" on laptop-a '! getent passwd amina >/dev/null && grep -q handover /home/.kulan-left/amina-*/report.txt'
 expect "laptop-b: omar removed with his files" on laptop-b '! getent passwd omar >/dev/null && test ! -e /home/omar'
 
@@ -213,13 +241,16 @@ step "Activity log"
 LOGS="$(adm "{\"op\":\"log\",\"organisation_id\":\"${ORG}\"}" | jq -r '.entries[] | "\(.email): \(.what)"')"
 for want in "ci@kulan.example: added amina" "amina: changed their password on a computer" "ci@kulan.example: disabled amina" \
 	"ci@kulan.example: removed amina" "ci@kulan.example: asked: lost-mode-on" "ci@kulan.example: added group Office" \
-	"ci@kulan.example: asked group Office: install-app"; do
+	"ci@kulan.example: asked group Office: install-app" "ci@kulan.example: connected Google Workspace" \
+	"ci@kulan.example: made a mailbox for amina" "ci@kulan.example: suspended amina's mailbox" \
+	"ci@kulan.example: deleted amina's mailbox"; do
 	expect "in the log: ${want}" grep -qxF "${want}" <<<"${LOGS}"
 done
 
 step "Teardown"
 for host in laptop-a laptop-b; do on "${host}" "kulan-fleet leave >/dev/null 2>&1" || true; done
 expect "laptop-a: leaving takes the USB rule and the pin away, apps stay" on laptop-a 'test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules && test ! -e /etc/apt/preferences.d/60-kulan-fleet-blocked && dpkg -s sl >/dev/null 2>&1'
+expect "laptop-a: no work email offered after leaving" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail'
 cleanup
 sudo "${HERE}/fleet/test-server/teardown.sh"
 expect "the test server leaves nothing" test ! -e /opt/kulan-fleet-test

@@ -16,24 +16,19 @@ numbers; the count still says 2.8).
 - 2.8b Groups and policies: groups of people and computers; a policy per
   group on top of the organisation's (the stricter rule wins); USB storage
   blocked, or approved drives only; required and blocked apps; install an
-  app on a group once. (Built and tested as 2.8.2; waiting for "release
-  it". Release order: apply 20261025120000_fleet_groups.sql, deploy fleet
-  and fleet-admin, then merge.)
+  app on a group once. (Released 25 October 2026 as 2.8.2.)
 - 2.8c Security, activity and computers: a weekly security report;
   "who still has admin rights?" reviews; the activity log exported for
-  auditors; who uses which computer. (Built as 2.8.3; waiting for "release it".
-  Release order: apply 20261026120000_fleet_security.sql, deploy fleet and
-  fleet-admin, then merge.)
+  auditors; who uses which computer. (Released 25 October 2026 as 2.8.3.)
 - 2.8d Stronger sign-in: two-step sign-in on the computers (phone code or
   security key); an authenticator app for the Owner and admins in Kulan
-  Fleet (security keys there when Supabase's passkeys are stable). (Built
-  as 2.8.4; waiting for "release it". Release order: set the
-  FLEET_FACTOR_KEY secret (32 random bytes, base64) for the functions,
-  apply 20261027120000_fleet_two_step.sql, deploy fleet and fleet-admin,
-  then merge.)
+  Fleet (security keys there when Supabase's passkeys are stable). (Released 25 October 2026 as 2.8.4.)
 - 2.8e Organisation: Google Workspace mailboxes made (and suspended) with
   People through the Directory API, and the email connection settings,
-  built so Kulan's own mail server can take Google's place later.
+  built so Kulan's own mail server can take Google's place later. (Being
+  built as 2.8.5; release order: apply 20261028120000_fleet_mail.sql,
+  deploy fleet and fleet-admin, then merge. Uses the FLEET_FACTOR_KEY
+  secret 2.8d added.)
 Not in 2.8: the Work edition (Fleet set up while Kulan OS installs) stays
 3.0; single sign-on to other apps stays 3.x.
 
@@ -250,3 +245,76 @@ On the computers (people Kulan Fleet manages):
   they set it up again.
 - Leaving the organisation removes the two-step settings from the
   computer; the person signs in with their password again.
+
+## 2.8e Google Workspace mailboxes: how it works (design)
+Agreed 25 October 2026: Kulan Fleet connects to Google Workspace with a
+service account (domain-wide delegation; no Google app review needed, so
+any organisation can use it); when someone is removed the admin chooses
+each time whether their mailbox is suspended or deleted; on the computers
+the work email is set up with GNOME Online Accounts.
+
+Connecting (the Owner, once):
+- In Google Cloud: a project, the Admin SDK API on, a service account
+  with a JSON key; in the Google Admin console its client ID gets
+  domain-wide delegation for one scope,
+  https://www.googleapis.com/auth/admin.directory.user. The guide is in
+  docs/fleet-google-workspace.md.
+- In Kulan Fleet (Settings › Google Workspace) the Owner pastes the key
+  and the email of a Workspace super admin it acts as. Fleet checks it
+  works (a token, then listing one user) before keeping it. The private
+  key is kept sealed with FLEET_FACTOR_KEY, like phone codes; nobody can
+  read it back. Disconnecting deletes it.
+
+Mailboxes with People:
+- Adding a person: optionally "Make a Google mailbox" (an address on the
+  organisation's domain, their name from People). Google needs a first
+  password: Fleet makes one, shows it to the admin once, and Google asks
+  for a new one at their first sign-in.
+- The Owner can link an existing mailbox to someone instead (only the
+  Owner, since linking then lets admins reset that mailbox's password).
+- Disable in Fleet → the mailbox is suspended; enable → unsuspended.
+  A name change in People changes it in Google too.
+- Removing someone: the admin chooses: suspend the mailbox (mail kept, it
+  can come back; Google may still charge for it) or delete it (Google
+  keeps it restorable for 20 days).
+- A new Google password for someone (they forgot it): shown once, changed
+  at their next sign-in.
+- A mailbox that is a Google admin account (super or delegated admin) is
+  changed only by the Owner, so a Fleet admin can't take over Google
+  Workspace through Fleet.
+- Fleet always makes its own change first (disabling someone never waits
+  for Google); if Google refuses or can't be reached, the person shows
+  "mailbox: still to suspend (why)", it's an alert, and Retry does it.
+- Everything in the activity log. Admins never see Google's key.
+
+On the computers ("the email connection settings"):
+- Each account the organisation manages gets mail: {address, provider}.
+  Provider "google" now; later "kulan" (Kulan's own mail server) with its
+  own settings, without changing the computers' side again.
+- At sign-in, someone with a work mailbox who hasn't connected it yet is
+  asked once a day (Connect / Not now): Connect opens Settings › Online
+  Accounts › Google (GNOME Online Accounts): mail, calendar, contacts
+  and Google Drive in Files. Kulan Settings › About › Organisation shows
+  the work email and whether it's connected.
+- Mail needs an app: computers with a work mailbox on them get Geary (the
+  GNOME mail app, which uses Online Accounts) as a required app, unless a
+  policy blocks it.
+- Leaving the organisation removes the work email settings (not the
+  person's Online Accounts, which are theirs to remove).
+
+2.8e security review (25 October 2026), all fixed and tested:
+- Google's access tokens are remembered per organisation and exact key,
+  and connecting always asks Google (a different key with the same
+  service account and super admin names never gets through); one
+  organisation per Google domain unless Kulan's admins decide otherwise.
+- The service account key is sealed with its own key (HKDF from
+  FLEET_FACTOR_KEY) and bound to its organisation.
+- Kulan Fleet keeps Google's id for each mailbox and acts only on that
+  one, never on whoever an address now points to (a rename, an alias).
+- Only the Owner changes an admin's or the Owner's mailbox (renames too);
+  a Google admin's, delegated admins included, only the Owner.
+- A rename never hides a waiting suspend or delete (that's done first);
+  an admin can't forget or unlink a waiting suspend or delete; disconnecting
+  keeps what's left to do; removed people's waits are in the weekly report.
+- Admins make mailboxes on the connected domain only.
+- On the computers, each person's work email is a file only they can read.

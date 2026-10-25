@@ -96,7 +96,15 @@ GROUP_ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
 ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update-urgent-symbolic",
               "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
               "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic",
-              "lost": "system-lock-screen-symbolic", "review": "security-medium-symbolic"}
+              "lost": "system-lock-screen-symbolic", "review": "security-medium-symbolic",
+              "mail": "mail-unread-symbolic", "mailbox": "mail-unread-symbolic"}
+# Google Workspace (2.8e)
+GOOGLE_SCOPE = "https://www.googleapis.com/auth/admin.directory.user"
+GOOGLE_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md"
+MAILBOX_TODO = {"suspend": "still to suspend", "unsuspend": "still to unsuspend", "delete": "still to delete",
+                "rename": "name still to change"}
+MAILBOX_STATE = {"active": ("working", "good"), "suspended": ("suspended", "warn"), "deleted": ("deleted", "dim")}
+MAILBOX_ADDRESS = re.compile(r"^[a-z0-9](?:[a-z0-9._'-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "done", "failed": "failed",
                 "cancelled": "cancelled", "expired": "expired"}
 TIMEOUT = 30
@@ -435,6 +443,10 @@ def weekly_sections(s: dict, prev: dict | None) -> list[tuple[str, list[tuple[st
     if p.get("two_step"):
         people.append(problem("Everyone asked has set up two-step sign-in",
                               lambda k: f"Two-step sign-in not set up: {k}", "two_step_missing", p, pp))
+    if n(p, "mailbox_problems"):
+        people.append((f"Mailboxes with something left to do: {n(p, 'mailbox_problems')}",
+                       ", ".join(f"{x.get('username')} ({MAILBOX_TODO.get(x.get('todo'), x.get('todo'))})"
+                                 for x in p.get("mailbox_problems") or []), "bad"))
     kinds = ", ".join(f"{x.get('what')} {x.get('count')}" for x in a.get("by_kind") or [])
     activity = [(f"{plural(int(a.get('changes') or 0), 'change')} this week", kinds, "dim")]
     review = [(("Admin-rights review due" if rv.get("due") else "Admin-rights review up to date"),
@@ -1084,6 +1096,10 @@ class FleetWindow(Adw.ApplicationWindow):
                 row.connect("activated", lambda _r, d=dev: self.open_device(d))
             elif a.get("kind") == "review":
                 row.connect("activated", lambda _r: self.open_review(org))
+            elif a.get("kind") == "mailbox":
+                row.connect("activated", lambda _r: self.open_people(org))
+            elif a.get("kind") == "mail":
+                row.connect("activated", lambda _r: self.open_mail(org))
             group.add(row)
         if len(alerts) > 30:
             group.add(Adw.ActionRow(title=f"And {len(alerts) - 30} more"))
@@ -1149,6 +1165,13 @@ class FleetWindow(Adw.ApplicationWindow):
         row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_drives(org))
+        people.add(row)
+        row = Adw.ActionRow(title="Google Workspace", subtitle=GLib.markup_escape_text(
+            f"Connected: mailboxes on {org['mail_domain']} are made and suspended with People" if org.get("mail_domain")
+            else "Not connected: connect it to make people's mailboxes with People"), activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic"))
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: self.open_mail(org))
         people.add(row)
 
         group = self.add_group("Computers", "Reports arrive every hour. Select a computer for its details.")
@@ -2196,9 +2219,19 @@ class FleetWindow(Adw.ApplicationWindow):
                     row.add_suffix(tag("disabled", "bad"))
                 elif person.get("must_change"):
                     row.add_suffix(tag("setup code not used yet", "warn"))
+                if person.get("mailbox_todo"):
+                    row.add_suffix(tag(f"mailbox {MAILBOX_TODO.get(person['mailbox_todo'], 'needs a retry')}", "bad"))
                 row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
                 row.connect("activated", lambda _r, pe=person: self.open_person(org, pe, is_owner))
                 group.add(row)
+            # Removed people whose mailbox still has something left to do.
+            leaving = (result or {}).get("removed_with_mailbox_todo") or []
+            if leaving:
+                gone = Adw.PreferencesGroup(title="Removed, mailbox still to finish",
+                                            description="Google refused or couldn't be reached when they were removed.")
+                page.add(gone)
+                for pe in leaving:
+                    gone.add(self.mailbox_todo_row(org, pe, is_owner))
         self.call({"op": "people", "organisation_id": org["id"]}, done,
                   lambda: {"people": (self.data or {}).get("sample_people", []), "is_owner": True})
 
@@ -2283,6 +2316,8 @@ class FleetWindow(Adw.ApplicationWindow):
             row.add_prefix(Gtk.Image(icon_name="view-refresh-symbolic"))
             row.connect("activated", lambda _r: self.reset_two_step(org, person))
             two.add(row)
+        if org.get("mail_domain") or person.get("mailbox"):
+            page.add(self.mailbox_group(org, person, is_owner, manages))
         sign_in = Adw.PreferencesGroup(title="Signing in")
         page.add(sign_in)
         row = Adw.ActionRow(title="Give a new setup code", subtitle="If they forgot their password. The old one stops "
@@ -2326,6 +2361,16 @@ class FleetWindow(Adw.ApplicationWindow):
         role.connect("notify::selected", lambda r, _p: r.set_subtitle(ROLE_HELP[roles[r.get_selected()]]))
         for w in (full, user, email, role):
             box.append(w)
+        domain = org.get("mail_domain")
+        make_mailbox = Adw.SwitchRow(title="Make a Google mailbox", subtitle=GLib.markup_escape_text(
+            f"On {domain}: Google asks them for a new password at their first sign-in"), active=bool(domain),
+            visible=bool(domain))
+        address = Adw.EntryRow(title="Mailbox address", visible=bool(domain))
+        make_mailbox.connect("notify::active", lambda sw, _p: (address.set_visible(sw.get_active()),
+                                                                email.set_visible(not sw.get_active())))
+        email.set_visible(not domain)
+        box.append(make_mailbox)
+        box.append(address)
         rows, picked = self.computer_picker(org, True, [])
         for r in rows:
             box.append(r)
@@ -2340,20 +2385,39 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog.set_response_enabled("add", False)
         suggested = {"last": ""}
 
+        suggested_address = {"last": ""}
+
         def name_changed(_e):
             if user.get_text() in ("", suggested["last"]):
                 suggested["last"] = suggest_username(full.get_text())
                 user.set_text(suggested["last"])
 
-        def user_changed(_e):
+        def problem_now() -> str | None:
             problem = username_problem(user.get_text())
+            if not problem and domain and make_mailbox.get_active() and \
+                    not MAILBOX_ADDRESS.match(address.get_text().strip().lower()):
+                problem = "The mailbox address doesn't look right"
+            return problem
+
+        def user_changed(_e):
+            if domain and address.get_text() in ("", suggested_address["last"]):
+                suggested_address["last"] = f"{user.get_text()}@{domain}" if user.get_text() else ""
+                address.set_text(suggested_address["last"])
+            problem = problem_now()
+            note.set_label(problem or "")
+            dialog.set_response_enabled("add", problem is None)
+
+        def address_changed(_e):
+            problem = problem_now()
             note.set_label(problem or "")
             dialog.set_response_enabled("add", problem is None)
         full.connect("changed", name_changed)
         user.connect("changed", user_changed)
+        address.connect("changed", address_changed)
+        make_mailbox.connect("notify::active", address_changed)
 
         def answered(_d, response):
-            if response != "add" or username_problem(user.get_text()):
+            if response != "add" or problem_now():
                 return
             all_computers, computers, groups = picked()
             display = full.get_text().strip() or user.get_text()
@@ -2361,19 +2425,27 @@ class FleetWindow(Adw.ApplicationWindow):
             body = {"op": "add-person", "organisation_id": org["id"], "username": user.get_text(),
                     "full_name": full.get_text().strip(), "role": roles[role.get_selected()],
                     "all_computers": all_computers, "computers": computers, "groups": groups}
-            if email.get_text().strip():
+            if domain and make_mailbox.get_active():
+                body["mailbox"] = {"action": "create", "address": address.get_text().strip().lower()}
+                body["email"] = body["mailbox"]["address"]
+            elif email.get_text().strip():
                 body["email"] = email.get_text().strip()
 
             def work():
                 body["password_hash"] = hash_password(code)
-                return {} if self.sample_mode() else self.session.call(body)
+                return ({"mailbox": body["mailbox"]["address"], "mailbox_password": "abcd-EFGH-2346-mnpq"}
+                        if "mailbox" in body else {}) if self.sample_mode() else self.session.call(body)
 
-            def done(_r, error):
+            def done(r, error):
                 if error:
                     self.toast(error)
                     return
+                r = r or {}
                 self.show_setup_code(display, code, first=True)
-                self.after_people_change(org, f"Added {user.get_text()}")
+                if r.get("mailbox_password"):
+                    self.show_mailbox_password(display, r["mailbox"], r["mailbox_password"])
+                self.after_people_change(org, f"Added {user.get_text()}" + (
+                    f", but the mailbox wasn't made: {r['mailbox_error']}" if r.get("mailbox_error") else ""))
             self.background(work, done)
         dialog.connect("response", answered)
         dialog.present(self)
@@ -2412,7 +2484,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 return
             self.call({"op": "edit-person", "person_id": person["id"], "full_name": full.get_text().strip(),
                        "email": email.get_text().strip()},
-                      lambda _r, error: self.toast(error) if error else self.after_people_change(org, "Saved"))
+                      lambda r, error: self.toast(error) if error else self.after_people_change(
+                          org, "Saved" + self.mailbox_note(r)))
         dialog.connect("response", answered)
         dialog.present(self)
         return dialog
@@ -2488,15 +2561,18 @@ class FleetWindow(Adw.ApplicationWindow):
     def set_person_enabled(self, org: dict, person: dict, enabled: bool) -> Adw.AlertDialog | None:
         def go():
             self.call({"op": "set-person-enabled", "person_id": person["id"], "enabled": enabled},
-                      lambda _r, error: self.toast(error) if error else self.after_people_change(
+                      lambda r, error: self.toast(error) if error else self.after_people_change(
                           org, f"{person['username']} {'enabled' if enabled else 'disabled'}: computers change at "
-                               "their next report"))
+                               "their next report" + self.mailbox_note(r)))
         if enabled:
             go()
             return None
+        has_mailbox = person.get("mailbox") and person.get("mailbox_state") not in (None, "deleted") and org.get("mail_domain")
         dialog = Adw.AlertDialog(heading=f"Disable {person['username']}?",
                                  body="At each computer's next report (within the hour) their account is locked and "
-                                      "they're signed out. Their files stay, and you can enable them again.")
+                                      "they're signed out. Their files stay, and you can enable them again." +
+                                      (f" Their mailbox {person['mailbox']} is suspended now, and unsuspended when "
+                                       "they're enabled again." if has_mailbox else ""))
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Disable")
         dialog.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -2515,6 +2591,14 @@ class FleetWindow(Adw.ApplicationWindow):
                                        "(in /home/.kulan-left)")
         entry = Adw.EntryRow(title=f"Type {user}")
         box.append(files)
+        mailbox = person.get("mailbox") if person.get("mailbox_state") not in (None, "deleted") and org.get("mail_domain") else None
+        choice = Adw.ComboRow(title=GLib.markup_escape_text(f"Their mailbox {mailbox}" if mailbox else "Their mailbox"),
+                              model=Gtk.StringList.new(["Suspend it", "Delete it"]), visible=bool(mailbox),
+                              subtitle="Suspended: mail kept, it can come back (Google may still charge for it)")
+        choice.connect("notify::selected", lambda c, _p: c.set_subtitle(
+            "Suspended: mail kept, it can come back (Google may still charge for it)" if c.get_selected() == 0 else
+            "Deleted: Google keeps it restorable for 20 days, then it's gone for good"))
+        box.append(choice)
         box.append(entry)
         dialog.set_extra_child(box)
         dialog.add_response("cancel", "Cancel")
@@ -2527,13 +2611,379 @@ class FleetWindow(Adw.ApplicationWindow):
         def answered(_d, response):
             if response != "remove" or entry.get_text().strip() != user:
                 return
-            self.call({"op": "remove-person", "person_id": person["id"], "remove_files": files.get_active(),
-                       "confirm": user},
-                      lambda _r, error: self.toast(error) if error else self.after_people_change(
-                          org, f"{user} removed: computers remove the account at their next report"))
+            body = {"op": "remove-person", "person_id": person["id"], "remove_files": files.get_active(), "confirm": user}
+            if mailbox:
+                body["mailbox"] = "suspend" if choice.get_selected() == 0 else "delete"
+            self.call(body, lambda r, error: self.toast(error) if error else self.after_people_change(
+                org, f"{user} removed: computers remove the account at their next report" + self.mailbox_note(r)))
         dialog.connect("response", answered)
         dialog.present(self)
         return dialog
+
+    # --- Google Workspace mailboxes (2.8e) ------------------------------------------------------
+    @staticmethod
+    def mailbox_note(reply: dict | None) -> str:
+        """What a toast adds when Google couldn't follow Fleet's change."""
+        err = (reply or {}).get("mailbox_error")
+        return f". The mailbox isn't done yet ({err}): retry it from their page" if err else ""
+
+    def mailbox_group(self, org: dict, person: dict, is_owner: bool, manages: bool) -> Adw.PreferencesGroup:
+        mailbox, state = person.get("mailbox"), person.get("mailbox_state")
+        live = bool(mailbox) and state != "deleted"
+        group = Adw.PreferencesGroup(title="Work email", description=None if live else
+                                     "No mailbox made with Kulan Fleet. Their computers offer to connect one once "
+                                     "it's made.")
+        if mailbox:
+            label, kind = MAILBOX_STATE.get(state, (state or "unknown", "dim"))
+            row = Adw.ActionRow(title=GLib.markup_escape_text(mailbox), subtitle_selectable=True,
+                                subtitle="Google Workspace · suspended while they're disabled, and when removed you "
+                                         "choose suspend or delete" if live else "Deleted when they were removed")
+            row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic"))
+            row.add_suffix(tag(label, kind))
+            group.add(row)
+        if person.get("mailbox_todo"):
+            group.add(self.mailbox_todo_row(org, person, is_owner))
+        if not org.get("mail_domain"):
+            return group
+        if live:
+            for title, subtitle, icon, action in (
+                    ("Give a new Google password", "If they forgot it: shown once, and Google asks them for a new one",
+                     "dialog-password-symbolic", "new-password"),
+                    ("Stop managing this mailbox", "Kulan Fleet forgets it; the mailbox stays in Google as it is",
+                     "list-remove-symbolic", "unlink")):
+                row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=manages, sensitive=manages)
+                row.add_prefix(Gtk.Image(icon_name=icon))
+                row.connect("activated", lambda _r, a=action: self.mailbox_action(org, person, a))
+                group.add(row)
+        else:
+            choices = [("Make a mailbox", f"A new Google mailbox on {org['mail_domain']}", "list-add-symbolic", "create",
+                        manages)]
+            choices.append(("Link an existing mailbox", "Only the Owner: then it's suspended, renamed and "
+                            "removed with them", "insert-link-symbolic", "link", is_owner))
+            for title, subtitle, icon, action, allowed in choices:
+                row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=allowed, sensitive=allowed)
+                row.add_prefix(Gtk.Image(icon_name=icon))
+                row.connect("activated", lambda _r, a=action: self.give_mailbox(org, person, a))
+                group.add(row)
+        return group
+
+    def mailbox_todo_row(self, org: dict, person: dict, is_owner: bool) -> Adw.ActionRow:
+        todo = MAILBOX_TODO.get(person.get("mailbox_todo"), "needs a retry")
+        row = Adw.ActionRow(title=GLib.markup_escape_text(f"{person.get('username')}: mailbox {todo}"),
+                            subtitle=GLib.markup_escape_text(person.get("mailbox_error") or "Google didn't answer"),
+                            subtitle_lines=0)
+        row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+        manages = is_owner or person.get("role", "employee") == "employee"
+        for label, action in (("Retry", "retry"), ("Done by hand", "forget")):
+            b = Gtk.Button(label=label, valign=Gtk.Align.CENTER, sensitive=manages,
+                           css_classes=["suggested-action"] if action == "retry" else ["flat"],
+                           tooltip_text=None if action == "retry" else "You did it in the Google Admin console: stop retrying")
+            b.connect("clicked", lambda _b, a=action: self.mailbox_action(org, person, a))
+            row.add_suffix(b)
+        return row
+
+    def mailbox_action(self, org: dict, person: dict, action: str) -> Adw.AlertDialog | None:
+        """retry, forget, new-password or unlink (the last two asked first)."""
+        def go() -> None:
+            def done(r, error):
+                r = r or {}
+                if error or r.get("mailbox_error"):
+                    self.toast(error or f"Still not done: {r['mailbox_error']}")
+                    return
+                if r.get("mailbox_password"):
+                    self.show_mailbox_password(person.get("full_name") or person["username"], r["mailbox"],
+                                               r["mailbox_password"])
+                self.after_people_change(org, {"retry": "Done", "forget": "No longer retried",
+                                               "new-password": f"New Google password for {person['username']}",
+                                               "unlink": "Kulan Fleet no longer manages that mailbox"}[action])
+            self.call({"op": "mailbox", "person_id": person["id"], "action": action}, done,
+                      {"mailbox": person.get("mailbox"), "mailbox_password": "abcd-EFGH-2346-mnpq"}
+                      if action == "new-password" else {})
+        if action in ("retry", "forget"):
+            go()
+            return None
+        dialog = Adw.AlertDialog(
+            heading=f"A new Google password for {person['username']}?" if action == "new-password" else
+            f"Stop managing {person.get('mailbox')}?",
+            body="Their old Google password stops working now. You see the new one once; give it to them in "
+                 "person, and Google asks them to choose their own." if action == "new-password" else
+                 "The mailbox stays in Google Workspace as it is, but Kulan Fleet no longer suspends, renames or "
+                 "removes it with them, and their computers stop offering it.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", "Make a password" if action == "new-password" else "Stop managing")
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED if action == "new-password"
+                                       else Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", lambda _d, r: r == "go" and go())
+        dialog.present(self)
+        return dialog
+
+    def give_mailbox(self, org: dict, person: dict, action: str) -> Adw.AlertDialog:
+        """Make (create) or link a mailbox for someone who has none."""
+        domain = org.get("mail_domain") or ""
+        dialog = Adw.AlertDialog(
+            heading=f"A mailbox for {person['username']}" if action == "create" else f"Link a mailbox to {person['username']}",
+            body=(f"A new Google Workspace mailbox. You see its first password once; Google asks them for a new one "
+                  "at their first sign-in." if action == "create" else
+                  "A mailbox that's already in Google Workspace. From now on it's suspended, renamed and removed "
+                  "with them."))
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        address = Adw.EntryRow(title="Mailbox address", text=f"{person['username']}@{domain}" if domain else "")
+        box.append(address)
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"], margin_top=6)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(box)
+        outer.append(note)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", "Make it" if action == "create" else "Link it")
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+
+        def check(_e=None) -> None:
+            ok = bool(MAILBOX_ADDRESS.match(address.get_text().strip().lower()))
+            note.set_label("" if ok else "That address doesn't look right")
+            dialog.set_response_enabled("go", ok)
+        address.connect("changed", check)
+        check()
+
+        def answered(_d, response):
+            if response != "go":
+                return
+            where = address.get_text().strip().lower()
+
+            def done(r, error):
+                r = r or {}
+                if error:
+                    self.toast(error)
+                    return
+                if r.get("mailbox_password"):
+                    self.show_mailbox_password(person.get("full_name") or person["username"], r["mailbox"],
+                                               r["mailbox_password"])
+                self.after_people_change(org, f"{where}: {'made' if action == 'create' else 'linked'}" +
+                                         self.mailbox_note(r))
+            self.call({"op": "mailbox", "person_id": person["id"], "action": action, "address": where}, done,
+                      {"mailbox": where, **({"mailbox_password": "abcd-EFGH-2346-mnpq"} if action == "create" else {})})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def show_mailbox_password(self, display: str, address: str, password: str) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(
+            heading=f"Google password for {display}",
+            body=(f"Give this to {display} in person or over a call, not by email. They sign in to Google as "
+                  f"{address} with it (on their Kulan OS computer, when it offers to connect their work email), "
+                  "and Google asks them to choose their own password. It's shown only now."))
+        dialog.set_extra_child(Gtk.Label(label=password, selectable=True, css_classes=["fleet-code"], margin_top=6))
+        dialog.add_response("copy", "Copy password")
+        dialog.add_response("close", "Done")
+        dialog.set_default_response("close")
+        dialog.connect("response", lambda _d, r: r == "copy" and Gdk.Display.get_default().get_clipboard().set(password))
+        dialog.present(self)
+        return dialog
+
+    def open_mail(self, org: dict) -> None:
+        if self.nav.find_page("mail") is not None:
+            self.nav.pop_to_tag("org")
+        page, _header = self.push_page("Google Workspace", "mail")
+        group = Adw.PreferencesGroup(title="Google Workspace", description="Loading…")
+        page.add(group)
+
+        def done(result, error):
+            if error:
+                group.set_description(error)
+                return
+            result = result or {}
+            c, is_owner = result.get("connection"), bool(result.get("is_owner"))
+            org["mail_domain"] = c.get("domain") if c else None
+            group.set_description(
+                "People's mailboxes are made, suspended, renamed and removed with People, and their computers offer "
+                "to connect them." if c else
+                "Connect your organisation's Google Workspace, and mailboxes are made and suspended with People: "
+                "a new person gets a mailbox, someone disabled has theirs suspended, someone removed has theirs "
+                "suspended or deleted (you choose).")
+            if c:
+                for title, value in (("Domain", c.get("domain")), ("Acting as", c.get("admin_email")),
+                                     ("Service account", c.get("client_email")), ("Client ID", c.get("client_id") or "–"),
+                                     ("Connected", f"{ago(c.get('connected_at'))} by {c.get('connected_by') or '–'}"),
+                                     ("Mailboxes Kulan Fleet manages", str(result.get("mailboxes", 0)))):
+                    row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(str(value)), subtitle_selectable=True)
+                    row.add_css_class("property")
+                    group.add(row)
+                if c.get("last_error"):
+                    row = Adw.ActionRow(title="Last problem", subtitle=GLib.markup_escape_text(c["last_error"]),
+                                        subtitle_lines=0)
+                    row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+                    group.add(row)
+            actions = Adw.PreferencesGroup(description=None if is_owner else "Only the Owner connects or disconnects it.")
+            page.add(actions)
+            for title, subtitle, icon, opener, show in (
+                    ("Connect again with a new key" if c else "Connect Google Workspace",
+                     "Paste a service account's JSON key; Kulan Fleet checks it works before keeping it",
+                     "insert-link-symbolic", lambda: self.connect_mail(org), True),
+                    ("Existing mailboxes", "The domain's mailboxes, and who in People has each: link one from a "
+                     "person's page", "mail-unread-symbolic", lambda: self.open_mail_users(org), bool(c)),
+                    ("Disconnect", "Kulan Fleet forgets the key; mailboxes stay in Google as they are",
+                     "list-remove-symbolic", lambda: self.disconnect_mail(org), bool(c))):
+                if not show:
+                    continue
+                row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=is_owner, sensitive=is_owner,
+                                    subtitle_lines=0)
+                row.add_prefix(Gtk.Image(icon_name=icon))
+                row.connect("activated", lambda _r, f=opener: f())
+                if title == "Disconnect":
+                    row.add_css_class("error")
+                actions.add(row)
+            how = Adw.PreferencesGroup(title="How to connect it",
+                                       description="Once, as a Google Workspace super admin (about 10 minutes).")
+            page.add(how)
+            for n_, step in enumerate((
+                    "In Google Cloud (console.cloud.google.com): make a project, and turn on the Admin SDK API",
+                    "IAM & Admin › Service accounts: make one (no roles needed), then Keys › Add key › JSON",
+                    "In the Google Admin console: Security › Access and data control › API controls › Domain-wide "
+                    f"delegation › Add new: the service account's client ID, and the scope {GOOGLE_SCOPE}",
+                    "Here: Connect Google Workspace, choose the key file, and give a super admin's email "
+                    "(Kulan Fleet acts as them)"), 1):
+                row = Adw.ActionRow(title=GLib.markup_escape_text(f"{n_}. {step}"), title_lines=0)
+                how.add(row)
+            guide = Adw.ActionRow(title="The full guide, with pictures", activatable=True)
+            guide.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+            guide.connect("activated", lambda _r: Gtk.UriLauncher.new(GOOGLE_GUIDE).launch(self, None, None, None))
+            how.add(guide)
+        self.call({"op": "mail", "organisation_id": org["id"]}, done,
+                  lambda: (self.data or {}).get("sample_mail", {}))
+
+    def connect_mail(self, org: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Connect Google Workspace",
+                                 body="Choose the service account's JSON key file, and the email of a Google super "
+                                      "admin Kulan Fleet acts as. The key is kept sealed: nobody can read it back, "
+                                      "and you can delete the file afterwards.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        key_row = Adw.ActionRow(title="Key file", subtitle="Not chosen yet", activatable=True)
+        key_row.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
+        choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
+        key_row.add_suffix(choose)
+        admin = Adw.EntryRow(title="Super admin's email (Kulan Fleet acts as them)")
+        box.append(key_row)
+        box.append(admin)
+        note = Gtk.Label(wrap=True, xalign=0, selectable=True, css_classes=["dim-label"], margin_top=6)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(box)
+        outer.append(note)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("connect", "Connect")
+        dialog.set_response_appearance("connect", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("connect", False)
+        key: dict = {}
+
+        def ready(*_a) -> None:
+            dialog.set_response_enabled("connect", bool(key) and "@" in admin.get_text())
+        admin.connect("changed", ready)
+
+        def take(text: str) -> None:
+            try:
+                k = json.loads(text)
+                assert isinstance(k, dict) and k.get("type") == "service_account" and k.get("client_email") \
+                    and k.get("private_key")
+            except (ValueError, AssertionError):
+                key.clear()
+                key_row.set_subtitle("That isn't a service account's JSON key")
+                ready()
+                return
+            key.clear()
+            key.update(k)
+            key_row.set_subtitle(GLib.markup_escape_text(f"{k['client_email']} · client ID {k.get('client_id') or '?'}"))
+            note.set_label(f"Domain-wide delegation for client ID {k.get('client_id') or '?'} with the scope "
+                           f"{GOOGLE_SCOPE} must be set up in the Google Admin console first.")
+            ready()
+        dialog.take_key = take  # for the self-test
+
+        def chosen(d, result):
+            try:
+                f = d.open_finish(result)
+            except GLib.Error:
+                return
+            try:
+                ok, data, _etag = f.load_contents(None)
+                take(data[:20000].decode("utf-8", "replace") if ok else "")
+            except GLib.Error as e:
+                key_row.set_subtitle(GLib.markup_escape_text(f"Couldn't read it: {e.message}"))
+
+        def pick(*_a) -> None:
+            files = Gtk.FileDialog(title="The service account's JSON key")
+            flt = Gtk.FileFilter(name="JSON key")
+            flt.add_pattern("*.json")
+            store = Gio.ListStore.new(Gtk.FileFilter)
+            store.append(flt)
+            files.set_filters(store)
+            files.open(self, None, chosen)
+        choose.connect("clicked", pick)
+        key_row.connect("activated", pick)
+
+        def answered(_d, response):
+            if response != "connect" or not key:
+                return
+
+            def done(r, error):
+                if error:
+                    self.toast(error)
+                    return
+                key.clear()
+                self.toast(f"Google Workspace connected: {(r or {}).get('domain', '')}")
+                self.reload()
+                self.open_mail(org)
+            self.call({"op": "connect-mail", "organisation_id": org["id"], "key": json.dumps(key),
+                       "admin_email": admin.get_text().strip()}, done, {"domain": "kulan.example"})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def disconnect_mail(self, org: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Disconnect Google Workspace?",
+                                 body="Kulan Fleet forgets the key. Mailboxes stay in Google as they are, but they're "
+                                      "no longer made, suspended or removed with People, and computers stop offering "
+                                      "them. Mailboxes still to suspend or delete stay on the list, to do by hand. To stop the key working too, "
+                                      "delete it in Google Cloud.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", "Disconnect")
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def done(_r, error):
+            if error:
+                self.toast(error)
+                return
+            org["mail_domain"] = None
+            self.toast("Google Workspace disconnected")
+            self.reload()
+            self.open_mail(org)
+        dialog.connect("response", lambda _d, r: r == "go" and self.call(
+            {"op": "disconnect-mail", "organisation_id": org["id"]}, done))
+        dialog.present(self)
+        return dialog
+
+    def open_mail_users(self, org: dict) -> None:
+        page, _header = self.push_page("Existing mailboxes")
+        group = Adw.PreferencesGroup(title=f"Mailboxes on {org.get('mail_domain') or ''}", description="Loading…")
+        page.add(group)
+
+        def done(result, error):
+            if error:
+                group.set_description(error)
+                return
+            users = (result or {}).get("users") or []
+            group.set_description(f"{plural(len(users), 'mailbox', 'mailboxes')}. To link one to someone, open them "
+                                  "in People › Work email › Link an existing mailbox.")
+            for u in users[:500]:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(u.get("address") or ""),
+                                    subtitle=GLib.markup_escape_text(" · ".join(x for x in (
+                                        u.get("name"), f"in People as {u['username']}" if u.get("username") else
+                                        "not in People") if x)))
+                if u.get("admin"):
+                    row.add_suffix(tag("Google admin", "dim"))
+                if u.get("suspended"):
+                    row.add_suffix(tag("suspended", "warn"))
+                group.add(row)
+        self.call({"op": "mail-users", "organisation_id": org["id"]}, done,
+                  lambda: (self.data or {}).get("sample_mail_users", {}))
 
     # --- admins and the Owner ---------------------------------------------------------------------
     def open_admins(self, org: dict) -> None:
@@ -2719,7 +3169,7 @@ def sample() -> dict:
                                                   ("Firewall", "fail", "4.5", "SC-7")], 1)]
     return {"sample": True, "email": "admin@kulan.example", "global": True,
             "organisations": [{"id": org, "name": "Kulan Cyber Advisory", "owner_email": "admin@kulan.example",
-                               "is_owner": True,
+                               "is_owner": True, "mail_domain": "kulan.example",
                                "policy": {"auto_updates": True, "screen_lock_minutes": 5, "require_encryption": True}}],
             "devices": [{"id": "d1", "organisation_id": org, "hostname": "kca-laptop-01", "kulan_version": "2.4",
                          "os": "Kulan OS 2.4", "last_seen": iso(1800), "enrolled_at": iso(86400 * 9),
@@ -2757,6 +3207,8 @@ def sample() -> dict:
                         {"id": "a2", "device_id": "d1", "type": "erase", "status": "expired", "created_at": iso(86400 * 31)}],
             "sample_people": [
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
+                 "mailbox": "amina@kulan.example", "mailbox_state": "active", "mailbox_todo": "rename",
+                 "mailbox_error": "Google couldn't be reached: try again in a minute",
                  "uid": 70000, "role": "employee", "enabled": True, "must_change": True, "all_computers": True,
                  "computers": [], "groups": [],
                  "two_step": [{"id": "t1", "kind": "key", "label": "YubiKey 5", "created_on": "kca-laptop-01",
@@ -2767,6 +3219,7 @@ def sample() -> dict:
                  "on": [{"device_id": "d1", "hostname": "kca-laptop-01", "status": "created"},
                         {"device_id": "d2", "hostname": "kca-desk-02", "status": "not yet"}]},
                 {"id": "p2", "username": "omar", "full_name": "Omar Ali", "email": None, "uid": 70001, "role": "admin",
+                 "mailbox": None, "mailbox_state": None,
                  "enabled": False, "must_change": False, "all_computers": False, "computers": ["d1"], "groups": ["g1"],
                  "created_at": iso(86400 * 3), "created_by": "admin@kulan.example",
                  "on": [{"device_id": "d1", "hostname": "kca-laptop-01",
@@ -2793,7 +3246,8 @@ def sample() -> dict:
                                                         "policy_not_met": [{"hostname": "kca-desk-02", "items": ["auto_updates"]}],
                                                         "lost_mode": ["kca-desk-02"], "versions": {"2.8.3": 2}},
                                           "people": {"total": 2, "disabled": ["omar"], "setup_code_unused": ["amina"],
-                                                     "admins": ["omar"], "two_step": "admins", "two_step_missing": ["omar"]},
+                                                     "admins": ["omar"], "two_step": "admins", "two_step_missing": ["omar"],
+                                                     "mailbox_problems": [{"username": "amina", "todo": "rename"}]},
                                           "activity": {"changes": 7, "by_kind": [{"what": "added", "count": 4},
                                                                                  {"what": "asked computers", "count": 3}]},
                                           "review": {"at": None, "by": None, "due": True}},
@@ -2810,6 +3264,15 @@ def sample() -> dict:
                               "admins": [{"email": "admin@kulan.example", "owner": True, "created_at": iso(86400 * 9)},
                                          {"email": "helper@kulan.example", "owner": False, "created_at": iso(86400)}],
                               "all_organisations_admins": [{"email": "fleet@kulangroup.com"}]},
+            "sample_mail": {"is_owner": True, "mailboxes": 1, "connection": {
+                "provider": "google", "domain": "kulan.example", "admin_email": "it@kulan.example",
+                "client_email": "kulan-fleet@kulan-mail.iam.gserviceaccount.com", "client_id": "112233445566778899001",
+                "connected_by": "admin@kulan.example", "connected_at": iso(86400),
+                "last_error": "Google couldn't be reached: try again in a minute"}},
+            "sample_mail_users": {"users": [{"address": "amina@kulan.example", "name": "Amina Yusuf", "suspended": False,
+                                             "admin": False, "username": "amina"},
+                                            {"address": "ceo@kulan.example", "name": "Mohamud", "suspended": False,
+                                             "admin": True, "username": None}]},
             "sample_report": {"compliance": {"passed": 1, "total": 2, "baseline": "Kulan OS baseline 1",
                                              "controls": controls}}}
 
@@ -2931,6 +3394,29 @@ class FleetApp(Adw.Application):
                         dialog.force_close()
                     flat2 = [line for _h, rows_ in weekly_sections(win.data["sample_weekly"]["summary"], None) for line in rows_]
                     assert ("Two-step sign-in not set up: 1", "omar", "bad") in flat2, flat2
+                    # Google Workspace mailboxes (2.8e): the page, connecting, each mailbox dialog.
+                    assert ("Mailboxes with something left to do: 1", "amina (name still to change)", "bad") in flat2, flat2
+                    win.open_mail(org)
+                    connect = win.connect_mail(org)
+                    assert not connect.get_response_enabled("connect")
+                    connect.take_key(json.dumps({"type": "service_account", "client_email": "x@y.iam.gserviceaccount.com",
+                                                 "client_id": "1", "private_key": "-----BEGIN PRIVATE KEY-----"}))
+                    connect.get_extra_child().get_first_child().get_row_at_index(1).set_text("it@kulan.example")
+                    assert connect.get_response_enabled("connect"), "a key and a super admin: ready to connect"
+                    connect.take_key("{not json")
+                    assert not connect.get_response_enabled("connect"), "not a key: not ready"
+                    connect.force_close()
+                    win.disconnect_mail(org).force_close()
+                    win.open_mail_users(org)
+                    win.nav.pop_to_tag("org")
+                    amina, omar = win.data["sample_people"][0], win.data["sample_people"][1]
+                    for dialog in (win.give_mailbox(org, omar, "create"), win.give_mailbox(org, omar, "link"),
+                                   win.mailbox_action(org, amina, "new-password"), win.mailbox_action(org, amina, "unlink"),
+                                   win.show_mailbox_password("Amina", "amina@kulan.example", "abcd-EFGH-2346-mnpq")):
+                        dialog.force_close()
+                    assert win.mailbox_note({"mailbox_error": "x"}).startswith(". The mailbox isn't done yet")
+                    assert win.mailbox_note({}) == "" and MAILBOX_ADDRESS.match("amina.y@kulan.example")
+                    assert not MAILBOX_ADDRESS.match("Amina@kulan.example") and not MAILBOX_ADDRESS.match("a@b")
                     assert policy_summary({"two_step": "everyone"}) == "Two-step sign-in for everyone"
                     rows, picked = win.computer_picker(org, False, ["d1"], ["g1"])
                     assert picked() == (False, ["d1"], ["g1"]), picked()

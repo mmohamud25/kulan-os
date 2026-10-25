@@ -11,13 +11,20 @@ srv.listen(18899);
 const org = "11111111-1111-4111-8111-111111111111";
 const AAL2 = "eyJhYWwiOiJhYWwyIiwiZXhwIjo5OTk5OTk5OTk5LCJzdWIiOiJ4In0";  // {"aal":"aal2","exp":9999999999,"sub":"x"}
 const AAL2_TOKEN = `x.${AAL2}.x`;
-const state = { needCode: true, auth: [], verifiedWith: null, policy: { firewall: true, usb: "block" }, groups: [], calls: [], approved: [] };
+const state = { needCode: true, auth: [], verifiedWith: null, policy: { firewall: true, usb: "block" }, groups: [], calls: [], approved: [],
+                mail: null };
 function reply(b) {
   state.calls.push(b);
   switch (b.op) {
     case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy }],
       devices: [{ id: "d1", organisation_id: org, hostname: "laptop-a", last_seen: new Date().toISOString() }], actions: [], alerts: [] };
-    case "people": return { people: [{ id: "p1", username: "amina", full_name: "Amina", role: "employee", enabled: true, all_computers: false, computers: [], groups: ["g1"], on: [] }], is_owner: true };
+    case "people": return { people: [{ id: "p1", username: "amina", full_name: "Amina", role: "employee", enabled: true, all_computers: false, computers: [], groups: ["g1"], on: [],
+                                        ...(state.mail ? { mailbox: "amina@acme.test", mailbox_state: "active", mailbox_todo: "rename", mailbox_error: "Google couldn't be reached" } : {}) }],
+                            removed_with_mailbox_todo: [], is_owner: true };
+    case "mail": return { connection: state.mail, mailboxes: state.mail ? 1 : 0, is_owner: true };
+    case "connect-mail": state.mail = { domain: "acme.test", admin_email: b.admin_email, client_email: JSON.parse(b.key).client_email, client_id: "1122" }; return { domain: "acme.test" };
+    case "add-person": return { id: "p2", uid: 70001, ...(b.mailbox ? { mailbox: b.mailbox.address, mailbox_password: "abcd-EFGH-2346-mnpq" } : {}) };
+    case "mailbox": return b.action === "new-password" ? { mailbox: "amina@acme.test", mailbox_password: "wxyz-WXYZ-2346-mnpq" } : {};
     case "admins": return { admins: [], owner: "a@x", is_owner: true };
     case "groups": return { groups: state.groups };
     case "drives": return { approved: state.approved, seen: [{ vendor_id: "0951", product_id: "1666", serial: "ABCD1234", name: "Kingston", computers: ["laptop-a"] }] };
@@ -169,6 +176,43 @@ function reply(b) {
   await page.click("#p-save");
   await page.waitForTimeout(300);
   if (state.calls.filter((c) => c.op === "set-policy").pop().policy.two_step !== "admins") throw "two_step not saved";
+  // 2.8e: connect Google Workspace, a new person with a mailbox, a new Google password, removing with the mailbox deleted.
+  if (!(await page.textContent("#mail-connect")).includes("Connect Google Workspace")) throw "mail card";
+  await page.click("#mail-connect");
+  await page.setInputFiles("#dlg input[type=file]", { name: "key.json", mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({ type: "service_account", client_email: "kf@acme-mail.iam.gserviceaccount.com", client_id: "1122", private_key: "-----BEGIN PRIVATE KEY-----\nAA\n-----END PRIVATE KEY-----\n" })) });
+  await page.waitForSelector("#dlg >> text=client ID 1122");
+  await page.fill("#dlg input[type=email]", "it@acme.test");
+  await page.click("#dlg-actions >> text=Connect");
+  await page.waitForSelector("#mail >> text=acme.test");
+  const cm = state.calls.filter((c) => c.op === "connect-mail").pop();
+  if (cm.admin_email !== "it@acme.test" || JSON.parse(cm.key).client_email !== "kf@acme-mail.iam.gserviceaccount.com") throw "connect-mail " + JSON.stringify(cm);
+  await page.click("#add-person");
+  await page.fill("#dlg input >> nth=0", "Leyla Nur");
+  if (await page.inputValue("#dlg input[spellcheck=false] >> nth=1") !== "leyla@acme.test") throw "mailbox address not suggested";
+  await page.click("#dlg-actions >> text=Add");
+  await page.waitForSelector("#dlg-title:has-text('Setup code for Leyla Nur')");
+  const ap = state.calls.filter((c) => c.op === "add-person").pop();
+  if (JSON.stringify(ap.mailbox) !== JSON.stringify({ action: "create", address: "leyla@acme.test" })) throw "add-person mailbox " + JSON.stringify(ap);
+  await page.click("#dlg-actions >> text=Done");
+  await page.waitForSelector("#dlg-title:has-text('Google password for Leyla Nur')");
+  if (!(await page.textContent("#dlg")).includes("abcd-EFGH-2346-mnpq")) throw "first Google password not shown";
+  await page.click("#dlg-actions >> text=Done");
+  await page.click("#people >> text=Manage…");
+  await page.waitForSelector("#dlg >> text=amina@acme.test");
+  if (!(await page.textContent("#dlg")).includes("name still to change")) throw "what's left to do not shown";
+  await page.click("#dlg >> button:has-text('New Google password…')");
+  await page.waitForSelector("#dlg-title:has-text('Google password for Amina')");
+  if (!(await page.textContent("#dlg")).includes("wxyz-WXYZ-2346-mnpq")) throw "new Google password not shown";
+  await page.click("#dlg-actions >> text=Done");
+  await page.click("#people >> text=Manage…");
+  await page.click("#dlg-actions >> text=Remove…");
+  await page.selectOption("#dlg select[aria-label='Their mailbox']", "delete");
+  await page.fill("#dlg input[spellcheck=false]", "amina");
+  await page.click("#dlg-actions >> text=Remove");
+  await page.waitForTimeout(300);
+  const rp = state.calls.filter((c) => c.op === "remove-person").pop();
+  if (rp?.mailbox !== "delete" || rp.confirm !== "amina") throw "remove-person mailbox " + JSON.stringify(rp);
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);

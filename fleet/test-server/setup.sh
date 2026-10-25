@@ -68,6 +68,15 @@ if [ ! -s "${DIR}/factor-key" ]; then
 	openssl rand -base64 32 > "${DIR}/factor-key"
 	chmod 600 "${DIR}/factor-key"
 fi
+# A made-up service account key for the stand-in Google (2.8e), to paste into
+# Kulan Fleet's Settings › Google Workspace when trying mailboxes.
+if [ ! -s "${DIR}/google-test-key.json" ]; then
+	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null | python3 -c 'import json, sys
+print(json.dumps({"type": "service_account", "project_id": "kulan-fleet-test", "private_key": sys.stdin.read(),
+                  "client_email": "kulan-fleet-test@kulan-fleet-test.iam.gserviceaccount.com", "client_id": "100000000000000000001"}))' \
+		> "${DIR}/google-test-key.json"
+	chmod 644 "${DIR}/google-test-key.json"
+fi
 PGPASSWORD="${PW}" psql -q -h 127.0.0.1 -U kulanfleet -d kulanfleet -v ON_ERROR_STOP=1 \
 	-c "insert into fleet.admins (email, organisation_id) values ('${EMAIL//\'/}', null) on conflict do nothing"
 
@@ -102,4 +111,5 @@ Done. Start the server with:   sudo ${HERE}/run.sh
 Server address for the test computers:  https://${IP}:8443/functions/v1/fleet
 Kulan Fleet app on this computer:      KULAN_FLEET_URL=https://${IP}:8443 kulan-fleet-admin
 Test authority fingerprint (check it on the other computer): ${FP}
+Stand-in Google key (2.8e mailboxes; act as it@ your test domain): ${DIR}/google-test-key.json
 EOF

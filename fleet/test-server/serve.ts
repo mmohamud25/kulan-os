@@ -195,6 +195,59 @@ async function auth(req: Request, path: string): Promise<Response> {
   return json(404, { msg: "not found" });
 }
 
+// --- stand-in Google Workspace (2.8e) -------------------------------------------------------
+// Unless run.sh is told to use the real Google (KULAN_FLEET_REAL_GOOGLE=1),
+// fleet-admin's Google calls come here: any service account key is accepted
+// (for super admin it@<domain>), mailboxes live in memory. Enough to try
+// mailboxes with People on test computers without a real Workspace.
+type GUser = { id: string; primaryEmail: string; name: { givenName: string; familyName: string }; suspended: boolean;
+               isAdmin: boolean; changePasswordAtNextLogin?: boolean };
+const gusers = new Map<string, GUser>();
+async function google(req: Request, path: string): Promise<Response> {
+  if (path === "/google/token") {
+    const form = new URLSearchParams(await req.text());
+    const [, claims] = String(form.get("assertion") ?? "").split(".");
+    let sub = "";
+    try {
+      sub = JSON.parse(atob(claims.replaceAll("-", "+").replaceAll("_", "/") + "==".slice(0, (4 - claims.length % 4) % 4))).sub;
+    } catch { /* below */ }
+    if (!/^it@/.test(sub)) return json(400, { error: "invalid_grant", error_description: "act as it@<your domain> on the test server" });
+    return json(200, { access_token: "test-google-token", expires_in: 3600, token_type: "Bearer" });
+  }
+  if (req.headers.get("Authorization") !== "Bearer test-google-token") return json(401, { error: { message: "Login Required" } });
+  const m = path.match(/^\/google\/admin\/directory\/v1\/users(?:\/(.+))?$/);
+  if (!m) return json(404, { error: { message: "not found" } });
+  const who = m[1] ? decodeURIComponent(m[1]) : null;
+  const body = req.method === "POST" || req.method === "PATCH" ? await req.json().catch(() => ({})) : {};
+  const show = (u: GUser) => ({ ...u, name: { ...u.name, fullName: `${u.name.givenName} ${u.name.familyName}` }, isDelegatedAdmin: false });
+  if (!who && req.method === "GET") {
+    const domain = new URL(req.url).searchParams.get("domain") ?? "";
+    return json(200, { users: [...gusers.values()].filter((u) => u.primaryEmail.endsWith("@" + domain)).map(show) });
+  }
+  if (!who && req.method === "POST") {
+    if (gusers.has(body.primaryEmail)) return json(409, { error: { message: "Entity already exists." } });
+    gusers.set(body.primaryEmail, { id: String(100000 + gusers.size), primaryEmail: body.primaryEmail, name: body.name,
+                                    suspended: false, isAdmin: false, changePasswordAtNextLogin: true });
+    console.log(`(stand-in Google) made ${body.primaryEmail}`);
+    return json(200, show(gusers.get(body.primaryEmail)!));
+  }
+  const u = who ? gusers.get(who) ?? [...gusers.values()].find((x) => x.id === who) : undefined;
+  if (!u) return json(404, { error: { message: "Resource Not Found: userKey" } });
+  if (req.method === "GET") return json(200, show(u));
+  if (req.method === "PATCH") {
+    if (typeof body.suspended === "boolean") u.suspended = body.suspended;
+    if (body.name) u.name = { ...u.name, ...body.name };
+    console.log(`(stand-in Google) changed ${u.primaryEmail}: ${Object.keys(body).filter((k) => k !== "password").join(", ")}`);
+    return json(200, show(u));
+  }
+  if (req.method === "DELETE") {
+    gusers.delete(u.primaryEmail);
+    console.log(`(stand-in Google) deleted ${u.primaryEmail}`);
+    return new Response(null, { status: 204 });
+  }
+  return json(400, { error: { message: "bad request" } });
+}
+
 // --- the server ---------------------------------------------------------------------------
 const ca = await Deno.readTextFile(`${DIR}/ca.crt`);
 realServe({
@@ -214,6 +267,8 @@ realServe({
     res = await handlers["fleet"](req);
   } else if (path.startsWith("/auth/v1/")) {
     res = await auth(req, path);
+  } else if (path.startsWith("/google/") && Deno.env.get("FLEET_GOOGLE_API")) {
+    res = await google(req, path);
   } else {
     res = json(404, { error: "not found" });
   }

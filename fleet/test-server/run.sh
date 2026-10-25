@@ -12,5 +12,11 @@ export SUPABASE_ANON_KEY=test
 export SUPABASE_SERVICE_ROLE_KEY="test-service-$(openssl rand -hex 16)"
 export FLEET_FACTOR_KEY="$(cat "${DIR}/factor-key")"
 export KULAN_FLEET_TEST_DIR="${DIR}"
+# Google Workspace mailboxes (2.8e): a stand-in Google on this server, unless
+# KULAN_FLEET_REAL_GOOGLE=1 (then a real Workspace's service account key works).
+if [ "${KULAN_FLEET_REAL_GOOGLE:-}" != 1 ]; then
+  export FLEET_GOOGLE_TOKEN_URL="https://${IP}:8443/google/token"
+  export FLEET_GOOGLE_API="https://${IP}:8443/google"
+fi
 export DENO_DIR="${DIR}/cache"
 exec "${DIR}/deno" run --cert "${DIR}/ca.crt" --allow-net --allow-env --allow-read --allow-sys "${HERE}/serve.ts"

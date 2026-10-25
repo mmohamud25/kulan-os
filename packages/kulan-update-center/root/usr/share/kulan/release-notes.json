@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.8.5",
+    "label": "2.8e",
+    "title": "Work email with Kulan Fleet and Google Workspace",
+    "items": [
+      "Kulan Fleet connects to an organisation's Google Workspace: adding someone in People can make their mailbox too, and disabling them suspends it",
+      "Removing someone, the admin chooses whether their mailbox is suspended (mail kept) or deleted. A new name in People changes it in Google too",
+      "On the computers, people with a work mailbox are offered to connect it (Settings › Online Accounts › Google): mail in Geary, calendar, contacts and Google Drive in Files. Kulan Settings › About › Organisation shows it",
+      "If Google can't be reached, Kulan Fleet's own change still happens at once; the mailbox shows what's left to do, and Retry finishes it",
+      "Only the Owner connects Google Workspace, links an existing mailbox or changes a mailbox that belongs to a Google admin. The key is kept sealed; nobody can read it back"
+    ]
+  },
+  {
     "version": "2.8.4",
     "label": "2.8d",
     "title": "Stronger sign-in with Kulan Fleet",

@@ -26,6 +26,11 @@
 // secret is kept sealed (AES-GCM, FLEET_FACTOR_KEY, which only this function
 // has) and opened only to send it to the person's own computers.
 //
+// Work email (2.8e): someone with a mailbox Kulan Fleet manages gets
+// mail: {address, provider} in their account, for the computer to offer to
+// connect it (GNOME Online Accounts for "google"); computers with such
+// people on them get Geary, the mail app, as a required app (unless blocked).
+//
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
 // Data lives in the private "fleet" schema, reached over a direct Postgres
@@ -168,15 +173,21 @@ type PersonRow = Record<string, any>;
 
 // One person as the computer reads it (kulan-fleet's people.py).
 export function account(p: PersonRow, twoStep?: { required: boolean; factors: Record<string, string>[];
-                                                  codes_unavailable?: boolean }): Record<string, unknown> {
+                                                  codes_unavailable?: boolean }, provider?: string | null): Record<string, unknown> {
   if (p.removed_at) return { username: p.username, uid: p.uid, removed: true, remove_files: p.remove_files === true };
   return {
     username: p.username, full_name: p.full_name ?? "", uid: p.uid, role: p.role, enabled: p.enabled === true,
     password_hash: p.password_hash ?? null, must_change: p.must_change === true,
     password_changed_at: Number(p.password_changed_at ?? 0),
     two_step: twoStep ?? { required: false, factors: [] },
+    ...(hasMail(p) && provider ? { mail: { address: p.mailbox, provider } } : {}),
   };
 }
+
+// A working mailbox Kulan Fleet manages for someone who may sign in.
+export const hasMail = (p: PersonRow) => !p.removed_at && p.enabled === true && typeof p.mailbox === "string" &&
+  p.mailbox_state === "active";
+const MAIL_APP = { source: "debian", id: "geary" } as const;
 
 // The apps a computer sends once a day: names, versions and where from, nothing else.
 function cleanApps(value: unknown): { name: string; version: string; source: string }[] | null {
@@ -376,7 +387,7 @@ Deno.serve(async (req: Request) => {
       // The people allowed on this computer, and anyone removed in the last 30 days.
       const people = await sql`
         select pe.id, pe.username, pe.full_name, pe.uid, pe.role, pe.enabled, pe.password_hash, pe.must_change,
-               pe.password_changed_at, pe.removed_at, pe.remove_files
+               pe.password_changed_at, pe.removed_at, pe.remove_files, pe.mailbox, pe.mailbox_state
         from fleet.people pe
         where pe.organisation_id = ${dev.organisation_id}
           and (pe.removed_at is null or pe.removed_at > now() - interval '30 days')
@@ -399,12 +410,20 @@ Deno.serve(async (req: Request) => {
       }
       if (unopened.size) console.error("fleet: phone codes can't be opened: is FLEET_FACTOR_KEY set, and unchanged?");
       const requiredFor = (p: PersonRow) => policy.two_step === "everyone" || (policy.two_step === "admins" && p.role !== "employee");
+      // Work email: the organisation's mail provider, and the mail app where someone has a mailbox.
+      const mailers = people.filter(hasMail);
+      const [conn] = mailers.length ? await sql`select provider from fleet.mail_connections where organisation_id = ${dev.organisation_id}` : [];
+      const provider: string | null = conn?.provider ?? null;
+      if (provider && !(policy.blocked_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id) &&
+          !(policy.required_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id)) {
+        sent.required_apps = [...(policy.required_apps ?? []), MAIL_APP];
+      }
       return reply(200, {
         actions: actions.filter((a) => ACTIONS.has(a.type))
           .map((a) => a.payload ? { id: a.id, type: a.type, payload: a.payload } : { id: a.id, type: a.type }),
         policy: sent,
         accounts: people.map((p) => account(p, { required: requiredFor(p), factors: factorsOf[p.id] ?? [],
-                                                 ...(unopened.has(p.id) ? { codes_unavailable: true } : {}) })),
+                                                 ...(unopened.has(p.id) ? { codes_unavailable: true } : {}) }, provider)),
       });
     }
 

@@ -1,0 +1,57 @@
+#!/usr/bin/python3 -I
+"""At sign-in (Kulan Fleet 2.8e): if your organisation made you a work
+mailbox and you haven't connected it, offer to, once a day. Connect opens
+Settings › Online Accounts › Google. Nothing otherwise."""
+import os
+import pwd
+import subprocess
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, "/usr/share/kulan-fleet")
+try:
+    import workmail
+    me = pwd.getpwuid(os.getuid())
+    mail = workmail.ask_today(me.pw_name, Path(me.pw_dir))
+except Exception:  # never in the way of signing in
+    sys.exit(0)
+if not mail:
+    sys.exit(0)
+
+try:
+    from gi.repository import Gio, GLib
+except ImportError:  # no desktop session here
+    sys.exit(0)
+
+try:
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    (nid,) = bus.call_sync(
+        "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
+        GLib.Variant("(susssasa{sv}i)", (
+            "Kulan Settings", 0, "mail-unread-symbolic", "Connect your work email",
+            f"Your organisation made you a mailbox: {mail['address']}. Connect it to get your mail, calendar, "
+            f"contacts and Google Drive here. Sign in as {mail['address']}.",
+            ["connect", "Connect", "default", "Connect", "later", "Not now"],
+            {"urgency": GLib.Variant("y", 1), "desktop-entry": GLib.Variant("s", "org.kulan.Settings")}, 0)),
+        GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 10_000, None).unpack()
+except GLib.Error:
+    sys.exit(0)
+
+loop = GLib.MainLoop()
+
+
+def on_signal(_conn, _sender, _path, _iface, signal, params):
+    values = params.unpack()
+    if values[0] != nid:
+        return
+    if signal == "ActionInvoked" and values[1] in ("connect", "default"):
+        subprocess.Popen(workmail.connect_command(mail), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    loop.quit()
+
+
+bus.signal_subscribe("org.freedesktop.Notifications", "org.freedesktop.Notifications", None,
+                     "/org/freedesktop/Notifications", None, Gio.DBusSignalFlags.NONE, on_signal)
+GLib.timeout_add_seconds(3600, loop.quit)  # an hour to answer; Kulan Settings has it any time
+loop.run()

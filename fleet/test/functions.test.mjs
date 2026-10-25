@@ -80,8 +80,74 @@ globalThis.fetch = async (url, init) => {
     }
     return new Response(JSON.stringify(authFactors[email] ?? []), { status: 200 });
   }
+  if (u.startsWith("https://oauth2.googleapis.com/") || u.startsWith("https://admin.googleapis.com/")) return fakeGoogle(u, init);
   return realFetch(url, init);
 };
+
+// Stand-in Google (2.8e): the token endpoint checks the service account's
+// signed request with its public key, as Google does; the Directory API keeps
+// mailboxes in memory. google.down makes Google unreachable.
+const { generateKeyPairSync, createVerify } = await import("node:crypto");
+const SA = generateKeyPairSync("rsa", { modulusLength: 2048, publicKeyEncoding: { type: "spki", format: "pem" },
+                                        privateKeyEncoding: { type: "pkcs8", format: "pem" } });
+const SA_EMAIL = "kulan-fleet@acme-mail.iam.gserviceaccount.com";
+const gstate = { down: false, delegated: true, users: new Map(), calls: [], tokens: 0, ids: 0 };
+const gjson = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status });
+async function fakeGoogle(u, init) {
+  if (gstate.down) throw new TypeError("fetch failed");
+  const method = init?.method ?? "GET";
+  gstate.calls.push(`${method} ${u.replace(/^https:\/\/[^/]+/, "")}`);
+  if (u === "https://oauth2.googleapis.com/token") {
+    const form = new URLSearchParams(String(init.body));
+    const [h, c, s] = String(form.get("assertion")).split(".");
+    const verify = createVerify("RSA-SHA256");
+    verify.update(`${h}.${c}`);
+    const claims = JSON.parse(Buffer.from(c, "base64url").toString());
+    const goodSig = verify.verify(SA.publicKey, Buffer.from(s, "base64url"));
+    if (form.get("grant_type") !== "urn:ietf:params:oauth:grant-type:jwt-bearer" || !goodSig || claims.iss !== SA_EMAIL ||
+        claims.aud !== "https://oauth2.googleapis.com/token" || claims.exp - claims.iat !== 3600) {
+      return gjson(400, { error: "invalid_grant", error_description: "Invalid JWT Signature." });
+    }
+    if (!gstate.delegated || claims.scope !== "https://www.googleapis.com/auth/admin.directory.user") {
+      return gjson(401, { error: "unauthorized_client", error_description: "Client is unauthorized to retrieve access tokens using this method" });
+    }
+    if (claims.sub !== "it@acme.test") return gjson(400, { error: "invalid_grant", error_description: "Invalid email or User ID" });
+    gstate.tokens++;
+    return gjson(200, { access_token: "ya29.test", expires_in: 3599, token_type: "Bearer" });
+  }
+  if (new Headers(init?.headers).get("Authorization") !== "Bearer ya29.test") return gjson(401, { error: { message: "Login Required" } });
+  const m = u.match(/^https:\/\/admin\.googleapis\.com\/admin\/directory\/v1\/users(?:\/([^?]+))?(?:\?(.*))?$/);
+  if (!m) return gjson(404, { error: { message: "not found" } });
+  const who = m[1] ? decodeURIComponent(m[1]) : null;
+  const body = init?.body ? JSON.parse(init.body) : {};
+  // Every mailbox has Google's id; a user is found by id, address or alias, as Google does.
+  for (const x of gstate.users.values()) x.id ??= `g${++gstate.ids}`;
+  const find = (key) => [...gstate.users.values()].find((x) => x.id === key || x.primaryEmail === key || (x.aliases ?? []).includes(key));
+  const show = (x) => ({ id: x.id, primaryEmail: x.primaryEmail, name: { ...x.name, fullName: `${x.name.givenName} ${x.name.familyName}` },
+                         suspended: x.suspended, isAdmin: x.isAdmin, isDelegatedAdmin: !!x.isDelegatedAdmin });
+  if (!who && method === "GET") {
+    const q = new URLSearchParams(m[2] ?? "");
+    const list = [...gstate.users.values()].filter((x) => x.primaryEmail.endsWith("@" + q.get("domain")));
+    return gjson(200, { users: list.slice(0, Number(q.get("maxResults") ?? 500)).map(show) });
+  }
+  if (!who && method === "POST") {
+    if (find(body.primaryEmail)) return gjson(409, { error: { message: "Entity already exists." } });
+    gstate.users.set(body.primaryEmail, { ...body, id: `g${++gstate.ids}`, suspended: false, isAdmin: false });
+    return gjson(200, show(gstate.users.get(body.primaryEmail)));
+  }
+  const x = find(who);
+  if (!x) return gjson(404, { error: { message: "Resource Not Found: userKey" } });
+  if (method === "GET") return gjson(200, show(x));
+  if (method === "PATCH") {
+    Object.assign(x, body, body.name ? { name: { ...x.name, ...body.name } } : {});
+    return gjson(200, show(x));
+  }
+  if (method === "DELETE") {
+    gstate.users.delete(x.primaryEmail);
+    return gjson(204);
+  }
+  return gjson(400, { error: { message: "bad request" } });
+}
 const run = path.join(here, ".run");
 fs.mkdirSync(run, { recursive: true });
 for (const name of ["fleet", "fleet-admin"]) {
@@ -91,6 +157,9 @@ for (const name of ["fleet", "fleet-admin"]) {
   fs.writeFileSync(file, src);
   // policy.ts: the same file in both functions (checked in CI); either copy will do here.
   fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "policy.ts"), path.join(run, "policy.ts"));
+  if (name === "fleet-admin") {
+    fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "google.ts"), path.join(run, "google.ts"));
+  }
   serving = name;
   await import(file);
 }
@@ -628,6 +697,282 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.body.entries.some((e) => e.what === "set up a security key for signing in" && e.email === "mo") &&
      r.body.entries.some((e) => e.what === "removed a second step for signing in"), "the person's own changes too", r.body.entries.map((e) => e.what));
   delete authFactors[NEWOWNER];
+}
+
+// --- Google Workspace mailboxes (2.8e) -------------------------------------------------------
+{
+  const KEY = JSON.stringify({ type: "service_account", project_id: "acme-mail", private_key_id: "abc",
+                               private_key: SA.privateKey, client_email: SA_EMAIL, client_id: "112233445566778899001" });
+  const accountOf = async (c, who) => (await report(c)).body.accounts.find((x) => x.username === who);
+  const row = async (who) => (await db`select mailbox, mailbox_state, mailbox_todo, mailbox_error, enabled, removed_at
+                                       from fleet.people where organisation_id = ${org} and username = ${who}`)[0];
+  r = await admin(HELPER, { op: "mail", organisation_id: org });
+  ok(r.status === 200 && r.body.connection === null && r.body.mailboxes === 0, "not connected yet", r.body);
+
+  // Connecting: the Owner only, a real service account key, checked with Google first.
+  r = await admin(HELPER, { op: "connect-mail", organisation_id: org, key: KEY, admin_email: "it@acme.test" });
+  ok(r.status === 403, "only the Owner connects Google Workspace", r);
+  r = await admin(NEWOWNER, { op: "connect-mail", organisation_id: org, key: '{"type":"authorized_user"}', admin_email: "it@acme.test" });
+  ok(r.status === 400 && r.body.error.includes("JSON key"), "not a service account key", r);
+  gstate.delegated = false;
+  r = await admin(NEWOWNER, { op: "connect-mail", organisation_id: org, key: KEY, admin_email: "it@acme.test" });
+  ok(r.status === 400 && r.body.error.includes("domain-wide delegation") && r.body.client_id === "112233445566778899001",
+     "no domain-wide delegation yet: says so, with the client ID to give it", r.body);
+  gstate.delegated = true;
+  r = await admin(NEWOWNER, { op: "connect-mail", organisation_id: org, key: KEY, admin_email: "someone@acme.test" });
+  ok(r.status === 400 && r.body.error.includes("super admin"), "acting as someone Google won't accept", r.body);
+  ok((await db`select 1 from fleet.mail_connections`).length === 0, "nothing kept until it works");
+  r = await admin(NEWOWNER, { op: "connect-mail", organisation_id: org, key: KEY, admin_email: "IT@acme.test" });
+  ok(r.status === 200 && r.body.domain === "acme.test", "connected (the domain from the super admin's email)", r);
+  const [conn] = await db`select private_key, client_email, client_id, admin_email from fleet.mail_connections where organisation_id = ${org}`;
+  ok(conn.private_key.startsWith("m1:") && !conn.private_key.includes("PRIVATE KEY") && conn.client_email === SA_EMAIL &&
+     conn.admin_email === "it@acme.test", "the private key is kept sealed", { ...conn, private_key: conn.private_key.slice(0, 8) });
+  r = await admin(HELPER, { op: "mail", organisation_id: org });
+  ok(r.body.connection?.domain === "acme.test" && r.body.connection.client_id === "112233445566778899001" &&
+     !JSON.stringify(r.body).includes("PRIVATE") && !JSON.stringify(r.body).includes("m1:"), "admins see the connection, never its key", r.body);
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.body.organisations.find((o) => o.id === org).mail_domain === "acme.test", "the overview says which domain", 0);
+
+  // A new person with a new mailbox.
+  r = await add(HELPER, { username: "leyla", full_name: "Leyla Ahmed Nur", mailbox: { action: "create", address: "bad address" } });
+  ok(r.status === 400, "a mailbox address that isn't one", r);
+  r = await add(HELPER, { username: "leyla", full_name: "Leyla Ahmed Nur", mailbox: { action: "link", address: "leyla@acme.test" } });
+  ok(r.status === 403, "only the Owner links an existing mailbox", r);
+  r = await add(HELPER, { username: "leyla", full_name: "Leyla Ahmed Nur", mailbox: { action: "create", address: "Leyla@Acme.test" } });
+  ok(r.status === 200 && r.body.mailbox === "leyla@acme.test" && /^([A-Za-z0-9]{4}-){3}[A-Za-z0-9]{4}$/.test(r.body.mailbox_password),
+     "added with a mailbox and a first Google password (shown once)", r.body);
+  const leyla = r.body.id;
+  const g = gstate.users.get("leyla@acme.test");
+  ok(g && g.name.givenName === "Leyla Ahmed" && g.name.familyName === "Nur" && g.changePasswordAtNextLogin === true &&
+     g.password === r.body.mailbox_password, "made in Google: the name from People, a new password at first sign-in", g);
+  r = await add(HELPER, { username: "leyla2", mailbox: { action: "create", address: "leyla@acme.test" } });
+  ok(r.status === 409 && r.body.error.includes("leyla"), "one person per mailbox", r);
+  gstate.users.set("taken@acme.test", { primaryEmail: "taken@acme.test", name: { givenName: "T", familyName: "T" }, suspended: false, isAdmin: false });
+  r = await add(HELPER, { username: "tariq", mailbox: { action: "create", address: "taken@acme.test" } });
+  ok(r.status === 200 && r.body.mailbox_error?.includes("already in use") && !r.body.mailbox_password,
+     "an address Google already has: they're added, the mailbox isn't (the Owner can link it)", r.body);
+  const tariq = r.body.id;
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: tariq, action: "link", address: "taken@acme.test" });
+  ok(r.status === 200 && (await row("tariq")).mailbox === "taken@acme.test", "the Owner links it", r);
+
+  // The computers: the work email, and the mail app.
+  let a = await accountOf(A, "leyla");
+  ok(JSON.stringify(a.mail) === JSON.stringify({ address: "leyla@acme.test", provider: "google" }), "the computer gets leyla's work email", a);
+  let pa = (await report(A)).body.policy;
+  ok(pa.required_apps?.some((x) => x.source === "debian" && x.id === "geary"), "and Geary to read it", pa.required_apps);
+  ok(!(await computer(C, "/v1/report")).body.policy.required_apps?.some((x) => x.id === "geary"), "not another organisation's computer");
+  ok(!("mail" in (await accountOf(A, "hodan"))), "nobody else's work email");
+
+  // Disable and enable: suspended and back.
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: leyla, enabled: false });
+  ok(r.status === 200 && !r.body.mailbox_error && gstate.users.get("leyla@acme.test").suspended === true &&
+     (await row("leyla")).mailbox_state === "suspended", "disabled: the mailbox is suspended", r.body);
+  ok(!("mail" in (await accountOf(A, "leyla"))), "and the computers no longer offer it");
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: leyla, enabled: true });
+  ok(gstate.users.get("leyla@acme.test").suspended === false && (await row("leyla")).mailbox_state === "active", "enabled: unsuspended", r.body);
+
+  // Google can't be reached: Fleet's change happens anyway; what's left is an alert and can be retried.
+  gstate.down = true;
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: leyla, enabled: false });
+  let lr = await row("leyla");
+  ok(r.status === 200 && r.body.mailbox_error?.includes("couldn't be reached") && lr.enabled === false && lr.mailbox_todo === "suspend" &&
+     lr.mailbox_state === "active", "Google down: disabled in Fleet at once; the suspension is still to do", { body: r.body, lr });
+  ok(!("mail" in (await accountOf(A, "leyla"))), "the computers stop offering her mailbox at once");
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.body.alerts.some((x) => x.kind === "mailbox" && x.text.startsWith("leyla's mailbox leyla@acme.test: still to suspend")) &&
+     r.body.alerts.some((x) => x.kind === "mail" && x.text.includes("couldn't be reached")), "alerts: the mailbox, and Google", r.body.alerts.slice(0, 3));
+  r = await admin(HELPER, { op: "weekly-report", organisation_id: org });
+  ok(r.body.summary.people.counts.mailbox_problems === 1 && r.body.summary.people.mailbox_problems[0].todo === "suspend",
+     "in the weekly report", r.body.summary.people);
+  gstate.down = false;
+  r = await admin(HELPER, { op: "mailbox", person_id: leyla, action: "retry" });
+  lr = await row("leyla");
+  ok(r.status === 200 && !r.body.mailbox_error && lr.mailbox_todo === null && lr.mailbox_state === "suspended" &&
+     gstate.users.get("leyla@acme.test").suspended === true, "retried: suspended", { body: r.body, lr });
+  r = await admin(HELPER, { op: "overview" });
+  ok(!r.body.alerts.some((x) => x.kind === "mailbox" || x.kind === "mail"), "the alerts go once it works", r.body.alerts.slice(0, 3));
+  // Disabled while Google was down, enabled again before the retry: nothing left to do.
+  gstate.down = true;
+  await admin(HELPER, { op: "set-person-enabled", person_id: leyla, enabled: true });
+  ok((await row("leyla")).mailbox_todo === "unsuspend", "enabled while Google is down: still to unsuspend");
+  await admin(HELPER, { op: "set-person-enabled", person_id: leyla, enabled: false });
+  ok((await row("leyla")).mailbox_todo === null, "disabled again: the mailbox is already suspended, nothing to do");
+  gstate.down = false;
+  await admin(HELPER, { op: "set-person-enabled", person_id: leyla, enabled: true });
+
+  // A new name in People, a new Google password.
+  r = await admin(HELPER, { op: "edit-person", person_id: leyla, full_name: "Leyla Nur" });
+  ok(r.status === 200 && gstate.users.get("leyla@acme.test").name.familyName === "Nur" &&
+     gstate.users.get("leyla@acme.test").name.givenName === "Leyla", "renamed in Google too", gstate.users.get("leyla@acme.test").name);
+  r = await admin(HELPER, { op: "mailbox", person_id: leyla, action: "new-password" });
+  ok(r.status === 200 && r.body.mailbox_password && gstate.users.get("leyla@acme.test").password === r.body.mailbox_password &&
+     gstate.users.get("leyla@acme.test").changePasswordAtNextLogin === true, "a new Google password, changed at next sign-in", r.body);
+
+  // A Google admin account: only the Owner changes it (a Fleet admin can't take over Google through Fleet).
+  gstate.users.set("ceo@acme.test", { primaryEmail: "ceo@acme.test", name: { givenName: "C", familyName: "E" }, suspended: false, isAdmin: true });
+  r = await add(HELPER, { username: "kofi", full_name: "Kofi Mensah" });
+  const kofi = r.body.id;
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: kofi, action: "link", address: "ceo@acme.test" });
+  ok(r.status === 200, "the Owner links a Google admin's mailbox", r);
+  r = await admin(HELPER, { op: "mailbox", person_id: kofi, action: "new-password" });
+  ok(r.status === 403 && gstate.users.get("ceo@acme.test").password === undefined, "an admin can't reset a Google admin's password", r);
+  r = await admin(HELPER, { op: "remove-person", person_id: kofi, confirm: "kofi", mailbox: "delete" });
+  ok(r.status === 403 && (await row("kofi")).removed_at === null && gstate.users.has("ceo@acme.test"),
+     "nor delete it (refused before anything changes)", r);
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: kofi, enabled: false });
+  ok(r.body.mailbox_error?.includes("Google admin account") && (await row("kofi")).enabled === false &&
+     gstate.users.get("ceo@acme.test").suspended === false, "disabling still disables in Fleet; the Owner must suspend it", r.body);
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: kofi, action: "retry" });
+  ok(r.status === 200 && gstate.users.get("ceo@acme.test").suspended === true, "the Owner's retry suspends it", r.body);
+
+  // Existing mailboxes, for linking.
+  r = await admin(HELPER, { op: "mail-users", organisation_id: org });
+  ok(r.status === 403, "only the Owner lists the domain's mailboxes", r);
+  r = await admin(NEWOWNER, { op: "mail-users", organisation_id: org });
+  const users = r.body.users ?? [];
+  ok(users.find((x) => x.address === "ceo@acme.test")?.username === "kofi" && users.find((x) => x.address === "ceo@acme.test")?.admin &&
+     users.some((x) => x.address === "leyla@acme.test" && x.username === "leyla"), "with who has each", users);
+  r = await admin(HELPER, { op: "people", organisation_id: org });
+  const lp = r.body.people.find((x) => x.username === "leyla");
+  ok(lp.mailbox === "leyla@acme.test" && lp.mailbox_state === "active" && lp.mailbox_todo === null, "People shows the mailbox", lp);
+
+  // Removing someone: the admin chooses suspend or delete.
+  r = await admin(HELPER, { op: "remove-person", person_id: leyla, confirm: "leyla" });
+  ok(r.status === 400 && r.body.mailbox === "leyla@acme.test", "removing someone with a mailbox: choose what happens to it", r);
+  r = await admin(HELPER, { op: "remove-person", person_id: leyla, confirm: "leyla", mailbox: "delete" });
+  ok(r.status === 200 && !gstate.users.has("leyla@acme.test") && (await row("leyla")).mailbox_state === "deleted", "deleted in Google", r);
+  r = await admin(HELPER, { op: "remove-person", person_id: tariq, confirm: "tariq", mailbox: "suspend" });
+  ok(r.status === 200 && gstate.users.get("taken@acme.test").suspended === true, "or suspended", r);
+  // Google down while removing: removed at once; the deletion waits, and isn't forgotten after 30 days.
+  r = await add(HELPER, { username: "sahra", mailbox: { action: "create", address: "sahra@acme.test" } });
+  const sahra = r.body.id;
+  gstate.down = true;
+  r = await admin(HELPER, { op: "remove-person", person_id: sahra, confirm: "sahra", mailbox: "delete" });
+  ok(r.status === 200 && r.body.mailbox_error && (await row("sahra")).removed_at && (await row("sahra")).mailbox_todo === "delete",
+     "Google down: removed anyway, the deletion still to do", r.body);
+  r = await admin(HELPER, { op: "people", organisation_id: org });
+  ok(r.body.removed_with_mailbox_todo.some((x) => x.username === "sahra"), "listed to retry", r.body.removed_with_mailbox_todo);
+  await db`update fleet.people set removed_at = now() - interval '40 days' where id = ${sahra}`;
+  await db`select fleet.prune_people()`;
+  ok((await row("sahra"))?.mailbox_todo === "delete", "kept past 30 days while its mailbox waits");
+  gstate.down = false;
+  r = await admin(HELPER, { op: "mailbox", person_id: sahra, action: "retry" });
+  ok(r.status === 200 && !gstate.users.has("sahra@acme.test") && (await row("sahra")).mailbox_todo === null, "retried: deleted", r.body);
+  await db`select fleet.prune_people()`;
+  ok(!(await row("sahra")), "then forgotten as usual");
+  r = await add(HELPER, { username: "sahra2", mailbox: { action: "create", address: "sahra@acme.test" } });
+  ok(r.status === 200 && r.body.mailbox === "sahra@acme.test", "a deleted mailbox's address can be used again", r.body);
+
+  // --- from the security review ---------------------------------------------------------
+  // Another organisation can't borrow this one's Google connection: not by naming the same service
+  // account and super admin with another key (Google is always asked when connecting), not by
+  // copying the sealed key into its own row (it's bound to this organisation).
+  const KEY2 = JSON.stringify({ type: "service_account", client_email: SA_EMAIL, client_id: "112233445566778899001",
+    private_key: generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" },
+                                              publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey });
+  await db`insert into fleet.admins (email, organisation_id) values ('other.owner@other.test', ${other})`;
+  await db`update fleet.organisations set owner_email = 'other.owner@other.test' where id = ${other}`;
+  r = await admin("other.owner@other.test", { op: "connect-mail", organisation_id: other, key: KEY2, admin_email: "it@acme.test" });
+  ok(r.status === 409 && r.body.error.includes("another organisation"), "another organisation's Owner can't connect a domain already connected", r);
+  const before = gstate.tokens;
+  r = await admin(BOSS, { op: "connect-mail", organisation_id: other, key: KEY2, admin_email: "it@acme.test" });
+  ok(r.status === 400 && gstate.tokens === before && (await db`select 1 from fleet.mail_connections where organisation_id = ${other}`).length === 0,
+     "even Kulan's admins: a different key with the same names isn't accepted (Google is asked, not a remembered token)", r);
+  await db`insert into fleet.mail_connections (organisation_id, domain, admin_email, client_email, private_key)
+           select ${other}, domain, admin_email, client_email, private_key from fleet.mail_connections where organisation_id = ${org}`;
+  r = await admin(BOSS, { op: "mail-users", organisation_id: other });
+  ok(r.status === 502 && r.body.error.includes("can't open"), "a sealed key copied to another organisation doesn't open there", r);
+  await db`delete from fleet.mail_connections where organisation_id = ${other}`;
+
+  // Only the Owner changes an admin's mailbox: an admin renaming one leaves Google alone (the Owner can retry).
+  r = await add(NEWOWNER, { username: "abdi", full_name: "Abdi Admin", role: "admin", mailbox: { action: "create", address: "abdi@acme.test" } });
+  const abdi = r.body.id;
+  r = await admin(HELPER, { op: "edit-person", person_id: abdi, full_name: "Hacked Name" });
+  ok(r.body.mailbox_error?.includes("only the Owner") && gstate.users.get("abdi@acme.test").name.familyName === "Admin" &&
+     (await row("abdi")).mailbox_todo === "rename", "an admin renaming an admin: not in Google; left for the Owner", r.body);
+  r = await admin(HELPER, { op: "mailbox", person_id: abdi, action: "retry" });
+  ok(r.status === 403, "nor can they retry it", r);
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: abdi, action: "retry" });
+  ok(!r.body.mailbox_error && gstate.users.get("abdi@acme.test").name.familyName === "Name", "the Owner's retry does it", r.body);
+
+  // A rename never hides a suspend: disabled while Google was down, then renamed: still suspended.
+  r = await add(HELPER, { username: "ayaan", full_name: "Ayaan Omar", mailbox: { action: "create", address: "ayaan@acme.test" } });
+  const ayaan = r.body.id;
+  gstate.down = true;
+  await admin(HELPER, { op: "set-person-enabled", person_id: ayaan, enabled: false });
+  await admin(HELPER, { op: "edit-person", person_id: ayaan, full_name: "Ayaan O. Omar" });
+  ok((await row("ayaan")).mailbox_todo === "suspend", "Google down: a rename doesn't replace the waiting suspend");
+  gstate.down = false;
+  r = await admin(HELPER, { op: "edit-person", person_id: ayaan, full_name: "Ayaan Omar Ali" });
+  let ar = await row("ayaan");
+  ok(!r.body.mailbox_error && ar.mailbox_todo === null && ar.mailbox_state === "suspended" && gstate.users.get("ayaan@acme.test").suspended === true &&
+     gstate.users.get("ayaan@acme.test").name.familyName === "Ali", "Google back: the suspend done first, then the rename", { body: r.body, ar });
+
+  // Only the mailbox Fleet made: if the address now belongs to someone else (an alias), nothing is done to them.
+  r = await add(HELPER, { username: "bilan", mailbox: { action: "create", address: "bilan@acme.test" } });
+  const bilan = r.body.id;
+  gstate.users.delete("bilan@acme.test");
+  gstate.users.set("helper.g@acme.test", { primaryEmail: "helper.g@acme.test", name: { givenName: "H", familyName: "G" }, suspended: false,
+                                           isAdmin: false, aliases: ["bilan@acme.test"] });
+  r = await admin(HELPER, { op: "mailbox", person_id: bilan, action: "new-password" });
+  ok(r.status === 404 && gstate.users.get("helper.g@acme.test").password === undefined, "her mailbox gone, its address another's alias: no new password for them", r);
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: bilan, enabled: false });
+  ok(gstate.users.get("helper.g@acme.test").suspended === false && r.body.mailbox_error, "and they aren't suspended", r.body);
+  // A delegated admin's mailbox is a Google admin's too.
+  gstate.users.set("delegate@acme.test", { primaryEmail: "delegate@acme.test", name: { givenName: "D", familyName: "A" }, suspended: false,
+                                            isAdmin: false, isDelegatedAdmin: true });
+  r = await add(HELPER, { username: "deqa" });
+  const deqa = r.body.id;
+  await admin(NEWOWNER, { op: "mailbox", person_id: deqa, action: "link", address: "delegate@acme.test" });
+  r = await admin(HELPER, { op: "mailbox", person_id: deqa, action: "new-password" });
+  ok(r.status === 403, "a delegated Google admin's mailbox: only the Owner", r);
+
+  // Offboarding can't be quietly dropped: an admin can't forget or unlink a waiting suspend.
+  gstate.down = true;
+  await admin(HELPER, { op: "set-person-enabled", person_id: deqa, enabled: false });
+  gstate.down = false;
+  for (const action of ["forget", "unlink"]) {
+    r = await admin(HELPER, { op: "mailbox", person_id: deqa, action });
+    ok(r.status === 403 && (await row("deqa")).mailbox_todo === "suspend", `an admin can't ${action} a waiting suspend`, r);
+  }
+  // Mailboxes are made on the connected domain (only the Owner chooses another).
+  r = await add(HELPER, { username: "zahra", mailbox: { action: "create", address: "ceo@acme-other.test" } });
+  ok(r.body.mailbox_error?.includes("acme.test") && !gstate.users.has("ceo@acme-other.test"), "an admin: only on the connected domain", r.body);
+
+  // Disconnecting keeps what's left to do (an alert), and removed people's waits are in the weekly report.
+  ok((await row("bilan")).mailbox_state === "active", "(her mailbox, gone from Google, is still on record)");
+  gstate.down = true;
+  r = await admin(HELPER, { op: "remove-person", person_id: bilan, confirm: "bilan", mailbox: "delete" });
+  gstate.down = false;
+  r = await admin(HELPER, { op: "weekly-report", organisation_id: org });
+  ok(r.body.summary.people.mailbox_problems.some((x) => x.username === "bilan"), "a removed person's waiting mailbox is in the weekly report",
+     r.body.summary.people.mailbox_problems);
+
+  // The log, then disconnecting.
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "mailbox" });
+  const ml = r.body.entries.map((e) => e.what);
+  for (const want of ["made a mailbox for leyla", "suspended leyla's mailbox", "unsuspended leyla's mailbox", "renamed leyla's mailbox",
+                      "linked tariq's mailbox", "deleted leyla's mailbox", "deleted sahra's mailbox"]) {
+    ok(ml.includes(want), `in the activity log: ${want}`, ml);
+  }
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "google" });
+  ok(r.body.entries.some((e) => e.what === "connected Google Workspace" && e.detail.service_account === SA_EMAIL) &&
+     r.body.entries.some((e) => e.what === "gave leyla a new Google password"), "connecting and passwords too", r.body.entries.map((e) => e.what));
+  ok(!JSON.stringify((await db`select detail from fleet.audit`).map((x) => x.detail)).includes("PRIVATE KEY") &&
+     !JSON.stringify((await db`select detail from fleet.audit`).map((x) => x.detail)).match(/[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}-[A-Za-z0-9]{4}"/),
+     "no key or password in the log");
+  r = await admin(HELPER, { op: "disconnect-mail", organisation_id: org });
+  ok(r.status === 403, "only the Owner disconnects", r);
+  r = await admin(NEWOWNER, { op: "disconnect-mail", organisation_id: org });
+  ok(r.status === 200 && (await db`select 1 from fleet.mail_connections`).length === 0, "disconnected: the key is gone", r);
+  ok((await row("deqa")).mailbox_todo === "suspend", "what was left to do is kept after disconnecting (still an alert)");
+  r = await admin(HELPER, { op: "mailbox", person_id: deqa, action: "retry" });
+  ok(r.body.mailbox_error === "Google Workspace isn't connected", "retrying says why it can't", r.body);
+  ok(!("mail" in (await accountOf(A, "sahra2"))) && !(await report(A)).body.policy.required_apps?.some((x) => x.id === "geary"),
+     "the computers stop offering work email", 0);
+  r = await admin(HELPER, { op: "remove-person", person_id: kofi, confirm: "kofi" });
+  ok(r.status === 200, "not connected: removing needs no mailbox choice", r);
+  ok(gstate.tokens === 1, "Google's access token is reused, not asked for every call", gstate.tokens);
 }
 
 // --- the activity log ------------------------------------------------------------------------
