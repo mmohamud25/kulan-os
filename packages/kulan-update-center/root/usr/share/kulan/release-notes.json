@@ -9,7 +9,6 @@
       "Roles: the Owner (who decides who the admins are, with a recovery code if their email is lost), admins (administrator rights on the computers) and employees",
       "Disable someone and they're locked out everywhere at the next report; remove them and their account goes, with their files kept for handover unless the admin chooses to delete them. Accounts the organisation didn't make are never touched",
       "Kulan Fleet can switch a computer off (5 minutes' notice) or put it in lost mode: nobody can sign in, the sign-in screen says whom to return it to, and it keeps reporting until it's released",
-      "Kulan Fleet's web dashboard does all of this too, from any browser; setup codes are made in the browser and never sent",
       "Every change is in the organisation's activity log, with who made it"
     ]
   },
