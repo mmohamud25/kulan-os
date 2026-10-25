@@ -9,7 +9,11 @@ Each report's reply gives, per person, "two_step": {"required", "factors":
   /etc/kulan/two-step/u2f_keys     user:credential[:credential...]     (pam_u2f authfile)
   /etc/kulan/two-step/users.oath   HOTP/T30/6 user - secret            (pam_oath usersfile)
 
-PAM (pam-configs/kulan-two-step) asks for a second step only from members
+PAM (pam-configs/kulan-two-step) skips the second step only for sudo
+(your own password, after a sign-in that had it) and what only root runs
+(runuser, cron). su and polkit's prompts (another person's password) ask
+for that person's second step too, so knowing a password is never enough.
+It asks for a second step only from members
 of the kulan-two-step group: people who have set one up (asked by the
 policy or not: once set up, it's used). Everyone else signs in as before,
 and someone the policy asks who hasn't set one up is reminded at each
@@ -94,7 +98,8 @@ def from_accounts(accounts) -> dict[str, dict]:
             continue
         ts = a.get("two_step") if isinstance(a.get("two_step"), dict) else {}
         factors = [c for c in (clean_factor(f) for f in (ts.get("factors") or [])[:MAX_FACTORS]) if c]
-        out[a["username"]] = {"required": ts.get("required") is True, "factors": factors}
+        out[a["username"]] = {"required": ts.get("required") is True, "factors": factors,
+                              "codes_unavailable": ts.get("codes_unavailable") is True}
     return out
 
 
@@ -158,6 +163,14 @@ def apply(run, accounts, managed, state_path: Path = STATE, directory: Path = DI
     now has is no longer pending."""
     state = load(state_path)
     server = {u: v for u, v in from_accounts(accounts).items() if u in managed}
+    # The server couldn't open someone's phone codes this time (its key is
+    # missing or changed): keep the ones this computer has, rather than drop
+    # them and quietly fall back to the password alone.
+    for user, p in server.items():
+        if p.pop("codes_unavailable", False):
+            have = {f["id"] for f in p["factors"]}
+            p["factors"] += [f for f in state["server"].get(user, {}).get("factors", [])
+                             if f["kind"] == "code" and f["id"] not in have]
     state["server"] = server
     on_server = {(u, f["id"]) for u, p in server.items() for f in p["factors"]}
     state["adds"] = [a for a in state["adds"] if (a["username"], a["id"]) not in on_server and a["username"] in server]

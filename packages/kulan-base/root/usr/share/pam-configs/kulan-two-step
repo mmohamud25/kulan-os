@@ -3,7 +3,7 @@ Default: yes
 Priority: 0
 Auth-Type: Additional
 Auth:
-	[success=4 default=ignore]	pam_succeed_if.so quiet service in sudo:sudo-i:su:su-l:polkit-1:pkexec:runuser:runuser-l:chfn:chsh:passwd:cron
+	[success=4 default=ignore]	pam_succeed_if.so quiet service in sudo:sudo-i:runuser:runuser-l:cron
 	[success=ok default=3]	pam_succeed_if.so quiet user ingroup kulan-two-step
 	[success=2 default=ignore]	pam_u2f.so authfile=/etc/kulan/two-step/u2f_keys origin=pam://kulan-fleet appid=pam://kulan-fleet cue [cue_prompt=Touch your security key]
 	[success=1 default=ignore]	pam_oath.so usersfile=/etc/kulan/two-step/users.oath window=2 digits=6

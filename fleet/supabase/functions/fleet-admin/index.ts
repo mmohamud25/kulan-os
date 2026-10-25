@@ -464,6 +464,17 @@ Deno.serve(async (req: Request) => {
         const now = Date.now();
         const alerts = devices.flatMap((d) => alertsFor(d, policies[d.organisation_id] ?? {}, now)
           .map((a) => ({ ...a, device_id: d.id, organisation_id: d.organisation_id, hostname: d.hostname })));
+        // Phone codes kept but no key to open them: computers keep the ones they have, but new
+        // ones can't be kept and nobody's codes reach a new computer. Kulan must fix it.
+        if (!Deno.env.get("FLEET_FACTOR_KEY")) {
+          const coded = await sql`select distinct p.organisation_id from fleet.person_factors f join fleet.people p on p.id = f.person_id
+                                  where f.kind = 'code' and p.organisation_id = any(${ids}::uuid[])`;
+          for (const c of coded) {
+            alerts.unshift({ kind: "two-step", device_id: null, organisation_id: c.organisation_id, hostname: null,
+                             title: "Two-step sign-in",
+                             text: "Phone codes can't be sent to computers right now (Kulan Fleet's key is missing): tell Kulan" } as any);
+          }
+        }
         // The admin-rights review, every 90 days (an alert for the organisation, not a computer).
         const reviews = await sql`select distinct on (organisation_id) organisation_id, reviewed_at
                                   from fleet.access_reviews where organisation_id = any(${ids}::uuid[])
@@ -1054,6 +1065,14 @@ Deno.serve(async (req: Request) => {
         if (!who) return reply(400, { error: "that email doesn't look right" });
         const isAdmin = await sql`select 1 from fleet.admins where email = ${who} and organisation_id = ${org}`;
         if (!isAdmin.length) return reply(400, { error: "choose one of the organisation's admins" });
+        // Their authenticator app guards their whole Kulan Fleet sign-in: only
+        // an Owner of every organisation they're in may reset it (Kulan otherwise).
+        const elsewhere = await sql`select 1 from fleet.admins where email = ${who} and (organisation_id is null or organisation_id <> ${org})
+                                    union all
+                                    select 1 from fleet.organisations where owner_email = ${who} and id <> ${org}`;
+        if (elsewhere.length && !global) {
+          return reply(403, { error: "they're also an admin elsewhere: ask Kulan to reset their authenticator app" });
+        }
         const [user] = await sql`select id from auth.users where lower(email) = ${who} limit 1`;
         let removed = 0;
         if (user) {

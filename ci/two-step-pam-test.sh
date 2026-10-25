@@ -27,6 +27,11 @@ t login zztwostep in "password and the phone code" Pass-Word-1 "$(oathtool --tot
 t login zztwostep refused "password and a wrong code" Pass-Word-1 000000
 t login zztwostep refused "a wrong password and the code" Wrong-1 "$(oathtool --totp "$SECRET")"
 t sudo zztwostep in "sudo: the password only (they passed two-step to sign in)" Pass-Word-1
+# su and polkit's prompts (another person's password) use common-auth like this:
+printf 'auth include common-auth\naccount include common-account\n' > /etc/pam.d/kulan-two-step-check
+t kulan-two-step-check zztwostep refused "like su or polkit (another person's password): the password alone isn't enough" Pass-Word-1 ""
+t kulan-two-step-check zztwostep in "like su or polkit: their password and their code" Pass-Word-1 "$(sleep 31; oathtool --totp "$SECRET")"
+rm -f /etc/pam.d/kulan-two-step-check
 t login zzplain in "someone without two-step: the password, as before" Pass-Word-1
 t login zzplain refused "someone without two-step: a wrong password" Wrong-1
 python3 -I -B -c 'import subprocess, sys; sys.path.insert(0, "/usr/share/kulan-fleet"); import twostep; twostep.remove_all(lambda a, timeout=60: subprocess.run(a, capture_output=True))'

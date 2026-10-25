@@ -121,6 +121,13 @@ with tempfile.TemporaryDirectory() as tmp:
     ts.apply(box.run, accounts, {"amina", "omar", "mo", "bad"}, **kw)
     check("the server dropped it: nothing pending", ts.pending(kw["state_path"]) == ([], []))
 
+    # The server couldn't open amina's phone code this time: this computer keeps the one it has.
+    flagged = [dict(accounts[0]), *accounts[1:]]
+    flagged[0] = {**accounts[0], "two_step": {"required": True, "factors": [], "codes_unavailable": True}}
+    ts.apply(box.run, flagged, {"amina", "omar", "mo", "bad"}, **kw)
+    check("codes the server couldn't open are kept, not dropped", "amina" in (t / "two-step" / "users.oath").read_text()
+          and "amina" in box.group, box.group)
+
     # An admin reset (the server sends none): out of the group, signs in with the password alone.
     accounts[0] = acct("amina", True)
     status = ts.apply(box.run, accounts, {"amina", "omar", "mo", "bad"}, **kw)

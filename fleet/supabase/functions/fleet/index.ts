@@ -167,7 +167,8 @@ export async function openCode(sealed: string, key: CryptoKey): Promise<string |
 type PersonRow = Record<string, any>;
 
 // One person as the computer reads it (kulan-fleet's people.py).
-export function account(p: PersonRow, twoStep?: { required: boolean; factors: Record<string, string>[] }): Record<string, unknown> {
+export function account(p: PersonRow, twoStep?: { required: boolean; factors: Record<string, string>[];
+                                                  codes_unavailable?: boolean }): Record<string, unknown> {
   if (p.removed_at) return { username: p.username, uid: p.uid, removed: true, remove_files: p.remove_files === true };
   return {
     username: p.username, full_name: p.full_name ?? "", uid: p.uid, role: p.role, enabled: p.enabled === true,
@@ -390,16 +391,20 @@ Deno.serve(async (req: Request) => {
                                                   where person_id = any(${live}::uuid[]) order by created_at` : [];
       const key = factorRows.some((f) => f.kind === "code") ? await factorKey() : null;
       const factorsOf: Record<string, Record<string, string>[]> = {};
+      const unopened = new Set<string>(); // phone codes this server couldn't open (its key missing or changed)
       for (const f of factorRows) {
         const data = f.kind === "code" ? (key ? await openCode(f.data, key) : null) : f.data;
         if (data) (factorsOf[f.person_id] ??= []).push({ id: f.id, kind: f.kind, label: f.label, data });
+        else if (f.kind === "code") unopened.add(f.person_id);
       }
+      if (unopened.size) console.error("fleet: phone codes can't be opened: is FLEET_FACTOR_KEY set, and unchanged?");
       const requiredFor = (p: PersonRow) => policy.two_step === "everyone" || (policy.two_step === "admins" && p.role !== "employee");
       return reply(200, {
         actions: actions.filter((a) => ACTIONS.has(a.type))
           .map((a) => a.payload ? { id: a.id, type: a.type, payload: a.payload } : { id: a.id, type: a.type }),
         policy: sent,
-        accounts: people.map((p) => account(p, { required: requiredFor(p), factors: factorsOf[p.id] ?? [] })),
+        accounts: people.map((p) => account(p, { required: requiredFor(p), factors: factorsOf[p.id] ?? [],
+                                                 ...(unopened.has(p.id) ? { codes_unavailable: true } : {}) })),
       });
     }
 

@@ -27,7 +27,7 @@ const ok = (cond, msg, extra) => {
 };
 
 // --- a fresh database with every migration -----------------------------------------------
-await db.unsafe(`drop schema if exists fleet cascade; drop schema if exists stats cascade;
+await db.unsafe(`drop schema if exists fleet cascade; drop schema if exists stats cascade; drop schema if exists auth cascade;
   do $$ begin create role anon; exception when duplicate_object then null; end $$;
   do $$ begin create role authenticated; exception when duplicate_object then null; end $$;
   create schema if not exists extensions; create extension if not exists pgcrypto schema extensions;
@@ -571,6 +571,13 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.status === 200 && r.body.removed === 1, "the Owner resets it", r);
   ok((await report(A)).body.accounts.find((x) => x.username === "mo").two_step.factors.length === 0, "and the computers drop it");
 
+  // A phone code the server can't open (its key changed): computers are told to keep theirs.
+  await report(A, { factors: [{ username: "mo", id: id(6), kind: "code", label: "Phone", data: SECRET }] });
+  await db`update fleet.person_factors set data = 'v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' where id = ${id(6)}`;
+  const moA = (await report(A)).body.accounts.find((x) => x.username === "mo").two_step;
+  ok(moA.codes_unavailable === true && moA.factors.length === 0, "a code that can't be opened: flagged, not silently dropped", moA);
+  await db`delete from fleet.person_factors where id = ${id(6)}`;
+
   // Kulan Fleet admins: an authenticator app code once set up; required by the Owner.
   authFactors[HELPER] = [{ id: "f1", factor_type: "totp", status: "verified" }];
   r = await admin(HELPER, { op: "overview" });
@@ -589,6 +596,15 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.status === 403 && r.body.two_step === "set-up", "a new admin is asked to set one up", r);
   r = await admin(BOSS, { op: "overview" });
   ok(r.status === 200 && r.body.organisations.find((o) => o.id === org).admin_two_step === true, "Kulan's own admins aren't locked out", r.status);
+
+  // Not someone who's an admin elsewhere: their authenticator app guards that too.
+  r = await admin(NEWOWNER, { op: "add-admin", organisation_id: org, email: BOSS }, "aal2");
+  await db`insert into auth.users (id, email) values (${"id-" + BOSS}, ${BOSS})`;
+  authFactors[BOSS] = [{ id: "fb", factor_type: "totp", status: "verified" }];
+  r = await admin(NEWOWNER, { op: "reset-admin-two-step", organisation_id: org, email: BOSS }, "aal2");
+  ok(r.status === 403 && authFactors[BOSS].length === 1, "an Owner can't reset someone who's an admin elsewhere", r);
+  await admin(NEWOWNER, { op: "remove-admin", organisation_id: org, email: BOSS }, "aal2");
+  delete authFactors[BOSS];
 
   // A lost phone: the Owner resets that admin's authenticator app.
   await db`insert into auth.users (id, email) values (${"id-" + HELPER}, ${HELPER})`;
