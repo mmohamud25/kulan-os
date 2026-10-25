@@ -83,6 +83,13 @@ case "$1" in
 			touch "${MARK}"
 		fi
 
+		# Kulan Fleet two-step sign-in (2.8d): the group and the PAM profile.
+		# Nobody is asked for a second step until they set one up in a
+		# Fleet organisation, so this changes nothing on its own.
+		getent group kulan-two-step >/dev/null || groupadd --system kulan-two-step
+		mkdir -p /etc/kulan/two-step && chmod 700 /etc/kulan/two-step
+		pam-auth-update --package
+
 		# Security defaults: applied on first install only, so a user who
 		# later turns the firewall off keeps their choice through updates.
 		if [ -z "$2" ]; then

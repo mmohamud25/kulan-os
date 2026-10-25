@@ -22,6 +22,8 @@ case "$1" in
 		deb-systemd-helper purge kulan-lighter-mode.service >/dev/null 2>&1 || true
 		rm -f /etc/kulan/lighter-mode /etc/systemd/zram-generator.conf.d/60-kulan-lighter.conf \
 			/run/kulan/lighter-mode /run/systemd/user/localsearch-3.service.d/60-kulan-lighter.conf
+		rm -rf /etc/kulan/two-step
+		groupdel kulan-two-step 2>/dev/null || true
 		rmdir /etc/kulan 2>/dev/null || true
 		rm -rf /var/lib/kulan
 		;;

@@ -1,0 +1,23 @@
+#!/usr/bin/python3 -I
+"""At sign-in: if your organisation asks you to use two-step sign-in and you
+haven't set it up yet, say so and where (Kulan Settings). Nothing otherwise."""
+import json
+import os
+import pwd
+import subprocess
+import sys
+
+try:
+    me = pwd.getpwuid(os.getuid()).pw_name
+    with open("/var/lib/kulan/fleet-two-step-public.json") as f:
+        mine = json.load(f).get(me) or {}
+except (OSError, ValueError, KeyError):
+    sys.exit(0)
+if mine.get("required") and not mine.get("ready"):
+    subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
+                    "--object-path", "/org/freedesktop/Notifications", "--method", "org.freedesktop.Notifications.Notify",
+                    "Kulan Settings", "0", "kulan-settings",
+                    "Set up two-step sign-in",
+                    "Your organisation asks you to use a security key or a phone code when you sign in. Set it up in "
+                    "Kulan Settings › About › Organisation › Two-step sign-in.",
+                    "[]", "{'urgency': <byte 2>}", "0"], capture_output=True, timeout=10, check=False)

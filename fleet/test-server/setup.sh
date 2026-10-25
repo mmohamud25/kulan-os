@@ -52,10 +52,21 @@ SQL
 if ! sudo -u postgres psql -Atqc "select 1 from pg_database where datname = 'kulanfleet'" | grep -q 1; then
 	sudo -u postgres createdb -O kulanfleet kulanfleet
 	sudo -u postgres psql -q -d kulanfleet -v ON_ERROR_STOP=1 -c "create schema extensions authorization kulanfleet; create extension pgcrypto schema extensions;"
-	for f in "${HERE}"/../supabase/migrations/*.sql; do
-		echo "   $(basename "$f")"
-		PGPASSWORD="${PW}" psql -q -h 127.0.0.1 -U kulanfleet -d kulanfleet -v ON_ERROR_STOP=1 -f "$f" >/dev/null
-	done
+fi
+# Supabase Auth's users, as far as Kulan Fleet reads them (the stand-in sign-in fills it).
+sudo -u postgres psql -q -d kulanfleet -v ON_ERROR_STOP=1 \
+	-c "create schema if not exists auth authorization kulanfleet" \
+	-c "create table if not exists auth.users (id text primary key, email text unique)" -c "alter table auth.users owner to kulanfleet"
+# Every migration, every time: they're safe to run again, and a newer
+# Kulan Fleet's are added to a test server set up for an older one.
+for f in "${HERE}"/../supabase/migrations/*.sql; do
+	echo "   $(basename "$f")"
+	PGPASSWORD="${PW}" psql -q -h 127.0.0.1 -U kulanfleet -d kulanfleet -v ON_ERROR_STOP=1 -f "$f" >/dev/null
+done
+# The key that seals people's phone-code secrets (FLEET_FACTOR_KEY), this test server's own.
+if [ ! -s "${DIR}/factor-key" ]; then
+	openssl rand -base64 32 > "${DIR}/factor-key"
+	chmod 600 "${DIR}/factor-key"
 fi
 PGPASSWORD="${PW}" psql -q -h 127.0.0.1 -U kulanfleet -d kulanfleet -v ON_ERROR_STOP=1 \
 	-c "insert into fleet.admins (email, organisation_id) values ('${EMAIL//\'/}', null) on conflict do nothing"

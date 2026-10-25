@@ -1,0 +1,9 @@
+#!/bin/sh
+# Take Kulan Fleet's two-step sign-in out of PAM before its files go.
+set -e
+case "$1" in
+	remove|deconfigure)
+		pam-auth-update --package --remove kulan-two-step || true
+		;;
+esac
+exit 0

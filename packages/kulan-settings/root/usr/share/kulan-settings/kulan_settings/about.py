@@ -1,14 +1,19 @@
 """About Kulan OS: version, build, this computer, links."""
 from __future__ import annotations
 
+import base64
+import getpass
 import json
 import os
 import re
+import secrets
 import subprocess
+import threading
 import time
+import urllib.parse
 from pathlib import Path
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .common import Page, os_release
 
@@ -261,6 +266,9 @@ class AboutPage(Page):
             policy = self.fleet_policy()
             if policy:
                 rows.append(policy)
+            mine = self.my_two_step()
+            if mine is not None:
+                rows.append(self.two_step_row(mine))
             erase = Adw.SwitchRow(title="Allow erasing this computer if it’s lost or stolen",
                                   subtitle="Your organisation can then make everything on its disk unreadable from "
                                            "afar, after a 20-second notice on the screen. Only works when the "
@@ -322,6 +330,172 @@ class AboutPage(Page):
                                       "dialog-warning-symbolic"))
             row.add_row(item)
         return row
+
+    # --- Two-step sign-in (Kulan Fleet 2.8d) ------------------------------------------------
+    TWO_STEP_PUBLIC = Path("/var/lib/kulan/fleet-two-step-public.json")
+    TWO_STEP_HELPER = "/usr/lib/kulan/fleet-two-step"
+    TWO_STEP_ORIGIN = "pam://kulan-fleet"
+
+    @classmethod
+    def my_two_step(cls) -> dict | None:
+        """This account's two-step sign-in, if the organisation manages it (else None)."""
+        try:
+            mine = json.loads(cls.TWO_STEP_PUBLIC.read_text()).get(getpass.getuser())
+        except (OSError, ValueError, AttributeError):
+            return None
+        return mine if isinstance(mine, dict) else None
+
+    def two_step_row(self, mine: dict) -> Adw.ActionRow:
+        factors = mine.get("factors") or []
+        subtitle = (f"On: {', '.join(f.get('label') or ('Security key' if f.get('kind') == 'key' else 'Phone code') for f in factors)}"
+                    if factors else "Your organisation asks you to set it up" if mine.get("required") else
+                    "Off: add a security key or a phone code to protect your account")
+        row = Adw.ActionRow(title="Two-step sign-in", subtitle=GLib.markup_escape_text(subtitle), activatable=True,
+                            subtitle_lines=0)
+        row.add_prefix(Gtk.Image(icon_name="security-high-symbolic" if factors else "dialog-warning-symbolic"
+                                 if mine.get("required") else "security-medium-symbolic"))
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: self.open_two_step())
+        return row
+
+    def two_step_call(self, args: list[str], stdin: str, done) -> None:
+        """The helper, as this person (pkexec asks their own password), in the background."""
+        def work() -> None:
+            try:
+                r = subprocess.run(["pkexec", self.TWO_STEP_HELPER, *args], input=stdin, capture_output=True, text=True,
+                                   timeout=300, check=False)
+                ok, msg = r.returncode == 0, (r.stderr.strip().splitlines() or [""])[-1]
+                if r.returncode in (126, 127):
+                    msg = "Not changed: the password wasn't given"
+            except (OSError, subprocess.TimeoutExpired) as e:
+                ok, msg = False, str(e)
+            GLib.idle_add(lambda: (done(ok, msg), False)[1])
+        threading.Thread(target=work, daemon=True).start()
+
+    def open_two_step(self) -> Adw.AlertDialog:
+        mine = self.my_two_step() or {}
+        dialog = Adw.AlertDialog(heading="Two-step sign-in",
+                                 body="After your password, a security key you touch or a code from an app on your "
+                                      "phone. It works on all your organisation's computers you use; sudo still "
+                                      "asks only your password." + (" Your organisation asks you to set it up."
+                                                                    if mine.get("required") and not mine.get("factors") else ""))
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        for f in mine.get("factors") or []:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f.get("label") or "Second step"),
+                                subtitle="Security key" if f.get("kind") == "key" else "Phone code")
+            row.add_prefix(Gtk.Image(icon_name="auth-smartcard-symbolic" if f.get("kind") == "key" else "phone-symbolic"))
+            remove = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove", valign=Gtk.Align.CENTER,
+                                css_classes=["flat"])
+
+            def removed(_b, fid=f.get("id")):
+                dialog.force_close()
+                self.two_step_call(["remove", fid], "", lambda ok, msg: (self.window.toast(
+                    "Removed" if ok else msg or "Not removed"), self.render_org()))
+            remove.connect("clicked", removed)
+            row.add_suffix(remove)
+            box.append(row)
+        for title, subtitle, icon, opener in (
+                ("Add a security key", "A USB or NFC key (YubiKey, Google Titan…): touch it when you sign in",
+                 "auth-smartcard-symbolic", self.add_two_step_key),
+                ("Add a phone code", "A 6-digit code from an authenticator app (Google Authenticator, Microsoft "
+                 "Authenticator, Aegis…)", "phone-symbolic", self.add_two_step_code)):
+            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True, subtitle_lines=0)
+            row.add_prefix(Gtk.Image(icon_name=icon))
+            row.connect("activated", lambda _r, f=opener: (dialog.force_close(), f()))
+            box.append(row)
+        dialog.set_extra_child(box)
+        dialog.add_response("close", "Close")
+        dialog.present(self.window)
+        return dialog
+
+    def add_two_step_key(self) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Add a security key",
+                                 body="Plug in your security key, then press Start and touch it when it blinks.")
+        name = Adw.EntryRow(title="Name", text="Security key")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(name)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("start", "Start")
+        dialog.set_response_appearance("start", Adw.ResponseAppearance.SUGGESTED)
+
+        def answered(_d, response):
+            if response != "start":
+                return
+            self.window.toast("Touch your security key now")
+
+            def work() -> None:
+                try:
+                    r = subprocess.run(["pamu2fcfg", "-n", "-o", self.TWO_STEP_ORIGIN, "-i", self.TWO_STEP_ORIGIN],
+                                       capture_output=True, text=True, timeout=60, check=False)
+                    cred, err = (r.stdout.strip(), "") if r.returncode == 0 else ("", (r.stderr.strip().splitlines()
+                                                                                       or ["no key found"])[-1])
+                except (OSError, subprocess.TimeoutExpired):
+                    cred, err = "", "no key was touched in time"
+
+                def after() -> bool:
+                    if not cred:
+                        self.window.toast(f"Not added: {err}")
+                        return False
+                    self.two_step_call(["add", "key", name.get_text().strip() or "Security key"], cred + "\n",
+                                       lambda ok, msg: (self.window.toast("Security key added: touch it when you sign in"
+                                                                          if ok else msg or "Not added"), self.render_org()))
+                    return False
+                GLib.idle_add(after)
+            threading.Thread(target=work, daemon=True).start()
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+        return dialog
+
+    @staticmethod
+    def otpauth_uri(secret: bytes, user: str, issuer: str = "Kulan OS") -> str:
+        b32 = base64.b32encode(secret).decode().rstrip("=")
+        return (f"otpauth://totp/{urllib.parse.quote(issuer)}:{urllib.parse.quote(user)}?secret={b32}"
+                f"&issuer={urllib.parse.quote(issuer)}&algorithm=SHA1&digits=6&period=30")
+
+    def add_two_step_code(self) -> Adw.AlertDialog:
+        secret = secrets.token_bytes(20)
+        user = getpass.getuser()
+        uri = self.otpauth_uri(secret, user)
+        dialog = Adw.AlertDialog(heading="Add a phone code",
+                                 body="Scan this with an authenticator app on your phone (or type the key below), "
+                                      "then type the 6-digit code it shows.")
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        try:
+            png = subprocess.run(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", uri],
+                                 capture_output=True, timeout=10, check=True).stdout
+            picture = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
+            picture.set_size_request(220, 220)
+            picture.set_can_shrink(True)
+            outer.append(picture)
+        except (OSError, subprocess.SubprocessError, GLib.Error):
+            pass  # the key below still works
+        key = base64.b32encode(secret).decode().rstrip("=")
+        outer.append(Gtk.Label(label=" ".join(key[i:i + 4] for i in range(0, len(key), 4)), selectable=True, wrap=True,
+                               css_classes=["monospace", "dim-label"]))
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        name = Adw.EntryRow(title="Name", text="Phone")
+        code = Adw.EntryRow(title="The 6-digit code", input_purpose=Gtk.InputPurpose.DIGITS)
+        box.append(name)
+        box.append(code)
+        outer.append(box)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Check and save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("save", False)
+        code.connect("changed", lambda e: dialog.set_response_enabled("save", bool(re.fullmatch(r"\d{6}", e.get_text().strip()))))
+
+        def answered(_d, response):
+            if response != "save":
+                return
+            self.two_step_call(["add", "code", name.get_text().strip() or "Phone"], f"{secret.hex()}\n{code.get_text().strip()}\n",
+                               lambda ok, msg: (self.window.toast("Phone code added: type it after your password when "
+                                                                  "you sign in" if ok else msg or "Not added"),
+                                                self.render_org()))
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+        return dialog
 
     def on_allow_erase(self, row: Adw.SwitchRow, _pspec) -> None:
         on = row.get_active()

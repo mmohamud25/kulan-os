@@ -75,6 +75,7 @@ sys.path.insert(0, "/usr/share/kulan-fleet")
 import fleetpolicy  # noqa: E402
 import people  # noqa: E402
 import signins  # noqa: E402
+import twostep  # noqa: E402
 from pathlib import Path
 
 CONFIG = Path("/etc/kulan/fleet.json")            # secret (token): root only
@@ -113,7 +114,9 @@ SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version 
           "For accounts the organisation manages: a scrambled form (hash) of a new password, never the password",
           "If the organisation controls USB drives: the maker, model, serial number and name of drives plugged in "
           "(nothing about what's on them)",
-          "Who uses it: each account's username and when it was last used (not what they do)"]
+          "Who uses it: each account's username and when it was last used (not what they do)",
+          "If you set up two-step sign-in: your security key's public key or your phone code's secret, so it "
+          "works on the organisation's other computers you use"]
 APPS_EVERY_S = 24 * 3600
 MAX_APPS = 3000
 TIMEOUT = 30
@@ -782,6 +785,12 @@ def report() -> int:
             body["passwords"] = passwords
         if people_state.get("status"):
             body["people_status"] = people_state["status"]
+        # Two-step sign-in set up or removed here since the server last had it.
+        factors_added, factors_removed = twostep.pending()
+        if factors_added:
+            body["factors"] = factors_added
+        if factors_removed:
+            body["factors_removed"] = factors_removed
         # Who uses this computer: usernames and when each was last used, nothing more.
         body["sign_ins"] = signins.collect(run)
         # USB drives seen, only while a policy controls them (so an admin can approve one).
@@ -807,6 +816,11 @@ def report() -> int:
                 say("People: " + "; ".join(f"{u} {v}" for u, v in changed.items()))
         if passwords or "accounts" in reply:
             people.save_state(people_state)
+        if "accounts" in reply:
+            two_step = twostep.apply(run, reply.get("accounts"), set(people_state.get("people", {})))
+            asked = [u for u, v in two_step.items() if v == "asked, not set up"]
+            if asked:
+                say("Two-step sign-in not set up yet: " + ", ".join(asked))
         if "policy" in reply:
             status = apply_policy(reply.get("policy"))
             if status:
@@ -870,6 +884,7 @@ def leave() -> int:
     CONFIG.unlink(missing_ok=True)
     remove_policy()  # automatic updates and the firewall stay as they are
     signins.forget()
+    twostep.remove_all(run)  # people sign in with their password alone again
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
     lost_mode_off()  # nor keep it locked as lost

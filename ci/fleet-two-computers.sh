@@ -28,6 +28,7 @@ cleanup() {
 trap cleanup EXIT
 
 step "Test server"
+command -v oathtool >/dev/null || sudo apt-get install -y -q oathtool >/dev/null  # phone codes, as an app makes them
 sudo "${HERE}/fleet/test-server/setup.sh" ci@kulan.example
 sudo "${HERE}/fleet/test-server/run.sh" > "${LOG}" 2>&1 &
 IP="$(sudo cat /opt/kulan-fleet-test/address)"
@@ -124,6 +125,40 @@ expect "server: it's an alert" lost_alert
 adm "{\"op\":\"action\",\"device_id\":\"${DEV_B}\",\"type\":\"lost-mode-off\"}" >/dev/null
 report laptop-b
 expect "laptop-b: released, omar signs in again" signs_in laptop-b omar Omar-Own-Pass-1
+
+step "Two-step sign-in (2.8d)"
+signs_in2() { printf '%s\n%s\n' "$3" "$4" | docker exec -i "$1" pamtester login "$2" authenticate >/dev/null 2>&1; }
+adm "{\"op\":\"set-policy\",\"organisation_id\":\"${ORG}\",\"policy\":{\"two_step\":\"everyone\"}}" >/dev/null
+on laptop-a "echo 'amina:Amina-Pass-2' | chpasswd"
+report laptop-a
+report laptop-b
+SECRET=3132333435363738393031323334353637383930
+expect "laptop-a: amina sets up a phone code (checked first), through the helper" on laptop-a \
+	"printf '%s\n%s\n' ${SECRET} \$(oathtool --totp ${SECRET}) | PKEXEC_UID=\$(id -u amina) /usr/lib/kulan/fleet-two-step add code Phone >/dev/null"
+expect "laptop-a: a wrong code is refused when setting up" on laptop-a \
+	"! printf '%s\n%s\n' ${SECRET} 000000 | PKEXEC_UID=\$(id -u amina) /usr/lib/kulan/fleet-two-step add code Other 2>/dev/null"
+expect "laptop-a: it works at once: password and code" signs_in2 laptop-a amina Amina-Pass-2 "$(oathtool --totp ${SECRET})"
+report laptop-a
+report laptop-b
+expect "laptop-b: her phone code arrived: the password alone isn't enough" bash -c "! printf 'Amina-Pass-2\n\n' | docker exec -i laptop-b pamtester login amina authenticate >/dev/null 2>&1"
+expect "laptop-b: password and code" signs_in2 laptop-b amina Amina-Pass-2 "$(oathtool --totp ${SECRET})"
+expect "laptop-b: only root can read the secret" on laptop-b 'test "$(stat -c %a /etc/kulan/two-step/users.oath)" = 600 && ! grep -q 3132333435 /var/lib/kulan/fleet-two-step-public.json'
+two_step_listed() { adm "{\"op\":\"people\",\"organisation_id\":\"${ORG}\"}" | jq -e '.people[] | select(.username == "amina") | (.two_step | length == 1 and .[0].kind == "code" and .[0].created_on == "laptop-a")' >/dev/null; }
+expect "server: amina's phone code is listed (never its secret)" two_step_listed
+adm "{\"op\":\"reset-two-step\",\"person_id\":\"${AMINA}\"}" >/dev/null
+report laptop-b
+expect "laptop-b: after an admin's reset, the password alone again" bash -c "printf 'Amina-Pass-2\n' | docker exec -i laptop-b pamtester login amina authenticate >/dev/null 2>&1"
+adm "{\"op\":\"set-policy\",\"organisation_id\":\"${ORG}\",\"policy\":{}}" >/dev/null
+# Kulan Fleet admins: an authenticator app (Supabase MFA, the test server's stand-in).
+FACTOR="$(curl -fsS -X POST "${B}/auth/v1/factors" -H "Authorization: Bearer ${TOK}" -d '{"factor_type":"totp","friendly_name":"ci"}')"
+FID="$(jq -r .id <<<"${FACTOR}")"; B32="$(jq -r .totp.secret <<<"${FACTOR}")"
+CH="$(curl -fsS -X POST "${B}/auth/v1/factors/${FID}/challenge" -H "Authorization: Bearer ${TOK}" -d '{}' | jq -r .id)"
+TOK2="$(curl -fsS -X POST "${B}/auth/v1/factors/${FID}/verify" -H "Authorization: Bearer ${TOK}" -d "{\"challenge_id\":\"${CH}\",\"code\":\"$(oathtool --totp -b "${B32}")\"}" | jq -r .access_token)"
+old_token_refused() { curl -sS -X POST "${B}/functions/v1/fleet-admin" -H "Authorization: Bearer ${TOK}" -d '{"op":"overview"}' | jq -e '.two_step == "code"' >/dev/null; }
+expect "server: once set up, the email code alone isn't enough for Kulan Fleet" old_token_refused
+TOK="${TOK2}"
+aal2_in() { adm '{"op":"overview"}' | jq -e '.me.aal == "aal2"' >/dev/null; }
+expect "server: with the authenticator app's code, in" aal2_in
 
 step "Who uses which computer (2.8c)"
 sign_ins_sent() { adm '{"op":"overview"}' | jq -e '[.devices[] | select(.hostname == "laptop-a") | .sign_ins | type] == ["array"]' >/dev/null; }

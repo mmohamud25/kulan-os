@@ -1,0 +1,66 @@
+#!/usr/bin/python3 -I
+"""Set up or remove your own two-step sign-in for Kulan Fleet (run through
+pkexec, with your own password: Kulan Settings does this).
+
+  fleet-two-step add key LABEL      the security key's credential on stdin (pamu2fcfg -n)
+  fleet-two-step add code LABEL     the phone code's secret (40 hex) and a current code, on two lines
+  fleet-two-step remove ID
+
+Only for the person running it (PKEXEC_UID), and only for accounts the
+organisation manages on this computer. A phone code is checked before it's
+kept, so a mis-scanned code can't lock anyone out. It works here at once
+and goes to Kulan Fleet with the report started straight after.
+"""
+import os
+import pwd
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, "/usr/share/kulan-fleet")
+import twostep  # noqa: E402
+
+
+def run(argv, timeout=60):
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False,
+                              env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return subprocess.CompletedProcess(argv, 127, "", str(e))
+
+
+def main(args: list[str]) -> int:
+    if os.geteuid() != 0 or not os.environ.get("PKEXEC_UID", "").isdigit():
+        print("fleet-two-step: run it through Kulan Settings", file=sys.stderr)
+        return 64
+    try:
+        user = pwd.getpwuid(int(os.environ["PKEXEC_UID"])).pw_name
+    except KeyError:
+        return 64
+    try:
+        if len(args) == 3 and args[0] == "add" and args[1] == "key":
+            line = sys.stdin.read(4096).strip().splitlines()[0] if sys.stdin else ""
+            cred = line.split(":", 1)[1] if ":" in line else line  # pamu2fcfg -n prints ":credential"
+            print(twostep.add(run, user, "key", args[2], cred.split(":")[0]))
+        elif len(args) == 3 and args[0] == "add" and args[1] == "code":
+            lines = sys.stdin.read(512).split()
+            if len(lines) != 2 or not twostep.SECRET.match(lines[0].lower()) or not lines[1].isdigit():
+                raise ValueError("the secret and a code are needed")
+            secret, code = lines[0].lower(), lines[1]
+            if run(["oathtool", "--totp", "-w", "1", secret, code]).returncode != 0:
+                raise ValueError("that code isn't right: check the phone's time, and type the newest code")
+            print(twostep.add(run, user, "code", args[2], secret))
+        elif len(args) == 2 and args[0] == "remove":
+            twostep.remove(run, user, args[1])
+        else:
+            print(__doc__, file=sys.stderr)
+            return 64
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    run(["systemctl", "start", "--no-block", "kulan-fleet.service"])  # to Kulan Fleet now, not in an hour
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

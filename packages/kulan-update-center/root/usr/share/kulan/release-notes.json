@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.8.4",
+    "label": "2.8d",
+    "title": "Stronger sign-in with Kulan Fleet",
+    "items": [
+      "Two-step sign-in on an organisation's computers: after the password, a security key you touch (a YubiKey, say) or a 6-digit code from an app on your phone. It works on every one of the organisation's computers you use",
+      "Each person sets theirs up in Kulan Settings › About › Organisation, with their own password. Their organisation can require it for admins or for everyone; until it's set up, they're reminded at each sign-in rather than locked out",
+      "sudo still asks only your password, and nobody is asked for a second step unless they set one up. Leaving the organisation takes it away",
+      "Kulan Fleet admins can use an authenticator app after the email code, and the Owner can require it for every admin. A lost phone or key? The Owner or an admin resets it, and it's in the activity log",
+      "The weekly report lists who hasn't set up two-step sign-in yet"
+    ]
+  },
+  {
     "version": "2.8.3",
     "label": "2.8c",
     "title": "Security and activity in Kulan Fleet",
