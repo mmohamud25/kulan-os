@@ -801,6 +801,7 @@ PY
 check "Fleet two-step" "2.8d: two-step sign-in on the computer, every case" python3 -I -B ci/twostep-test.py /usr/share/kulan-fleet/twostep.py
 check "Fleet two-step sign-in" "2.8d: a phone code through the real PAM stack; sudo and everyone else as before" bash ci/two-step-pam-test.sh
 # shellcheck disable=SC2016  # expanded by the inner bash
+check "Fleet two-step in Settings" "2.8d: the row and the dialogs to add a security key or a phone code (with its QR code)" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 -I -B ci/two-step-settings-test.py 2>&1)"; echo "$out" | grep -qx "two-step settings: every dialog built" || { echo "$out" | tail -n 4; exit 1; }'
 check "Fleet two-step helper" "only through pkexec, for yourself; polkit asks your own password" bash -c '! /usr/lib/kulan/fleet-two-step add key x </dev/null 2>/dev/null; grep -q "<allow_active>auth_self</allow_active>" /usr/share/polkit-1/actions/org.kulan.fleet.two-step.policy && test -x /usr/lib/kulan/fleet-two-step-reminder'
 check "Fleet sign-ins" "2.8c: who uses the computer (username and when last used), every case; it's in what's shared" bash -c 'python3 -I -B ci/signins-test.py /usr/share/kulan-fleet/signins.py && kulan-fleet status --json | grep -q "Who uses it"'
 check "Fleet USB and apps" "2.8b: USB storage blocked or approved drives only, apps required and blocked, every case" python3 -I -B ci/fleetpolicy-test.py /usr/share/kulan-fleet/fleetpolicy.py
