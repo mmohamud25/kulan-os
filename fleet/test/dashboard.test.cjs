@@ -9,7 +9,9 @@ const srv = http.createServer((q, r) => { const f = path.join(root, q.url.split(
   fs.readFile(f, (e, b) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { "content-type": f.endsWith(".js") ? "text/javascript" : "text/html" }); r.end(b); }); });
 srv.listen(18899);
 const org = "11111111-1111-4111-8111-111111111111";
-const state = { policy: { firewall: true, usb: "block" }, groups: [], calls: [], approved: [] };
+const AAL2 = "eyJhYWwiOiJhYWwyIiwiZXhwIjo5OTk5OTk5OTk5LCJzdWIiOiJ4In0";  // {"aal":"aal2","exp":9999999999,"sub":"x"}
+const AAL2_TOKEN = `x.${AAL2}.x`;
+const state = { needCode: true, auth: [], verifiedWith: null, policy: { firewall: true, usb: "block" }, groups: [], calls: [], approved: [] };
 function reply(b) {
   state.calls.push(b);
   switch (b.op) {
@@ -46,12 +48,38 @@ function reply(b) {
 }
 (async () => {
   const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true });
-  const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && errors.push(m.text()));
+  const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && !m.text().includes("status of 403") && errors.push(m.text()));
   page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().includes("name you'll") ? "Finance drive" : ""); else await d.accept(); });
-  await page.route("**/functions/v1/fleet-admin", async (r) => r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(reply(JSON.parse(r.request().postData() || "{}"))) }));
-  await page.route("**/auth/v1/**", (r) => r.fulfill({ status: 200, contentType: "application/json", body: "{}" }));
+  await page.route("**/functions/v1/fleet-admin", async (r) => {
+    const body = JSON.parse(r.request().postData() || "{}");
+    const aal2 = (r.request().headers().authorization || "").includes(AAL2);
+    if (state.needCode && !aal2) {
+      state.calls.push({ ...body, refused: true });
+      return r.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: "type the code from your authenticator app", two_step: "code" }) });
+    }
+    return r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(reply(body)) });
+  });
+  // Supabase Auth: the user (with an authenticator app), a challenge, and a verify that gives an aal2 session.
+  await page.route("**/auth/v1/**", (r) => {
+    const u = r.request().url(), m = r.request().method();
+    state.auth.push(`${m} ${new URL(u).pathname}`);
+    const json = (o) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(o) });
+    if (u.endsWith("/auth/v1/user")) return json({ id: "x", email: "a@x", factors: [{ id: "f1", factor_type: "totp", status: "verified", friendly_name: "Phone" }] });
+    if (u.endsWith("/factors/f1/challenge")) return json({ id: "c1", type: "totp", expires_at: 9999999999 });
+    if (u.endsWith("/factors/f1/verify")) {
+      state.verifiedWith = JSON.parse(r.request().postData() || "{}").code;
+      return json({ access_token: AAL2_TOKEN, refresh_token: "r2", token_type: "bearer", expires_in: 3600, expires_at: 9999999999, user: { id: "x", email: "a@x" } });
+    }
+    return json({});
+  });
   await page.addInitScript(() => localStorage.setItem("sb-xegnwqxpegznsufulclx-auth-token", JSON.stringify({ access_token: "x.eyJleHAiOjk5OTk5OTk5OTksInN1YiI6IngifQ.x", refresh_token: "r", token_type: "bearer", expires_at: 9999999999, expires_in: 3600, user: { id: "x", email: "a@x" } })));
   await page.goto("http://127.0.0.1:18899/");
+  // 2.8d: the server wants the authenticator app's code first.
+  await page.waitForSelector("#dlg-title:has-text(\"Your authenticator app's code\")");
+  await page.fill("#dlg input[aria-label='6-digit code']", "123456");
+  await page.click("#dlg-actions >> text=Continue");
+  await page.waitForTimeout(500);
+  if (state.verifiedWith !== "123456" || !state.auth.includes("POST /auth/v1/factors/f1/challenge")) throw "authenticator code not verified " + JSON.stringify(state.auth);
   await page.waitForSelector("#groups tr");
   // org policy keeps usb and adds an app
   if (await page.locator("#policy select[aria-label='USB drives']").inputValue() !== "block") throw "usb not shown";
@@ -136,6 +164,11 @@ function reply(b) {
   await page.waitForTimeout(200);
   const more = state.calls.filter((c) => c.op === "log").pop();
   if (more.who !== "a@x") throw "Show more changed the search " + JSON.stringify(more);
+  // The policy's two-step setting, and a person's reset.
+  await page.selectOption("#policy select[aria-label='Two-step sign-in']", "admins");
+  await page.click("#p-save");
+  await page.waitForTimeout(300);
+  if (state.calls.filter((c) => c.op === "set-policy").pop().policy.two_step !== "admins") throw "two_step not saved";
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);

@@ -25,7 +25,12 @@ numbers; the count still says 2.8).
   Release order: apply 20261026120000_fleet_security.sql, deploy fleet and
   fleet-admin, then merge.)
 - 2.8d Stronger sign-in: two-step sign-in on the computers (phone code or
-  security key); security keys for the Owner and admins in Kulan Fleet.
+  security key); an authenticator app for the Owner and admins in Kulan
+  Fleet (security keys there when Supabase's passkeys are stable). (Built
+  as 2.8.4; waiting for "release it". Release order: set the
+  FLEET_FACTOR_KEY secret (32 random bytes, base64) for the functions,
+  apply 20261027120000_fleet_two_step.sql, deploy fleet and fleet-admin,
+  then merge.)
 - 2.8e Organisation: Google Workspace mailboxes made (and suspended) with
   People through the Directory API, and the email connection settings,
   built so Kulan's own mail server can take Google's place later.
