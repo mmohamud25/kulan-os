@@ -56,7 +56,7 @@ else
 fi
 
 TAG="v${KULAN_VERSION}-build${GITHUB_RUN_NUMBER}"
-TITLE="${KULAN_NAME} ${KULAN_VERSION} (build ${GITHUB_RUN_NUMBER})"
+TITLE="${KULAN_NAME} ${KULAN_VERSION_LABEL:-${KULAN_VERSION}} (build ${GITHUB_RUN_NUMBER})"
 python3 - "${NOTES}" "${KULAN_VERSION}" > "${OUT}/notes.md" <<'PY'
 import json, sys
 notes = json.load(open(sys.argv[1]))

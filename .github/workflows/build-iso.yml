@@ -175,6 +175,22 @@ jobs:
             debian:trixie bash ci/test-packages.sh
           cat summary.md >> "$GITHUB_STEP_SUMMARY"
 
+  # People in Kulan Fleet across two computers: the test server (the real
+  # Fleet functions) and two Debian 13 laptops with this build's kulan-base,
+  # signing in through PAM as GDM does. See ci/fleet-two-computers.sh.
+  fleet-people:
+    needs: [packages]
+    name: Fleet people on two computers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: kulan-debs
+          path: dist/debs/
+      - name: Two laptops, one test server
+        run: ci/fleet-two-computers.sh dist/debs
+
   # Publishes the packages to the update channel only after everything has
   # passed: the package tests, the upgrade test, and both ISOs' checks, boot,
   # low-end boot, install, TPM and speed tests. Installed computers update from the
@@ -183,13 +199,13 @@ jobs:
   # previous release - so it doesn't need this build published first.)
   # Skipped until scripts/setup-update-channel.sh has been run.
   publish:
-    needs: [test-packages, engine, files, build, upgrade-test]
+    needs: [test-packages, engine, files, build, upgrade-test, fleet-people]
     # Only runs that built both architectures publish: the channel is
     # rebuilt from scratch each time and must keep both engines.
     if: >-
       github.ref == 'refs/heads/main' && (inputs.arch || 'both') == 'both' && !cancelled() &&
       needs.test-packages.result == 'success' && needs.build.result == 'success' &&
-      needs.upgrade-test.result == 'success'
+      needs.upgrade-test.result == 'success' && needs.fleet-people.result == 'success'
     name: Publish updates
     runs-on: ubuntu-24.04
     # Never at the same time as the weekly re-sign (resign-channel.yml).

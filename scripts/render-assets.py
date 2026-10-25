@@ -97,7 +97,7 @@ def main() -> int:
         return 1
     conf = read_conf()
     name = esc(conf["KULAN_NAME"])
-    version = esc(conf["KULAN_VERSION"])
+    version = esc(conf.get("KULAN_VERSION_LABEL") or conf["KULAN_VERSION"])
     logo_svg = (ASSETS / "logo.svg").read_text()
 
     print("Rendering Kulan OS assets...")

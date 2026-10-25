@@ -70,7 +70,7 @@ case "${KULAN_SHORT_NAME}" in
 	""|*[!A-Za-z0-9-]*) die "KULAN_SHORT_NAME='${KULAN_SHORT_NAME}' in kulan.conf must be letters, digits and dashes only" ;;
 esac
 
-ISO_VOLUME="${KULAN_NAME} ${KULAN_VERSION} ${ARCH}"
+ISO_VOLUME="${KULAN_NAME} ${KULAN_VERSION_LABEL:-${KULAN_VERSION}} ${ARCH}"
 if [ "${#ISO_VOLUME}" -gt 32 ]; then
 	die "ISO volume label '${ISO_VOLUME}' is longer than 32 characters; shorten KULAN_NAME"
 fi

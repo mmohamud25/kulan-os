@@ -13,7 +13,7 @@ License: LGPL-2.1+
  version 2.1 can be found in /usr/share/common-licenses/LGPL-2.1.
 
 Files: usr/share/themes/Kulan-*
-Copyright: Kulan Group Ltd
+Copyright: Kulan Group LLC
 License: LGPL-2.1+
  Small themes on top of adw-gtk3 that set the accent colour; same license
  as adw-gtk3.

@@ -33,10 +33,10 @@ sed -i -E \
 	-e "s|^componentName:.*|componentName:   kulan|" \
 	-e "s|^([[:space:]]+productName:[[:space:]]+).*|\1${KULAN_NAME}|" \
 	-e "s|^([[:space:]]+shortProductName:[[:space:]]+).*|\1${KULAN_SHORT_NAME}|" \
-	-e "s|^([[:space:]]+version:[[:space:]]+).*|\1${KULAN_VERSION}|" \
-	-e "s|^([[:space:]]+shortVersion:[[:space:]]+).*|\1${KULAN_VERSION}|" \
-	-e "s|^([[:space:]]+versionedName:[[:space:]]+).*|\1${KULAN_NAME} ${KULAN_VERSION}|" \
-	-e "s|^([[:space:]]+shortVersionedName:[[:space:]]+).*|\1${KULAN_SHORT_NAME} ${KULAN_VERSION}|" \
+	-e "s|^([[:space:]]+version:[[:space:]]+).*|\1${KULAN_VERSION_LABEL:-${KULAN_VERSION}}|" \
+	-e "s|^([[:space:]]+shortVersion:[[:space:]]+).*|\1${KULAN_VERSION_LABEL:-${KULAN_VERSION}}|" \
+	-e "s|^([[:space:]]+versionedName:[[:space:]]+).*|\1${KULAN_NAME} ${KULAN_VERSION_LABEL:-${KULAN_VERSION}}|" \
+	-e "s|^([[:space:]]+shortVersionedName:[[:space:]]+).*|\1${KULAN_SHORT_NAME} ${KULAN_VERSION_LABEL:-${KULAN_VERSION}}|" \
 	-e "s|^([[:space:]]+productUrl:[[:space:]]+).*|\1${KULAN_HOME_URL}|" \
 	-e "s|^([[:space:]]+supportUrl:[[:space:]]+).*|\1${KULAN_SUPPORT_URL}|" \
 	-e "s|^([[:space:]]+productLogo:[[:space:]]+).*|\1\"kulan-logo.png\"|" \

@@ -67,6 +67,15 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
 @media (max-width: 640px) { header { padding: 12px 16px; } .hide-sm { display: none; } }
 .alerts { margin: 0; padding-left: 18px; }
 .alerts li { margin: 4px 0; }
+a { color: var(--teal); }
+@media (prefers-color-scheme: dark) { a { color: #5eead4; } }
+.field { display: grid; gap: 4px; margin: 10px 0; }
+.field > span { font-size: 12px; color: var(--muted); }
+.checks { display: grid; gap: 4px; margin: 6px 0 0 4px; }
+button.danger { background: var(--bad-bg); color: var(--bad); }
+.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
+.note { font-size: 13px; color: var(--muted); }
+h4 { margin: 14px 0 6px; }
 </style>
 </head>
 <body>
@@ -112,6 +121,34 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
     <div class="card">
       <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Needs attention</h3>
       <ul id="alerts" class="alerts"></ul>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom: 8px">
+        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">People</h3>
+        <button class="primary" id="add-person" style="margin-left: auto">Add a person…</button>
+      </div>
+      <p class="sub">The accounts on the organisation's computers: each person signs in with their own name and password, on the computers you choose. Computers get changes at their next report (within the hour).</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Sign-in</th><th class="hide-sm">Computers</th><th></th></tr></thead>
+          <tbody id="people"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Kulan Fleet admins and the Owner</h3>
+      <p class="sub" id="admins-sub">They sign in here with their email and manage computers and people.</p>
+      <ul id="admins" class="alerts"></ul>
+      <form id="add-admin" class="row hidden" style="margin-top: 10px">
+        <input id="admin-email" type="email" required placeholder="their@email" aria-label="New admin's email" style="flex: 1; min-width: 220px">
+        <button type="submit">Add an admin</button>
+      </form>
+      <form id="set-owner" class="row hidden" style="margin-top: 10px">
+        <input id="owner-email" type="email" required placeholder="owner@email" aria-label="The Owner's email" style="flex: 1; min-width: 220px">
+        <button type="submit">Make this email the Owner</button>
+      </form>
     </div>
 
     <div class="card">
@@ -177,8 +214,15 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
       </div>
     </div>
     <p id="app-msg" class="small error" role="status"></p>
+    <p class="small"><a href="#" id="recover">Become the Owner with a recovery code…</a></p>
   </section>
 </main>
+
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <h3 id="dlg-title" style="margin: 0 0 8px; font: 800 18px Manrope, Inter, sans-serif"></h3>
+  <div id="dlg-body"></div>
+  <div class="dlg-actions" id="dlg-actions"></div>
+</dialog>
 
 <dialog id="report-dialog">
   <div class="row"><h3 id="report-title" style="margin: 0; font: 800 18px Manrope, Inter, sans-serif"></h3><button id="report-close" style="margin-left: auto">Close</button></div>
@@ -188,6 +232,7 @@ pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background
 <!-- supabase-js 2.49.4 (MIT), kept next to this page rather than loaded from a CDN. -->
 <script src="supabase-js-2.49.4.js"></script>
 <script type="module">
+import { sha512crypt, newSalt, setupCode } from "./sha512crypt.js";
 const { createClient } = window.supabase;
 
 const SUPABASE_URL = "https://xegnwqxpegznsufulclx.supabase.co";
@@ -196,8 +241,16 @@ const API = `${SUPABASE_URL}/functions/v1/fleet-admin`;
 const FLEET_SERVER = `${SUPABASE_URL}/functions/v1/fleet`;
 const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"],
                  ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
-                 ["restart", "Restart (5 min notice)"]];
-const LABEL = { ...Object.fromEntries(ACTIONS), erase: "Erase" };
+                 ["restart", "Restart (5 min notice)"], ["shutdown", "Switch off (5 min notice)"]];
+const LABEL = { ...Object.fromEntries(ACTIONS), erase: "Erase", "lost-mode-on": "Turn on lost mode",
+                "lost-mode-off": "Release from lost mode" };
+const ROLE = { owner: "Owner", admin: "Admin", employee: "Employee" };
+const ROLE_HELP = { employee: "A standard account", admin: "Administrator rights on the computers",
+                    owner: "The Owner's own account (administrator rights)" };
+const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
+const RESERVED = new Set(["root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
+                          "www-data", "backup", "list", "irc", "nobody", "admin", "sudo", "kulan", "gdm", "systemd"]);
+let people = [], isOwner = false;
 
 const supabase = createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { flowType: "pkce", detectSessionInUrl: true } });
 const $ = (id) => document.getElementById(id);
@@ -253,6 +306,222 @@ async function load() {
   select.replaceChildren(...data.organisations.map((o) => el("option", { value: o.id }, o.name)));
   if (keep && data.organisations.some((o) => o.id === keep)) select.value = keep;
   render();
+  await loadPeople();
+}
+
+async function loadPeople() {
+  const org = $("org").value;
+  people = [];
+  isOwner = false;
+  if (!org) { renderPeople(); renderAdmins(null); return; }
+  try {
+    const out = await api({ op: "people", organisation_id: org });
+    people = out.people || [];
+    isOwner = !!out.is_owner;
+    renderPeople();
+    renderAdmins(await api({ op: "admins", organisation_id: org }));
+  } catch (e) { $("app-msg").textContent = e.message; }
+}
+
+function signInTag(p) {
+  if (!p.enabled) return el("span", { class: "tag bad" }, "disabled");
+  if (p.must_change) return el("span", { class: "tag warn" }, "setup code not used yet");
+  return el("span", { class: "tag good" }, "own password");
+}
+
+function renderPeople() {
+  const rows = people.map((p) => {
+    const n = (p.on || []).length;
+    return el("tr", {},
+      el("td", {}, el("div", { class: "name" }, el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openPerson(p); } }, p.full_name || p.username)),
+         el("div", { class: "small" }, p.email || "")),
+      el("td", {}, p.username), el("td", {}, ROLE[p.role] || p.role), el("td", {}, signInTag(p)),
+      el("td", { class: "hide-sm" }, p.all_computers ? "all" : `${n} chosen`),
+      el("td", {}, el("button", { onclick: () => openPerson(p) }, "Manage…")));
+  });
+  $("people").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "6", class: "empty" },
+    "Nobody yet. Add someone: they get a setup code to sign in with, then choose their own password."))]));
+  $("add-person").disabled = !$("org").value;
+}
+
+function renderAdmins(out) {
+  if (!out) { $("admins").replaceChildren(); return; }
+  const owner = out.owner;
+  $("admins-sub").textContent = "They sign in here with their email and manage computers and people. " +
+    (out.is_owner ? "As the Owner, you choose who they are." : "Only the Owner changes who they are.");
+  const items = [el("li", {}, el("b", {}, owner || "No Owner yet"), " · Owner")];
+  for (const a of out.admins || []) {
+    if (a.email === owner) continue;
+    items.push(el("li", {}, a.email, ` · admin since ${ago(a.created_at)} `,
+      out.is_owner ? el("button", { onclick: () => changeAdmin("remove-admin", a.email) }, "Remove") : ""));
+  }
+  $("admins").replaceChildren(...items);
+  $("add-admin").classList.toggle("hidden", !out.is_owner);
+  $("set-owner").classList.toggle("hidden", !data?.global);
+}
+
+async function changeAdmin(op, email) {
+  try { await api({ op, organisation_id: $("org").value, email }); await loadPeople(); }
+  catch (e) { $("app-msg").textContent = e.message; }
+}
+
+// --- dialogs -----------------------------------------------------------------------------
+function dialog(title, body, buttons) {
+  $("dlg-title").textContent = title;
+  $("dlg-body").replaceChildren(...body);
+  $("dlg-actions").replaceChildren(...buttons);
+  if (!$("dlg").open) $("dlg").showModal();
+}
+const closeButton = (label = "Cancel") => el("button", { type: "button", onclick: () => $("dlg").close() }, label);
+const field = (label, input) => el("label", { class: "field" }, el("span", {}, label), input);
+const errorLine = () => el("p", { class: "small error", role: "status" });
+
+function computerPicker(allOn, chosen) {
+  const devices = data.devices.filter((d) => d.organisation_id === $("org").value && !d.left_at);
+  const all = el("input", { type: "checkbox" });
+  all.checked = allOn;
+  const boxes = devices.map((d) => {
+    const box = el("input", { type: "checkbox", value: d.id });
+    box.checked = chosen.includes(d.id);
+    return [box, el("label", {}, box, ` ${d.hostname || "(no name)"}`)];
+  });
+  const list = el("div", { class: "checks" }, ...boxes.map(([, l]) => l));
+  list.classList.toggle("hidden", allOn);
+  all.addEventListener("change", () => list.classList.toggle("hidden", all.checked));
+  return { nodes: [el("label", {}, all, " All the organisation's computers (and ones that join later)"), list],
+           value: () => ({ all_computers: all.checked, computers: boxes.filter(([b]) => b.checked).map(([b]) => b.value) }) };
+}
+
+function suggestUsername(name) {
+  const first = (name.normalize("NFKD").replace(/[^\x00-\x7f]/g, "").toLowerCase().trim().split(/\s+/)[0] || "")
+    .replace(/[^a-z0-9]/g, "").replace(/^[0-9]+/, "").slice(0, 32);
+  return first && !RESERVED.has(first) ? first : "";
+}
+function usernameProblem(u) {
+  if (!USERNAME.test(u)) return "Lower-case letters, digits, - or _, starting with a letter";
+  return RESERVED.has(u) ? "That name is kept for the system" : null;
+}
+
+function showCode(name, code, first) {
+  dialog(`Setup code for ${name}`, [
+    el("p", {}, `Give this to ${name} in person or over a call, not by email. At the sign-in screen of ${first ? "any of the computers they may use" : "their computer"}, they choose their name, type this code exactly (capital letters and dashes), and then choose their own password. Computers get it at their next report (within the hour). It's shown only now.`),
+    el("div", { class: "code" }, code)],
+    [el("button", { type: "button", onclick: () => navigator.clipboard?.writeText(code) }, "Copy code"),
+     el("button", { type: "button", class: "primary", onclick: () => $("dlg").close() }, "Done")]);
+}
+
+function showRecovery(name, code) {
+  if (!code) return;
+  dialog(`Recovery code for ${name}`, [
+    el("p", {}, "Write this down and keep it somewhere safe, away from your computer. If the Owner ever loses their email account, signing in here with a new email and entering this code (Become the Owner with a recovery code, at the bottom of the page) makes that email the Owner. It's shown only now; using it gives a new one."),
+    el("div", { class: "code" }, code)],
+    [el("button", { type: "button", onclick: () => navigator.clipboard?.writeText(code) }, "Copy code"),
+     el("button", { type: "button", class: "primary", onclick: () => $("dlg").close() }, "I wrote it down")]);
+}
+
+async function hashed(code) { return sha512crypt(code, newSalt()); }
+
+function addPerson() {
+  const full = el("input", { autocomplete: "off" });
+  const user = el("input", { autocomplete: "off", spellcheck: "false" });
+  const email = el("input", { type: "email", autocomplete: "off" });
+  const roles = ["employee", ...(isOwner ? ["admin", "owner"] : [])];
+  const role = el("select", {}, ...roles.map((r) => el("option", { value: r }, ROLE[r])));
+  const roleHelp = el("span", { class: "note" }, isOwner ? ROLE_HELP.employee : "Only the Owner can add admins");
+  role.addEventListener("change", () => { roleHelp.textContent = ROLE_HELP[role.value]; });
+  const picker = computerPicker(true, []);
+  const err = errorLine();
+  let suggested = "";
+  full.addEventListener("input", () => {
+    if (user.value === "" || user.value === suggested) { suggested = suggestUsername(full.value); user.value = suggested; }
+    err.textContent = user.value ? usernameProblem(user.value) || "" : "";
+  });
+  user.addEventListener("input", () => { err.textContent = usernameProblem(user.value) || ""; });
+  const add = el("button", { type: "button", class: "primary", onclick: async () => {
+    if (usernameProblem(user.value)) { err.textContent = usernameProblem(user.value); return; }
+    add.disabled = true;
+    const code = setupCode();
+    try {
+      const body = { op: "add-person", organisation_id: $("org").value, username: user.value, full_name: full.value.trim(),
+                     role: role.value, ...picker.value(), password_hash: await hashed(code) };
+      if (email.value.trim()) body.email = email.value.trim();
+      await api(body);
+      showCode(full.value.trim() || user.value, code, true);
+      await loadPeople();
+    } catch (e) { err.textContent = e.message; add.disabled = false; }
+  } }, "Add");
+  dialog("Add a person", [
+    el("p", { class: "note" }, "They get a setup code to sign in with, then choose their own password."),
+    field("Full name", full), field("Username (how they sign in)", user), field("Work email (optional)", email),
+    field("Role", role), roleHelp, el("h4", {}, "Computers they can use"), ...picker.nodes, err],
+    [closeButton(), add]);
+  full.focus();
+}
+
+function openPerson(p) {
+  const manages = isOwner || p.role === "employee";
+  const full = el("input", { value: p.full_name || "" });
+  const email = el("input", { type: "email", value: p.email || "" });
+  const role = el("select", {}, ...["employee", "admin", "owner"].map((r) => el("option", { value: r }, ROLE[r])));
+  role.value = p.role;
+  role.disabled = !isOwner;
+  const picker = computerPicker(!!p.all_computers, p.computers || []);
+  const err = errorLine();
+  const on = (p.on || []).map((c) => {
+    const st = c.status || "not yet";
+    const kind = st.startsWith("conflict") || st.startsWith("couldn") ? "bad" : st === "not yet" ? "dim" : "good";
+    return el("li", {}, `${c.hostname || "(no name)"} `, el("span", { class: `tag ${kind}` }, st === "not yet" ? "waiting for its next report" : st));
+  });
+  const run = async (body, done) => {
+    try { await api(body); if (done) done(); else $("dlg").close(); await loadPeople(); }
+    catch (e) { err.textContent = e.message; }
+  };
+  const save = el("button", { type: "button", class: "primary", onclick: () => {
+    const body = { op: "edit-person", person_id: p.id, full_name: full.value.trim(), email: email.value.trim(), ...picker.value() };
+    if (role.value !== p.role) body.role = role.value;
+    run(body);
+  } }, "Save");
+  const newCode = el("button", { type: "button", onclick: async () => {
+    if (!confirm(`A new setup code for ${p.username}? Their password stops working on each computer at its next report.`)) return;
+    const code = setupCode();
+    run({ op: "new-setup-code", person_id: p.id, password_hash: await hashed(code) }, () => showCode(p.full_name || p.username, code, false));
+  } }, "New setup code…");
+  if (!manages) newCode.disabled = true;
+  const toggle = el("button", { type: "button", onclick: () => {
+    if (p.enabled && !confirm(`Disable ${p.username}? At each computer's next report their account is locked and they're signed out. Their files stay.`)) return;
+    run({ op: "set-person-enabled", person_id: p.id, enabled: !p.enabled });
+  } }, p.enabled ? "Disable…" : "Enable again");
+  if (!manages) toggle.disabled = true;
+  const remove = el("button", { type: "button", class: "danger", onclick: () => removePerson(p) }, "Remove…");
+  if (!manages) remove.disabled = true;
+  dialog(p.full_name || p.username, [
+    el("p", { class: "note" }, `${p.username} · ${ROLE[p.role]} · `, signInTag(p), ` · added ${ago(p.created_at)} by ${p.created_by || "–"}`),
+    el("h4", {}, "On these computers"), el("ul", { class: "alerts" }, ...(on.length ? on : [el("li", { class: "small" }, "No computers yet")])),
+    field("Full name", full), field("Work email", email),
+    field(isOwner ? "Role" : "Role (only the Owner gives or takes the admin role)", role),
+    el("h4", {}, "Computers they can use"), ...picker.nodes,
+    manages ? "" : el("p", { class: "note" }, "Only the Owner changes an admin's or the Owner's sign-in."), err],
+    [newCode, toggle, remove, closeButton("Close"), save]);
+}
+
+function removePerson(p) {
+  const files = el("input", { type: "checkbox" });
+  const typed = el("input", { autocomplete: "off", spellcheck: "false" });
+  const err = errorLine();
+  const go = el("button", { type: "button", class: "danger", disabled: "", onclick: async () => {
+    try {
+      await api({ op: "remove-person", person_id: p.id, remove_files: files.checked, confirm: typed.value.trim() });
+      $("dlg").close();
+      await loadPeople();
+    } catch (e) { err.textContent = e.message; }
+  } }, "Remove");
+  typed.addEventListener("input", () => { go.disabled = typed.value.trim() !== p.username; });
+  dialog(`Remove ${p.username}?`, [
+    el("p", {}, "Their account is removed from every computer at its next report."),
+    el("label", {}, files, " Delete their files too"),
+    el("p", { class: "note" }, "Not ticked: each computer keeps their files for an administrator to hand over (in /home/.kulan-left)."),
+    field(`Type ${p.username} to confirm`, typed), err],
+    [closeButton(), go]);
 }
 
 function render() {
@@ -288,10 +557,14 @@ function render() {
     const tpm = d.tpm == null ? "–" : d.tpm.on ? el("span", { class: "tag good" }, "on") : el("span", { class: "tag dim" }, d.tpm.possible ? "off" : "not possible");
     const pick = el("select", { "aria-label": `Ask ${d.hostname || "this computer"} to` },
       el("option", { value: "" }, "Choose…"), ...ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
+    pick.append(d.state?.lost_mode ? el("option", { value: "lost-mode-off" }, "Release from lost mode")
+                                   : el("option", { value: "lost-mode-on" }, "Turn on lost mode…"));
     if (d.state?.erase_allowed && d.state?.encrypted) pick.append(el("option", { value: "erase" }, "Erase (if lost or stolen)…"));
     const go = el("button", { onclick: async () => {
       if (!pick.value) return;
       if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Whoever is using it gets 5 minutes' notice.`)) return;
+      if (pick.value === "shutdown" && !confirm(`Switch off ${d.hostname}? Whoever is using it gets 5 minutes' notice. It reports again when someone switches it on.`)) return;
+      if (pick.value === "lost-mode-on" && !confirm(`Turn on lost mode on ${d.hostname}? At its next report nobody can sign in any more, and whoever is using it is signed out 20 seconds after a notice (unsaved work is lost). The sign-in screen says it's lost and to return it to your organisation. Release it here when it's found.`)) return;
       let confirmName;
       if (pick.value === "erase") {
         confirmName = prompt(`Erase ${d.hostname}? At its next report it makes everything on its disk unreadable, for good, and switches off. Nobody can undo this. Type the computer's name to confirm:`);
@@ -303,7 +576,8 @@ function render() {
     } }, "Send");
     const name = el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openReport(d); } }, d.hostname || "(no name)");
     return el("tr", { class: d.left_at ? "left" : "" },
-      el("td", {}, el("div", { class: "name" }, name), el("div", { class: "small" }, [d.hardware?.vendor, d.hardware?.model].filter(Boolean).join(" ") || d.os || "")),
+      el("td", {}, el("div", { class: "name" }, name, d.state?.lost_mode && !d.left_at ? el("span", { class: "tag bad", style: "margin-left: 6px" }, "lost mode") : ""),
+         el("div", { class: "small" }, [d.hardware?.vendor, d.hardware?.model].filter(Boolean).join(" ") || d.os || "")),
       el("td", {}, d.kulan_version || "–"),
       el("td", {}, d.left_at ? `left ${ago(d.left_at)}` : ago(d.last_seen)),
       el("td", {}, comp), el("td", {}, upd), el("td", { class: "hide-sm" }, tpm),
@@ -369,14 +643,50 @@ $("log-load").addEventListener("click", async () => {
     $("log-wrap").classList.remove("hidden");
   } catch (e) { $("app-msg").textContent = e.message; }
 });
-$("org").addEventListener("change", render);
+$("org").addEventListener("change", () => { render(); loadPeople(); });
+$("add-person").addEventListener("click", addPerson);
+$("add-admin").addEventListener("submit", (ev) => { ev.preventDefault(); changeAdmin("add-admin", $("admin-email").value.trim()).then(() => { $("admin-email").value = ""; }); });
+$("set-owner").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const org = data.organisations.find((o) => o.id === $("org").value);
+  try {
+    const out = await api({ op: "set-owner", organisation_id: org.id, email: $("owner-email").value.trim() });
+    $("owner-email").value = "";
+    await load();
+    showRecovery(org.name, out.recovery_code);
+  } catch (e) { $("app-msg").textContent = e.message; }
+});
+$("recover").addEventListener("click", (ev) => {
+  ev.preventDefault();
+  const code = el("input", { autocomplete: "off", spellcheck: "false" });
+  const err = errorLine();
+  dialog("Become the Owner", [
+    el("p", {}, "Enter the organisation's recovery code (written down when the Owner was set). The email you're signed in with becomes the Owner."),
+    field("Recovery code", code), err],
+    [closeButton(), el("button", { type: "button", class: "primary", onclick: async () => {
+      try {
+        const out = await api({ op: "recover-owner", recovery_code: code.value.trim() });
+        await load();
+        if (out.organisation?.id) { $("org").value = out.organisation.id; render(); await loadPeople(); }
+        showRecovery(out.organisation?.name || "your organisation", out.recovery_code);
+      } catch (e) { err.textContent = e.message; }
+    } }, "Become the Owner")]);
+});
 $("refresh").addEventListener("click", load);
 $("signout").addEventListener("click", async () => { await supabase.auth.signOut(); show(false); });
 $("new-org").addEventListener("click", async () => {
   const name = prompt("Name of the organisation");
   if (!name) return;
-  try { const { id } = await api({ op: "new-organisation", name }); await load(); $("org").value = id; render(); }
-  catch (e) { $("app-msg").textContent = e.message; }
+  const owner = prompt("The Owner's email: the one person who decides who the admins are. Leave it empty to be the Owner yourself.", "");
+  if (owner === null) return;
+  try {
+    const out = await api({ op: "new-organisation", name, ...(owner.trim() ? { owner_email: owner.trim() } : {}) });
+    await load();
+    $("org").value = out.id;
+    render();
+    await loadPeople();
+    showRecovery(name, out.recovery_code);
+  } catch (e) { $("app-msg").textContent = e.message; }
 });
 $("make-code").addEventListener("click", async () => {
   try {

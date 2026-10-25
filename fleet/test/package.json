@@ -1,0 +1,12 @@
+{
+  "name": "kulan-fleet-functions-test",
+  "private": true,
+  "type": "module",
+  "description": "Tests the fleet Edge Functions against a real Postgres (see functions.test.mjs)",
+  "scripts": {
+    "test": "node --experimental-strip-types functions.test.mjs"
+  },
+  "dependencies": {
+    "postgres": "3.4.5"
+  }
+}

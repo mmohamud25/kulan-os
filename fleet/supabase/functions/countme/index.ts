@@ -20,6 +20,14 @@ const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false 
 const VERSION = /^[0-9]{1,2}\.[0-9]{1,2}$/;
 const ARCHES = new Set(["amd64", "arm64"]);
 const AGES = ["under a week", "under a month", "under six months", "longer"];
+
+function reply(status: number, body?: unknown): Response {
+  return new Response(body === undefined ? null : JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+  });
+}
+
 Deno.serve(async (req: Request) => {
   const path = new URL(req.url).pathname.replace(/^.*\/countme(?=\/v1)/, "");
   if (path !== "/v1") return reply(404, { error: "not found" });

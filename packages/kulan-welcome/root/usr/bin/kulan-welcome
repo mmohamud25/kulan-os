@@ -1086,7 +1086,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
         inner.append(group)
         url = self.conf.get("KULAN_HOME_URL", "")
         if url:
-            publisher = self.conf.get("KULAN_PUBLISHER", "").removesuffix(" Ltd").strip() or "our website"
+            # "Visit Kulan Group", without the company's legal suffix.
+            publisher = self.conf.get("KULAN_PUBLISHER", "")
+            for suffix in (" LLC", " Ltd", " Inc."):
+                publisher = publisher.removesuffix(suffix)
+            publisher = publisher.strip() or "our website"
             visit = Gtk.Button(label=f"Visit {publisher}", css_classes=["pill"], halign=Gtk.Align.CENTER)
             visit.connect("clicked", lambda _b: Gtk.UriLauncher.new(url).launch(self, None, None, None))
             inner.append(visit)
