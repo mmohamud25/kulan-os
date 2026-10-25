@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import getpass
+import importlib.util
 import json
 import os
 import re
@@ -269,6 +270,9 @@ class AboutPage(Page):
             mine = self.my_two_step()
             if mine is not None:
                 rows.append(self.two_step_row(mine))
+            work = self.work_email_row()
+            if work is not None:
+                rows.append(work)
             erase = Adw.SwitchRow(title="Allow erasing this computer if it’s lost or stolen",
                                   subtitle="Your organisation can then make everything on its disk unreadable from "
                                            "afar, after a 20-second notice on the screen. Only works when the "
@@ -330,6 +334,47 @@ class AboutPage(Page):
                                       "dialog-warning-symbolic"))
             row.add_row(item)
         return row
+
+    # --- Work email (Kulan Fleet 2.8e) ------------------------------------------------------
+    WORKMAIL = Path("/usr/share/kulan-fleet/workmail.py")
+
+    @classmethod
+    def workmail(cls):
+        """kulan-fleet's work email module (in kulan-base), or None."""
+        try:
+            spec = importlib.util.spec_from_file_location("kulan_fleet_workmail", cls.WORKMAIL)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        except (OSError, ImportError, AttributeError, SyntaxError):
+            return None
+
+    def work_email_row(self) -> Adw.ActionRow | None:
+        """The work mailbox the organisation made for this account, and whether it's connected."""
+        wm = self.workmail()
+        mail = wm.mine(getpass.getuser()) if wm else None
+        if not mail:
+            return None
+        done = wm.connected(mail, Path.home())
+        row = Adw.ActionRow(title="Work email", subtitle_lines=0, subtitle=GLib.markup_escape_text(
+            f"{mail['address']} · connected: mail in Geary, and your calendar, contacts and Google Drive" if done else
+            f"{mail['address']} · not connected yet. Connect it and sign in as {mail['address']}"))
+        row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic" if done else "dialog-information-symbolic"))
+        if done:
+            command = ["geary"] if Path("/usr/bin/geary").exists() else ["gnome-control-center", "online-accounts"]
+            button = Gtk.Button(label="Open mail" if command == ["geary"] else "Accounts", valign=Gtk.Align.CENTER)
+        else:
+            command = wm.connect_command(mail)
+            button = Gtk.Button(label="Connect", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        button.connect("clicked", lambda _b: self.run_app(command))
+        row.add_suffix(button)
+        return row
+
+    def run_app(self, argv: list[str]) -> None:
+        try:
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        except OSError as e:
+            self.window.toast(f"Couldn't open it: {e.strerror or e}")
 
     # --- Two-step sign-in (Kulan Fleet 2.8d) ------------------------------------------------
     TWO_STEP_PUBLIC = Path("/var/lib/kulan/fleet-two-step-public.json")

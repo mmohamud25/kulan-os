@@ -76,6 +76,7 @@ import fleetpolicy  # noqa: E402
 import people  # noqa: E402
 import signins  # noqa: E402
 import twostep  # noqa: E402
+import workmail  # noqa: E402
 from pathlib import Path
 
 CONFIG = Path("/etc/kulan/fleet.json")            # secret (token): root only
@@ -821,6 +822,8 @@ def report() -> int:
             asked = [u for u, v in two_step.items() if v == "asked, not set up"]
             if asked:
                 say("Two-step sign-in not set up yet: " + ", ".join(asked))
+            # Work email (2.8e): who has a mailbox from the organisation, to offer to connect it.
+            workmail.apply(reply.get("accounts"), set(people_state.get("people", {})))
         if "policy" in reply:
             status = apply_policy(reply.get("policy"))
             if status:
@@ -885,6 +888,7 @@ def leave() -> int:
     remove_policy()  # automatic updates and the firewall stay as they are
     signins.forget()
     twostep.remove_all(run)  # people sign in with their password alone again
+    workmail.remove_all()  # no work email offered (people's own Online Accounts stay theirs)
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
     lost_mode_off()  # nor keep it locked as lost

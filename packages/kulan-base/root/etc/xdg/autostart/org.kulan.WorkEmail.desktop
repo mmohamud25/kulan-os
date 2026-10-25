@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Work email
+Comment=Offers to connect the work mailbox your organisation made for you
+Exec=/usr/lib/kulan/fleet-work-email
+NoDisplay=true
+X-GNOME-Autostart-Phase=Applications
+X-GNOME-Autostart-Delay=20
+OnlyShowIn=GNOME;
