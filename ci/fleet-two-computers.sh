@@ -125,6 +125,12 @@ adm "{\"op\":\"action\",\"device_id\":\"${DEV_B}\",\"type\":\"lost-mode-off\"}" 
 report laptop-b
 expect "laptop-b: released, omar signs in again" signs_in laptop-b omar Omar-Own-Pass-1
 
+step "Who uses which computer (2.8c)"
+sign_ins_sent() { adm '{"op":"overview"}' | jq -e '[.devices[] | select(.hostname == "laptop-a") | .sign_ins | type] == ["array"]' >/dev/null; }
+expect "server: laptop-a reports who uses it (here, in a container, nobody)" sign_ins_sent
+weekly() { adm "{\"op\":\"weekly-report\",\"organisation_id\":\"${ORG}\"}" | jq -e '.summary.computers.total == 2 and .summary.people.total >= 1' >/dev/null; }
+expect "server: the weekly report counts both laptops" weekly
+
 step "Groups and policies (2.8b)"
 on laptop-a 'DEBIAN_FRONTEND=noninteractive apt-get install -y -q cowsay >/dev/null 2>&1'   # an app the group will block
 DEV_A="$(adm '{"op":"overview"}' | jq -r '.devices[] | select(.hostname == "laptop-a") | .id')"

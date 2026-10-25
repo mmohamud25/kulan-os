@@ -11,8 +11,8 @@ A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
 OS version, kernel), whether it's up to date, its compliance and TPM status,
 whether the disk is encrypted and the firewall on, and once a day the names
-and versions of its apps. Never files, names of files, browsing, messages or
-passwords.
+and versions of its apps, and which accounts use it and when each was last
+used. Never files, names of files, browsing, messages or passwords.
 
 The server can only answer with these actions, nothing else:
   refresh          report again now
@@ -74,6 +74,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, "/usr/share/kulan-fleet")
 import fleetpolicy  # noqa: E402
 import people  # noqa: E402
+import signins  # noqa: E402
 from pathlib import Path
 
 CONFIG = Path("/etc/kulan/fleet.json")            # secret (token): root only
@@ -111,7 +112,8 @@ SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version 
           "Host name and when it last started",
           "For accounts the organisation manages: a scrambled form (hash) of a new password, never the password",
           "If the organisation controls USB drives: the maker, model, serial number and name of drives plugged in "
-          "(nothing about what's on them)"]
+          "(nothing about what's on them)",
+          "Who uses it: each account's username and when it was last used (not what they do)"]
 APPS_EVERY_S = 24 * 3600
 MAX_APPS = 3000
 TIMEOUT = 30
@@ -780,6 +782,8 @@ def report() -> int:
             body["passwords"] = passwords
         if people_state.get("status"):
             body["people_status"] = people_state["status"]
+        # Who uses this computer: usernames and when each was last used, nothing more.
+        body["sign_ins"] = signins.collect(run)
         # USB drives seen, only while a policy controls them (so an admin can approve one).
         if read_json(POLICY_PUBLIC, {}).get("policy", {}).get("usb"):
             body["usb_seen"] = fleetpolicy.usb_seen()
@@ -865,6 +869,7 @@ def leave() -> int:
     run(["systemctl", "disable", "--now", "kulan-fleet.timer"])
     CONFIG.unlink(missing_ok=True)
     remove_policy()  # automatic updates and the firewall stay as they are
+    signins.forget()
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
     lost_mode_off()  # nor keep it locked as lost

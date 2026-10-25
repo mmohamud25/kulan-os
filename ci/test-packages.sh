@@ -798,6 +798,7 @@ assert "run_script" not in p and p["screen_lock_minutes"] == 5, p
 assert s["screen_lock_minutes"] == "met" and s["require_encryption"] == "not met", s
 assert set(s) == {"auto_updates", "firewall", "screen_lock_minutes", "require_encryption"}, s
 PY
+check "Fleet sign-ins" "2.8c: who uses the computer (username and when last used), every case; it's in what's shared" bash -c 'python3 -I -B ci/signins-test.py /usr/share/kulan-fleet/signins.py && kulan-fleet status --json | grep -q "Who uses it"'
 check "Fleet USB and apps" "2.8b: USB storage blocked or approved drives only, apps required and blocked, every case" python3 -I -B ci/fleetpolicy-test.py /usr/share/kulan-fleet/fleetpolicy.py
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet USB rule" "the rule udev gets is valid; the udev helper is there" bash -c 'r="$(mktemp --suffix=.rules)"; python3 -I -B -c "import sys; sys.path.insert(0, \"/usr/share/kulan-fleet\"); import fleetpolicy; print(fleetpolicy.usb_rules(\"approved\", [{\"vendor_id\": \"0781\", \"product_id\": \"5583\", \"serial\": \"4C530001\"}]), end=\"\")" >"$r" && udevadm verify "$r" >/dev/null && test -x /usr/lib/kulan/fleet-usb-seen && DEVPATH=/nope /usr/lib/kulan/fleet-usb-seen'
