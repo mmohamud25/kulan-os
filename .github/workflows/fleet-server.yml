@@ -39,6 +39,7 @@ jobs:
         run: |
           for f in fleet fleet-admin countme; do deno check "fleet/supabase/functions/$f/index.ts"; done
           deno check fleet/test-server/serve.ts
+          cmp fleet/supabase/functions/fleet/policy.ts fleet/supabase/functions/fleet-admin/policy.ts
           bash -n fleet/test-server/setup.sh && bash -n fleet/test-server/run.sh && bash -n fleet/test-server/teardown.sh
       - name: Weekly count
         working-directory: fleet/supabase/functions/countme
@@ -53,6 +54,21 @@ jobs:
           npm ci --no-audit --no-fund
           node --experimental-strip-types functions.test.mjs
           node sha512crypt.test.mjs
+
+  dashboard:
+    name: Web dashboard in a browser
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Every flow, clicked through
+        working-directory: fleet/test
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node dashboard.test.cjs ../dashboard
 
   test-server:
     name: Test server (setup, sign-in, teardown)

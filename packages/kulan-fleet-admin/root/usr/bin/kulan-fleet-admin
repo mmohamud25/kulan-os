@@ -62,7 +62,8 @@ ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
            ("restart", "Restart (5 minutes' notice)", "system-reboot-symbolic"),
            ("shutdown", "Switch off (5 minutes' notice)", "system-shutdown-symbolic")]
 ACTION_LABEL = {a: t for a, t, _i in ACTIONS}
-ACTION_LABEL.update({"erase": "Erase", "lost-mode-on": "Turn on lost mode", "lost-mode-off": "Release from lost mode"})
+ACTION_LABEL.update({"erase": "Erase", "lost-mode-on": "Turn on lost mode", "lost-mode-off": "Release from lost mode",
+                     "install-app": "Install an app"})
 ROLE_LABEL = {"owner": "Owner", "admin": "Admin", "employee": "Employee"}
 ROLE_HELP = {"employee": "A standard account", "admin": "Administrator rights on the computers",
              "owner": "The Owner's own account (administrator rights)"}
@@ -74,7 +75,23 @@ CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
 SCREEN_LOCK = [(0, "Not set"), (2, "After 2 minutes"), (5, "After 5 minutes"), (10, "After 10 minutes"),
                (15, "After 15 minutes"), (30, "After 30 minutes")]
 POLICY_LABEL = {"auto_updates": "Automatic updates", "firewall": "Firewall", "screen_lock_minutes": "Screen lock",
-                "require_encryption": "Disk encryption"}
+                "require_encryption": "Disk encryption", "usb": "USB drives"}
+USB_CHOICES = [(None, "Not set", "Any USB drive works"),
+               ("approved", "Approved drives only", "Only the drives approved under USB drives work"),
+               ("block", "Blocked", "No USB drive works")]
+# (keyboards, mice, phones charging and the rest always work)
+SOURCE_LABEL = {"debian": "Debian package", "flatpak": "Flathub app"}
+DEBIAN_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]{1,62}$")
+FLATPAK_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}$")
+# Never blocked (the server refuses these too): Kulan OS and what it can't run without.
+PROTECTED = re.compile(r"^(kulan|linux-|systemd|gnome-shell|gnome-session|gdm3|mutter|apt|dpkg|libc6|bash|coreutils|"
+                       r"sudo|login|passwd|network-manager|flatpak|gnome-software|packagekit|firmware-|grub|shim|"
+                       r"plymouth|xdg-|dbus|polkitd|udev|init)")
+GROUP_ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
+                 ("install-updates", "Install updates", "software-update-available-symbolic"),
+                 ("lock-screen", "Lock the screen", "system-lock-screen-symbolic"),
+                 ("restart", "Restart (5 minutes' notice)", "system-reboot-symbolic"),
+                 ("shutdown", "Switch off (5 minutes' notice)", "system-shutdown-symbolic")]
 ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update-urgent-symbolic",
               "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
               "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic",
@@ -300,6 +317,38 @@ def yes_no(value, yes: str = "yes", no: str = "no") -> str:
     return "–" if value is None else yes if value else no
 
 
+def app_problem(source: str, app_id: str, blocking: bool) -> str | None:
+    """Why an app can't go in a policy, or None (the server checks the same)."""
+    if source == "debian" and not DEBIAN_NAME.match(app_id):
+        return "A Debian package name: lowercase letters, numbers and + . - (for example vlc)"
+    if source == "flatpak" and (len(app_id) > 255 or not FLATPAK_ID.match(app_id)):
+        return "A Flathub app id has at least three parts (for example org.videolan.VLC)"
+    if blocking and source == "debian" and PROTECTED.match(app_id):
+        return "That's part of Kulan OS: it can't be blocked"
+    return None
+
+
+def policy_key_label(key: str) -> str:
+    """A policy status key as an admin reads it."""
+    m = re.match(r"^app:(install|block):(debian|flatpak):(.+)$", key)
+    if m:
+        return f"{'Install' if m[1] == 'install' else 'Block'} {m[3]}"
+    return POLICY_LABEL.get(key, key.replace("_", " "))
+
+
+def policy_summary(policy: dict) -> str:
+    parts = [POLICY_LABEL[k].lower() for k in ("auto_updates", "firewall", "require_encryption") if policy.get(k)]
+    if policy.get("screen_lock_minutes"):
+        parts.append(f"lock after {policy['screen_lock_minutes']} min")
+    if policy.get("usb"):
+        parts.append("USB: approved drives only" if policy["usb"] == "approved" else "USB blocked")
+    for key, word in (("required_apps", "required"), ("blocked_apps", "blocked")):
+        if policy.get(key):
+            parts.append(f"{len(policy[key])} app{'s' if len(policy[key]) != 1 else ''} {word}")
+    text = ", ".join(parts)
+    return text[:1].upper() + text[1:] if parts else "No policy of its own"
+
+
 def tag(text: str, kind: str) -> Gtk.Label:
     return Gtk.Label(label=text, css_classes=["fleet-tag", kind], valign=Gtk.Align.CENTER)
 
@@ -330,6 +379,7 @@ class FleetWindow(Adw.ApplicationWindow):
         self.session = session
         self.data: dict | None = sample
         self.org_id: str | None = None
+        self.org_groups: dict[str, list[dict]] = {}  # each organisation's groups, for the person dialogs
         self.toasts = Adw.ToastOverlay()
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.toasts.set_child(self.stack)
@@ -526,10 +576,22 @@ class FleetWindow(Adw.ApplicationWindow):
         return g
 
     def policy_group(self, org: dict) -> None:
-        policy = dict(org.get("policy") or {})
-        group = self.add_group("Policy", "Every computer in the organisation keeps to this, from its next report. "
-                                         "Encryption can't be switched on from afar: computers without it show "
-                                         "an alert.")
+        group = self.add_group("Policy", "Every computer in the organisation keeps to this, from its next report; "
+                                         "groups can add stricter rules. Encryption can't be switched on from afar: "
+                                         "computers without it show an alert.")
+
+        def save(new, done):
+            if self.sample_mode():
+                org["policy"] = new
+                done(new, None)
+                return
+            self.background(lambda: self.session.call({"op": "set-policy", "organisation_id": org["id"], "policy": new}),
+                            lambda r, error: done((r or {}).get("policy", new), error))
+        self.policy_editor(group, org.get("policy") or {}, save, lambda: self.render_org())
+
+    def policy_editor(self, group: Adw.PreferencesGroup, saved: dict, save, reset) -> None:
+        """The policy's rows in `group`; each change is saved with save(new, done(policy, error))."""
+        policy = dict(saved)
         rows = {}
         for key, subtitle in (("auto_updates", "Updates install by themselves, with a restore point first"),
                               ("firewall", "Block connections from outside")):
@@ -545,32 +607,129 @@ class FleetWindow(Adw.ApplicationWindow):
                             active=bool(policy.get("require_encryption")))
         group.add(enc)
         rows["require_encryption"] = enc
+        usb = Adw.ComboRow(title=POLICY_LABEL["usb"], model=Gtk.StringList.new([t for _v, t, _h in USB_CHOICES]),
+                           subtitle_lines=0)
+        usb.set_selected(next((i for i, (v, _t, _h) in enumerate(USB_CHOICES) if v == policy.get("usb")), 0))
+        usb.set_subtitle(USB_CHOICES[usb.get_selected()][2] + ". Keyboards, mice and other USB devices always work")
+        group.add(usb)
+        apps_rows = {}
+        for key, title in (("required_apps", "Required apps"), ("blocked_apps", "Blocked apps")):
+            row = Adw.ActionRow(title=title, activatable=True, subtitle_lines=2)
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            group.add(row)
+            apps_rows[key] = row
 
-        def changed(*_a) -> None:
+        def show_apps() -> None:
+            for key, row in apps_rows.items():
+                apps = policy.get(key) or []
+                row.set_subtitle(GLib.markup_escape_text(", ".join(a["id"] for a in apps[:6]) + (" …" if len(apps) > 6 else ""))
+                                 if apps else ("Installed on every computer, and kept installed" if key == "required_apps"
+                                               else "Removed from every computer, and kept off"))
+        show_apps()
+
+        def collect() -> dict:
             new = {key: True for key, row in rows.items() if row.get_active()}
             mins = SCREEN_LOCK[lock.get_selected()][0]
             if mins:
                 new["screen_lock_minutes"] = mins
-            if new == {k: v for k, v in policy.items() if v}:
-                return
-            if self.data and self.data.get("sample"):
-                org["policy"] = new
+            if USB_CHOICES[usb.get_selected()][0]:
+                new["usb"] = USB_CHOICES[usb.get_selected()][0]
+            for key in apps_rows:
+                if policy.get(key):
+                    new[key] = policy[key]
+            return new
+
+        def changed(*_a) -> None:
+            usb.set_subtitle(USB_CHOICES[usb.get_selected()][2] + ". Keyboards, mice and other USB devices always work")
+            new = collect()
+            if new == {k: v for k, v in saved.items() if v}:
                 return
 
             def done(result, error):
                 if error:
                     self.toast(error)
-                    self.render_org()  # back to what's saved
+                    reset()  # back to what's saved
                     return
-                org["policy"] = result.get("policy", new)
-                policy.clear()
-                policy.update(org["policy"])
+                saved.clear()
+                saved.update(result or new)
                 self.toast("Policy saved: computers apply it at their next report")
-            self.background(lambda: self.session.call({"op": "set-policy", "organisation_id": org["id"],
-                                                        "policy": new}), done)
+            save(new, done)
         for row in rows.values():
             row.connect("notify::active", changed)
         lock.connect("notify::selected", changed)
+        usb.connect("notify::selected", changed)
+
+        def edit_apps(key: str) -> None:
+            def chosen(apps: list[dict]) -> None:
+                if apps:
+                    policy[key] = apps
+                else:
+                    policy.pop(key, None)
+                show_apps()
+                changed()
+            self.apps_dialog(key, list(policy.get(key) or []), chosen)
+        for key, row in apps_rows.items():
+            row.connect("activated", lambda _r, k=key: edit_apps(k))
+
+    def apps_dialog(self, key: str, apps: list[dict], chosen) -> Adw.AlertDialog:
+        blocking = key == "blocked_apps"
+        dialog = Adw.AlertDialog(heading="Blocked apps" if blocking else "Required apps",
+                                 body="Removed from the computers and kept off. A Debian package is kept if removing it "
+                                      "would remove other packages too; parts of Kulan OS can't be blocked." if blocking
+                                 else "Installed on the computers from Debian or Flathub, and installed again if "
+                                      "someone removes it.")
+        listing = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        adding = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, margin_top=12)
+        source = Adw.ComboRow(title="From", model=Gtk.StringList.new([SOURCE_LABEL["debian"], SOURCE_LABEL["flatpak"]]))
+        entry = Adw.EntryRow(title="App to add (for example vlc, or org.videolan.VLC)", show_apply_button=True)
+        adding.append(source)
+        adding.append(entry)
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"], margin_top=6)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(listing)
+        outer.append(adding)
+        outer.append(note)
+        dialog.set_extra_child(outer)
+
+        def show() -> None:
+            while (child := listing.get_first_child()) is not None:
+                listing.remove(child)
+            if not apps:
+                listing.append(Adw.ActionRow(title="None yet"))
+            for a in apps:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(a["id"]), subtitle=SOURCE_LABEL[a["source"]])
+                remove = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove", valign=Gtk.Align.CENTER,
+                                    css_classes=["flat"])
+                remove.connect("clicked", lambda _b, app=a: (apps.remove(app), show()))
+                row.add_suffix(remove)
+                listing.append(row)
+        show()
+
+        def add(_e=None) -> None:
+            src = "flatpak" if source.get_selected() == 1 else "debian"
+            app_id = entry.get_text().strip()
+            problem = app_problem(src, app_id, blocking)
+            if not app_id or problem:
+                note.set_label(problem or "")
+                return
+            if not any(a["source"] == src and a["id"] == app_id for a in apps):
+                apps.append({"source": src, "id": app_id})
+            entry.set_text("")
+            note.set_label("")
+            show()
+        entry.connect("apply", add)
+        entry.connect("entry-activated", add)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+
+        def answered(_d, response):
+            if response == "save":
+                add()  # an app typed but not added yet
+                chosen(apps)
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
 
     def alerts_group(self, org: dict) -> None:
         alerts = [a for a in (self.data or {}).get("alerts", []) if a.get("organisation_id") == org["id"]]
@@ -621,8 +780,9 @@ class FleetWindow(Adw.ApplicationWindow):
         head.add(stats)
         self.alerts_group(org)
 
-        people = self.add_group("People", "The accounts on the organisation's computers: each person signs in with "
-                                          "their own name and password, on the computers you choose.")
+        people = self.add_group("People and groups", "The accounts on the organisation's computers: each person "
+                                "signs in with their own name and password, on the computers you choose.")
+        self.load_groups(org)
         row = Adw.ActionRow(title="People", subtitle="Add someone, change their role or computers, disable or remove "
                             "them", activatable=True)
         row.add_prefix(Gtk.Image(icon_name="system-users-symbolic"))
@@ -636,6 +796,18 @@ class FleetWindow(Adw.ApplicationWindow):
         row.add_prefix(Gtk.Image(icon_name="avatar-default-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_admins(org))
+        people.add(row)
+        row = Adw.ActionRow(title="Groups", subtitle="Computers and people together, with a policy of their own and "
+                            "requests for all of a group's computers at once", activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="view-grid-symbolic"))
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: self.open_groups(org))
+        people.add(row)
+        row = Adw.ActionRow(title="USB drives", subtitle="The drives that work where a policy allows approved drives "
+                            "only", activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: self.open_drives(org))
         people.add(row)
 
         group = self.add_group("Computers", "Reports arrive every hour. Select a computer for its details.")
@@ -733,7 +905,9 @@ class FleetWindow(Adw.ApplicationWindow):
             pol = Adw.PreferencesGroup(title="Policy")
             page.add(pol)
             for key, value in status.items():
-                row = Adw.ActionRow(title=POLICY_LABEL.get(key, key))
+                row = Adw.ActionRow(title=GLib.markup_escape_text(policy_key_label(key)), subtitle_lines=0,
+                                    subtitle=GLib.markup_escape_text(value[:1].upper() + value[1:])
+                                    if isinstance(value, str) and value not in ("met", "not met") else "")
                 row.add_suffix(tag("met" if value == "met" else "not met", "good" if value == "met" else "bad"))
                 pol.add(row)
         apps = Adw.PreferencesGroup()
@@ -754,6 +928,11 @@ class FleetWindow(Adw.ApplicationWindow):
                 row.add_prefix(Gtk.Image(icon_name=icon))
                 row.connect("activated", lambda _r, k=kind: self.send_action(d, k))
                 ask.add(row)
+            row = Adw.ActionRow(title="Install an app", subtitle="Once, from Debian or Flathub", activatable=True)
+            row.add_prefix(Gtk.Image(icon_name="list-add-symbolic"))
+            row.connect("activated", lambda _r: self.install_app_dialog(d.get("hostname") or "this computer",
+                                                                         {"op": "action", "device_id": d["id"]}))
+            ask.add(row)
             st = d.get("state") or {}
             lost = Adw.PreferencesGroup(title="If it’s lost or stolen")
             page.add(lost)
@@ -978,6 +1157,371 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog.present(self)
         return dialog
 
+    def install_app_dialog(self, where: str, body: dict) -> Adw.AlertDialog:
+        """Ask for an app to install once; body is the action's call without type and payload."""
+        dialog = Adw.AlertDialog(heading=f"Install an app on {where}",
+                                 body="Installed at the next report, once. To keep it installed, add it to a policy's "
+                                      "required apps instead.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        source = Adw.ComboRow(title="From", model=Gtk.StringList.new([SOURCE_LABEL["debian"], SOURCE_LABEL["flatpak"]]))
+        entry = Adw.EntryRow(title="App (for example vlc, or org.videolan.VLC)")
+        box.append(source)
+        box.append(entry)
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"], margin_top=6)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(box)
+        outer.append(note)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("install", "Install")
+        dialog.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("install", False)
+
+        def app() -> dict:
+            return {"source": "flatpak" if source.get_selected() == 1 else "debian", "id": entry.get_text().strip()}
+
+        def check(*_a) -> None:
+            a = app()
+            problem = app_problem(a["source"], a["id"], False) if a["id"] else None
+            note.set_label(problem or "")
+            dialog.set_response_enabled("install", bool(a["id"]) and problem is None)
+        entry.connect("changed", check)
+        source.connect("notify::selected", check)
+
+        def answered(_d, response):
+            a = app()
+            if response != "install" or app_problem(a["source"], a["id"], False):
+                return
+
+            def done(r, error):
+                if error:
+                    self.toast(error)
+                    return
+                count = (r or {}).get("count")
+                self.toast(f"{a['id']} will be installed on {where}" + (f" ({count} computers)" if count else ""))
+                if not self.sample_mode():
+                    self.reload()
+            self.call({**body, "type": "install-app", "payload": a}, done, {"count": 1})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    # --- Groups and USB drives -----------------------------------------------------------------
+    def load_groups(self, org: dict, then=None) -> None:
+        """The organisation's groups, kept for the person dialogs (and `then` once loaded)."""
+        def done(result, error):
+            if not error:
+                self.org_groups[org["id"]] = (result or {}).get("groups") or []
+            if then:
+                then(self.org_groups.get(org["id"]), error)
+        self.call({"op": "groups", "organisation_id": org["id"]}, done,
+                  lambda: {"groups": (self.data or {}).get("sample_groups", [])})
+
+    def open_groups(self, org: dict) -> None:
+        if self.nav.find_page("groups") is not None:
+            self.nav.pop_to_tag("org")
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add a group")
+        add.connect("clicked", lambda _b: self.add_group_dialog(org))
+        header.pack_start(add)
+        view.add_top_bar(header)
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title="Groups", child=view, tag="groups"))
+        group = Adw.PreferencesGroup(title=f"Groups in {org['name']}", description="Loading…")
+        page.add(group)
+        names = {d["id"]: d.get("hostname") or "" for d in self.org_computers(org)}
+
+        def done(groups, error):
+            if error:
+                group.set_description(error)
+                return
+            group.set_description("A computer keeps to the organisation's policy and to every group it's in: the "
+                                  "stricter rule wins." if groups else
+                                  "No groups yet. Add one with the + button, for example Office or Finance.")
+            for g in groups or []:
+                n = len([i for i in g.get("devices") or [] if i in names])
+                row = Adw.ActionRow(title=GLib.markup_escape_text(g["name"]), activatable=True, subtitle_lines=2,
+                                    subtitle=GLib.markup_escape_text(f"{n} computer{'s' if n != 1 else ''} · "
+                                                                     f"{policy_summary(g.get('policy') or {})}"))
+                row.add_prefix(Gtk.Image(icon_name="view-grid-symbolic"))
+                row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+                row.connect("activated", lambda _r, gr=g: self.open_group(org, gr))
+                group.add(row)
+        self.load_groups(org, done)
+
+    def add_group_dialog(self, org: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Add a group", body="Then choose its computers and its policy.")
+        entry = Adw.EntryRow(title="Name")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("add", False)
+        entry.connect("changed", lambda e: dialog.set_response_enabled("add", 0 < len(e.get_text().strip()) <= 60))
+
+        def answered(_d, response):
+            name = " ".join(entry.get_text().split())
+            if response != "add" or not name:
+                return
+
+            def done(r, error):
+                if error:
+                    self.toast(error)
+                    return
+                g = {"id": (r or {}).get("id"), "name": name, "policy": {}, "devices": [], "people": []}
+                if self.sample_mode():
+                    self.data.setdefault("sample_groups", []).append(g)
+                self.open_groups(org)
+                self.open_group(org, g)
+            self.call({"op": "add-group", "organisation_id": org["id"], "name": name}, done, {"id": f"g{name}"})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def open_group(self, org: dict, g: dict) -> None:
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title=g["name"], child=view))
+        info = Adw.PreferencesGroup(title=g["name"])
+        page.add(info)
+        rename = Adw.ActionRow(title="Name", subtitle=GLib.markup_escape_text(g["name"]), activatable=True)
+        rename.add_suffix(Gtk.Image(icon_name="document-edit-symbolic"))
+        rename.connect("activated", lambda _r: self.rename_group(org, g))
+        info.add(rename)
+
+        pol = Adw.PreferencesGroup(title="Policy", description="On top of the organisation's: where the two differ, "
+                                                               "the stricter rule wins.")
+        page.add(pol)
+
+        def save(new, done):
+            if self.sample_mode():
+                g["policy"] = new
+                done(new, None)
+                return
+            self.call({"op": "edit-group", "group_id": g["id"], "policy": new},
+                      lambda _r, error: (g.__setitem__("policy", new) if not error else None, done(new, error)))
+
+        def reset():
+            self.nav.pop()
+            self.open_group(org, g)
+        self.policy_editor(pol, g.setdefault("policy", {}), save, reset)
+
+        computers = Adw.PreferencesGroup(title="Computers", description="Saved when you press Save; each computer "
+                                         "takes the group's policy at its next report.")
+        page.add(computers)
+        checks = []
+        for d in self.org_computers(org):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(d.get("hostname") or "(no name)"))
+            check = Gtk.CheckButton(active=d["id"] in (g.get("devices") or []), valign=Gtk.Align.CENTER)
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            checks.append((d["id"], check))
+            computers.add(row)
+        if not checks:
+            computers.add(Adw.ActionRow(title="No computers yet"))
+        else:
+            save_button = Gtk.Button(label="Save", css_classes=["suggested-action"], halign=Gtk.Align.END, margin_top=12)
+
+            def save_computers(_b):
+                chosen = [i for i, c in checks if c.get_active()]
+
+                def done(_r, error):
+                    if error:
+                        self.toast(error)
+                        return
+                    g["devices"] = chosen
+                    self.toast(f"{g['name']}: {len(chosen)} computer{'s' if len(chosen) != 1 else ''}")
+                self.call({"op": "edit-group", "group_id": g["id"], "devices": chosen}, done)
+            save_button.connect("clicked", save_computers)
+            computers.add(save_button)
+
+        ask = Adw.PreferencesGroup(title="Ask all its computers to", description="Each does it at its next report.")
+        page.add(ask)
+        for kind, label, icon in GROUP_ACTIONS:
+            row = Adw.ActionRow(title=label, activatable=True)
+            row.add_prefix(Gtk.Image(icon_name=icon))
+            row.connect("activated", lambda _r, k=kind: self.group_action(g, k))
+            ask.add(row)
+        row = Adw.ActionRow(title="Install an app", subtitle="Once, from Debian or Flathub", activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="list-add-symbolic"))
+        row.connect("activated", lambda _r: self.install_app_dialog(f"{g['name']}'s computers",
+                                                                     {"op": "group-action", "group_id": g["id"]}))
+        ask.add(row)
+
+        danger = Adw.PreferencesGroup()
+        page.add(danger)
+        remove = Adw.ActionRow(title="Remove this group", subtitle="Its computers keep to the organisation's policy "
+                               "and any other groups'; people who could use them only through it lose access",
+                               activatable=True, subtitle_lines=0, css_classes=["error"])
+        remove.add_prefix(Gtk.Image(icon_name="user-trash-symbolic"))
+        remove.connect("activated", lambda _r: self.remove_group(org, g))
+        danger.add(remove)
+
+    def group_action(self, g: dict, kind: str) -> Adw.AlertDialog | None:
+        def go() -> None:
+            self.call({"op": "group-action", "group_id": g["id"], "type": kind},
+                      lambda r, error: self.toast(error) if error else
+                      self.toast(f"Asked {(r or {}).get('count', 0)} computers in {g['name']} to {ACTION_LABEL[kind].lower()}"),
+                      {"count": len(g.get("devices") or [])})
+        if kind not in ("restart", "shutdown", "install-updates"):
+            go()
+            return None
+        dialog = Adw.AlertDialog(heading=f"{ACTION_LABEL[kind]} on every computer in {g['name']}?",
+                                 body="Whoever is using them gets five minutes' notice." if kind != "install-updates"
+                                 else "Updates install in the background; a restart may follow.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", ACTION_LABEL[kind])
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED if kind == "install-updates"
+                                       else Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", lambda _d, r: r == "go" and go())
+        dialog.present(self)
+        return dialog
+
+    def rename_group(self, org: dict, g: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Rename the group")
+        entry = Adw.EntryRow(title="Name", text=g["name"])
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+
+        def answered(_d, response):
+            name = " ".join(entry.get_text().split())[:60]
+            if response != "save" or not name or name == g["name"]:
+                return
+
+            def done(_r, error):
+                if error:
+                    self.toast(error)
+                    return
+                g["name"] = name
+                self.open_groups(org)
+                self.open_group(org, g)
+            self.call({"op": "edit-group", "group_id": g["id"], "name": name}, done)
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def remove_group(self, org: dict, g: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=f"Remove {g['name']}?",
+                                 body="Its computers stop keeping to its policy at their next report (USB drives "
+                                      "work again unless another policy says otherwise; apps stay as they are). "
+                                      "To confirm, type the group's name.")
+        entry = Adw.EntryRow(title=f"Type {g['name']}")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_enabled("remove", False)
+        dialog.set_default_response("cancel")
+        entry.connect("changed", lambda e: dialog.set_response_enabled("remove", e.get_text().strip() == g["name"]))
+
+        def answered(_d, response):
+            if response != "remove" or entry.get_text().strip() != g["name"]:
+                return
+
+            def done(_r, error):
+                if error:
+                    self.toast(error)
+                    return
+                if self.sample_mode():
+                    self.data["sample_groups"] = [x for x in self.data.get("sample_groups", []) if x is not g]
+                self.toast(f"{g['name']} removed")
+                self.open_groups(org)
+            self.call({"op": "remove-group", "group_id": g["id"], "confirm": g["name"]}, done)
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def open_drives(self, org: dict) -> None:
+        if self.nav.find_page("drives") is not None:
+            self.nav.pop_to_tag("org")
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title="USB drives", child=view, tag="drives"))
+        approved = Adw.PreferencesGroup(title="Approved drives", description="Loading…")
+        seen = Adw.PreferencesGroup(title="Seen on computers", description="Drives plugged into computers where a "
+                                    "policy controls USB drives. Approve one to let it work where only approved "
+                                    "drives do.")
+        page.add(approved)
+        page.add(seen)
+
+        def done(result, error):
+            if error:
+                approved.set_description(error)
+                return
+            result = result or {}
+            approved.set_description("They work on computers whose policy allows approved drives only (not where "
+                                     "USB drives are blocked)." if result.get("approved") else
+                                     "None yet. Plug the drive into a computer whose policy controls USB drives, then "
+                                     "approve it below.")
+            for a in result.get("approved") or []:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("name") or "Drive"),
+                                    subtitle=GLib.markup_escape_text(f"{a.get('vendor_id')}:{a.get('product_id')} · "
+                                                                     f"serial {a.get('serial')} · added by "
+                                                                     f"{a.get('created_by') or ''}"))
+                row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
+                remove = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER)
+                remove.connect("clicked", lambda _b, dr=a: self.call(
+                    {"op": "remove-drive", "drive_id": dr.get("id")},
+                    lambda _r, err: self.toast(err) if err else (self.toast(f"{dr.get('name')} no longer approved"),
+                                                                  self.open_drives(org))))
+                row.add_suffix(remove)
+                approved.add(row)
+            if not result.get("seen"):
+                seen.add(Adw.ActionRow(title="None seen yet"))
+            for d in result.get("seen") or []:
+                where = ", ".join(d.get("computers") or [])
+                row = Adw.ActionRow(title=GLib.markup_escape_text(d.get("name") or "USB drive"),
+                                    subtitle=GLib.markup_escape_text(f"{d.get('vendor_id')}:{d.get('product_id')} · "
+                                                                     f"serial {d.get('serial')} · on {where}"))
+                row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
+                ok = Gtk.Button(label="Approve", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+                ok.connect("clicked", lambda _b, dr=d: self.approve_drive(org, dr))
+                row.add_suffix(ok)
+                seen.add(row)
+        self.call({"op": "drives", "organisation_id": org["id"]}, done,
+                  lambda: (self.data or {}).get("sample_drives", {}))
+
+    def approve_drive(self, org: dict, d: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Approve this drive",
+                                 body="It works on computers whose policy allows approved drives only. Only this "
+                                      "drive: another of the same model has its own serial number.")
+        entry = Adw.EntryRow(title="A name you'll recognise (for example Finance backup drive)",
+                             text=(d.get("name") or "")[:80])
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("approve", "Approve")
+        dialog.set_response_appearance("approve", Adw.ResponseAppearance.SUGGESTED)
+        entry.connect("changed", lambda e: dialog.set_response_enabled("approve", bool(e.get_text().strip())))
+        dialog.set_response_enabled("approve", bool(entry.get_text().strip()))
+
+        def answered(_d, response):
+            name = entry.get_text().strip()[:80]
+            if response != "approve" or not name:
+                return
+            self.call({"op": "approve-drive", "organisation_id": org["id"], "name": name,
+                       "vendor_id": d.get("vendor_id"), "product_id": d.get("product_id"), "serial": d.get("serial")},
+                      lambda _r, error: self.toast(error) if error else
+                      (self.toast(f"{name} approved: it works from each computer's next report"), self.open_drives(org)))
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
     # --- People ---------------------------------------------------------------------------------
     def sample_mode(self) -> bool:
         return bool(self.data and self.data.get("sample"))
@@ -992,13 +1536,21 @@ class FleetWindow(Adw.ApplicationWindow):
     def org_computers(self, org: dict) -> list[dict]:
         return [d for d in (self.data or {}).get("devices", []) if d["organisation_id"] == org["id"] and not d.get("left_at")]
 
-    def computer_picker(self, org: dict, all_on: bool, chosen: list[str]):
-        """All the organisation's computers, or chosen ones: (rows to add to a list, a function giving
-        (all_computers, [device ids]))."""
+    def computer_picker(self, org: dict, all_on: bool, chosen: list[str], chosen_groups: list[str] | None = None):
+        """All the organisation's computers, or chosen ones and groups' (now and later): (rows to add to a
+        list, a function giving (all_computers, [device ids], [group ids]))."""
         everything = Adw.SwitchRow(title="All the organisation's computers",
                                    subtitle="Including computers that join later", active=all_on)
-        checks = []
+        checks, group_checks = [], []
         rows = [everything]
+        for g in self.org_groups.get(org["id"]) or []:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f"Every computer in {g['name']}"),
+                                subtitle="Including computers added to it later", visible=not all_on)
+            check = Gtk.CheckButton(active=g["id"] in (chosen_groups or []), valign=Gtk.Align.CENTER)
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            group_checks.append((g["id"], check))
+            rows.append(row)
         for d in self.org_computers(org):
             row = Adw.ActionRow(title=GLib.markup_escape_text(d.get("hostname") or "(no name)"), visible=not all_on)
             check = Gtk.CheckButton(active=d["id"] in chosen, valign=Gtk.Align.CENTER)
@@ -1007,7 +1559,8 @@ class FleetWindow(Adw.ApplicationWindow):
             checks.append((d["id"], check))
             rows.append(row)
         everything.connect("notify::active", lambda sw, _p: [r.set_visible(not sw.get_active()) for r in rows[1:]])
-        return rows, lambda: (everything.get_active(), [i for i, c in checks if c.get_active()])
+        return rows, lambda: (everything.get_active(), [i for i, c in checks if c.get_active()],
+                              [i for i, c in group_checks if c.get_active()])
 
     def open_people(self, org: dict) -> None:
         if self.nav.find_page("people") is not None:
@@ -1100,8 +1653,11 @@ class FleetWindow(Adw.ApplicationWindow):
                             sensitive=is_owner)
         role.connect("notify::selected", lambda r, _p: self.change_role(org, person, roles[r.get_selected()], r))
         change.add(role)
+        n_groups = len(person.get("groups") or [])
         row = Adw.ActionRow(title="Computers", subtitle="All" if person.get("all_computers") else
-                            f"{len(person.get('computers') or [])} chosen", activatable=True)
+                            f"{len(person.get('computers') or [])} chosen" +
+                            (f", and every computer in {n_groups} group{'s' if n_groups != 1 else ''}" if n_groups else ""),
+                            activatable=True)
         row.add_prefix(Gtk.Image(icon_name="computer-symbolic"))
         row.connect("activated", lambda _r: self.edit_person_computers(org, person))
         change.add(row)
@@ -1179,12 +1735,12 @@ class FleetWindow(Adw.ApplicationWindow):
         def answered(_d, response):
             if response != "add" or username_problem(user.get_text()):
                 return
-            all_computers, computers = picked()
+            all_computers, computers, groups = picked()
             display = full.get_text().strip() or user.get_text()
             code = setup_code()
             body = {"op": "add-person", "organisation_id": org["id"], "username": user.get_text(),
                     "full_name": full.get_text().strip(), "role": roles[role.get_selected()],
-                    "all_computers": all_computers, "computers": computers}
+                    "all_computers": all_computers, "computers": computers, "groups": groups}
             if email.get_text().strip():
                 body["email"] = email.get_text().strip()
 
@@ -1260,7 +1816,8 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog = Adw.AlertDialog(heading=f"Where {person['username']} can sign in",
                                  body="Taken off a computer, their account there is removed and their files kept.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        rows, picked = self.computer_picker(org, bool(person.get("all_computers")), person.get("computers") or [])
+        rows, picked = self.computer_picker(org, bool(person.get("all_computers")), person.get("computers") or [],
+                                            person.get("groups") or [])
         for r in rows:
             box.append(r)
         dialog.set_extra_child(box)
@@ -1271,9 +1828,9 @@ class FleetWindow(Adw.ApplicationWindow):
         def answered(_d, response):
             if response != "save":
                 return
-            all_computers, computers = picked()
+            all_computers, computers, groups = picked()
             self.call({"op": "edit-person", "person_id": person["id"], "all_computers": all_computers,
-                       "computers": computers},
+                       "computers": computers, "groups": groups},
                       lambda _r, error: self.toast(error) if error else self.after_people_change(org, "Saved"))
         dialog.connect("response", answered)
         dialog.present(self)
@@ -1495,7 +2052,10 @@ def sample() -> dict:
                          "hardware": {"vendor": "Lenovo", "model": "ThinkPad T14", "memory_mb": 16384,
                                       "disk_total_gb": 512, "disk_free_gb": 301},
                          "state": {"encrypted": True, "firewall": True, "auto_updates": True, "erase_allowed": True},
-                         "policy_status": {"auto_updates": "met", "screen_lock_minutes": "met", "require_encryption": "met"},
+                         "policy_status": {"auto_updates": "met", "screen_lock_minutes": "met", "require_encryption": "met",
+                                           "usb": "met", "app:install:flatpak:org.libreoffice.LibreOffice": "met",
+                                           "app:block:debian:steam": "kept: removing it would also remove 2 other "
+                                                                     "package(s) (steam-libs, steam-devices)"},
                          "app_count": 2, "apps_at": iso(3600)},
                         {"id": "d2", "organisation_id": org, "hostname": "kca-desk-02", "kulan_version": "2.4",
                          "last_seen": iso(5 * 3600), "updates": {"waiting": 6, "security": 2}, "tpm": {"on": False},
@@ -1518,17 +2078,26 @@ def sample() -> dict:
             "sample_people": [
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
                  "uid": 70000, "role": "employee", "enabled": True, "must_change": True, "all_computers": True,
-                 "computers": [], "created_at": iso(7200), "created_by": "admin@kulan.example",
+                 "computers": [], "groups": [], "created_at": iso(7200), "created_by": "admin@kulan.example",
                  "on": [{"device_id": "d1", "hostname": "kca-laptop-01", "status": "created"},
                         {"device_id": "d2", "hostname": "kca-desk-02", "status": "not yet"}]},
                 {"id": "p2", "username": "omar", "full_name": "Omar Ali", "email": None, "uid": 70001, "role": "admin",
-                 "enabled": False, "must_change": False, "all_computers": False, "computers": ["d1"],
+                 "enabled": False, "must_change": False, "all_computers": False, "computers": ["d1"], "groups": ["g1"],
                  "created_at": iso(86400 * 3), "created_by": "admin@kulan.example",
                  "on": [{"device_id": "d1", "hostname": "kca-laptop-01",
                          "status": "conflict: this computer already has an account with that name"}]}],
             "sample_admins": {"owner": "admin@kulan.example", "is_owner": True,
                               "admins": [{"email": "admin@kulan.example", "created_at": iso(86400 * 9)},
                                          {"email": "helper@kulan.example", "created_at": iso(86400)}]},
+            "sample_groups": [{"id": "g1", "name": "Finance", "devices": ["d1"], "people": ["p1"],
+                               "policy": {"usb": "approved", "firewall": True,
+                                          "required_apps": [{"source": "flatpak", "id": "org.libreoffice.LibreOffice"}],
+                                          "blocked_apps": [{"source": "debian", "id": "steam"}]}},
+                              {"id": "g2", "name": "Reception", "devices": [], "people": [], "policy": {}}],
+            "sample_drives": {"approved": [{"id": "u1", "name": "Finance backup drive", "vendor_id": "0781",
+                                            "product_id": "5583", "serial": "4C530001", "created_by": "admin@kulan.example"}],
+                              "seen": [{"vendor_id": "0951", "product_id": "1666", "serial": "ABCD1234",
+                                        "name": "Kingston DataTraveler", "computers": ["kca-laptop-01"]}]},
             "sample_report": {"compliance": {"passed": 1, "total": 2, "baseline": "Kulan OS baseline 1",
                                              "controls": controls}}}
 
@@ -1584,6 +2153,31 @@ class FleetApp(Adw.Application):
                     win.show_recovery_code("Kulan", "ABCDE-FGHJK-LMNPQ-RSTUV").force_close()
                     win.new_org().force_close()
                     win.nav.pop_to_tag("org")
+                    # Groups, policies, USB drives, installing an app.
+                    win.open_groups(org)
+                    for g in list(win.data["sample_groups"]):
+                        win.open_group(org, g)
+                        for dialog in (win.rename_group(org, g), win.remove_group(org, g),
+                                       win.group_action(g, "restart"),
+                                       win.install_app_dialog(g["name"], {"op": "group-action", "group_id": g["id"]}),
+                                       win.apps_dialog("blocked_apps", list(g["policy"].get("blocked_apps", [])), lambda _a: None),
+                                       win.apps_dialog("required_apps", [], lambda _a: None)):
+                            dialog.force_close()
+                        win.nav.pop()
+                    win.add_group_dialog(org).force_close()
+                    win.open_drives(org)
+                    win.approve_drive(org, win.data["sample_drives"]["seen"][0]).force_close()
+                    win.install_app_dialog("kca-laptop-01", {"op": "action", "device_id": "d1"}).force_close()
+                    win.nav.pop_to_tag("org")
+                    assert app_problem("debian", "kulan-base", True) and app_problem("debian", "vlc", True) is None
+                    assert app_problem("flatpak", "vlc", False) and app_problem("flatpak", "org.videolan.VLC", False) is None
+                    assert app_problem("debian", "Bad Name", False)
+                    assert policy_key_label("app:block:debian:steam") == "Block steam" and policy_key_label("usb") == "USB drives"
+                    summary = policy_summary({"firewall": True, "usb": "approved", "required_apps": [{"source": "debian", "id": "x"}]})
+                    assert summary == "Firewall, USB: approved drives only, 1 app required", summary
+                    assert policy_summary({}) == "No policy of its own"
+                    rows, picked = win.computer_picker(org, False, ["d1"], ["g1"])
+                    assert picked() == (False, ["d1"], ["g1"]), picked()
                     # Setup codes: 12 of the 32 clear characters; the hash is one the computers take,
                     # and it really is the code's (checked with openssl for SHA-512 crypt).
                     code = setup_code()

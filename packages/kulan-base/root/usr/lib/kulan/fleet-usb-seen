@@ -1,0 +1,30 @@
+#!/usr/bin/python3 -I
+"""Note a USB drive Kulan Fleet's policy turned off (run by its udev rule,
+with the interface's DEVPATH): its maker, model, serial and name go in
+/var/lib/kulan/fleet-usb-seen.json, root only, for the next report, so an
+admin can approve it. Nothing about what's on the drive. Quick, and never
+fails the rule."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, "/usr/share/kulan-fleet")
+try:
+    from pathlib import Path
+
+    import fleetpolicy
+
+    devpath = os.environ.get("DEVPATH", "")
+    if devpath and ".." not in devpath:
+        dev = Path("/sys" + devpath).resolve().parent
+
+        def attr(name: str) -> str:
+            try:
+                return (dev / name).read_text().strip()
+            except OSError:
+                return ""
+        fleetpolicy.note_seen({"vendor_id": attr("idVendor").lower(), "product_id": attr("idProduct").lower(),
+                               "serial": attr("serial"),
+                               "name": " ".join(x for x in (attr("manufacturer"), attr("product")) if x)[:80]})
+except Exception:  # noqa: BLE001 - a udev helper must never get in the way
+    pass

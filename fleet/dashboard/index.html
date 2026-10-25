@@ -165,15 +165,29 @@ h4 { margin: 14px 0 6px; }
 
     <div class="card">
       <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Policy</h3>
-      <p class="sub">Every computer keeps to this from its next report. Encryption can't be switched on from afar: computers without it show an alert.</p>
-      <div class="row" id="policy">
-        <label><input type="checkbox" id="p-auto"> Automatic updates</label>
-        <label><input type="checkbox" id="p-firewall"> Firewall</label>
-        <label><input type="checkbox" id="p-encryption"> Require disk encryption</label>
-        <label class="small" for="p-lock">Screen lock</label>
-        <select id="p-lock"><option value="0">Not set</option><option value="2">After 2 minutes</option><option value="5">After 5 minutes</option><option value="10">After 10 minutes</option><option value="15">After 15 minutes</option><option value="30">After 30 minutes</option></select>
-        <button id="p-save">Save policy</button>
+      <p class="sub">Every computer keeps to this from its next report; groups can add stricter rules. Encryption can't be switched on from afar: computers without it show an alert.</p>
+      <div id="policy"></div>
+      <div class="row" style="margin-top: 10px"><button id="p-save" class="primary">Save policy</button></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="margin-bottom: 8px">
+        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Groups</h3>
+        <button id="add-group" style="margin-left: auto">Add a group…</button>
       </div>
+      <p class="sub">Computers and people together, with a policy of their own: a computer keeps to the organisation's policy and to every group it's in, and the stricter rule wins.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Group</th><th>Computers</th><th>Policy</th><th></th></tr></thead>
+          <tbody id="groups"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">USB drives</h3>
+      <p class="sub">Approved drives work where a policy allows approved drives only (not where USB drives are blocked). Drives plugged into computers whose policy controls USB drives show here, to approve.</p>
+      <ul id="drives" class="alerts"></ul>
     </div>
 
     <div class="card">
@@ -243,7 +257,19 @@ const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates
                  ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
                  ["restart", "Restart (5 min notice)"], ["shutdown", "Switch off (5 min notice)"]];
 const LABEL = { ...Object.fromEntries(ACTIONS), erase: "Erase", "lost-mode-on": "Turn on lost mode",
-                "lost-mode-off": "Release from lost mode" };
+                "lost-mode-off": "Release from lost mode", "install-app": "Install an app" };
+const GROUP_ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"], ["lock-screen", "Lock the screen"],
+                       ["restart", "Restart (5 min notice)"], ["shutdown", "Switch off (5 min notice)"],
+                       ["install-app", "Install an app…"]];
+const SCREEN_LOCK = [[0, "Not set"], [2, "After 2 minutes"], [5, "After 5 minutes"], [10, "After 10 minutes"],
+                     [15, "After 15 minutes"], [30, "After 30 minutes"]];
+const USB = [["", "Any USB drive works"], ["approved", "Approved drives only"], ["block", "Blocked: no USB drive works"]];
+const SOURCE = { debian: "Debian package", flatpak: "Flathub app" };
+const DEBIAN_NAME = /^[a-z0-9][a-z0-9+.-]{1,62}$/;
+const FLATPAK_ID = /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}$/;
+// Never blocked (the server refuses these too): Kulan OS and what it can't run without.
+const PROTECTED = /^(kulan|linux-|systemd|gnome-shell|gnome-session|gdm3|mutter|apt|dpkg|libc6|bash|coreutils|sudo|login|passwd|network-manager|flatpak|gnome-software|packagekit|firmware-|grub|shim|plymouth|xdg-|dbus|polkitd|udev|init)/;
+let groups = [];
 const ROLE = { owner: "Owner", admin: "Admin", employee: "Employee" };
 const ROLE_HELP = { employee: "A standard account", admin: "Administrator rights on the computers",
                     owner: "The Owner's own account (administrator rights)" };
@@ -306,6 +332,7 @@ async function load() {
   select.replaceChildren(...data.organisations.map((o) => el("option", { value: o.id }, o.name)));
   if (keep && data.organisations.some((o) => o.id === keep)) select.value = keep;
   render();
+  await loadGroups();  // before people: their dialogs offer the groups
   await loadPeople();
 }
 
@@ -336,7 +363,7 @@ function renderPeople() {
       el("td", {}, el("div", { class: "name" }, el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openPerson(p); } }, p.full_name || p.username)),
          el("div", { class: "small" }, p.email || "")),
       el("td", {}, p.username), el("td", {}, ROLE[p.role] || p.role), el("td", {}, signInTag(p)),
-      el("td", { class: "hide-sm" }, p.all_computers ? "all" : `${n} chosen`),
+      el("td", { class: "hide-sm" }, p.all_computers ? "all" : `${n} chosen${p.groups?.length ? ` (${p.groups.length} group${p.groups.length === 1 ? "" : "s"})` : ""}`),
       el("td", {}, el("button", { onclick: () => openPerson(p) }, "Manage…")));
   });
   $("people").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "6", class: "empty" },
@@ -376,7 +403,192 @@ const closeButton = (label = "Cancel") => el("button", { type: "button", onclick
 const field = (label, input) => el("label", { class: "field" }, el("span", {}, label), input);
 const errorLine = () => el("p", { class: "small error", role: "status" });
 
-function computerPicker(allOn, chosen) {
+function appProblem(source, id, blocking) {
+  if (source === "debian" && !DEBIAN_NAME.test(id)) return "A Debian package name: lowercase letters, numbers and + . - (for example vlc)";
+  if (source === "flatpak" && (id.length > 255 || !FLATPAK_ID.test(id))) return "A Flathub app id has at least three parts (for example org.videolan.VLC)";
+  if (blocking && source === "debian" && PROTECTED.test(id)) return "That's part of Kulan OS: it can't be blocked";
+  return null;
+}
+
+function policySummary(p) {
+  const parts = [["auto_updates", "automatic updates"], ["firewall", "firewall"], ["require_encryption", "disk encryption"]]
+    .filter(([k]) => p[k]).map(([, t]) => t);
+  if (p.screen_lock_minutes) parts.push(`lock after ${p.screen_lock_minutes} min`);
+  if (p.usb) parts.push(p.usb === "approved" ? "USB: approved drives only" : "USB blocked");
+  if (p.required_apps?.length) parts.push(`${p.required_apps.length} app${p.required_apps.length === 1 ? "" : "s"} required`);
+  if (p.blocked_apps?.length) parts.push(`${p.blocked_apps.length} app${p.blocked_apps.length === 1 ? "" : "s"} blocked`);
+  const text = parts.join(", ");
+  return text ? text[0].toUpperCase() + text.slice(1) : "No policy of its own";
+}
+
+// A list of apps to add to and remove from: {node, value()}.
+function appList(title, apps, blocking) {
+  let list = (apps || []).map((a) => ({ ...a }));
+  const items = el("ul", { class: "alerts" });
+  const source = el("select", { "aria-label": `${title}: from` }, el("option", { value: "debian" }, SOURCE.debian), el("option", { value: "flatpak" }, SOURCE.flatpak));
+  const input = el("input", { placeholder: "vlc, or org.videolan.VLC", "aria-label": `${title}: app`, autocomplete: "off", spellcheck: "false" });
+  const err = el("span", { class: "small error" });
+  const show = () => items.replaceChildren(...(list.length ? list.map((a) => el("li", {}, el("b", {}, a.id), ` · ${SOURCE[a.source]} `,
+    el("button", { type: "button", onclick: () => { list = list.filter((x) => x !== a); show(); } }, "Remove")))
+    : [el("li", { class: "small" }, "None")]));
+  const add = () => {
+    const id = input.value.trim();
+    if (!id) return true;
+    const problem = appProblem(source.value, id, blocking);
+    err.textContent = problem || "";
+    if (problem) return false;
+    if (!list.some((a) => a.source === source.value && a.id === id)) list.push({ source: source.value, id });
+    input.value = "";
+    show();
+    return true;
+  };
+  input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); add(); } });
+  show();
+  return { node: el("div", {}, el("h4", {}, title), el("p", { class: "note" }, blocking
+             ? "Removed from the computers and kept off. A Debian package is kept if removing it would remove other packages too."
+             : "Installed from Debian or Flathub, and installed again if someone removes it."),
+           items, el("div", { class: "row" }, source, input, el("button", { type: "button", onclick: add }, "Add"), err)),
+           value: () => (add() ? list : null) };
+}
+
+// The policy's fields: {node, value()} (value() is null while an app typed in isn't valid).
+function policyForm(p) {
+  const box = (key, label) => { const b = el("input", { type: "checkbox" }); b.checked = !!p[key]; return [key, b, el("label", {}, b, ` ${label}`)]; };
+  const boxes = [box("auto_updates", "Automatic updates"), box("firewall", "Firewall"), box("require_encryption", "Require disk encryption")];
+  const lock = el("select", { "aria-label": "Screen lock" }, ...SCREEN_LOCK.map(([m, t]) => el("option", { value: String(m) }, t)));
+  lock.value = String(p.screen_lock_minutes || 0);
+  const usb = el("select", { "aria-label": "USB drives" }, ...USB.map(([v, t]) => el("option", { value: v }, t)));
+  usb.value = p.usb || "";
+  const required = appList("Required apps", p.required_apps, false);
+  const blocked = appList("Blocked apps", p.blocked_apps, true);
+  return {
+    node: el("div", {}, el("div", { class: "row" }, ...boxes.map(([, , l]) => l),
+                           el("label", { class: "small" }, "Screen lock ", lock), el("label", { class: "small" }, "USB drives ", usb)),
+             el("p", { class: "note" }, "Keyboards, mice and other USB devices always work."), required.node, blocked.node),
+    value: () => {
+      const req = required.value(), blk = blocked.value();
+      if (req === null || blk === null) return null;
+      const out = Object.fromEntries(boxes.filter(([, b]) => b.checked).map(([k]) => [k, true]));
+      if (Number(lock.value)) out.screen_lock_minutes = Number(lock.value);
+      if (usb.value) out.usb = usb.value;
+      if (req.length) out.required_apps = req;
+      if (blk.length) out.blocked_apps = blk;
+      return out;
+    },
+  };
+}
+let orgPolicy = null;
+
+function askInstallApp(where, body) {
+  const source = el("select", {}, el("option", { value: "debian" }, SOURCE.debian), el("option", { value: "flatpak" }, SOURCE.flatpak));
+  const input = el("input", { placeholder: "vlc, or org.videolan.VLC", autocomplete: "off", spellcheck: "false" });
+  const err = errorLine();
+  dialog(`Install an app on ${where}`, [
+    el("p", { class: "note" }, "Installed at the next report, once. To keep it installed, add it to a policy's required apps instead."),
+    field("From", source), field("App", input), err],
+    [closeButton(), el("button", { type: "button", class: "primary", onclick: async () => {
+      const app = { source: source.value, id: input.value.trim() };
+      const problem = appProblem(app.source, app.id, false);
+      if (!app.id || problem) { err.textContent = problem || "Which app?"; return; }
+      try {
+        const out = await api({ ...body, type: "install-app", payload: app });
+        $("dlg").close();
+        $("app-msg").textContent = `${app.id} will be installed on ${where}${out.count ? ` (${out.count} computers)` : ""}.`;
+        await load();
+      } catch (e) { err.textContent = e.message; }
+    } }, "Install")]);
+  input.focus();
+}
+
+async function loadGroups() {
+  const org = $("org").value;
+  groups = [];
+  if (!org) { renderGroups(); $("drives").replaceChildren(); return; }
+  try {
+    groups = (await api({ op: "groups", organisation_id: org })).groups || [];
+    renderGroups();
+    renderDrives(await api({ op: "drives", organisation_id: org }));
+  } catch (e) { $("app-msg").textContent = e.message; }
+}
+
+function orgDevices() { return data.devices.filter((d) => d.organisation_id === $("org").value && !d.left_at); }
+
+function renderGroups() {
+  const live = new Set(orgDevices().map((d) => d.id));
+  const rows = groups.map((g) => el("tr", {},
+    el("td", {}, el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openGroup(g); } }, g.name)),
+    el("td", {}, String((g.devices || []).filter((i) => live.has(i)).length)),
+    el("td", { class: "small" }, policySummary(g.policy || {})),
+    el("td", {}, el("button", { onclick: () => openGroup(g) }, "Manage…"))));
+  $("groups").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "4", class: "empty" },
+    "No groups yet: add one, for example Office or Finance."))]));
+  $("add-group").disabled = !$("org").value;
+}
+
+function openGroup(g) {
+  const name = el("input", { value: g.name, maxlength: "60" });
+  const form = policyForm(g.policy || {});
+  const boxes = orgDevices().map((d) => {
+    const b = el("input", { type: "checkbox", value: d.id });
+    b.checked = (g.devices || []).includes(d.id);
+    return [b, el("label", {}, b, ` ${d.hostname || "(no name)"}`)];
+  });
+  const err = errorLine();
+  const pick = el("select", { "aria-label": `Ask ${g.name}'s computers to` }, el("option", { value: "" }, "Choose…"),
+    ...GROUP_ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
+  const send = el("button", { type: "button", onclick: async () => {
+    if (!pick.value) return;
+    if (pick.value === "install-app") { askInstallApp(`${g.name}'s computers`, { op: "group-action", group_id: g.id }); return; }
+    if ((pick.value === "restart" || pick.value === "shutdown") &&
+        !confirm(`${LABEL[pick.value]} every computer in ${g.name}? Whoever is using them gets 5 minutes' notice.`)) return;
+    try {
+      const out = await api({ op: "group-action", group_id: g.id, type: pick.value });
+      err.textContent = `Asked ${out.count} computer${out.count === 1 ? "" : "s"}.`;
+      await load();
+    } catch (e) { err.textContent = e.message; }
+  } }, "Send");
+  const save = el("button", { type: "button", class: "primary", onclick: async () => {
+    const policy = form.value();
+    if (policy === null) { err.textContent = "An app typed in isn't one that can be used: fix it or clear it."; return; }
+    try {
+      await api({ op: "edit-group", group_id: g.id, name: name.value.trim(), policy,
+                  devices: boxes.filter(([b]) => b.checked).map(([b]) => b.value) });
+      $("dlg").close();
+      $("app-msg").textContent = `${name.value.trim()} saved: computers apply it at their next report.`;
+      await loadGroups();
+    } catch (e) { err.textContent = e.message; }
+  } }, "Save");
+  const remove = el("button", { type: "button", class: "danger", onclick: async () => {
+    const typed = prompt(`Remove ${g.name}? Its computers stop keeping to its policy at their next report (USB drives work again unless another policy says otherwise; apps stay as they are). Type the group's name to confirm:`);
+    if (!typed || typed.trim() !== g.name) return;
+    try { await api({ op: "remove-group", group_id: g.id, confirm: g.name }); $("dlg").close(); await loadGroups(); }
+    catch (e) { err.textContent = e.message; }
+  } }, "Remove…");
+  dialog(g.name, [field("Name", name), el("h4", {}, "Policy"), el("p", { class: "note" }, "On top of the organisation's: the stricter rule wins."),
+    form.node, el("h4", {}, "Computers"), el("div", { class: "checks" }, ...(boxes.length ? boxes.map(([, l]) => l) : [el("span", { class: "small" }, "No computers yet")])),
+    el("h4", {}, "Ask all its computers to"), el("div", { class: "row" }, pick, send), err],
+    [remove, closeButton("Close"), save]);
+}
+
+function renderDrives(out) {
+  const approved = (out.approved || []).map((d) => el("li", {}, el("b", {}, d.name), ` · ${d.vendor_id}:${d.product_id} · serial ${d.serial} · added by ${d.created_by || "–"} `,
+    el("button", { onclick: async () => {
+      if (!confirm(`Stop approving ${d.name}?`)) return;
+      try { await api({ op: "remove-drive", drive_id: d.id }); await loadGroups(); } catch (e) { $("app-msg").textContent = e.message; }
+    } }, "Remove")));
+  const seen = (out.seen || []).map((d) => el("li", {}, el("b", {}, d.name || "USB drive"), ` · ${d.vendor_id}:${d.product_id} · serial ${d.serial} · on ${(d.computers || []).join(", ")} `,
+    el("button", { class: "primary", onclick: async () => {
+      const name = prompt("A name you'll recognise for this drive (for example Finance backup drive). Only this drive is approved: another of the same model has its own serial number.", d.name || "");
+      if (!name || !name.trim()) return;
+      try { await api({ op: "approve-drive", organisation_id: $("org").value, name: name.trim(), vendor_id: d.vendor_id, product_id: d.product_id, serial: d.serial }); await loadGroups(); }
+      catch (e) { $("app-msg").textContent = e.message; }
+    } }, "Approve…")));
+  $("drives").replaceChildren(
+    el("li", { class: "small" }, approved.length ? "Approved:" : "No approved drives yet."), ...approved,
+    el("li", { class: "small" }, seen.length ? "Seen on computers, not approved:" : "No other drives seen."), ...seen);
+}
+
+function computerPicker(allOn, chosen, chosenGroups = []) {
   const devices = data.devices.filter((d) => d.organisation_id === $("org").value && !d.left_at);
   const all = el("input", { type: "checkbox" });
   all.checked = allOn;
@@ -385,11 +597,17 @@ function computerPicker(allOn, chosen) {
     box.checked = chosen.includes(d.id);
     return [box, el("label", {}, box, ` ${d.hostname || "(no name)"}`)];
   });
-  const list = el("div", { class: "checks" }, ...boxes.map(([, l]) => l));
+  const groupBoxes = groups.map((g) => {
+    const box = el("input", { type: "checkbox", value: g.id });
+    box.checked = chosenGroups.includes(g.id);
+    return [box, el("label", {}, box, ` Every computer in ${g.name} (and ones added later)`)];
+  });
+  const list = el("div", { class: "checks" }, ...groupBoxes.map(([, l]) => l), ...boxes.map(([, l]) => l));
   list.classList.toggle("hidden", allOn);
   all.addEventListener("change", () => list.classList.toggle("hidden", all.checked));
   return { nodes: [el("label", {}, all, " All the organisation's computers (and ones that join later)"), list],
-           value: () => ({ all_computers: all.checked, computers: boxes.filter(([b]) => b.checked).map(([b]) => b.value) }) };
+           value: () => ({ all_computers: all.checked, computers: boxes.filter(([b]) => b.checked).map(([b]) => b.value),
+                           groups: groupBoxes.filter(([b]) => b.checked).map(([b]) => b.value) }) };
 }
 
 function suggestUsername(name) {
@@ -465,7 +683,7 @@ function openPerson(p) {
   const role = el("select", {}, ...["employee", "admin", "owner"].map((r) => el("option", { value: r }, ROLE[r])));
   role.value = p.role;
   role.disabled = !isOwner;
-  const picker = computerPicker(!!p.all_computers, p.computers || []);
+  const picker = computerPicker(!!p.all_computers, p.computers || [], p.groups || []);
   const err = errorLine();
   const on = (p.on || []).map((c) => {
     const st = c.status || "not yet";
@@ -539,12 +757,10 @@ function render() {
   const alerts = (data.alerts || []).filter((a) => a.organisation_id === org);
   $("alerts").replaceChildren(...(alerts.length ? alerts.slice(0, 50).map((a) => el("li", {},
     el("b", {}, a.hostname || "Computer"), ` · ${a.text}`)) : [el("li", { class: "small" }, "Nothing: every computer looks fine.")]));
-  const policy = data.organisations.find((o) => o.id === org)?.policy || {};
-  $("p-auto").checked = !!policy.auto_updates;
-  $("p-firewall").checked = !!policy.firewall;
-  $("p-encryption").checked = !!policy.require_encryption;
-  $("p-lock").value = String(policy.screen_lock_minutes || 0);
+  orgPolicy = policyForm(data.organisations.find((o) => o.id === org)?.policy || {});
+  $("policy").replaceChildren(orgPolicy.node);
   $("policy").classList.toggle("hidden", !org);
+  $("p-save").disabled = !org;
 
   const rows = devices.map((d) => {
     const comp = d.compliance_total == null ? el("span", { class: "tag dim" }, "unknown")
@@ -559,9 +775,11 @@ function render() {
       el("option", { value: "" }, "Choose…"), ...ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
     pick.append(d.state?.lost_mode ? el("option", { value: "lost-mode-off" }, "Release from lost mode")
                                    : el("option", { value: "lost-mode-on" }, "Turn on lost mode…"));
+    pick.append(el("option", { value: "install-app" }, "Install an app…"));
     if (d.state?.erase_allowed && d.state?.encrypted) pick.append(el("option", { value: "erase" }, "Erase (if lost or stolen)…"));
     const go = el("button", { onclick: async () => {
       if (!pick.value) return;
+      if (pick.value === "install-app") { askInstallApp(d.hostname || "this computer", { op: "action", device_id: d.id }); return; }
       if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Whoever is using it gets 5 minutes' notice.`)) return;
       if (pick.value === "shutdown" && !confirm(`Switch off ${d.hostname}? Whoever is using it gets 5 minutes' notice. It reports again when someone switches it on.`)) return;
       if (pick.value === "lost-mode-on" && !confirm(`Turn on lost mode on ${d.hostname}? At its next report nobody can sign in any more, and whoever is using it is signed out 20 seconds after a notice (unsaved work is lost). The sign-in screen says it's lost and to return it to your organisation. Release it here when it's found.`)) return;
@@ -629,8 +847,8 @@ async function openReport(d) {
 
 $("report-close").addEventListener("click", () => $("report-dialog").close());
 $("p-save").addEventListener("click", async () => {
-  const policy = { auto_updates: $("p-auto").checked, firewall: $("p-firewall").checked,
-                   require_encryption: $("p-encryption").checked, screen_lock_minutes: Number($("p-lock").value) };
+  const policy = orgPolicy?.value();
+  if (!policy) { $("app-msg").textContent = "An app typed in isn't one that can be used: fix it or clear it."; return; }
   try { await api({ op: "set-policy", organisation_id: $("org").value, policy }); $("app-msg").textContent = "Policy saved."; await load(); }
   catch (e) { $("app-msg").textContent = e.message; }
 });
@@ -643,7 +861,22 @@ $("log-load").addEventListener("click", async () => {
     $("log-wrap").classList.remove("hidden");
   } catch (e) { $("app-msg").textContent = e.message; }
 });
-$("org").addEventListener("change", () => { render(); loadPeople(); });
+$("org").addEventListener("change", () => { render(); loadPeople(); loadGroups(); });
+$("add-group").addEventListener("click", () => {
+  const name = el("input", { maxlength: "60" });
+  const err = errorLine();
+  dialog("Add a group", [field("Name", name), el("p", { class: "note" }, "Then choose its computers and its policy."), err],
+    [closeButton(), el("button", { type: "button", class: "primary", onclick: async () => {
+      const n = name.value.trim().replace(/\s+/g, " ");
+      if (!n) { err.textContent = "A group needs a name."; return; }
+      try {
+        const out = await api({ op: "add-group", organisation_id: $("org").value, name: n });
+        await loadGroups();
+        openGroup(groups.find((g) => g.id === out.id) || { id: out.id, name: n, policy: {}, devices: [] });
+      } catch (e) { err.textContent = e.message; }
+    } }, "Add")]);
+  name.focus();
+});
 $("add-person").addEventListener("click", addPerson);
 $("add-admin").addEventListener("submit", (ev) => { ev.preventDefault(); changeAdmin("add-admin", $("admin-email").value.trim()).then(() => { $("admin-email").value = ""; }); });
 $("set-owner").addEventListener("submit", async (ev) => {

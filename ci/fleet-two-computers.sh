@@ -1,5 +1,5 @@
 #!/bin/bash
-# People in Kulan Fleet across two computers, end to end, on a CI runner:
+# People, groups and policies in Kulan Fleet across two computers, end to end, on a CI runner:
 # the Kulan Fleet test server (fleet/test-server, the real functions and
 # every migration) on the runner, and two Debian 13 containers with this
 # build's kulan-base as laptop-a and laptop-b, joined over HTTPS.
@@ -125,6 +125,40 @@ adm "{\"op\":\"action\",\"device_id\":\"${DEV_B}\",\"type\":\"lost-mode-off\"}" 
 report laptop-b
 expect "laptop-b: released, omar signs in again" signs_in laptop-b omar Omar-Own-Pass-1
 
+step "Groups and policies (2.8b)"
+on laptop-a 'DEBIAN_FRONTEND=noninteractive apt-get install -y -q cowsay >/dev/null 2>&1'   # an app the group will block
+DEV_A="$(adm '{"op":"overview"}' | jq -r '.devices[] | select(.hostname == "laptop-a") | .id')"
+OFFICE="$(adm "{\"op\":\"add-group\",\"organisation_id\":\"${ORG}\",\"name\":\"Office\",\"policy\":{\"usb\":\"approved\",\"required_apps\":[{\"source\":\"debian\",\"id\":\"sl\"}],\"blocked_apps\":[{\"source\":\"debian\",\"id\":\"cowsay\"}]}}" | jq -r .id)"
+refused() { adm "{\"op\":\"add-group\",\"organisation_id\":\"${ORG}\",\"name\":\"Bad\",\"policy\":{\"blocked_apps\":[{\"source\":\"debian\",\"id\":\"kulan-base\"}]}}" | jq -e .error >/dev/null; }
+expect "server: a group can't block Kulan OS itself" refused
+adm "{\"op\":\"edit-group\",\"group_id\":\"${OFFICE}\",\"devices\":[\"${DEV_A}\"]}" >/dev/null
+HODAN="$(adm "{\"op\":\"add-person\",\"organisation_id\":\"${ORG}\",\"username\":\"hodan\",\"full_name\":\"Hodan Ali\",\"all_computers\":false,\"groups\":[\"${OFFICE}\"],\"password_hash\":\"$(openssl passwd -6 -stdin <<<"HODA-N000-0001")\"}" | jq -r .id)"
+report laptop-a
+report laptop-b
+expect "laptop-a: in Office, the required app is installed" on laptop-a 'dpkg -s sl 2>/dev/null | grep -qx "Status: install ok installed"'
+expect "laptop-a: the blocked app removed and kept off" on laptop-a '! dpkg -s cowsay >/dev/null 2>&1 && grep -q "Package: cowsay" /etc/apt/preferences.d/60-kulan-fleet-blocked && ! apt-get install -s cowsay >/dev/null 2>&1'
+expect "laptop-a: USB storage limited to approved drives (the udev rule)" on laptop-a 'grep -q "bInterfaceClass" /etc/udev/rules.d/60-kulan-fleet-usb.rules && python3 -c "import json; s = json.load(open(\"/var/lib/kulan/fleet-policy.json\"))[\"status\"]; assert s[\"usb\"] == \"met\" and s[\"app:install:debian:sl\"] == \"met\" and s[\"app:block:debian:cowsay\"] == \"met\", s"'
+expect "laptop-b: not in Office, none of it" on laptop-b '! dpkg -s sl >/dev/null 2>&1 && test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules'
+expect "laptop-a: hodan, through the Office group" on laptop-a 'getent passwd hodan >/dev/null'
+expect "laptop-b: no hodan" on laptop-b '! getent passwd hodan >/dev/null'
+policy_of_a() { adm "{\"op\":\"device-policy\",\"device_id\":\"${DEV_A}\"}" | jq -e '.policy.usb == "approved" and (.groups | map(.name) == ["Office"])' >/dev/null; }
+expect "server: laptop-a's policy comes from Office" policy_of_a
+# laptop-b joins the group: hodan and the policy follow; then an app for the whole group, once.
+adm "{\"op\":\"edit-group\",\"group_id\":\"${OFFICE}\",\"devices\":[\"${DEV_A}\",\"${DEV_B}\"]}" >/dev/null
+COUNT="$(adm "{\"op\":\"group-action\",\"group_id\":\"${OFFICE}\",\"type\":\"install-app\",\"payload\":{\"source\":\"debian\",\"id\":\"hello\"}}" | jq -r .count)"
+expect "server: install-app asked of both computers" test "${COUNT}" = 2
+report laptop-a
+report laptop-b
+for host in laptop-a laptop-b; do
+	expect "${host}: hello installed once, as the group asked" on "${host}" 'dpkg -s hello 2>/dev/null | grep -qx "Status: install ok installed"'
+done
+expect "laptop-b: added to Office, hodan and the required app follow" on laptop-b 'getent passwd hodan >/dev/null && dpkg -s sl >/dev/null 2>&1'
+# Taken out of the group: the rule and the pin go, apps stay as they are.
+adm "{\"op\":\"edit-group\",\"group_id\":\"${OFFICE}\",\"devices\":[\"${DEV_A}\"]}" >/dev/null
+report laptop-b
+expect "laptop-b: out of Office, USB and the pin back to normal, apps kept" on laptop-b 'test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules && test ! -e /etc/apt/preferences.d/60-kulan-fleet-blocked && dpkg -s hello >/dev/null 2>&1'
+adm "{\"op\":\"remove-person\",\"person_id\":\"${HODAN}\",\"remove_files\":true,\"confirm\":\"hodan\"}" >/dev/null
+
 step "Leaving the organisation's people"
 on laptop-a "echo handover > /home/amina/report.txt"
 adm "{\"op\":\"remove-person\",\"person_id\":\"${AMINA}\",\"remove_files\":false,\"confirm\":\"amina\"}" >/dev/null
@@ -137,12 +171,14 @@ expect "laptop-b: omar removed with his files" on laptop-b '! getent passwd omar
 step "Activity log"
 LOGS="$(adm "{\"op\":\"log\",\"organisation_id\":\"${ORG}\"}" | jq -r '.entries[] | "\(.email): \(.what)"')"
 for want in "ci@kulan.example: added amina" "amina: changed their password on a computer" "ci@kulan.example: disabled amina" \
-	"ci@kulan.example: removed amina" "ci@kulan.example: asked: lost-mode-on"; do
+	"ci@kulan.example: removed amina" "ci@kulan.example: asked: lost-mode-on" "ci@kulan.example: added group Office" \
+	"ci@kulan.example: asked group Office: install-app"; do
 	expect "in the log: ${want}" grep -qxF "${want}" <<<"${LOGS}"
 done
 
 step "Teardown"
 for host in laptop-a laptop-b; do on "${host}" "kulan-fleet leave >/dev/null 2>&1" || true; done
+expect "laptop-a: leaving takes the USB rule and the pin away, apps stay" on laptop-a 'test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules && test ! -e /etc/apt/preferences.d/60-kulan-fleet-blocked && dpkg -s sl >/dev/null 2>&1'
 cleanup
 sudo "${HERE}/fleet/test-server/teardown.sh"
 expect "the test server leaves nothing" test ! -e /opt/kulan-fleet-test

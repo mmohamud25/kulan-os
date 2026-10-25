@@ -1,8 +1,8 @@
 // Kulan OS fleet server, protocol v1 (the other end of /usr/bin/kulan-fleet).
 //
 //   POST /fleet/v1/enrol          {code, hostname, os, kulan_version} -> {device_id, token, organisation}
-//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?}
-//                                 -> {actions: [{id, type}], policy: {...}, accounts: [...]}
+//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?, usb_seen?}
+//                                 -> {actions: [{id, type, payload?}], policy: {...}, accounts: [...]}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
 //
@@ -12,18 +12,24 @@
 // A report may carry hashes of passwords people changed on that computer;
 // the server takes one only from a computer that person may use.
 //
+// Groups (2.8b): a computer's policy is its organisation's and its groups',
+// the stricter rule winning (policy.ts), with the approved USB drives when
+// it says "approved only". People may be allowed on a group's computers.
+//
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
 // Data lives in the private "fleet" schema, reached over a direct Postgres
 // connection, never through the public Data API.
 import postgres from "npm:postgres@3.4.5";
+import { mergePolicies } from "./policy.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
 // Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
 const json = (v: unknown) => sql.json(v as Parameters<typeof sql.json>[0]);
 const MAX_BODY = 512 * 1024; // a report with a full app list
 const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
-                         "shutdown", "lost-mode-on", "lost-mode-off"]);
+                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app"]);
+const MAX_USB_SEEN = 20;
 const MAX_APPS = 3000;
 const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
 // crypt(3) hashes: yescrypt, SHA-512, SHA-256, bcrypt; nothing that could
@@ -51,6 +57,22 @@ export function cleanPeopleStatus(value: unknown): Record<string, string> | unde
   const out: Record<string, string> = {};
   for (const [user, status] of Object.entries(value).slice(0, 500)) {
     if (USERNAME.test(user) && typeof status === "string") out[user] = status.slice(0, 160);
+  }
+  return out;
+}
+
+// USB drives a computer has seen (for an admin to approve one): the drive's
+// vendor, product and serial and its name, nothing about what's on it.
+export function cleanUsbSeen(value: unknown): Record<string, string>[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out: Record<string, string>[] = [];
+  for (const d of value.slice(0, MAX_USB_SEEN)) {
+    if (typeof d !== "object" || d === null) continue;
+    const { vendor_id, product_id, serial, name } = d as Record<string, unknown>;
+    if (typeof vendor_id !== "string" || !/^[0-9a-f]{4}$/.test(vendor_id)) continue;
+    if (typeof product_id !== "string" || !/^[0-9a-f]{4}$/.test(product_id)) continue;
+    if (typeof serial !== "string" || !/^[A-Za-z0-9._-]{4,64}$/.test(serial)) continue;
+    out.push({ vendor_id, product_id, serial, name: typeof name === "string" ? name.replace(/[^\w .,()+-]/g, "").slice(0, 80) : "" });
   }
   return out;
 }
@@ -157,6 +179,9 @@ Deno.serve(async (req: Request) => {
       const peopleStatus = cleanPeopleStatus(body.people_status);
       if (peopleStatus === undefined) delete body.people_status;
       else body.people_status = peopleStatus;
+      const usbSeen = cleanUsbSeen(body.usb_seen);
+      if (usbSeen === undefined) delete body.usb_seen;
+      else body.usb_seen = usbSeen;
       // A new password from a person on this computer: taken if they may use
       // it, aren't disabled or removed, and it really is new. The latest to
       // arrive wins (the server's clock, not the computer's).
@@ -166,8 +191,10 @@ Deno.serve(async (req: Request) => {
                  password_changed_at = greatest(extract(epoch from now())::bigint, pe.password_changed_at + 1)
           where pe.organisation_id = ${dev.organisation_id} and pe.username = ${p.username}
             and pe.removed_at is null and pe.enabled and pe.password_hash is distinct from ${p.hash}
-            and (pe.all_computers or exists (select 1 from fleet.person_computers pc
-                                             where pc.person_id = pe.id and pc.device_id = ${dev.id}))
+            and (pe.all_computers
+                 or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
+                 or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
+                            where pg.person_id = pe.id and gd.device_id = ${dev.id}))
           returning pe.id`;
         if (changed.length) {
           await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
@@ -192,9 +219,18 @@ Deno.serve(async (req: Request) => {
                                   update fleet.actions set status = 'sent', sent_at = now()
                                   where id in (select id from fleet.actions where device_id = ${dev.id}
                                                and status = 'pending' order by created_at limit 10)
-                                  returning id, type, created_at)
-                                select id, type from sent order by created_at`;
+                                  returning id, type, payload, created_at)
+                                select id, type, payload from sent order by created_at`;
+      // This computer's policy: the organisation's and its groups', the stricter rule winning.
       const [org] = await sql`select policy from fleet.organisations where id = ${dev.organisation_id}`;
+      const groups = await sql`select g.policy from fleet.groups g join fleet.group_devices gd on gd.group_id = g.id
+                               where gd.device_id = ${dev.id}`;
+      const { policy } = mergePolicies([org?.policy ?? {}, ...groups.map((g) => g.policy)]);
+      const sent: Record<string, unknown> = { ...policy };
+      if (policy.usb === "approved") {
+        sent.usb_drives = await sql`select vendor_id, product_id, serial from fleet.approved_drives
+                                    where organisation_id = ${dev.organisation_id} order by created_at limit 500`;
+      }
       // The people allowed on this computer, and anyone removed in the last 30 days.
       const people = await sql`
         select pe.username, pe.full_name, pe.uid, pe.role, pe.enabled, pe.password_hash, pe.must_change,
@@ -202,12 +238,15 @@ Deno.serve(async (req: Request) => {
         from fleet.people pe
         where pe.organisation_id = ${dev.organisation_id}
           and (pe.removed_at is null or pe.removed_at > now() - interval '30 days')
-          and (pe.all_computers or exists (select 1 from fleet.person_computers pc
-                                           where pc.person_id = pe.id and pc.device_id = ${dev.id}))
+          and (pe.all_computers
+               or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
+               or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
+                          where pg.person_id = pe.id and gd.device_id = ${dev.id}))
         order by pe.uid`;
       return reply(200, {
-        actions: actions.filter((a) => ACTIONS.has(a.type)).map((a) => ({ id: a.id, type: a.type })),
-        policy: org?.policy ?? {},
+        actions: actions.filter((a) => ACTIONS.has(a.type))
+          .map((a) => a.payload ? { id: a.id, type: a.type, payload: a.payload } : { id: a.id, type: a.type }),
+        policy: sent,
         accounts: people.map(account),
       });
     }
