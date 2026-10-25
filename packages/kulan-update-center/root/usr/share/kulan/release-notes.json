@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.8.2",
+    "label": "2.8b",
+    "title": "Groups and policies in Kulan Fleet",
+    "items": [
+      "Groups in Kulan Fleet: put an organisation's computers and people in groups (Office, Finance…), each with a policy of its own. A computer keeps to the organisation's policy and to every group it's in, and the stricter rule always wins",
+      "USB drives: an organisation can block USB storage, or allow only the drives it approved (each one by its serial number). Keyboards, mice, phones charging and other USB devices always work",
+      "Apps: a policy can require apps (installed from Debian or Flathub, and installed again if removed) or block them (removed and kept off). Parts of Kulan OS can never be blocked, and a computer won't remove an app if that would take other software with it",
+      "Install an app once on one computer, or on every computer in a group",
+      "People can be allowed on every computer in a group, including computers added to it later",
+      "Kulan Settings shows each of the organisation's rules on this computer and, if one isn't met, why. None of this applies to a computer that hasn't joined an organisation, and leaving takes it all away (apps stay as they are)"
+    ]
+  },
+  {
     "version": "2.8.1",
     "label": "2.8a",
     "title": "People in Kulan Fleet",

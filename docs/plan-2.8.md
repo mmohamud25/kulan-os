@@ -16,7 +16,9 @@ numbers; the count still says 2.8).
 - 2.8b Groups and policies: groups of people and computers; a policy per
   group on top of the organisation's (the stricter rule wins); USB storage
   blocked, or approved drives only; required and blocked apps; install an
-  app on a group once.
+  app on a group once. (Built and tested as 2.8.2; waiting for "release
+  it". Release order: apply 20261025120000_fleet_groups.sql, deploy fleet
+  and fleet-admin, then merge.)
 - 2.8c Security, activity and computers: a weekly security report;
   "who still has admin rights?" reviews; the activity log exported for
   auditors; who uses which computer.
@@ -131,7 +133,7 @@ Server (fleet schema):
 - fleet.groups: name, organisation, its own policy (same keys as the
   organisation's). Members: computers (fleet.group_devices) and people
   (fleet.group_people). A person may also be allowed on a group's computers
-  (people.computer_groups), so "Sales can use the Sales laptops" follows
+  (fleet.person_groups), so "Sales can use the Sales laptops" follows
   laptops added later.
 - One policy per computer, worked out on the server: the organisation's,
   then every group the computer is in. The stricter rule always wins:
@@ -152,3 +154,18 @@ On the computer (kulan-fleet, as root):
   part. Each app's state goes in the report.
 Kulan Fleet app and dashboard: Groups (members, policy), approved drives,
 apps. Every change in the activity log.
+
+### 2.8b as built
+- On the computer: packages/kulan-base/.../kulan-fleet/fleetpolicy.py (USB
+  rule 60-kulan-fleet-usb.rules, the udev helper /usr/lib/kulan/fleet-usb-seen,
+  the apt pin 60-kulan-fleet-blocked, Flatpak masks recorded in
+  /var/lib/kulan/fleet-apps.json). USB drives seen are sent only while a
+  policy controls USB drives.
+- Tested: ci/fleetpolicy-test.py (every case, made-up /sys and package
+  tools), the package tests (rule valid for udev, policy keys, the Settings
+  lines), the two laptops (a group's policy installs and blocks apps and
+  writes the USB rule; install-app on a group; people through a group;
+  taken out of the group or leaving undoes it), the app's self-test, and
+  the web dashboard clicked through in Chromium.
+- Not tested on real hardware yet: a USB stick actually refused and an
+  approved one working (needs the ThinkPad).
