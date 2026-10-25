@@ -51,6 +51,18 @@
 //                                                             install-app, lock-screen, restart, shutdown)
 //   add-person and edit-person also take groups: the groups whose computers they may use.
 //
+// Security and activity (2.8c):
+//   POST {op: "weekly-report", organisation_id}            -> {week, summary, previous}
+//        worked out now from the computers' last reports, people and the
+//        activity log; this week's snapshot is kept so next week can compare.
+//   POST {op: "access-review", organisation_id}            -> who has administrator rights, the last review
+//   POST {op: "review-access", organisation_id, remove_people?, remove_admins?}   (the Owner)
+//        records the review; takes the admin role from the people listed and
+//        Kulan Fleet access from the admins listed. Due every 90 days.
+//   "log" takes from, to (ISO dates), who, what (text to find), before (an
+//   entry id, for the next page) and limit (up to 10000), for exporting.
+//   "people" and "overview" include who signs in where (the computers' reports).
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 import { cleanPolicy, mergePolicies } from "./policy.ts";
@@ -75,6 +87,9 @@ const HASH = /^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]+$/;
 const ROLES = new Set(["owner", "admin", "employee"]);
 const MAX_PEOPLE = 5000;
+const REVIEW_DAYS = 90;
+const DAY_MS = 86400_000;
+const LIST_MAX = 50; // names listed per line of the weekly report
 
 // A full name as the computers will show it: no characters /etc/passwd uses.
 export function cleanName(v: unknown): string | null {
@@ -118,6 +133,88 @@ export function cleanApp(v: unknown): { source: string; id: string } | null {
 }
 
 type Device = Record<string, any>;
+
+// The Monday (UTC) a week starts, as YYYY-MM-DD.
+export function mondayOf(d: Date): string {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7));
+  return t.toISOString().slice(0, 10);
+}
+
+// When the admin-rights review is due: 90 days after the last one (or after
+// the organisation was made, if there's been none).
+export function reviewDue(lastAt: string | Date | null, orgCreated: string | Date | null, now: number) {
+  const since = lastAt ? new Date(lastAt).getTime() : orgCreated ? new Date(orgCreated).getTime() : now;
+  const days = Math.floor((now - since) / DAY_MS);
+  return { due: days >= REVIEW_DAYS, days, never: !lastAt };
+}
+
+// The weekly security report, from the organisation's computers, people,
+// the week's activity and the last review.
+export function weeklySummary(devices: Device[], people: Record<string, any>[], activity: Record<string, any>[],
+                              review: { at: string | null; by: string | null; due: boolean }, now: number) {
+  const names = (list: Device[]) => list.map((d) => d.hostname || "(no name)").slice(0, LIST_MAX);
+  const live = devices.filter((d) => !d.left_at);
+  const seen = (d: Device) => d.last_seen ? now - Date.parse(d.last_seen) : Infinity;
+  const security = live.filter((d) => Number(d.updates?.security ?? 0) > 0);
+  const failing = live.filter((d) => d.compliance_total && Number(d.compliance_passed) < Number(d.compliance_total));
+  const notMet = live.map((d) => ({ hostname: d.hostname || "(no name)",
+    items: Object.entries(d.policy_status ?? {}).filter(([, v]) => v !== "met" && v !== "n/a").map(([k]) => k) }))
+    .filter((d) => d.items.length);
+  const versions: Record<string, number> = {};
+  for (const d of live) versions[d.kulan_version || "unknown"] = (versions[d.kulan_version || "unknown"] ?? 0) + 1;
+  const active = people.filter((p) => !p.removed_at);
+  const verbs: Record<string, number> = {};
+  for (const a of activity) {
+    const verb = String(a.what).startsWith("asked") ? "asked computers" : String(a.what).split(" ")[0];
+    verbs[verb] = (verbs[verb] ?? 0) + 1;
+  }
+  return {
+    computers: {
+      total: live.length,
+      reported_this_week: live.filter((d) => seen(d) <= 7 * DAY_MS).length,
+      not_seen_week: names(live.filter((d) => seen(d) > 7 * DAY_MS)),
+      up_to_date: live.filter((d) => d.updates && Number(d.updates.waiting ?? 0) === 0).length,
+      security_waiting: security.slice(0, LIST_MAX).map((d) => ({ hostname: d.hostname || "(no name)", count: Number(d.updates.security) })),
+      restart_needed: names(live.filter((d) => d.updates?.restart_required === true)),
+      encrypted: live.filter((d) => d.state?.encrypted === true).length,
+      not_encrypted: names(live.filter((d) => d.state?.encrypted === false)),
+      firewall_off: names(live.filter((d) => d.state?.firewall === false)),
+      compliance_passing: live.filter((d) => d.compliance_total && Number(d.compliance_passed) === Number(d.compliance_total)).length,
+      compliance_failing: failing.slice(0, LIST_MAX).map((d) => ({ hostname: d.hostname || "(no name)",
+        failing: Number(d.compliance_total) - Number(d.compliance_passed) })),
+      policy_not_met: notMet.slice(0, LIST_MAX),
+      lost_mode: names(live.filter((d) => d.state?.lost_mode === true)),
+      versions,
+    },
+    people: {
+      total: active.length,
+      disabled: active.filter((p) => !p.enabled).map((p) => p.username).slice(0, LIST_MAX),
+      setup_code_unused: active.filter((p) => p.enabled && p.must_change &&
+        now - Number(p.password_changed_at) * 1000 > 7 * DAY_MS).map((p) => p.username).slice(0, LIST_MAX),
+      admins: active.filter((p) => p.role !== "employee").map((p) => p.username).slice(0, LIST_MAX),
+    },
+    activity: {
+      changes: activity.length,
+      by_kind: Object.entries(verbs).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([what, count]) => ({ what, count })),
+    },
+    review,
+  };
+}
+
+// Each username's sign-ins across the computers: {username: [{hostname, device_id, last, now}]}.
+export function signInsByUser(devices: Device[]): Record<string, { hostname: string; device_id: string; last: number | null; now: boolean }[]> {
+  const out: Record<string, { hostname: string; device_id: string; last: number | null; now: boolean }[]> = {};
+  for (const d of devices) {
+    if (d.left_at) continue;
+    for (const s of Array.isArray(d.sign_ins) ? d.sign_ins : []) {
+      if (typeof s?.username !== "string") continue;
+      (out[s.username] ??= []).push({ hostname: d.hostname || "(no name)", device_id: d.id, last: s.last ?? null, now: s.now === true });
+    }
+  }
+  for (const list of Object.values(out)) list.sort((a, b) => (b.last ?? 0) - (a.last ?? 0));
+  return out;
+}
 
 // What needs an admin's attention, worked out from each computer's last report.
 function alertsFor(d: Device, policy: Record<string, unknown>, now: number): { kind: string; text: string }[] {
@@ -292,7 +389,7 @@ Deno.serve(async (req: Request) => {
                  last_report->'compliance'->'total' as compliance_total,
                  last_report->'compliance'->'mode' as compliance_mode,
                  last_report->'hardware' as hardware, last_report->'state' as state,
-                 last_report->'policy_status' as policy_status, apps_at,
+                 last_report->'policy_status' as policy_status, last_report->'sign_ins' as sign_ins, apps_at,
                  jsonb_array_length(coalesce(apps, '[]'::jsonb)) as app_count
           from fleet.devices where organisation_id = any(${ids}::uuid[]) order by left_at nulls first, hostname`;
         const actions = await sql`
@@ -303,6 +400,19 @@ Deno.serve(async (req: Request) => {
         const now = Date.now();
         const alerts = devices.flatMap((d) => alertsFor(d, policies[d.organisation_id] ?? {}, now)
           .map((a) => ({ ...a, device_id: d.id, organisation_id: d.organisation_id, hostname: d.hostname })));
+        // The admin-rights review, every 90 days (an alert for the organisation, not a computer).
+        const reviews = await sql`select distinct on (organisation_id) organisation_id, reviewed_at
+                                  from fleet.access_reviews where organisation_id = any(${ids}::uuid[])
+                                  order by organisation_id, reviewed_at desc`;
+        const lastReview = Object.fromEntries(reviews.map((r) => [r.organisation_id, r.reviewed_at]));
+        for (const o of organisations) {
+          const due = reviewDue(lastReview[o.id] ?? null, o.created_at, now);
+          if (due.due) {
+            alerts.push({ kind: "review", device_id: null, organisation_id: o.id, hostname: null, title: "Admin rights",
+                          text: due.never ? "No admin-rights review yet: check who still needs administrator rights"
+                                          : `Admin-rights review due: the last was ${due.days} days ago` } as any);
+          }
+        }
         return reply(200, { email, global, organisations, devices, actions, alerts });
       }
       case "report": {
@@ -320,11 +430,24 @@ Deno.serve(async (req: Request) => {
       case "log": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const day = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) && !isNaN(Date.parse(v)) ? v : null;
+        const from = day(body.from), to = day(body.to);
+        const find = (v: unknown) => typeof v === "string" && v.trim() ? `%${v.trim().slice(0, 80).replace(/[\\%_]/g, "\\$&")}%` : null;
+        const who = find(body.who), what = find(body.what);
+        const before = Number.isInteger(body.before) && body.before > 0 ? body.before : null;
+        const limit = Math.min(10000, Math.max(1, Number.isInteger(body.limit) ? body.limit : 100));
         const entries = await sql`
-          select a.at, a.email, a.what, a.detail, a.device_id, d.hostname
+          select a.id, a.at, a.email, a.what, a.detail, a.device_id, d.hostname
           from fleet.audit a left join fleet.devices d on d.id = a.device_id
-          where a.organisation_id = ${org} order by a.at desc limit 100`;
-        return reply(200, { entries });
+          where a.organisation_id = ${org}
+            ${from ? sql`and a.at >= ${from}::date` : sql``}
+            ${to ? sql`and a.at < ${to}::date + 1` : sql``}
+            ${who ? sql`and a.email ilike ${who}` : sql``}
+            ${what ? sql`and (a.what ilike ${what} or d.hostname ilike ${what})` : sql``}
+            ${before ? sql`and a.id < ${before}` : sql``}
+          order by a.id desc limit ${limit + 1}`;
+        const more = entries.length > limit;
+        return reply(200, { entries: entries.slice(0, limit).map((e) => ({ ...e, id: Number(e.id) })), more });
       }
       case "set-policy": {
         const org = uuid(body.organisation_id);
@@ -364,12 +487,14 @@ Deno.serve(async (req: Request) => {
                  coalesce((select array_agg(pc.device_id) from fleet.person_computers pc where pc.person_id = p.id), '{}') as computers,
                  coalesce((select array_agg(pg.group_id) from fleet.person_groups pg where pg.person_id = p.id), '{}') as groups
           from fleet.people p where p.organisation_id = ${org} and p.removed_at is null order by p.username`;
-        const devices = await sql`select d.id, d.hostname, d.last_report->'people_status' as people_status,
+        const devices = await sql`select d.id, d.hostname, d.left_at, d.last_report->'people_status' as people_status,
+                                         d.last_report->'sign_ins' as sign_ins,
                                          coalesce((select array_agg(gd.group_id) from fleet.group_devices gd where gd.device_id = d.id), '{}') as groups
                                   from fleet.devices d where d.organisation_id = ${org} and d.left_at is null`;
+        const signIns = signInsByUser(devices);
         return reply(200, {
           people: people.map((p) => ({
-            ...p, password_changed_at: Number(p.password_changed_at),
+            ...p, password_changed_at: Number(p.password_changed_at), signed_in: signIns[p.username] ?? [],
             on: devices.filter((d) => p.all_computers || p.computers.includes(d.id)
                                      || d.groups.some((g: string) => p.groups.includes(g)))
               .map((d) => ({ device_id: d.id, hostname: d.hostname, status: d.people_status?.[p.username] ?? "not yet" })),
@@ -733,6 +858,96 @@ Deno.serve(async (req: Request) => {
           returning id`;
         await audit(g.organisation_id, null, `asked group ${g.name}: ${body.type}`.slice(0, 80), { computers: rows.length, ...(payload ?? {}) });
         return reply(200, { count: rows.length });
+      }
+      // --- Security and activity (2.8c) ---------------------------------------------------
+      case "weekly-report": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const now = Date.now();
+        const [o] = await sql`select created_at from fleet.organisations where id = ${org}`;
+        const devices = await sql`
+          select id, hostname, kulan_version, last_seen, left_at, last_report->'updates' as updates,
+                 last_report->'state' as state, last_report->'policy_status' as policy_status,
+                 last_report->'compliance'->'passed' as compliance_passed, last_report->'compliance'->'total' as compliance_total
+          from fleet.devices where organisation_id = ${org} and left_at is null order by hostname`;
+        const people = await sql`select username, role, enabled, must_change, password_changed_at, removed_at
+                                 from fleet.people where organisation_id = ${org} and removed_at is null order by username`;
+        const activity = await sql`select what from fleet.audit where organisation_id = ${org} and at > now() - interval '7 days'`;
+        const [last] = await sql`select reviewed_at, reviewed_by from fleet.access_reviews where organisation_id = ${org}
+                                 order by reviewed_at desc limit 1`;
+        const due = reviewDue(last?.reviewed_at ?? null, o?.created_at ?? null, now);
+        const summary = weeklySummary(devices, people, activity,
+          { at: last?.reviewed_at ?? null, by: last?.reviewed_by ?? null, due: due.due }, now);
+        const week = mondayOf(new Date(now));
+        await sql`insert into fleet.weekly_reports (organisation_id, week, summary) values (${org}, ${week}, ${json(summary)})
+                  on conflict (organisation_id, week) do update set summary = excluded.summary, made_at = now()`;
+        const [prev] = await sql`select week, summary from fleet.weekly_reports where organisation_id = ${org} and week < ${week}::date
+                                 order by week desc limit 1`;
+        if (Math.random() < 0.05) await sql`select fleet.prune_weekly_reports()`;
+        return reply(200, { week, made_at: new Date(now).toISOString(), summary,
+                            previous: prev ? { week: String(prev.week instanceof Date ? prev.week.toISOString().slice(0, 10) : prev.week), summary: prev.summary } : null });
+      }
+      case "access-review": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const [o] = await sql`select owner_email, created_at from fleet.organisations where id = ${org}`;
+        const people = await sql`
+          select p.id, p.username, p.full_name, p.role, p.enabled, p.all_computers, p.created_at, p.created_by,
+                 coalesce((select array_agg(pc.device_id) from fleet.person_computers pc where pc.person_id = p.id), '{}') as computers,
+                 coalesce((select array_agg(pg.group_id) from fleet.person_groups pg where pg.person_id = p.id), '{}') as groups
+          from fleet.people p where p.organisation_id = ${org} and p.removed_at is null and p.role <> 'employee' order by p.username`;
+        const devices = await sql`select d.id, d.hostname, d.left_at, d.last_report->'sign_ins' as sign_ins,
+                                         coalesce((select array_agg(gd.group_id) from fleet.group_devices gd where gd.device_id = d.id), '{}') as groups
+                                  from fleet.devices d where d.organisation_id = ${org} and d.left_at is null order by d.hostname`;
+        const signIns = signInsByUser(devices);
+        const admins = await sql`select email, created_at from fleet.admins where organisation_id = ${org} order by email`;
+        const everywhere = await sql`select email, created_at from fleet.admins where organisation_id is null order by email`;
+        const [last] = await sql`select reviewed_at, reviewed_by, kept, removed from fleet.access_reviews
+                                 where organisation_id = ${org} order by reviewed_at desc limit 1`;
+        const due = reviewDue(last?.reviewed_at ?? null, o?.created_at ?? null, Date.now());
+        return reply(200, {
+          people: people.map((p) => ({
+            id: p.id, username: p.username, full_name: p.full_name, role: p.role, enabled: p.enabled,
+            created_at: p.created_at, created_by: p.created_by,
+            where: p.all_computers ? "all" : devices.filter((d) => p.computers.includes(d.id) ||
+                     d.groups.some((g: string) => p.groups.includes(g))).map((d) => d.hostname || "(no name)"),
+            signed_in: signIns[p.username] ?? [],
+          })),
+          admins: admins.map((a) => ({ ...a, owner: a.email === o?.owner_email })),
+          all_organisations_admins: everywhere,
+          last_review: last ?? null, due: due.due, days_since: due.days, is_owner: await isOwner(org),
+        });
+      }
+      case "review-access": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner reviews who has administrator rights" });
+        const removePeople = Array.isArray(body.remove_people) ? [...new Set(body.remove_people.map(uuid))] : [];
+        const removeAdmins = (Array.isArray(body.remove_admins) ? [...new Set(body.remove_admins.map(cleanEmail))] : []) as string[];
+        if (removePeople.includes(null) || removeAdmins.some((e) => !e)) return reply(400, { error: "choose from the list" });
+        const [o] = await sql`select owner_email from fleet.organisations where id = ${org}`;
+        const listed = await sql`select id, username, role from fleet.people
+                                 where organisation_id = ${org} and removed_at is null and role <> 'employee'`;
+        const admins = await sql`select email from fleet.admins where organisation_id = ${org}`;
+        const byId = new Map(listed.map((p) => [p.id, p]));
+        const people = removePeople.map((id) => byId.get(id as string));
+        if (people.some((p) => !p)) return reply(400, { error: "choose people from the list" });
+        if (people.some((p) => p!.role === "owner")) return reply(400, { error: "the Owner's own account keeps its rights" });
+        const adminSet = new Set(admins.map((a) => a.email));
+        if (removeAdmins.some((e) => !adminSet.has(e as string))) return reply(400, { error: "choose admins from the list" });
+        if (removeAdmins.includes(o?.owner_email)) return reply(400, { error: "the Owner stays an admin" });
+        const total = listed.length + admins.length;
+        const removed = people.length + removeAdmins.length;
+        await sql.begin(async (tx) => {
+          for (const p of people) await tx`update fleet.people set role = 'employee' where id = ${p!.id}`;
+          for (const e of removeAdmins) await tx`delete from fleet.admins where email = ${e} and organisation_id = ${org}`;
+          await tx`insert into fleet.access_reviews (organisation_id, reviewed_by, kept, removed, detail)
+                   values (${org}, ${email}, ${total - removed}, ${removed},
+                           ${json({ admin_role_taken: people.map((p) => p!.username), fleet_access_taken: removeAdmins })})`;
+        });
+        await audit(org, null, `reviewed admin rights (kept ${total - removed}, removed ${removed})`.slice(0, 80),
+                    { admin_role_taken: people.map((p) => p!.username), fleet_access_taken: removeAdmins });
+        return reply(200, { kept: total - removed, removed });
       }
       case "cancel-action": {
         const id = uuid(body.action_id);
