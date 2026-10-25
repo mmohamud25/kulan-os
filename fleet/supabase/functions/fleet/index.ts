@@ -1,7 +1,8 @@
 // Kulan OS fleet server, protocol v1 (the other end of /usr/bin/kulan-fleet).
 //
 //   POST /fleet/v1/enrol          {code, hostname, os, kulan_version} -> {device_id, token, organisation}
-//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?, usb_seen?}
+//   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?, usb_seen?,
+//                                 sign_ins?}
 //                                 -> {actions: [{id, type, payload?}], policy: {...}, accounts: [...]}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
@@ -15,6 +16,9 @@
 // Groups (2.8b): a computer's policy is its organisation's and its groups',
 // the stricter rule winning (policy.ts), with the approved USB drives when
 // it says "approved only". People may be allowed on a group's computers.
+//
+// Who uses which computer (2.8c): a report may list each account's last
+// sign-in there and whether it's signed in now; nothing else about it.
 //
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
@@ -36,6 +40,7 @@ const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
 // spill into /etc/shadow's other fields.
 const HASH = /^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$/;
 const MAX_PASSWORDS = 50;
+const MAX_SIGN_INS = 200;
 
 // Passwords changed on a computer: [{username, password_hash}] (well-formed only).
 export function cleanPasswords(value: unknown): { username: string; hash: string }[] {
@@ -75,6 +80,20 @@ export function cleanUsbSeen(value: unknown): Record<string, string>[] | undefin
     out.push({ vendor_id, product_id, serial, name: typeof name === "string" ? name.replace(/[^\w .,()+-]/g, "").slice(0, 80) : "" });
   }
   return out;
+}
+
+// Who signs in on a computer: [{username, last (seconds since 1970) | null, now}].
+export function cleanSignIns(value: unknown): { username: string; last: number | null; now: boolean }[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const seen = new Set<string>();
+  return value.slice(0, MAX_SIGN_INS).flatMap((s) => {
+    if (typeof s !== "object" || s === null) return [];
+    const { username, last, now } = s as Record<string, unknown>;
+    if (typeof username !== "string" || !USERNAME.test(username) || seen.has(username)) return [];
+    seen.add(username);
+    const at = typeof last === "number" && Number.isInteger(last) && last > 946684800 && last < 4102444800 ? last : null;
+    return [{ username, last: at, now: now === true }];
+  });
 }
 
 type PersonRow = Record<string, any>;
@@ -182,6 +201,9 @@ Deno.serve(async (req: Request) => {
       const usbSeen = cleanUsbSeen(body.usb_seen);
       if (usbSeen === undefined) delete body.usb_seen;
       else body.usb_seen = usbSeen;
+      const signIns = cleanSignIns(body.sign_ins);
+      if (signIns === undefined) delete body.sign_ins;
+      else body.sign_ins = signIns;
       // A new password from a person on this computer: taken if they may use
       // it, aren't disabled or removed, and it really is new. The latest to
       // arrive wins (the server's clock, not the computer's).

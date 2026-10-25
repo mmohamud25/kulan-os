@@ -95,7 +95,7 @@ GROUP_ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
 ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update-urgent-symbolic",
               "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
               "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic",
-              "lost": "system-lock-screen-symbolic"}
+              "lost": "system-lock-screen-symbolic", "review": "security-medium-symbolic"}
 STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "done", "failed": "failed",
                 "cancelled": "cancelled", "expired": "expired"}
 TIMEOUT = 30
@@ -311,6 +311,159 @@ def ago(iso: str | None) -> str:
         return f"{round(s / 3600)} h ago"
     days = round(s / 86400)
     return f"{days} day{'s' if days != 1 else ''} ago"
+
+
+def ago_seconds(seconds: int | float | None) -> str:
+    """ago() for a time in seconds since 1970."""
+    if not seconds:
+        return "never"
+    return ago(datetime.fromtimestamp(seconds, timezone.utc).isoformat())
+
+
+def day_label(iso: str | None) -> str:
+    """26 Oct 2026, from an ISO date or time."""
+    if not iso:
+        return ""
+    try:
+        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).strftime("%-d %b %Y")
+    except ValueError:
+        return str(iso)
+
+
+def plural(n: int, word: str, words: str | None = None) -> str:
+    return f"{n} {word if n == 1 else (words or word + 's')}"
+
+
+def weekly_sections(s: dict, prev: dict | None) -> list[tuple[str, list[tuple[str, str, str]]]]:
+    """The weekly report as (heading, [(line, detail, good|bad|dim)]), for the page and the PDF."""
+    c, p, a, rv = s.get("computers") or {}, s.get("people") or {}, s.get("activity") or {}, s.get("review") or {}
+    pc, pp = (prev or {}).get("computers") or {}, (prev or {}).get("people") or {}
+    total = int(c.get("total") or 0)
+
+    def n(src: dict, key: str) -> int:
+        """How many: the server's count (its lists name at most 50), or the list's length."""
+        counts = src.get("counts") or {}
+        if key in counts:
+            return int(counts[key] or 0)
+        v = src.get(key)
+        return len(v) if isinstance(v, list) else int(v or 0)
+
+    def since(key: str, now: int, before_from: dict) -> str:
+        if prev is None or (key not in before_from and key not in (before_from.get("counts") or {})):
+            return ""
+        d = now - n(before_from, key)
+        return "same as last week" if d == 0 else f"{'+' if d > 0 else '−'}{abs(d)} since last week"
+
+    def names(src: dict, key: str) -> str:
+        lst = src.get(key) or []
+        text = ", ".join(x if isinstance(x, str) else
+                         f"{x.get('hostname', '')}" + (f" ({x['count']})" if x.get("count") else "") +
+                         (f" ({x['failing']} failing)" if x.get("failing") else "") for x in lst)
+        extra = n(src, key) - len(lst)
+        return f"{text} and {extra} more" if extra > 0 and text else text
+
+    def detail(*parts: str) -> str:
+        return " · ".join(x for x in parts if x)
+
+    def problem(title_none: str, title_some, key: str, src: dict, before: dict) -> tuple[str, str, str]:
+        k = n(src, key)
+        return ((title_none, detail(since(key, k, before)), "good") if k == 0 else
+                (title_some(k), detail(names(src, key), since(key, k, before)), "bad"))
+
+    comp = [
+        (f"{plural(total, 'computer')}", f"{c.get('reported_this_week', 0)} reported this week", "dim"),
+        (f"Up to date: {c.get('up_to_date', 0)} of {total}", "", "good" if c.get("up_to_date", 0) == total else "dim"),
+        problem("No security updates waiting", lambda k: f"Security updates waiting on {plural(k, 'computer')}",
+                "security_waiting", c, pc),
+        problem("No restart needed", lambda k: f"Restart needed on {plural(k, 'computer')}", "restart_needed", c, pc),
+        (f"Encrypted: {c.get('encrypted', 0)} of {total}", names(c, "not_encrypted") and
+         f"Not encrypted: {names(c, 'not_encrypted')}", "good" if not n(c, "not_encrypted") else "bad"),
+        problem("Firewall on everywhere", lambda k: f"Firewall off on {plural(k, 'computer')}", "firewall_off", c, pc),
+        (f"Compliance passing: {c.get('compliance_passing', 0)} of {total}", names(c, "compliance_failing"),
+         "good" if not n(c, "compliance_failing") else "bad"),
+        problem("Every policy met", lambda k: f"Policy not met on {plural(k, 'computer')}", "policy_not_met", c, pc),
+        problem("Every computer reported this week", lambda k: f"Not seen for a week: {plural(k, 'computer')}",
+                "not_seen_week", c, pc),
+    ]
+    if n(c, "lost_mode"):
+        comp.append((f"In lost mode: {plural(n(c, 'lost_mode'), 'computer')}", names(c, "lost_mode"), "bad"))
+    if c.get("versions"):
+        comp.append(("Kulan OS versions", ", ".join(f"{v}: {plural(k, 'computer')}"
+                                                    for v, k in sorted(c["versions"].items(), reverse=True)), "dim"))
+    people = [
+        (plural(int(p.get("total") or 0), "person", "people"), since("total", int(p.get("total") or 0), pp), "dim"),
+        (f"Administrator rights: {n(p, 'admins')}", names(p, "admins"), "dim"),
+        problem("Nobody disabled", lambda k: f"Disabled: {k}", "disabled", p, pp),
+        problem("Every setup code used", lambda k: f"Setup code not used for a week: {k}", "setup_code_unused", p, pp),
+    ]
+    kinds = ", ".join(f"{x.get('what')} {x.get('count')}" for x in a.get("by_kind") or [])
+    activity = [(f"{plural(int(a.get('changes') or 0), 'change')} this week", kinds, "dim")]
+    review = [(("Admin-rights review due" if rv.get("due") else "Admin-rights review up to date"),
+               (f"Last on {day_label(rv['at'])} by {rv.get('by')}" if rv.get("at") else "No review yet"),
+               "bad" if rv.get("due") else "good")]
+    return [("Computers", comp), ("People", people), ("Activity", activity), ("Admin rights", review)]
+
+
+def write_pdf(path: str, title: str, subtitle: str, sections: list[tuple[str, list[tuple[str, str, str]]]]) -> None:
+    """A plain A4 PDF of a report (Cairo and Pango; nothing else needed)."""
+    gi.require_foreign("cairo")
+    gi.require_version("Pango", "1.0")
+    gi.require_version("PangoCairo", "1.0")
+    import cairo
+    from gi.repository import Pango, PangoCairo
+    width, height, margin = 595, 842, 56
+    surface = cairo.PDFSurface(path, width, height)
+    cr = cairo.Context(surface)
+    y = margin
+
+    def text(markup: str, size: float, bold: bool = False, colour=(0.12, 0.16, 0.22), indent: float = 0) -> None:
+        nonlocal y
+        layout = PangoCairo.create_layout(cr)
+        layout.set_width(int((width - 2 * margin - indent) * Pango.SCALE))
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+        layout.set_font_description(Pango.FontDescription.from_string(f"Inter, Sans {'Bold ' if bold else ''}{size}"))
+        layout.set_markup(markup, -1)
+        h = layout.get_pixel_size()[1]
+        if y + h > height - margin:
+            cr.show_page()
+            y = margin
+        cr.set_source_rgb(*colour)
+        cr.move_to(margin + indent, y)
+        PangoCairo.show_layout(cr, layout)
+        y += h
+    esc = GLib.markup_escape_text
+    text(esc(title), 18, bold=True)
+    y += 4
+    text(esc(subtitle), 9.5, colour=(0.38, 0.42, 0.5))
+    for heading, rows in sections:
+        y += 16
+        text(esc(heading), 12.5, bold=True)
+        y += 4
+        for line, detail, kind in rows:
+            mark = {"good": "✓", "bad": "!", "dim": "·"}.get(kind, "·")
+            colour = {"good": (0.06, 0.46, 0.43), "bad": (0.73, 0.11, 0.11)}.get(kind, (0.12, 0.16, 0.22))
+            text(f"{mark}  {esc(line)}", 10.5, colour=colour, indent=4)
+            if detail:
+                text(esc(detail), 9, colour=(0.38, 0.42, 0.5), indent=20)
+            y += 3
+    y += 18
+    text(esc("Made by Kulan Fleet. Worked out from each computer's last report."), 8, colour=(0.5, 0.53, 0.6))
+    surface.finish()
+
+
+def csv_cell(v) -> str:
+    """One CSV cell; text that a spreadsheet would read as a formula starts with '."""
+    t = "" if v is None else v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+    if t[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        t = "'" + t
+    return f'"{t.replace(chr(34), chr(34) * 2)}"' if any(ch in t for ch in ',"\n\r') else t
+
+
+def log_csv(entries: list[dict]) -> str:
+    rows = [["When (UTC)", "Who", "What", "Computer", "Details"]]
+    rows += [[e.get("at") or "", e.get("email") or "", e.get("what") or "", e.get("hostname") or "",
+              e.get("detail") if e.get("detail") is not None else ""] for e in entries]
+    return "".join(",".join(csv_cell(c) for c in r) + "\r\n" for r in rows)
 
 
 def yes_no(value, yes: str = "yes", no: str = "no") -> str:
@@ -736,13 +889,15 @@ class FleetWindow(Adw.ApplicationWindow):
         group = self.add_group("Needs attention", None if alerts else "Nothing: every computer looks fine.")
         devices = {d["id"]: d for d in (self.data or {}).get("devices", [])}
         for a in alerts[:30]:
-            row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("hostname") or "Computer"),
+            row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("title") or a.get("hostname") or "Computer"),
                                 subtitle=GLib.markup_escape_text(a.get("text", "")), activatable=True)
             row.add_prefix(Gtk.Image(icon_name=ALERT_ICON.get(a.get("kind"), "dialog-warning-symbolic")))
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             dev = devices.get(a.get("device_id"))
             if dev:
                 row.connect("activated", lambda _r, d=dev: self.open_device(d))
+            elif a.get("kind") == "review":
+                row.connect("activated", lambda _r: self.open_review(org))
             group.add(row)
         if len(alerts) > 30:
             group.add(Adw.ActionRow(title=f"And {len(alerts) - 30} more"))
@@ -855,13 +1010,20 @@ class FleetWindow(Adw.ApplicationWindow):
         names = {d["id"]: d.get("hostname") or "" for d in data.get("devices", [])}
         ids = {d["id"] for d in devices}
         acts = [a for a in data.get("actions", []) if a["device_id"] in ids][:15]
+        security = self.add_group("Security and activity")
+        for title, subtitle, icon, opener in (
+                ("Weekly security report", "Updates, encryption, firewall, compliance and people, compared with last "
+                 "week; save it as a PDF", "security-high-symbolic", self.open_weekly),
+                ("Admin-rights review", "Who has administrator rights, and when they last used them: keep or take "
+                 "away (every 90 days)", "security-medium-symbolic", self.open_review),
+                ("Activity log", "Who changed what, and when; search it and export it for auditors",
+                 "document-open-recent-symbolic", self.open_log)):
+            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True, subtitle_lines=2)
+            row.add_prefix(Gtk.Image(icon_name=icon))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r, f=opener: f(org))
+            security.add(row)
         history = self.add_group("Recent requests")
-        log = Adw.ActionRow(title="Activity log", subtitle="Who changed the policy, made join codes or asked "
-                            "computers to do something, and when", activatable=True)
-        log.add_prefix(Gtk.Image(icon_name="document-open-recent-symbolic"))
-        log.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        log.connect("activated", lambda _r: self.open_log(org))
-        history.add(log)
         if not acts:
             history.add(Adw.ActionRow(title="Nothing asked yet"))
         for a in acts:
@@ -910,6 +1072,17 @@ class FleetWindow(Adw.ApplicationWindow):
                                     if isinstance(value, str) and value not in ("met", "not met") else "")
                 row.add_suffix(tag("met" if value == "met" else "not met", "good" if value == "met" else "bad"))
                 pol.add(row)
+        users = Adw.PreferencesGroup(title="Who uses it", description="Each account's username and when it was "
+                                     "last used, from the computer's reports" if d.get("sign_ins") else
+                                     "Not reported yet (Kulan OS 2.8c and later report it)")
+        page.add(users)
+        for si in (d.get("sign_ins") or [])[:50]:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(si.get("username", "")),
+                                subtitle="Signed in now" if si.get("now") else f"Last used {ago_seconds(si.get('last'))}")
+            row.add_prefix(Gtk.Image(icon_name="avatar-default-symbolic"))
+            if si.get("now"):
+                row.add_suffix(tag("signed in", "good"))
+            users.add(row)
         apps = Adw.PreferencesGroup()
         page.add(apps)
         apps_row = Adw.ActionRow(title="Apps", subtitle=f"{d.get('app_count') or 0} · sent {ago(d.get('apps_at'))}"
@@ -1023,26 +1196,262 @@ class FleetWindow(Adw.ApplicationWindow):
         else:
             self.background(lambda: self.session.call({"op": "apps", "device_id": d["id"]}), done)
 
-    def open_log(self, org: dict) -> None:
-        group = self.push_list("Activity log", "Loading…")
+    # --- Security and activity (2.8c) -------------------------------------------------------
+    def push_page(self, title: str, tag_name: str | None = None) -> tuple[Adw.PreferencesPage, Adw.HeaderBar]:
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        view.add_top_bar(header)
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title=title, child=view, **({"tag": tag_name} if tag_name else {})))
+        return page, header
+
+    def save_file(self, name: str, write, done_text: str) -> Gtk.FileDialog:
+        """Ask where to save, then write(path) in the background."""
+        dialog = Gtk.FileDialog(title="Save", initial_name=name, modal=True)
+
+        def chosen(d, result):
+            try:
+                f = d.save_finish(result)
+            except GLib.Error:
+                return  # cancelled
+            path = f.get_path() if f else None
+            if path:
+                self.background(lambda: write(path), lambda _r, error: self.toast(error or done_text))
+        dialog.save(self, None, chosen)
+        return dialog
+
+    def open_weekly(self, org: dict) -> None:
+        page, header = self.push_page("Weekly security report")
+        pdf = Gtk.Button(label="Save as PDF", sensitive=False, css_classes=["suggested-action"])
+        header.pack_end(pdf)
+        head = Adw.PreferencesGroup(title=f"{org['name']}: weekly security report", description="Loading…")
+        page.add(head)
 
         def done(result, error):
             if error:
-                group.set_description(error)
+                head.set_description(error)
                 return
-            entries = (result or {}).get("entries") or []
-            group.set_description("The last 100 changes, newest first." if entries else "Nothing changed yet.")
+            result = result or {}
+            prev = (result.get("previous") or {}).get("summary")
+            week = day_label(result.get("week"))
+            head.set_description(f"Week of {week}. Worked out now from each computer's last report" +
+                                 (f"; compared with the week of {day_label(result['previous']['week'])}." if prev else
+                                  ". Next week's report shows what changed."))
+            sections = weekly_sections(result.get("summary") or {}, prev)
+            for heading, rows in sections:
+                group = Adw.PreferencesGroup(title=heading)
+                page.add(group)
+                for line, detail, kind in rows:
+                    row = Adw.ActionRow(title=GLib.markup_escape_text(line), subtitle=GLib.markup_escape_text(detail),
+                                        subtitle_lines=0)
+                    row.add_prefix(Gtk.Image(icon_name={"good": "object-select-symbolic",
+                                                        "bad": "dialog-warning-symbolic"}.get(kind, "pan-end-symbolic")))
+                    group.add(row)
+            pdf.set_sensitive(True)
+            title = f"{org['name']}: weekly security report"
+            subtitle = f"Week of {week} · made {day_label(result.get('made_at'))}"
+            pdf.connect("clicked", lambda _b: self.save_file(
+                f"Kulan Fleet weekly report {result.get('week', '')}.pdf",
+                lambda path: write_pdf(path, title, subtitle, sections), "Report saved as a PDF"))
+        self.call({"op": "weekly-report", "organisation_id": org["id"]}, done,
+                  lambda: (self.data or {}).get("sample_weekly", {}))
+
+    def open_review(self, org: dict) -> None:
+        page, header = self.push_page("Admin-rights review", "review")
+        finish = Gtk.Button(label="Finish review", sensitive=False, css_classes=["suggested-action"])
+        header.pack_end(finish)
+        head = Adw.PreferencesGroup(title="Who has administrator rights", description="Loading…")
+        page.add(head)
+
+        def done(result, error):
+            if error:
+                head.set_description(error)
+                return
+            result = result or {}
+            last = result.get("last_review")
+            owner = bool(result.get("is_owner"))
+            head.set_description(
+                ("Due: " if result.get("due") else "") +
+                (f"last reviewed {day_label(last.get('reviewed_at'))} by {last.get('reviewed_by')}." if last else
+                 "not reviewed yet.") + " Untick anyone who no longer needs administrator rights, then Finish review." +
+                ("" if owner else " Only the Owner can finish a review."))
+            keeps: list[tuple[str, str, Gtk.CheckButton]] = []
+            on_computers = Adw.PreferencesGroup(title="On the computers", description="People with the admin role, or "
+                                                "the Owner's account: administrator rights on the computers they use")
+            page.add(on_computers)
+            for p in result.get("people") or []:
+                where = "all computers" if p.get("where") == "all" else ", ".join(p.get("where") or []) or "no computers yet"
+                si = (p.get("signed_in") or [None])[0]
+                used = (f"signed in now on {si['hostname']}" if si and si.get("now") else
+                        f"last used {ago_seconds(si.get('last'))} on {si['hostname']}" if si else "not used yet")
+                row = Adw.ActionRow(title=GLib.markup_escape_text(f"{p.get('full_name') or p['username']} ({p['username']})"),
+                                    subtitle=GLib.markup_escape_text(f"{ROLE_LABEL.get(p.get('role'), p.get('role'))} · "
+                                                                     f"{where} · {used}"), subtitle_lines=0)
+                keep = Gtk.CheckButton(active=True, valign=Gtk.Align.CENTER, tooltip_text="Keep",
+                                       sensitive=owner and p.get("role") != "owner")
+                row.add_suffix(Gtk.Label(label="Keep", css_classes=["dim-label"]))
+                row.add_suffix(keep)
+                keeps.append(("person", p["id"], keep))
+                on_computers.add(row)
+            if not result.get("people"):
+                on_computers.add(Adw.ActionRow(title="Nobody"))
+            fleet = Adw.PreferencesGroup(title="In Kulan Fleet", description="Admins who can see and manage this "
+                                         "organisation's computers and people")
+            page.add(fleet)
+            for a in result.get("admins") or []:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(a["email"]),
+                                    subtitle=("The Owner · " if a.get("owner") else "") + f"admin since {day_label(a.get('created_at'))}")
+                keep = Gtk.CheckButton(active=True, valign=Gtk.Align.CENTER, sensitive=owner and not a.get("owner"))
+                row.add_suffix(Gtk.Label(label="Keep", css_classes=["dim-label"]))
+                row.add_suffix(keep)
+                keeps.append(("admin", a["email"], keep))
+                fleet.add(row)
+            if result.get("all_organisations_admins"):
+                everywhere = Adw.PreferencesGroup(title="Kulan Fleet admins for every organisation",
+                                                  description="Kulan's own administrators (not changed here)")
+                page.add(everywhere)
+                for a in result["all_organisations_admins"]:
+                    everywhere.add(Adw.ActionRow(title=GLib.markup_escape_text(a["email"])))
+            finish.set_sensitive(owner)
+            finish.connect("clicked", lambda _b: self.finish_review(org, keeps))
+        self.call({"op": "access-review", "organisation_id": org["id"]}, done,
+                  lambda: (self.data or {}).get("sample_review", {}))
+
+    def finish_review(self, org: dict, keeps) -> Adw.AlertDialog:
+        people = [i for kind, i, c in keeps if kind == "person" and not c.get_active()]
+        admins = [i for kind, i, c in keeps if kind == "admin" and not c.get_active()]
+        kept = len(keeps) - len(people) - len(admins)
+        body = (f"Keeping {kept}. " +
+                (f"Taking the admin role from {plural(len(people), 'person', 'people')} (they stay, as employees). "
+                 if people else "") +
+                (f"Taking Kulan Fleet access from {', '.join(admins)}. " if admins else "") +
+                "The review is recorded in the activity log.")
+        dialog = Adw.AlertDialog(heading="Finish the review?", body=body)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("finish", "Finish review")
+        dialog.set_response_appearance("finish", Adw.ResponseAppearance.DESTRUCTIVE if people or admins
+                                       else Adw.ResponseAppearance.SUGGESTED)
+
+        def answered(_d, response):
+            if response != "finish":
+                return
+
+            def done(r, error):
+                if error:
+                    self.toast(error)
+                    return
+                self.toast(f"Review recorded: kept {r.get('kept', kept)}, took away {r.get('removed', 0)}")
+                if not self.sample_mode():
+                    self.reload()
+                self.nav.pop_to_tag("org")
+            self.call({"op": "review-access", "organisation_id": org["id"], "remove_people": people,
+                       "remove_admins": admins}, done, {"kept": kept, "removed": len(people) + len(admins)})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def open_log(self, org: dict) -> None:
+        page, header = self.push_page("Activity log", "log")
+        export = Gtk.Button(label="Export CSV", tooltip_text="Every entry that matches, for auditors")
+        header.pack_end(export)
+        search = Adw.PreferencesGroup(title="Find", description="Dates as 2026-10-26; leave anything empty")
+        page.add(search)
+        fields = {}
+        for key, title in (("from", "From (date)"), ("to", "To (date)"), ("who", "Who (email)"),
+                           ("what", "What, or a computer's name")):
+            row = Adw.EntryRow(title=title)
+            search.add(row)
+            fields[key] = row
+        results = Adw.PreferencesGroup(title="Entries", description="Loading…")
+        page.add(results)
+        state = {"rows": [], "more": None, "query": {}}
+
+        def query(**extra) -> dict:
+            body = {"op": "log", "organisation_id": org["id"], **extra}
+            for key, row in fields.items():
+                if row.get_text().strip():
+                    body[key] = row.get_text().strip()
+            return body
+
+        def problem() -> str | None:
+            for key in ("from", "to"):
+                v = fields[key].get_text().strip()
+                try:
+                    if v and (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v) or datetime.strptime(v, "%Y-%m-%d") is None):
+                        return "Dates are written 2026-10-26"
+                except ValueError:
+                    return f"There's no {v}: dates are written 2026-10-26"
+            return None
+
+        def show(entries: list[dict], more: bool, fresh: bool) -> None:
+            if fresh:
+                for row in state["rows"]:
+                    results.remove(row)
+                state["rows"] = []
+            if state["more"] is not None:
+                results.remove(state["more"])
+                state["more"] = None
             for e in entries:
                 what = e.get("what", "")
                 if what.startswith("asked: "):
                     what = f"asked {e.get('hostname') or 'a computer'} to {ACTION_LABEL.get(what[7:], what[7:]).lower()}"
                 row = Adw.ActionRow(title=GLib.markup_escape_text(f"{e.get('email', '')} {what}"),
-                                    subtitle=GLib.markup_escape_text(ago(e.get("at"))))
-                group.add(row)
-        if self.data and self.data.get("sample"):
-            done({"entries": self.data.get("sample_log", [])}, None)
-        else:
-            self.background(lambda: self.session.call({"op": "log", "organisation_id": org["id"]}), done)
+                                    subtitle=GLib.markup_escape_text(f"{day_label(e.get('at'))} · {ago(e.get('at'))}"),
+                                    subtitle_lines=0)
+                results.add(row)
+                state["rows"].append(row)
+            shown = len(state["rows"])
+            results.set_description(f"{plural(shown, 'entry', 'entries')}, newest first" if shown else "Nothing found.")
+            if more and entries:
+                button = Gtk.Button(label="Show more", halign=Gtk.Align.CENTER, margin_top=12)
+                button.connect("clicked", lambda _b, before=entries[-1].get("id"): load(before))
+                results.add(button)
+                state["more"] = button
+
+        def load(before=None) -> None:
+            if before is None:  # a new search; "Show more" carries on with the same one
+                if problem():
+                    self.toast(problem())
+                    return
+                state["query"] = query()
+            extra = {"limit": 100, **({"before": before} if before else {})}
+            self.call({**state["query"], **extra}, lambda r, error: self.toast(error) if error else
+                      show((r or {}).get("entries") or [], bool((r or {}).get("more")), before is None),
+                      lambda: {"entries": (self.data or {}).get("sample_log", []), "more": False})
+        go = Gtk.Button(label="Search", halign=Gtk.Align.END, margin_top=12, css_classes=["suggested-action"])
+        go.connect("clicked", lambda _b: load())
+        search.add(go)
+        for row in fields.values():
+            row.connect("entry-activated", lambda _r: load())
+
+        def everything(base: dict) -> list[dict]:
+            """Every matching entry (in the background: base is the query, read from the page first)."""
+            if self.sample_mode():
+                return list((self.data or {}).get("sample_log", []))
+            out, before = [], None
+            for _page in range(20):  # up to 200,000 entries
+                r = self.session.call({**base, "limit": 10000, **({"before": before} if before else {})})
+                out += r.get("entries") or []
+                if not r.get("more") or not out:
+                    break
+                before = out[-1].get("id")
+            return out
+
+        def export_csv(_b) -> None:
+            if problem():
+                self.toast(problem())
+                return
+
+            base = query()  # the filters as they are now, read here on GTK's thread
+
+            def write(path: str) -> None:
+                with open(path, "w", encoding="utf-8", newline="") as f:
+                    f.write(log_csv(everything(base)))
+            self.save_file(f"Kulan Fleet activity {org['name']} {datetime.now().strftime('%Y-%m-%d')}.csv", write,
+                           "Activity log exported")
+        export.connect("clicked", export_csv)
+        load()
 
     def ask_erase(self, d: dict) -> Adw.AlertDialog:
         name = d.get("hostname") or ""
@@ -1662,6 +2071,14 @@ class FleetWindow(Adw.ApplicationWindow):
         row.connect("activated", lambda _r: self.edit_person_computers(org, person))
         change.add(row)
 
+        used = Adw.PreferencesGroup(title="Last used", description=None if person.get("signed_in") else
+                                    "Not used on any computer yet (or its Kulan OS doesn't report it)")
+        page.add(used)
+        for si in (person.get("signed_in") or [])[:20]:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(si.get("hostname") or ""),
+                                subtitle="Signed in now" if si.get("now") else ago_seconds(si.get("last")))
+            row.add_prefix(Gtk.Image(icon_name="computer-symbolic"))
+            used.add(row)
         sign_in = Adw.PreferencesGroup(title="Signing in")
         page.add(sign_in)
         manages = is_owner or person.get("role") == "employee"
@@ -2056,14 +2473,18 @@ def sample() -> dict:
                                            "usb": "met", "app:install:flatpak:org.libreoffice.LibreOffice": "met",
                                            "app:block:debian:steam": "kept: removing it would also remove 2 other "
                                                                      "package(s) (steam-libs, steam-devices)"},
-                         "app_count": 2, "apps_at": iso(3600)},
+                         "app_count": 2, "apps_at": iso(3600),
+                         "sign_ins": [{"username": "amina", "last": now.timestamp() - 600, "now": True},
+                                      {"username": "omar", "last": now.timestamp() - 86400 * 12, "now": False}]},
                         {"id": "d2", "organisation_id": org, "hostname": "kca-desk-02", "kulan_version": "2.4",
                          "last_seen": iso(5 * 3600), "updates": {"waiting": 6, "security": 2}, "tpm": {"on": False},
                          "compliance_passed": 8, "compliance_total": 10, "hardware": {"vendor": "Dell"},
                          "state": {"encrypted": False, "firewall": False, "auto_updates": False, "erase_allowed": False,
                                    "lost_mode": True},
                          "policy_status": {"auto_updates": "not met", "require_encryption": "not met"}}],
-            "alerts": [{"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "updates",
+            "alerts": [{"organisation_id": org, "device_id": None, "hostname": None, "title": "Admin rights",
+                        "kind": "review", "text": "No admin-rights review yet"},
+                       {"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "updates",
                         "text": "2 security updates waiting"},
                        {"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "encryption",
                         "text": "Not encrypted, and the organisation requires it"}],
@@ -2078,7 +2499,8 @@ def sample() -> dict:
             "sample_people": [
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
                  "uid": 70000, "role": "employee", "enabled": True, "must_change": True, "all_computers": True,
-                 "computers": [], "groups": [], "created_at": iso(7200), "created_by": "admin@kulan.example",
+                 "computers": [], "groups": [],
+                 "signed_in": [{"hostname": "kca-laptop-01", "device_id": "d1", "last": now.timestamp() - 600, "now": True}], "created_at": iso(7200), "created_by": "admin@kulan.example",
                  "on": [{"device_id": "d1", "hostname": "kca-laptop-01", "status": "created"},
                         {"device_id": "d2", "hostname": "kca-desk-02", "status": "not yet"}]},
                 {"id": "p2", "username": "omar", "full_name": "Omar Ali", "email": None, "uid": 70001, "role": "admin",
@@ -2098,6 +2520,33 @@ def sample() -> dict:
                                             "product_id": "5583", "serial": "4C530001", "created_by": "admin@kulan.example"}],
                               "seen": [{"vendor_id": "0951", "product_id": "1666", "serial": "ABCD1234",
                                         "name": "Kingston DataTraveler", "computers": ["kca-laptop-01"]}]},
+            "sample_weekly": {"week": "2026-10-26", "made_at": iso(60),
+                              "summary": {"computers": {"total": 2, "reported_this_week": 2, "not_seen_week": [],
+                                                        "up_to_date": 1, "security_waiting": [{"hostname": "kca-desk-02", "count": 2}],
+                                                        "restart_needed": ["kca-desk-02"], "encrypted": 1,
+                                                        "not_encrypted": ["kca-desk-02"], "firewall_off": ["kca-desk-02"],
+                                                        "compliance_passing": 1,
+                                                        "compliance_failing": [{"hostname": "kca-desk-02", "failing": 2}],
+                                                        "policy_not_met": [{"hostname": "kca-desk-02", "items": ["auto_updates"]}],
+                                                        "lost_mode": ["kca-desk-02"], "versions": {"2.8.3": 2}},
+                                          "people": {"total": 2, "disabled": ["omar"], "setup_code_unused": ["amina"],
+                                                     "admins": ["omar"]},
+                                          "activity": {"changes": 7, "by_kind": [{"what": "added", "count": 4},
+                                                                                 {"what": "asked computers", "count": 3}]},
+                                          "review": {"at": None, "by": None, "due": True}},
+                              "previous": {"week": "2026-10-19", "summary": {"computers": {"total": 1, "security_waiting": [],
+                                                                                            "restart_needed": [], "firewall_off": []},
+                                                                              "people": {"total": 1, "disabled": []}}}},
+            "sample_review": {"is_owner": True, "due": True, "days_since": 120, "last_review": None,
+                              "people": [{"id": "p2", "username": "omar", "full_name": "Omar Ali", "role": "admin",
+                                          "where": ["kca-laptop-01"],
+                                          "signed_in": [{"hostname": "kca-laptop-01", "last": now.timestamp() - 86400 * 12,
+                                                         "now": False}]},
+                                         {"id": "p3", "username": "mo", "full_name": "Mohamud", "role": "owner",
+                                          "where": "all", "signed_in": []}],
+                              "admins": [{"email": "admin@kulan.example", "owner": True, "created_at": iso(86400 * 9)},
+                                         {"email": "helper@kulan.example", "owner": False, "created_at": iso(86400)}],
+                              "all_organisations_admins": [{"email": "fleet@kulangroup.com"}]},
             "sample_report": {"compliance": {"passed": 1, "total": 2, "baseline": "Kulan OS baseline 1",
                                              "controls": controls}}}
 
@@ -2176,6 +2625,35 @@ class FleetApp(Adw.Application):
                     summary = policy_summary({"firewall": True, "usb": "approved", "required_apps": [{"source": "debian", "id": "x"}]})
                     assert summary == "Firewall, USB: approved drives only, 1 app required", summary
                     assert policy_summary({}) == "No policy of its own"
+                    # Security and activity (2.8c): the report, the PDF, the review, the log and its CSV.
+                    win.open_weekly(org)
+                    win.nav.pop()
+                    win.open_review(org)
+                    win.finish_review(org, [("person", "p2", Gtk.CheckButton(active=False)),
+                                            ("admin", "helper@kulan.example", Gtk.CheckButton(active=True))]).force_close()
+                    win.nav.pop_to_tag("org")
+                    win.open_log(org)
+                    win.nav.pop_to_tag("org")
+                    sections = weekly_sections(win.data["sample_weekly"]["summary"], win.data["sample_weekly"]["previous"]["summary"])
+                    flat = [line for _h, rows_ in sections for line in rows_]
+                    assert ("Security updates waiting on 1 computer", "kca-desk-02 (2) · +1 since last week", "bad") in flat, flat
+                    assert any(l[0] == "Admin-rights review due" and l[2] == "bad" for l in flat), flat
+                    assert weekly_sections({}, None)[0][1][0] == ("0 computers", "0 reported this week", "dim")
+                    big = weekly_sections({"computers": {"total": 120, "restart_needed": ["a", "b"],
+                                                         "counts": {"restart_needed": 120}, "versions": {"2.8.3": 120}}},
+                                          {"computers": {"counts": {"restart_needed": 100}}})
+                    flat_big = [line for _h, rows_ in big for line in rows_]
+                    assert ("Restart needed on 120 computers", "a, b and 118 more · +20 since last week", "bad") in flat_big, flat_big
+                    assert ("Kulan OS versions", "2.8.3: 120 computers", "dim") in flat_big, flat_big
+                    pdf_path = os.path.join(GLib.get_tmp_dir(), f"kulan-fleet-self-test-{os.getpid()}.pdf")
+                    write_pdf(pdf_path, "Kulan: weekly security report", "Week of 26 Oct 2026", sections * 6)
+                    with open(pdf_path, "rb") as f:
+                        head = f.read(5)
+                    os.unlink(pdf_path)
+                    assert head == b"%PDF-", head
+                    csv = log_csv([{"at": "2026-10-26T10:00:00Z", "email": "a@x", "what": "=HYPERLINK(1)", "hostname": "pc, one",
+                                    "detail": {"n": 1}}])
+                    assert csv.splitlines()[1] == "2026-10-26T10:00:00Z,a@x,'=HYPERLINK(1),\"pc, one\",\"{\"\"n\"\": 1}\"", csv
                     rows, picked = win.computer_picker(org, False, ["d1"], ["g1"])
                     assert picked() == (False, ["d1"], ["g1"]), picked()
                     # Setup codes: 12 of the 32 clear characters; the hash is one the computers take,

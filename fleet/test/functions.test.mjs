@@ -1,6 +1,7 @@
 // The fleet and fleet-admin Edge Functions against a real Postgres, with every
 // migration applied: People (accounts, passwords both ways, roles, disable,
-// remove, setup codes), the Owner and admins, the new actions.
+// remove, setup codes), the Owner and admins, the new actions, groups and
+// policies (2.8b), the weekly report, admin-rights reviews and the log (2.8c).
 //
 //   cd fleet/test && npm ci && FLEET_TEST_DB=postgres://postgres@localhost:5432/postgres node --experimental-strip-types functions.test.mjs
 //
@@ -377,6 +378,121 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
     ok(groupLog.includes(want), `in the activity log: ${want}`, groupLog);
   }
   void farah;
+}
+
+// --- security and activity (2.8c) ---------------------------------------------------------
+{
+  // Who signs in where: kept from the computers' reports, malformed entries dropped.
+  const t = Math.floor(Date.now() / 1000);
+  await report(A, { sign_ins: [{ username: "mo", last: t - 3600, now: true }, { username: "Bad:Name", last: t },
+                               { username: "local", last: "yesterday" }, { username: "mo", last: 1 }] });
+  await report(B, { sign_ins: [{ username: "omar", last: t - 86400 * 40, now: false }, { username: "mo", last: t - 60 }],
+                    updates: { waiting: 3, security: 2, restart_required: true },
+                    state: { encrypted: false, firewall: false }, compliance: { passed: 8, total: 10 } });
+  r = await admin(HELPER, { op: "overview" });
+  const devA = r.body.devices.find((d) => d.hostname === "laptop-a");
+  ok(JSON.stringify(devA.sign_ins.map((x) => [x.username, x.last, x.now])) === JSON.stringify([["mo", t - 3600, true], ["local", null, false]]),
+     "a computer's sign-ins: well-formed, once each, odd times dropped", devA.sign_ins);
+  r = await admin(HELPER, { op: "people", organisation_id: org });
+  const mo = r.body.people.find((p) => p.username === "mo");
+  ok(mo.signed_in.length === 2 && mo.signed_in[0].hostname === "laptop-b" && mo.signed_in[1].now === true,
+     "a person's sign-ins, latest first, across computers", mo.signed_in);
+
+  // The weekly report.
+  r = await admin(HELPER, { op: "weekly-report", organisation_id: other });
+  ok(r.status === 404, "not another organisation's report", r);
+  r = await admin(HELPER, { op: "weekly-report", organisation_id: org });
+  const w = r.body;
+  ok(r.status === 200 && /^\d{4}-\d{2}-\d{2}$/.test(w.week) && new Date(w.week + "T00:00:00Z").getUTCDay() === 1,
+     "the week starts on a Monday", w.week);
+  ok(w.summary.computers.total === 2 && w.summary.computers.reported_this_week === 2, "computers counted", w.summary.computers);
+  ok(w.summary.computers.security_waiting[0]?.hostname === "laptop-b" && w.summary.computers.security_waiting[0].count === 2 &&
+     w.summary.computers.restart_needed.join() === "laptop-b" && w.summary.computers.not_encrypted.join() === "laptop-b" &&
+     w.summary.computers.firewall_off.join() === "laptop-b" && w.summary.computers.compliance_failing[0]?.failing === 2,
+     "what needs doing, by computer", w.summary.computers);
+  const peopleNow = (await admin(HELPER, { op: "people", organisation_id: org })).body.people.length;
+  ok(w.summary.people.admins.sort().join() === "mo,omar" && w.summary.people.total === peopleNow, "people and who has admin rights", w.summary.people);
+  ok(w.summary.activity.changes > 0 && w.summary.activity.by_kind.length > 0, "the week's changes", w.summary.activity);
+  ok(w.previous === null, "nothing to compare with in the first week", w.previous);
+  const lastWeek = new Date(Date.parse(w.week) - 7 * 86400_000).toISOString().slice(0, 10);
+  await db`insert into fleet.weekly_reports (organisation_id, week, summary)
+           values (${org}, ${lastWeek}, ${db.json({ computers: { total: 1, security_waiting: [] } })})`;
+  r = await admin(HELPER, { op: "weekly-report", organisation_id: org });
+  ok(r.body.previous?.week === lastWeek && r.body.previous.summary.computers.total === 1, "last week's snapshot to compare with", r.body.previous);
+  const [{ n }] = await db`select count(*)::int as n from fleet.weekly_reports where organisation_id = ${org}`;
+  ok(n === 2, "one snapshot per week, however often it's opened", n);
+
+  // A bigger organisation: lists name 50, the counts are right, a big report still opens.
+  const items = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`app:install:flatpak:org.example.App${i}`, "couldn't install: not found"]));
+  await db`insert into fleet.devices (organisation_id, hostname, last_seen, last_report)
+           select ${other}, 'pc-' || g, now(), ${db.json({ updates: { waiting: 1, security: 1, restart_required: true },
+                                                         state: { firewall: false }, policy_status: items })}
+           from generate_series(1, 60) g`;
+  r = await admin(BOSS, { op: "weekly-report", organisation_id: other });
+  const big = r.body.summary?.computers;
+  ok(r.status === 200 && big.counts.restart_needed === 60 && big.restart_needed.length === 50 &&
+     big.counts.security_waiting === 60 && big.counts.firewall_off === 60 && big.counts.policy_not_met === 60,
+     "60 computers: 50 named, 60 counted", big?.counts);
+  ok(big.policy_not_met[0].items.length === 10 && big.policy_not_met[0].more === 30, "a computer's unmet items: 10 named, the rest counted", big.policy_not_met[0]);
+  const [{ kept }] = await db`select count(*)::int as kept from fleet.weekly_reports where organisation_id = ${other}`;
+  ok(kept === 1, "and its snapshot is kept", kept);
+  r = await admin(BOSS, { op: "log", organisation_id: other, from: "2026-02-30" });
+  ok(r.status === 400, "a date that doesn't exist is refused, not a server error", r);
+
+  // The admin-rights review.
+  r = await admin(HELPER, { op: "access-review", organisation_id: org });
+  const rv = r.body;
+  ok(r.status === 200 && rv.people.map((p) => p.username).join() === "mo,omar" && rv.is_owner === false,
+     "who has administrator rights on the computers", rv.people);
+  const omarRow = rv.people.find((p) => p.username === "omar");
+  ok(omarRow.where.join() === "laptop-b" && omarRow.signed_in[0]?.last === t - 86400 * 40, "where, and when they last signed in", omarRow);
+  ok(rv.admins.some((a) => a.email === NEWOWNER && a.owner) && rv.admins.some((a) => a.email === HELPER) &&
+     rv.all_organisations_admins.some((a) => a.email === BOSS), "Kulan Fleet admins, the Owner marked", rv.admins);
+  ok(rv.last_review === null && rv.due === false, "a new organisation: no review due yet", rv);
+  r = await admin(NEWOWNER, { op: "overview" });
+  ok(!r.body.alerts.some((x) => x.kind === "review" && x.organisation_id === org), "no review alert yet");
+  await db`update fleet.organisations set created_at = now() - interval '100 days' where id = ${org}`;
+  r = await admin(NEWOWNER, { op: "overview" });
+  const alert = r.body.alerts.find((x) => x.kind === "review" && x.organisation_id === org);
+  ok(r.body.alerts.findIndex((x) => x.kind === "review") < r.body.alerts.findIndex((x) => x.kind !== "review"),
+     "the review alert comes before computers' alerts (lists show the first 30)");
+  ok(alert && alert.device_id === null && alert.title === "Admin rights" && alert.text.startsWith("No admin-rights review yet"),
+     "after 90 days without a review: an alert", r.body.alerts);
+  r = await admin(HELPER, { op: "review-access", organisation_id: org });
+  ok(r.status === 403, "only the Owner reviews admin rights", r);
+  const moId = rv.people.find((p) => p.username === "mo").id;
+  r = await admin(NEWOWNER, { op: "review-access", organisation_id: org, remove_people: [moId] });
+  ok(r.status === 400, "the Owner's own account keeps its rights", r);
+  r = await admin(NEWOWNER, { op: "review-access", organisation_id: org, remove_admins: [NEWOWNER] });
+  ok(r.status === 400, "the Owner stays a Kulan Fleet admin", r);
+  r = await admin(NEWOWNER, { op: "review-access", organisation_id: org, remove_admins: ["stranger@x.test"] });
+  ok(r.status === 400, "only admins on the list", r);
+  r = await admin(NEWOWNER, { op: "review-access", organisation_id: org, remove_people: [omarRow.id], remove_admins: [OWNER.toUpperCase()] });
+  ok(r.status === 200 && r.body.removed === 2 && r.body.kept === 3, "omar's admin role and the old Owner's access taken away", r);
+  ok((await report(B)).body.accounts.find((x) => x.username === "omar")?.role === "employee", "omar is an employee on laptop-b now");
+  r = await admin(OWNER, { op: "overview" });
+  ok(r.status === 403, "the old Owner's email no longer gets in", r);
+  r = await admin(NEWOWNER, { op: "access-review", organisation_id: org });
+  ok(r.body.last_review?.reviewed_by === NEWOWNER && r.body.last_review.removed === 2 && r.body.due === false, "the review is recorded", r.body.last_review);
+  r = await admin(NEWOWNER, { op: "overview" });
+  ok(!r.body.alerts.some((x) => x.kind === "review" && x.organisation_id === org), "the alert goes after a review");
+
+  // The activity log, filtered and in pages, for exporting.
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "reviewed admin" });
+  ok(r.body.entries.length === 1 && r.body.entries[0].what === "reviewed admin rights (kept 3, removed 2)" &&
+     r.body.entries[0].detail.admin_role_taken.join() === "omar", "in the log, with what was taken away", r.body.entries);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, who: "HELPER@", limit: 3 });
+  ok(r.body.entries.length === 3 && r.body.entries.every((e) => e.email === HELPER) && r.body.more === true, "by who, a page at a time", r.body);
+  const next = await admin(NEWOWNER, { op: "log", organisation_id: org, who: "helper@", limit: 3, before: r.body.entries[2].id });
+  ok(next.body.entries.length === 3 && next.body.entries[0].id < r.body.entries[2].id, "the next page", next.body);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "laptop-a" });
+  ok(r.body.entries.length > 0 && r.body.entries.every((e) => e.hostname === "laptop-a" || e.what.includes("laptop-a")), "by computer", r.body.entries.length);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, from: "2000-01-01", to: "2000-12-31" });
+  ok(r.body.entries.length === 0, "by date", r.body);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "100%_" });
+  ok(r.status === 200 && r.body.entries.length === 0, "search text taken literally", r.body);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, limit: 50000 });
+  ok(r.status === 200 && r.body.entries.length <= 10000, "at most 10,000 a page", r.body.entries.length);
 }
 
 // --- the activity log ------------------------------------------------------------------------

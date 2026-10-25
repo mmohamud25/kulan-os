@@ -76,6 +76,17 @@ button.danger { background: var(--bad-bg); color: var(--bad); }
 .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
 .note { font-size: 13px; color: var(--muted); }
 h4 { margin: 14px 0 6px; }
+.report-line { margin: 6px 0; }
+.report-line .detail { display: block; font-size: 12px; color: var(--muted); margin-left: 20px; }
+.report-line.bad > b { color: var(--bad); }
+.report-line.good > b { color: var(--teal); }
+/* Printing (Save as PDF) the weekly report: only the report. */
+@media print {
+  body.printing > *:not(#print-area) { display: none !important; }
+  body.printing #print-area { display: block !important; color: #111; }
+  body:not(.printing) #print-area { display: none; }
+}
+#print-area { display: none; }
 </style>
 </head>
 <body>
@@ -219,12 +230,27 @@ h4 { margin: 14px 0 6px; }
       </div>
     </div>
     <div class="card">
-      <div class="row"><h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Activity log</h3><button id="log-load" style="margin-left: auto">Show</button></div>
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Security</h3>
+      <p class="sub">The weekly security report (compared with last week; print it or save it as a PDF), and the admin-rights review, due every 90 days.</p>
+      <div class="row"><button id="weekly" class="primary">Weekly security report…</button><button id="review">Admin-rights review…</button></div>
+    </div>
+    <div class="card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Activity log</h3>
+      <p class="sub">Who changed what, and when. Find entries, or export them as a CSV file for auditors. Dates as 2026-10-26; leave anything empty.</p>
+      <form id="log-find" class="row">
+        <label class="small">From <input id="log-from" type="date" aria-label="From"></label>
+        <label class="small">To <input id="log-to" type="date" aria-label="To"></label>
+        <input id="log-who" placeholder="Who (email)" aria-label="Who" style="min-width: 160px">
+        <input id="log-what" placeholder="What, or a computer" aria-label="What" style="min-width: 160px">
+        <button type="submit">Search</button>
+        <button type="button" id="log-csv">Export CSV</button>
+      </form>
       <div class="table-wrap hidden" id="log-wrap">
         <table>
           <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
           <tbody id="log"></tbody>
         </table>
+        <button type="button" id="log-more" class="hidden" style="margin-top: 8px">Show more</button>
       </div>
     </div>
     <p id="app-msg" class="small error" role="status"></p>
@@ -232,6 +258,7 @@ h4 { margin: 14px 0 6px; }
   </section>
 </main>
 
+<div id="print-area"></div>
 <dialog id="dlg" aria-labelledby="dlg-title">
   <h3 id="dlg-title" style="margin: 0 0 8px; font: 800 18px Manrope, Inter, sans-serif"></h3>
   <div id="dlg-body"></div>
@@ -479,6 +506,152 @@ function policyForm(p) {
 }
 let orgPolicy = null;
 
+// --- Security and activity (2.8c) -----------------------------------------------------------
+const agoSeconds = (t) => t ? ago(new Date(t * 1000).toISOString()) : "never";
+const dayLabel = (iso) => iso ? new Date(iso.length === 10 ? iso + "T00:00:00Z" : iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
+const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+
+// The weekly report as [heading, [[line, detail, good|bad|dim]]] (the same lines as the app's).
+function weeklySections(s, prev) {
+  const c = s.computers || {}, p = s.people || {}, a = s.activity || {}, rv = s.review || {};
+  const pc = prev?.computers || {}, pp = prev?.people || {};
+  const total = Number(c.total || 0);
+  // How many: the server's count (its lists name at most 50), or the list's length.
+  const n = (src, key) => key in (src.counts || {}) ? Number(src.counts[key] || 0)
+    : Array.isArray(src[key]) ? src[key].length : Number(src[key] || 0);
+  const since = (key, now, before) => {
+    if (!prev || !(key in before || key in (before.counts || {}))) return "";
+    const d = now - n(before, key);
+    return d === 0 ? "same as last week" : `${d > 0 ? "+" : "−"}${Math.abs(d)} since last week`;
+  };
+  const names = (src, key) => {
+    const lst = src[key] || [];
+    const text = lst.map((x) => typeof x === "string" ? x :
+      `${x.hostname || ""}${x.count ? ` (${x.count})` : ""}${x.failing ? ` (${x.failing} failing)` : ""}`).join(", ");
+    const extra = n(src, key) - lst.length;
+    return extra > 0 && text ? `${text} and ${extra} more` : text;
+  };
+  const detail = (...parts) => parts.filter(Boolean).join(" · ");
+  const problem = (none, some, key, src, before) => {
+    const k = n(src, key);
+    return k === 0 ? [none, detail(since(key, k, before)), "good"] : [some(k), detail(names(src, key), since(key, k, before)), "bad"];
+  };
+  const comp = [
+    [plural(total, "computer"), `${c.reported_this_week || 0} reported this week`, "dim"],
+    [`Up to date: ${c.up_to_date || 0} of ${total}`, "", (c.up_to_date || 0) === total ? "good" : "dim"],
+    problem("No security updates waiting", (k) => `Security updates waiting on ${plural(k, "computer")}`, "security_waiting", c, pc),
+    problem("No restart needed", (k) => `Restart needed on ${plural(k, "computer")}`, "restart_needed", c, pc),
+    [`Encrypted: ${c.encrypted || 0} of ${total}`, n(c, "not_encrypted") ? `Not encrypted: ${names(c, "not_encrypted")}` : "", n(c, "not_encrypted") ? "bad" : "good"],
+    problem("Firewall on everywhere", (k) => `Firewall off on ${plural(k, "computer")}`, "firewall_off", c, pc),
+    [`Compliance passing: ${c.compliance_passing || 0} of ${total}`, names(c, "compliance_failing"), n(c, "compliance_failing") ? "bad" : "good"],
+    problem("Every policy met", (k) => `Policy not met on ${plural(k, "computer")}`, "policy_not_met", c, pc),
+    problem("Every computer reported this week", (k) => `Not seen for a week: ${plural(k, "computer")}`, "not_seen_week", c, pc),
+  ];
+  if (n(c, "lost_mode")) comp.push([`In lost mode: ${plural(n(c, "lost_mode"), "computer")}`, names(c, "lost_mode"), "bad"]);
+  if (c.versions && Object.keys(c.versions).length) comp.push(["Kulan OS versions", Object.entries(c.versions).sort().reverse().map(([v, k]) => `${v}: ${plural(k, "computer")}`).join(", "), "dim"]);
+  const people = [
+    [plural(Number(p.total || 0), "person", "people"), since("total", Number(p.total || 0), pp), "dim"],
+    [`Administrator rights: ${n(p, "admins")}`, names(p, "admins"), "dim"],
+    problem("Nobody disabled", (k) => `Disabled: ${k}`, "disabled", p, pp),
+    problem("Every setup code used", (k) => `Setup code not used for a week: ${k}`, "setup_code_unused", p, pp),
+  ];
+  const activity = [[`${plural(Number(a.changes || 0), "change")} this week`, (a.by_kind || []).map((x) => `${x.what} ${x.count}`).join(", "), "dim"]];
+  const review = [[rv.due ? "Admin-rights review due" : "Admin-rights review up to date",
+                   rv.at ? `Last on ${dayLabel(rv.at)} by ${rv.by}` : "No review yet", rv.due ? "bad" : "good"]];
+  return [["Computers", comp], ["People", people], ["Activity", activity], ["Admin rights", review]];
+}
+
+function sectionNodes(sections) {
+  return sections.flatMap(([heading, rows]) => [el("h4", {}, heading), ...rows.map(([line, detail, kind]) =>
+    el("div", { class: `report-line ${kind}` }, el("b", {}, `${{ good: "✓", bad: "!", dim: "·" }[kind] || "·"} ${line}`),
+       detail ? el("span", { class: "detail" }, detail) : ""))]);
+}
+
+async function openWeekly() {
+  const org = data.organisations.find((o) => o.id === $("org").value);
+  if (!org) return;
+  dialog(`${org.name}: weekly security report`, [el("p", { class: "small" }, "Loading…")], [closeButton("Close")]);
+  try {
+    const out = await api({ op: "weekly-report", organisation_id: org.id });
+    const prev = out.previous?.summary || null;
+    const sub = `Week of ${dayLabel(out.week)} · made ${dayLabel(out.made_at)}` + (prev ? ` · compared with the week of ${dayLabel(out.previous.week)}` : "");
+    const nodes = sectionNodes(weeklySections(out.summary || {}, prev));
+    const print = el("button", { type: "button", class: "primary", onclick: () => {
+      $("print-area").replaceChildren(el("h2", {}, `${org.name}: weekly security report`), el("p", {}, sub),
+        ...sectionNodes(weeklySections(out.summary || {}, prev)), el("p", { class: "small" }, "Made by Kulan Fleet. Worked out from each computer's last report."));
+      $("dlg").close();
+      document.body.classList.add("printing");
+      window.print();
+      document.body.classList.remove("printing");
+    } }, "Print or save as PDF");
+    dialog(`${org.name}: weekly security report`, [el("p", { class: "note" }, sub), ...nodes], [closeButton("Close"), print]);
+  } catch (e) {
+    dialog("Weekly security report", [el("p", { class: "error" }, e.message)], [closeButton("Close")]);
+  }
+}
+
+async function openReview() {
+  const org = data.organisations.find((o) => o.id === $("org").value);
+  if (!org) return;
+  dialog("Admin-rights review", [el("p", { class: "small" }, "Loading…")], [closeButton("Close")]);
+  let out;
+  try { out = await api({ op: "access-review", organisation_id: org.id }); }
+  catch (e) { dialog("Admin-rights review", [el("p", { class: "error" }, e.message)], [closeButton("Close")]); return; }
+  const owner = !!out.is_owner;
+  const keeps = [];
+  const keepBox = (kind, id, can) => { const b = el("input", { type: "checkbox", "aria-label": "Keep" }); b.checked = true; b.disabled = !owner || !can; keeps.push([kind, id, b]); return b; };
+  const people = (out.people || []).map((p) => {
+    const si = (p.signed_in || [])[0];
+    const used = si ? (si.now ? `signed in now on ${si.hostname}` : `last used ${agoSeconds(si.last)} on ${si.hostname}`) : "not used yet";
+    const where = p.where === "all" ? "all computers" : (p.where || []).join(", ") || "no computers yet";
+    return el("label", {}, keepBox("person", p.id, p.role !== "owner"), " Keep ", el("b", {}, `${p.full_name || p.username} (${p.username})`),
+      el("span", { class: "small" }, ` · ${ROLE[p.role] || p.role} · ${where} · ${used}`));
+  });
+  const admins = (out.admins || []).map((a) => el("label", {}, keepBox("admin", a.email, !a.owner), " Keep ", el("b", {}, a.email),
+    el("span", { class: "small" }, ` · ${a.owner ? "the Owner · " : ""}admin since ${dayLabel(a.created_at)}`)));
+  const err = errorLine();
+  const finish = el("button", { type: "button", class: "primary", onclick: async () => {
+    const removePeople = keeps.filter(([k, , b]) => k === "person" && !b.checked).map(([, id]) => id);
+    const removeAdmins = keeps.filter(([k, , b]) => k === "admin" && !b.checked).map(([, id]) => id);
+    if ((removePeople.length || removeAdmins.length) && !confirm(`Take away administrator rights from ${removePeople.length + removeAdmins.length}? People keep their accounts, as employees. The review is recorded in the activity log.`)) return;
+    try {
+      const r = await api({ op: "review-access", organisation_id: org.id, remove_people: removePeople, remove_admins: removeAdmins });
+      $("dlg").close();
+      $("app-msg").textContent = `Review recorded: kept ${r.kept}, took away ${r.removed}.`;
+      await load();
+    } catch (e) { err.textContent = e.message; }
+  } }, "Finish review");
+  finish.disabled = !owner;
+  const last = out.last_review;
+  dialog("Admin-rights review", [
+    el("p", { class: "note" }, `${out.due ? "Due: " : ""}${last ? `last reviewed ${dayLabel(last.reviewed_at)} by ${last.reviewed_by}.` : "not reviewed yet."} Untick anyone who no longer needs administrator rights, then Finish review.${owner ? "" : " Only the Owner can finish a review."}`),
+    el("h4", {}, "On the computers"), el("div", { class: "checks" }, ...(people.length ? people : [el("span", { class: "small" }, "Nobody")])),
+    el("h4", {}, "In Kulan Fleet"), el("div", { class: "checks" }, ...admins),
+    ...((out.all_organisations_admins || []).length ? [el("h4", {}, "Kulan Fleet admins for every organisation"),
+      el("p", { class: "small" }, out.all_organisations_admins.map((a) => a.email).join(", "))] : []),
+    err], [closeButton(), finish]);
+}
+
+// A cell of the CSV export; text a spreadsheet would read as a formula starts with '.
+function csvCell(v) {
+  let t = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
+  if (/^[=+\-@\t\r]/.test(t)) t = "'" + t;
+  return /[",\n\r]/.test(t) ? `"${t.replaceAll('"', '""')}"` : t;
+}
+function logCsv(entries) {
+  const rows = [["When (UTC)", "Who", "What", "Computer", "Details"],
+    ...entries.map((e) => [e.at || "", e.email || "", e.what || "", e.hostname || "", e.detail ?? ""])];
+  return rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+function download(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type: `${type};charset=utf-8` }));
+  const a = el("a", { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function askInstallApp(where, body) {
   const source = el("select", {}, el("option", { value: "debian" }, SOURCE.debian), el("option", { value: "flatpak" }, SOURCE.flatpak));
   const input = el("input", { placeholder: "vlc, or org.videolan.VLC", autocomplete: "off", spellcheck: "false" });
@@ -715,6 +888,8 @@ function openPerson(p) {
   dialog(p.full_name || p.username, [
     el("p", { class: "note" }, `${p.username} · ${ROLE[p.role]} · `, signInTag(p), ` · added ${ago(p.created_at)} by ${p.created_by || "–"}`),
     el("h4", {}, "On these computers"), el("ul", { class: "alerts" }, ...(on.length ? on : [el("li", { class: "small" }, "No computers yet")])),
+    el("h4", {}, "Last used"), el("ul", { class: "alerts" }, ...((p.signed_in || []).length ? p.signed_in.slice(0, 20).map((x) =>
+      el("li", {}, `${x.hostname} · ${x.now ? "signed in now" : agoSeconds(x.last)}`)) : [el("li", { class: "small" }, "Not used on any computer yet")])),
     field("Full name", full), field("Work email", email),
     field(isOwner ? "Role" : "Role (only the Owner gives or takes the admin role)", role),
     el("h4", {}, "Computers they can use"), ...picker.nodes,
@@ -756,7 +931,9 @@ function render() {
 
   const alerts = (data.alerts || []).filter((a) => a.organisation_id === org);
   $("alerts").replaceChildren(...(alerts.length ? alerts.slice(0, 50).map((a) => el("li", {},
-    el("b", {}, a.hostname || "Computer"), ` · ${a.text}`)) : [el("li", { class: "small" }, "Nothing: every computer looks fine.")]));
+    el("b", {}, a.title || a.hostname || "Computer"), ` · ${a.text}`,
+    a.kind === "review" ? el("button", { style: "margin-left: 8px", onclick: openReview }, "Review now…") : ""))
+    : [el("li", { class: "small" }, "Nothing: every computer looks fine.")]));
   orgPolicy = policyForm(data.organisations.find((o) => o.id === org)?.policy || {});
   $("policy").replaceChildren(orgPolicy.node);
   $("policy").classList.toggle("hidden", !org);
@@ -825,6 +1002,9 @@ async function openReport(d) {
   try {
     const { report } = await api({ op: "report", device_id: d.id });
     const parts = [];
+    parts.push(el("h4", {}, "Who uses it"), el("ul", { class: "alerts" }, ...((d.sign_ins || []).length
+      ? d.sign_ins.slice(0, 50).map((x) => el("li", {}, el("b", {}, x.username), ` · ${x.now ? "signed in now" : `last used ${agoSeconds(x.last)}`}`))
+      : [el("li", { class: "small" }, "Not reported yet (Kulan OS 2.8c and later report it)")])));
     if (report?.compliance?.controls) {
       parts.push(el("h4", {}, `Compliance: ${report.compliance.passed} of ${report.compliance.total} (${report.compliance.baseline || ""})`));
       parts.push(el("table", {}, ...report.compliance.controls.map((c) => el("tr", {},
@@ -852,16 +1032,53 @@ $("p-save").addEventListener("click", async () => {
   try { await api({ op: "set-policy", organisation_id: $("org").value, policy }); $("app-msg").textContent = "Policy saved."; await load(); }
   catch (e) { $("app-msg").textContent = e.message; }
 });
-$("log-load").addEventListener("click", async () => {
+let logBefore = null, logSearch = null;
+const logQuery = (extra) => {
+  const q = { op: "log", organisation_id: $("org").value, ...extra };
+  for (const k of ["from", "to", "who", "what"]) if ($(`log-${k}`).value.trim()) q[k] = $(`log-${k}`).value.trim();
+  return q;
+};
+const logWhat = (e) => e.what.startsWith("asked: ") ? `asked ${e.hostname || "a computer"}: ${LABEL[e.what.slice(7)] || e.what.slice(7)}` : e.what;
+async function loadLog(more) {
+  if (!more) logSearch = logQuery({});  // "Show more" carries on with the same search
   try {
-    const { entries } = await api({ op: "log", organisation_id: $("org").value });
-    $("log").replaceChildren(...(entries.length ? entries.map((e) => el("tr", {}, el("td", {}, ago(e.at)), el("td", {}, e.email),
-      el("td", {}, e.what.startsWith("asked: ") ? `asked ${e.hostname || "a computer"}: ${LABEL[e.what.slice(7)] || e.what.slice(7)}` : e.what)))
-      : [el("tr", {}, el("td", { colspan: "3", class: "empty" }, "Nothing changed yet."))]));
+    const out = await api({ ...logSearch, limit: 100, ...(more && logBefore ? { before: logBefore } : {}) });
+    const rows = out.entries.map((e) => el("tr", {}, el("td", {}, `${dayLabel(e.at)} · ${ago(e.at)}`), el("td", {}, e.email), el("td", {}, logWhat(e))));
+    if (more) $("log").append(...rows);
+    else $("log").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "3", class: "empty" }, "Nothing found."))]));
+    logBefore = out.entries.length ? out.entries[out.entries.length - 1].id : null;
+    $("log-more").classList.toggle("hidden", !out.more);
     $("log-wrap").classList.remove("hidden");
   } catch (e) { $("app-msg").textContent = e.message; }
+}
+$("log-find").addEventListener("submit", (ev) => { ev.preventDefault(); loadLog(false); });
+$("log-more").addEventListener("click", () => loadLog(true));
+$("log-csv").addEventListener("click", async () => {
+  $("log-csv").disabled = true;
+  try {
+    let all = [], before = null;
+    for (let i = 0; i < 20; i++) {
+      const out = await api(logQuery({ limit: 10000, ...(before ? { before } : {}) }));
+      all = all.concat(out.entries);
+      if (!out.more || !out.entries.length) break;
+      before = out.entries[out.entries.length - 1].id;
+    }
+    const org = data.organisations.find((o) => o.id === $("org").value)?.name || "organisation";
+    download(`Kulan Fleet activity ${org} ${new Date().toISOString().slice(0, 10)}.csv`, logCsv(all), "text/csv");
+    $("app-msg").textContent = `Exported ${all.length} entr${all.length === 1 ? "y" : "ies"}.`;
+  } catch (e) { $("app-msg").textContent = e.message; }
+  $("log-csv").disabled = false;
 });
-$("org").addEventListener("change", () => { render(); loadPeople(); loadGroups(); });
+$("weekly").addEventListener("click", openWeekly);
+$("review").addEventListener("click", openReview);
+function resetLog() {
+  logBefore = null;
+  logSearch = null;
+  $("log").replaceChildren();
+  $("log-more").classList.add("hidden");
+  $("log-wrap").classList.add("hidden");
+}
+$("org").addEventListener("change", () => { resetLog(); render(); loadPeople(); loadGroups(); });
 $("add-group").addEventListener("click", () => {
   const name = el("input", { maxlength: "60" });
   const err = errorLine();

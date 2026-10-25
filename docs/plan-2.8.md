@@ -21,7 +21,9 @@ numbers; the count still says 2.8).
   and fleet-admin, then merge.)
 - 2.8c Security, activity and computers: a weekly security report;
   "who still has admin rights?" reviews; the activity log exported for
-  auditors; who uses which computer.
+  auditors; who uses which computer. (Built as 2.8.3; waiting for "release it".
+  Release order: apply 20261026120000_fleet_security.sql, deploy fleet and
+  fleet-admin, then merge.)
 - 2.8d Stronger sign-in: two-step sign-in on the computers (phone code or
   security key); security keys for the Owner and admins in Kulan Fleet.
 - 2.8e Organisation: Google Workspace mailboxes made (and suspended) with
@@ -169,3 +171,41 @@ apps. Every change in the activity log.
   the web dashboard clicked through in Chromium.
 - Not tested on real hardware yet: a USB stick actually refused and an
   approved one working (needs the ThinkPad).
+
+## 2.8c Security, activity and computers: how it works (design)
+Agreed 25 October 2026: the weekly report stays in Kulan Fleet (a page in
+the app and the dashboard, saved as a PDF); no email for now.
+
+Weekly security report (fleet-admin "weekly-report"):
+- Worked out on the server from each computer's last report and the people
+  and activity tables: computers (how many, reported in the last week, not
+  seen for 7+ days), up to date / security updates waiting / restart
+  needed, encrypted, firewall on, compliance passing, policy not met,
+  lost mode; people (disabled, setup codes unused for 7+ days, admin
+  rights on the computers); the week's changes from the activity log.
+- One snapshot a week per organisation (fleet.weekly_reports), kept a
+  year, so the report shows the change since last week ("2 more computers
+  need security updates"). Written the first time the report is opened in
+  a week, so no scheduled job is needed.
+- The Kulan Fleet app saves it as a PDF (drawn with Cairo, no new
+  packages); the dashboard prints it (the browser's Save as PDF).
+
+Admin-rights review (fleet-admin "access-review", "review-access"):
+- Lists who has administrator rights: people with the admin or owner role
+  on the computers (where, last sign-in) and the Kulan Fleet admins.
+- An admin goes through it and keeps or removes each one; the review is
+  recorded (fleet.access_reviews: who reviewed, when, kept, removed) and in
+  the activity log. Due every 90 days: overdue shows as an alert.
+
+Activity log export (fleet-admin "log" with from, to, who, what; up to
+10,000 entries per page): filters in the app and the dashboard, and a CSV
+download for auditors (when, who, what, computer, details). The log is
+kept for good, as now.
+
+Who uses which computer:
+- Each computer reports, for each account with a uid of 1000 or more,
+  its username and when it last signed in (lastlog2's database), and who
+  is signed in now (loginctl). Nothing else: not what they did. Added to
+  "what's shared" in Kulan Settings.
+- Shown on each computer's page (who signs in there) and each person's
+  (where they last signed in). The admin-rights review uses it too.

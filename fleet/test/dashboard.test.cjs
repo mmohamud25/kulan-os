@@ -26,11 +26,26 @@ function reply(b) {
     case "action": return {};
     case "approve-drive": state.approved.push({ id: "u1", name: b.name, vendor_id: b.vendor_id, product_id: b.product_id, serial: b.serial }); return {};
     case "edit-person": return {};
+    case "weekly-report": return { week: "2026-10-26", made_at: "2026-10-26T09:00:00Z",
+      summary: { computers: { total: 1, reported_this_week: 1, up_to_date: 0, security_waiting: [{ hostname: "laptop-a", count: 2 }],
+                              restart_needed: ["laptop-a"], counts: { restart_needed: 120 }, encrypted: 1, not_encrypted: [], firewall_off: [], compliance_passing: 1,
+                              compliance_failing: [], policy_not_met: [], not_seen_week: [], lost_mode: [], versions: { "2.8.3": 1 } },
+                 people: { total: 1, disabled: [], setup_code_unused: [], admins: [] }, activity: { changes: 3, by_kind: [{ what: "added", count: 3 }] },
+                 review: { at: null, by: null, due: true } },
+      previous: { week: "2026-10-19", summary: { computers: { total: 1, security_waiting: [] } } } };
+    case "access-review": return { is_owner: true, due: true, last_review: null,
+      people: [{ id: "p9", username: "omar", full_name: "Omar", role: "admin", where: ["laptop-a"], signed_in: [{ hostname: "laptop-a", last: 1790000000, now: false }] }],
+      admins: [{ email: "a@x", owner: true, created_at: "2026-10-01T00:00:00Z" }, { email: "helper@x", owner: false, created_at: "2026-10-02T00:00:00Z" }],
+      all_organisations_admins: [] };
+    case "review-access": return { kept: 1, removed: 2 };
+    case "log": return { entries: b.limit === 10000
+        ? [{ id: 2, at: "2026-10-26T10:00:00Z", email: "a@x", what: "=cmd", hostname: "pc, one", detail: { n: 1 } }]
+        : [{ id: 5, at: "2026-10-26T10:00:00Z", email: "a@x", what: "asked: refresh", hostname: "laptop-a" }], more: b.limit === 100 && !b.before };
     default: return {};
   }
 }
 (async () => {
-  const browser = await chromium.launch(); const page = await browser.newPage();
+  const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && errors.push(m.text()));
   page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().includes("name you'll") ? "Finance drive" : ""); else await d.accept(); });
   await page.route("**/functions/v1/fleet-admin", async (r) => r.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": "*" }, body: JSON.stringify(reply(JSON.parse(r.request().postData() || "{}"))) }));
@@ -81,6 +96,46 @@ function reply(b) {
   await page.waitForTimeout(300);
   const ep = state.calls.filter((c) => c.op === "edit-person").pop();
   if (JSON.stringify(ep.groups) !== JSON.stringify(["g1"])) throw "edit-person " + JSON.stringify(ep);
+  // 2.8c: the weekly report (printed), the admin-rights review, the log searched and exported.
+  await page.evaluate(() => { window.printed = 0; window.print = () => { window.printed++; window.printedText = document.getElementById("print-area").textContent; }; });
+  await page.click("#weekly");
+  await page.waitForSelector("#dlg .report-line.bad");
+  if (!(await page.textContent("#dlg")).includes("Restart needed on 120 computers") ||
+      !(await page.textContent("#dlg")).includes("laptop-a and 119 more") ||
+      !(await page.textContent("#dlg")).includes("2.8.3: 1 computer") ||
+      !(await page.textContent("#dlg")).includes("Security updates waiting on 1 computer") ||
+      !(await page.textContent("#dlg")).includes("+1 since last week")) throw "weekly report lines";
+  await page.click("#dlg-actions >> text=Print or save as PDF");
+  if (await page.evaluate(() => window.printed) !== 1 || !(await page.evaluate(() => window.printedText)).includes("Admin-rights review due")) throw "weekly report printed";
+  await page.click("#review");
+  await page.waitForSelector("#dlg-title:has-text('Admin-rights review')");
+  await page.waitForSelector("#dlg input[aria-label='Keep']");
+  const boxes = page.locator("#dlg input[aria-label='Keep']");
+  if (!(await boxes.nth(1).isDisabled())) throw "the Owner can't be unticked";
+  await boxes.nth(0).uncheck();
+  await boxes.nth(2).uncheck();
+  await page.click("#dlg-actions >> text=Finish review");
+  await page.waitForTimeout(300);
+  const ra = state.calls.filter((c) => c.op === "review-access").pop();
+  if (JSON.stringify(ra) !== JSON.stringify({ op: "review-access", organisation_id: org, remove_people: ["p9"], remove_admins: ["helper@x"] })) throw "review-access " + JSON.stringify(ra);
+  await page.fill("#log-who", "a@x");
+  await page.fill("#log-from", "2026-10-01");
+  await page.click("#log-find >> text=Search");
+  await page.waitForSelector("#log tr");
+  const lq = state.calls.filter((c) => c.op === "log").pop();
+  if (lq.who !== "a@x" || lq.from !== "2026-10-01" || lq.limit !== 100) throw "log query " + JSON.stringify(lq);
+  if (!(await page.textContent("#log")).includes("asked laptop-a: Report now")) throw "log shown";
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#log-csv")]);
+  const csv = fs.readFileSync(await dl.path(), "utf8");
+  if (csv.split("\r\n")[1] !== `2026-10-26T10:00:00Z,a@x,'=cmd,"pc, one","{""n"":1}"`) throw "csv " + JSON.stringify(csv);
+  // Big numbers: the counts, not the lists' length.
+  await page.click("#log-find >> text=Search");
+  await page.fill("#log-who", "someone-else");
+  await page.waitForSelector("#log-more:not(.hidden)");
+  await page.click("#log-more");
+  await page.waitForTimeout(200);
+  const more = state.calls.filter((c) => c.op === "log").pop();
+  if (more.who !== "a@x") throw "Show more changed the search " + JSON.stringify(more);
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);
