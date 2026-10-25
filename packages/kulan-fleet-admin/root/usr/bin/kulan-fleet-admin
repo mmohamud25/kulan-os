@@ -75,7 +75,8 @@ CODE_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I/L
 SCREEN_LOCK = [(0, "Not set"), (2, "After 2 minutes"), (5, "After 5 minutes"), (10, "After 10 minutes"),
                (15, "After 15 minutes"), (30, "After 30 minutes")]
 POLICY_LABEL = {"auto_updates": "Automatic updates", "firewall": "Firewall", "screen_lock_minutes": "Screen lock",
-                "require_encryption": "Disk encryption", "usb": "USB drives"}
+                "require_encryption": "Disk encryption", "usb": "USB drives", "two_step": "Two-step sign-in"}
+TWO_STEP_CHOICES = [(None, "Not required"), ("admins", "For admins and the Owner"), ("everyone", "For everyone")]
 USB_CHOICES = [(None, "Not set", "Any USB drive works"),
                ("approved", "Approved drives only", "Only the drives approved under USB drives work"),
                ("block", "Blocked", "No USB drive works")]
@@ -141,7 +142,14 @@ def keyring_set(token: str | None) -> None:
 
 
 class FleetError(Exception):
-    pass
+    def __init__(self, message: str, two_step: str | None = None) -> None:
+        super().__init__(message)
+        self.two_step = two_step  # "code" or "set-up": the server wants an authenticator app code
+
+
+class ErrorText(str):
+    """An error message for the window, carrying what the server asked for."""
+    two_step: str | None = None
 
 
 class FleetOffline(FleetError):
@@ -149,20 +157,23 @@ class FleetOffline(FleetError):
     to forget the sign-in."""
 
 
-def http(url: str, body: dict | None, headers: dict | None = None) -> dict:
-    request = urllib.request.Request(url, data=json.dumps(body or {}).encode(), method="POST",
+def http(url: str, body: dict | None, headers: dict | None = None, method: str = "POST") -> dict:
+    request = urllib.request.Request(url, data=None if method in ("GET", "DELETE") else json.dumps(body or {}).encode(),
+                                     method=method,
                                      headers={"Content-Type": "application/json", "apikey": PUBLISHABLE_KEY,
                                               "User-Agent": "kulan-fleet-admin/1", **(headers or {})})
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
             text = reply.read(5_000_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
+        two_step = None
         try:
             detail = json.loads(e.read().decode("utf-8", "replace"))
             message = detail.get("error") or detail.get("msg") or detail.get("error_description") or detail.get("message")
+            two_step = detail.get("two_step") if detail.get("two_step") in ("code", "set-up") else None
         except (ValueError, AttributeError):
             message = None
-        raise FleetError(message or f"The server said {e.code}") from e
+        raise FleetError(message or f"The server said {e.code}", two_step) from e
     except (urllib.error.URLError, OSError) as e:
         raise FleetOffline("Couldn't reach the Kulan Fleet server. Check the internet connection, then try "
                            f"again ({getattr(e, 'reason', e)})") from e
@@ -244,6 +255,31 @@ class Session:
 
     def call(self, body: dict) -> dict:
         return http(API, body, {"Authorization": f"Bearer {self.token()}"})
+
+    # Authenticator apps (Supabase MFA, TOTP): the second step for Kulan Fleet admins.
+    def _auth(self) -> dict:
+        return {"Authorization": f"Bearer {self.token()}"}
+
+    def authenticators(self) -> list[dict]:
+        user = http(f"{SUPABASE_URL}/auth/v1/user", None, self._auth(), "GET")
+        return [f for f in user.get("factors") or [] if f.get("factor_type") == "totp"]
+
+    def enroll_authenticator(self) -> dict:
+        """A new authenticator app: {id, totp: {uri, secret, qr_code}} (checked with verify_authenticator)."""
+        for f in self.authenticators():
+            if f.get("status") != "verified":  # a set-up that was never finished
+                http(f"{SUPABASE_URL}/auth/v1/factors/{f['id']}", None, self._auth(), "DELETE")
+        return http(f"{SUPABASE_URL}/auth/v1/factors", {"factor_type": "totp", "issuer": "Kulan Fleet",
+                                                         "friendly_name": f"Kulan Fleet {time.strftime('%Y-%m-%d %H:%M')}"},
+                    self._auth())
+
+    def verify_authenticator(self, factor_id: str, code: str) -> None:
+        challenge = http(f"{SUPABASE_URL}/auth/v1/factors/{factor_id}/challenge", {}, self._auth())
+        self._take(http(f"{SUPABASE_URL}/auth/v1/factors/{factor_id}/verify",
+                        {"challenge_id": challenge.get("id"), "code": code}, self._auth()))
+
+    def remove_authenticator(self, factor_id: str) -> None:
+        http(f"{SUPABASE_URL}/auth/v1/factors/{factor_id}", None, self._auth(), "DELETE")
 
     def sign_out(self, local_only: bool = False) -> None:
         if not local_only and self.access_token:
@@ -396,6 +432,9 @@ def weekly_sections(s: dict, prev: dict | None) -> list[tuple[str, list[tuple[st
         problem("Nobody disabled", lambda k: f"Disabled: {k}", "disabled", p, pp),
         problem("Every setup code used", lambda k: f"Setup code not used for a week: {k}", "setup_code_unused", p, pp),
     ]
+    if p.get("two_step"):
+        people.append(problem("Everyone asked has set up two-step sign-in",
+                              lambda k: f"Two-step sign-in not set up: {k}", "two_step_missing", p, pp))
     kinds = ", ".join(f"{x.get('what')} {x.get('count')}" for x in a.get("by_kind") or [])
     activity = [(f"{plural(int(a.get('changes') or 0), 'change')} this week", kinds, "dim")]
     review = [(("Admin-rights review due" if rv.get("due") else "Admin-rights review up to date"),
@@ -495,6 +534,8 @@ def policy_summary(policy: dict) -> str:
         parts.append(f"lock after {policy['screen_lock_minutes']} min")
     if policy.get("usb"):
         parts.append("USB: approved drives only" if policy["usb"] == "approved" else "USB blocked")
+    if policy.get("two_step"):
+        parts.append("two-step sign-in for " + ("everyone" if policy["two_step"] == "everyone" else "admins"))
     for key, word in (("required_apps", "required"), ("blocked_apps", "blocked")):
         if policy.get(key):
             parts.append(f"{len(policy[key])} app{'s' if len(policy[key]) != 1 else ''} {word}")
@@ -554,7 +595,10 @@ class FleetWindow(Adw.ApplicationWindow):
             try:
                 result, error = work(), None
             except FleetError as e:
-                result, error = None, str(e)
+                result, error = None, ErrorText(str(e))
+                error.two_step = e.two_step
+                if e.two_step:
+                    GLib.idle_add(lambda kind=e.two_step: (self.two_step_needed(kind), False)[1])
             except Exception as e:  # noqa: BLE001 - never leave the app hanging
                 result, error = None, f"Something went wrong: {e}"
             GLib.idle_add(lambda: (done(result, error), False)[1])
@@ -620,6 +664,136 @@ class FleetWindow(Adw.ApplicationWindow):
             self.reload()
         self.background(lambda: self.session.verify(email, code), verified)
 
+    # --- Your authenticator app (2.8d) ------------------------------------------------------
+    def two_step_needed(self, kind: str) -> Adw.AlertDialog | None:
+        """The server wants an authenticator app code: ask for it, or set one up."""
+        if getattr(self, "two_step_dialog", None) is not None:
+            return None
+        self.two_step_dialog = (self.ask_authenticator_code() if kind == "code" else
+                                self.set_up_authenticator(required=True))
+        self.two_step_dialog.connect("closed", lambda _d: setattr(self, "two_step_dialog", None))
+        return self.two_step_dialog
+
+    def code_dialog(self, heading: str, body: str, extra: Gtk.Widget | None, on_code) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        if extra is not None:
+            outer.append(extra)
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        code = Adw.EntryRow(title="6-digit code", input_purpose=Gtk.InputPurpose.DIGITS)
+        box.append(code)
+        outer.append(box)
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"])
+        outer.append(note)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("ok", "Continue")
+        dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("ok", False)
+        dialog.set_close_response("cancel")
+        code.connect("changed", lambda e: dialog.set_response_enabled("ok", bool(re.fullmatch(r"\d{6}", e.get_text().strip()))))
+
+        def answered(_d, response):
+            if response == "ok":
+                on_code(code.get_text().strip(), note, dialog)
+        dialog.connect("response", answered)
+        code.connect("entry-activated", lambda _e: dialog.get_response_enabled("ok") and
+                     (dialog.close(), on_code(code.get_text().strip(), note, dialog)))
+        dialog.set_can_close(True)
+        dialog.present(self)
+        return dialog
+
+    def ask_authenticator_code(self) -> Adw.AlertDialog:
+        def check(code: str, note: Gtk.Label, dialog: Adw.AlertDialog) -> None:
+            def work():
+                factors = [f for f in self.session.authenticators() if f.get("status") == "verified"]
+                if not factors:
+                    raise FleetError("No authenticator app is set up for this email")
+                self.session.verify_authenticator(factors[0]["id"], code)
+
+            def done(_r, error):
+                if error:
+                    self.toast(f"Not signed in: {error}")
+                    return
+                self.toast("Signed in with your authenticator app")
+                self.reload()
+            self.background(work, done)
+        return self.code_dialog("Your authenticator app's code",
+                                "You set up an authenticator app for Kulan Fleet: type the 6-digit code it shows now.",
+                                None, check)
+
+    def set_up_authenticator(self, required: bool = False) -> Adw.AlertDialog:
+        holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        holder.append(Gtk.Label(label="Making a code to scan…", css_classes=["dim-label"]))
+        state: dict = {}
+
+        def enrolled(result, error):
+            for child in list(holder):
+                holder.remove(child)
+            if error:
+                holder.append(Gtk.Label(label=error, wrap=True, css_classes=["error"]))
+                return
+            state["id"] = result.get("id")
+            totp = result.get("totp") or {}
+            try:
+                png = subprocess.run(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", totp.get("uri", "")],
+                                     capture_output=True, timeout=10, check=True).stdout
+                picture = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
+                picture.set_size_request(220, 220)
+                holder.append(picture)
+            except (OSError, subprocess.SubprocessError, GLib.Error):
+                pass
+            secret = str(totp.get("secret") or "")
+            holder.append(Gtk.Label(label=" ".join(secret[i:i + 4] for i in range(0, len(secret), 4)), selectable=True,
+                                    wrap=True, css_classes=["monospace", "dim-label"]))
+
+        def check(code: str, note: Gtk.Label, dialog: Adw.AlertDialog) -> None:
+            if not state.get("id"):
+                return
+
+            def done(_r, error):
+                if error:
+                    self.toast(f"Not set up: {error}")
+                    return
+                self.toast("Authenticator app set up: Kulan Fleet asks its code after your email code")
+                self.reload()
+            self.background(lambda: self.session.verify_authenticator(state["id"], code), done)
+        dialog = self.code_dialog(
+            "Set up an authenticator app",
+            ("Your organisation asks Kulan Fleet admins for a second step. " if required else "") +
+            "Scan this with an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, Aegis…) "
+            "or type the key below, then type the code it shows. If you lose the phone, the Owner can reset it.",
+            holder, check)
+        if self.sample_mode():
+            enrolled({"id": "f-sample", "totp": {"uri": "otpauth://totp/Kulan%20Fleet:admin?secret=JBSWY3DPEHPK3PXP",
+                                                 "secret": "JBSWY3DPEHPK3PXP"}}, None)
+        else:
+            self.background(self.session.enroll_authenticator, enrolled)
+        return dialog
+
+    def my_authenticator(self) -> Adw.AlertDialog | None:
+        """The menu's "Your authenticator app": set one up, or remove it."""
+        def got(factors, error):
+            if error:
+                self.toast(error)
+                return
+            verified = [f for f in factors or [] if f.get("status") == "verified"]
+            if not verified:
+                self.set_up_authenticator()
+                return
+            dialog = Adw.AlertDialog(heading="Your authenticator app",
+                                     body="Kulan Fleet asks its 6-digit code after your email code. Remove it only if "
+                                          "you'll set it up again (your organisation may require it).")
+            dialog.add_response("close", "Close")
+            dialog.add_response("remove", "Remove it")
+            dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.connect("response", lambda _d, r: r == "remove" and self.background(
+                lambda: [self.session.remove_authenticator(f["id"]) for f in verified],
+                lambda _r, err: self.toast(err or "Authenticator app removed")))
+            dialog.present(self)
+        self.call({}, got, [] ) if self.sample_mode() else self.background(self.session.authenticators, got)
+        return None
+
     def sign_out(self) -> None:
         self.background(self.session.sign_out, lambda _r, _e: None)
         self.data = None
@@ -649,6 +823,7 @@ class FleetWindow(Adw.ApplicationWindow):
         refresh.connect("clicked", lambda _b: self.reload())
         header.pack_end(refresh)
         menu = Gio.Menu()
+        menu.append("Your authenticator app…", "win.authenticator")
         menu.append("Become the Owner with a recovery code…", "win.recover")
         menu.append("Sign out", "win.sign-out")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, tooltip_text="Menu"))
@@ -657,6 +832,9 @@ class FleetWindow(Adw.ApplicationWindow):
         self.add_action(action)
         action = Gio.SimpleAction.new("recover", None)
         action.connect("activate", lambda *_a: self.recover_owner())
+        self.add_action(action)
+        action = Gio.SimpleAction.new("authenticator", None)
+        action.connect("activate", lambda *_a: self.my_authenticator())
         self.add_action(action)
         content_view.add_top_bar(header)
         self.page = Adw.PreferencesPage()
@@ -760,6 +938,11 @@ class FleetWindow(Adw.ApplicationWindow):
                             active=bool(policy.get("require_encryption")))
         group.add(enc)
         rows["require_encryption"] = enc
+        two = Adw.ComboRow(title=POLICY_LABEL["two_step"], model=Gtk.StringList.new([t for _v, t in TWO_STEP_CHOICES]),
+                           subtitle="A security key or a phone code after the password, on the computers. Each person "
+                                    "sets theirs up in Kulan Settings; until then they're reminded", subtitle_lines=0)
+        two.set_selected(next((i for i, (v, _t) in enumerate(TWO_STEP_CHOICES) if v == policy.get("two_step")), 0))
+        group.add(two)
         usb = Adw.ComboRow(title=POLICY_LABEL["usb"], model=Gtk.StringList.new([t for _v, t, _h in USB_CHOICES]),
                            subtitle_lines=0)
         usb.set_selected(next((i for i, (v, _t, _h) in enumerate(USB_CHOICES) if v == policy.get("usb")), 0))
@@ -787,6 +970,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 new["screen_lock_minutes"] = mins
             if USB_CHOICES[usb.get_selected()][0]:
                 new["usb"] = USB_CHOICES[usb.get_selected()][0]
+            if TWO_STEP_CHOICES[two.get_selected()][0]:
+                new["two_step"] = TWO_STEP_CHOICES[two.get_selected()][0]
             for key in apps_rows:
                 if policy.get(key):
                     new[key] = policy[key]
@@ -811,6 +996,7 @@ class FleetWindow(Adw.ApplicationWindow):
             row.connect("notify::active", changed)
         lock.connect("notify::selected", changed)
         usb.connect("notify::selected", changed)
+        two.connect("notify::selected", changed)
 
         def edit_apps(key: str) -> None:
             def chosen(apps: list[dict]) -> None:
@@ -2079,9 +2265,26 @@ class FleetWindow(Adw.ApplicationWindow):
                                 subtitle="Signed in now" if si.get("now") else ago_seconds(si.get("last")))
             row.add_prefix(Gtk.Image(icon_name="computer-symbolic"))
             used.add(row)
+        manages = is_owner or person.get("role") == "employee"
+        two = Adw.PreferencesGroup(title="Two-step sign-in", description=None if person.get("two_step") else
+                                   "Not set up: they sign in with their password only. They set it up in Kulan Settings "
+                                   "› About › Organisation on a computer.")
+        page.add(two)
+        for f in person.get("two_step") or []:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f.get("label") or "Second step"),
+                                subtitle=GLib.markup_escape_text(("Security key" if f.get("kind") == "key" else "Phone code") +
+                                                                 (f" · set up on {f['created_on']}" if f.get("created_on") else "") +
+                                                                 f" · {ago(f.get('created_at'))}"))
+            row.add_prefix(Gtk.Image(icon_name="auth-smartcard-symbolic" if f.get("kind") == "key" else "phone-symbolic"))
+            two.add(row)
+        if person.get("two_step"):
+            row = Adw.ActionRow(title="Reset two-step sign-in", subtitle="A lost security key or phone: they set up a new "
+                                "one", activatable=manages, sensitive=manages)
+            row.add_prefix(Gtk.Image(icon_name="view-refresh-symbolic"))
+            row.connect("activated", lambda _r: self.reset_two_step(org, person))
+            two.add(row)
         sign_in = Adw.PreferencesGroup(title="Signing in")
         page.add(sign_in)
-        manages = is_owner or person.get("role") == "employee"
         row = Adw.ActionRow(title="Give a new setup code", subtitle="If they forgot their password. The old one stops "
                             "working at each computer's next report", activatable=manages, sensitive=manages)
         row.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
@@ -2362,11 +2565,38 @@ class FleetWindow(Adw.ApplicationWindow):
                 row = Adw.ActionRow(title=GLib.markup_escape_text(a["email"]), subtitle=f"admin since {ago(a.get('created_at'))}")
                 row.add_prefix(Gtk.Image(icon_name="avatar-default-symbolic"))
                 if is_owner:
+                    reset = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Reset their authenticator app "
+                                       "(a lost phone)", valign=Gtk.Align.CENTER, css_classes=["flat"])
+                    reset.connect("clicked", lambda _b, e=a["email"]: self.reset_admin_authenticator(org, e))
+                    row.add_suffix(reset)
                     remove = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="No longer an admin",
                                         valign=Gtk.Align.CENTER, css_classes=["flat"])
                     remove.connect("clicked", lambda _b, e=a["email"]: self.change_admin(org, "remove-admin", e))
                     row.add_suffix(remove)
                 group.add(row)
+            security = Adw.PreferencesGroup(title="Signing in to Kulan Fleet")
+            page.add(security)
+            require = Adw.SwitchRow(title="Require an authenticator app for admins",
+                                    subtitle="After the email code, a 6-digit code from an app on their phone. Set "
+                                             "up yours first (menu › Your authenticator app)", subtitle_lines=0,
+                                    active=bool(org.get("admin_two_step")), sensitive=is_owner)
+
+            def required(row_, _p):
+                want = row_.get_active()
+                if want == bool(org.get("admin_two_step")):
+                    return
+
+                def done(_r, error):
+                    if error:
+                        self.toast(error)
+                        row_.set_active(not want)
+                        return
+                    org["admin_two_step"] = want
+                    self.toast("Kulan Fleet admins need their authenticator app now" if want else
+                               "An authenticator app is no longer required")
+                self.call({"op": "set-admin-two-step", "organisation_id": org["id"], "required": want}, done)
+            require.connect("notify::active", required)
+            security.add(require)
             if is_owner:
                 add = Adw.PreferencesGroup(title="Add an admin")
                 page.add(add)
@@ -2381,6 +2611,35 @@ class FleetWindow(Adw.ApplicationWindow):
                 boss.add(entry)
         self.call({"op": "admins", "organisation_id": org["id"]}, done,
                   lambda: (self.data or {}).get("sample_admins", {}))
+
+    def reset_admin_authenticator(self, org: dict, email: str) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=f"Reset {email}'s authenticator app?",
+                                 body="For a lost or new phone: their authenticator app stops working for Kulan Fleet, "
+                                      "and they set one up again when they next sign in. Check it's really them asking.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reset", "Reset")
+        dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", lambda _d, r: r == "reset" and self.call(
+            {"op": "reset-admin-two-step", "organisation_id": org["id"], "email": email},
+            lambda res, error: self.toast(error or f"Reset: {email} sets it up again when they next sign in"),
+            {"removed": 1}))
+        dialog.present(self)
+        return dialog
+
+    def reset_two_step(self, org: dict, person: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=f"Reset {person['username']}'s two-step sign-in?",
+                                 body="For a lost security key or phone: their keys and codes stop working on every "
+                                      "computer at its next report, and they sign in with their password until they set "
+                                      "up a new one (Kulan Settings reminds them if it's required).")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("reset", "Reset")
+        dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", lambda _d, r: r == "reset" and self.call(
+            {"op": "reset-two-step", "person_id": person["id"]},
+            lambda _res, error: self.toast(error) if error else self.after_people_change(
+                org, f"{person['username']}'s two-step sign-in reset"), {"removed": 1}))
+        dialog.present(self)
+        return dialog
 
     def change_admin(self, org: dict, op: str, email: str) -> None:
         def done(_r, error):
@@ -2500,6 +2759,10 @@ def sample() -> dict:
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
                  "uid": 70000, "role": "employee", "enabled": True, "must_change": True, "all_computers": True,
                  "computers": [], "groups": [],
+                 "two_step": [{"id": "t1", "kind": "key", "label": "YubiKey 5", "created_on": "kca-laptop-01",
+                               "created_at": iso(3600)},
+                              {"id": "t2", "kind": "code", "label": "Pixel", "created_on": "kca-laptop-01",
+                               "created_at": iso(1800)}],
                  "signed_in": [{"hostname": "kca-laptop-01", "device_id": "d1", "last": now.timestamp() - 600, "now": True}], "created_at": iso(7200), "created_by": "admin@kulan.example",
                  "on": [{"device_id": "d1", "hostname": "kca-laptop-01", "status": "created"},
                         {"device_id": "d2", "hostname": "kca-desk-02", "status": "not yet"}]},
@@ -2530,7 +2793,7 @@ def sample() -> dict:
                                                         "policy_not_met": [{"hostname": "kca-desk-02", "items": ["auto_updates"]}],
                                                         "lost_mode": ["kca-desk-02"], "versions": {"2.8.3": 2}},
                                           "people": {"total": 2, "disabled": ["omar"], "setup_code_unused": ["amina"],
-                                                     "admins": ["omar"]},
+                                                     "admins": ["omar"], "two_step": "admins", "two_step_missing": ["omar"]},
                                           "activity": {"changes": 7, "by_kind": [{"what": "added", "count": 4},
                                                                                  {"what": "asked computers", "count": 3}]},
                                           "review": {"at": None, "by": None, "due": True}},
@@ -2654,6 +2917,20 @@ class FleetApp(Adw.Application):
                     csv = log_csv([{"at": "2026-10-26T10:00:00Z", "email": "a@x", "what": "=HYPERLINK(1)", "hostname": "pc, one",
                                     "detail": {"n": 1}}])
                     assert csv.splitlines()[1] == "2026-10-26T10:00:00Z,a@x,'=HYPERLINK(1),\"pc, one\",\"{\"\"n\"\": 1}\"", csv
+                    # Stronger sign-in (2.8d): the code, setting one up, the menu, the Owner's resets.
+                    win.two_step_needed("code").force_close()
+                    assert win.two_step_needed("code") is None, "one code dialog at a time"
+                    win.two_step_dialog = None
+                    win.two_step_needed("set-up").force_close()
+                    win.two_step_dialog = None
+                    win.my_authenticator()
+                    win.two_step_dialog = None
+                    for dialog in (win.reset_admin_authenticator(org, "helper@kulan.example"),
+                                   win.reset_two_step(org, win.data["sample_people"][0])):
+                        dialog.force_close()
+                    flat2 = [line for _h, rows_ in weekly_sections(win.data["sample_weekly"]["summary"], None) for line in rows_]
+                    assert ("Two-step sign-in not set up: 1", "omar", "bad") in flat2, flat2
+                    assert policy_summary({"two_step": "everyone"}) == "Two-step sign-in for everyone"
                     rows, picked = win.computer_picker(org, False, ["d1"], ["g1"])
                     assert picked() == (False, ["d1"], ["g1"]), picked()
                     # Setup codes: 12 of the 32 clear characters; the hash is one the computers take,
