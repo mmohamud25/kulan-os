@@ -28,7 +28,7 @@ function reply(b) {
     case "edit-person": return {};
     case "weekly-report": return { week: "2026-10-26", made_at: "2026-10-26T09:00:00Z",
       summary: { computers: { total: 1, reported_this_week: 1, up_to_date: 0, security_waiting: [{ hostname: "laptop-a", count: 2 }],
-                              restart_needed: [], encrypted: 1, not_encrypted: [], firewall_off: [], compliance_passing: 1,
+                              restart_needed: ["laptop-a"], counts: { restart_needed: 120 }, encrypted: 1, not_encrypted: [], firewall_off: [], compliance_passing: 1,
                               compliance_failing: [], policy_not_met: [], not_seen_week: [], lost_mode: [], versions: { "2.8.3": 1 } },
                  people: { total: 1, disabled: [], setup_code_unused: [], admins: [] }, activity: { changes: 3, by_kind: [{ what: "added", count: 3 }] },
                  review: { at: null, by: null, due: true } },
@@ -40,7 +40,7 @@ function reply(b) {
     case "review-access": return { kept: 1, removed: 2 };
     case "log": return { entries: b.limit === 10000
         ? [{ id: 2, at: "2026-10-26T10:00:00Z", email: "a@x", what: "=cmd", hostname: "pc, one", detail: { n: 1 } }]
-        : [{ id: 5, at: "2026-10-26T10:00:00Z", email: "a@x", what: "asked: refresh", hostname: "laptop-a" }], more: false };
+        : [{ id: 5, at: "2026-10-26T10:00:00Z", email: "a@x", what: "asked: refresh", hostname: "laptop-a" }], more: b.limit === 100 && !b.before };
     default: return {};
   }
 }
@@ -100,7 +100,10 @@ function reply(b) {
   await page.evaluate(() => { window.printed = 0; window.print = () => { window.printed++; window.printedText = document.getElementById("print-area").textContent; }; });
   await page.click("#weekly");
   await page.waitForSelector("#dlg .report-line.bad");
-  if (!(await page.textContent("#dlg")).includes("Security updates waiting on 1 computer") ||
+  if (!(await page.textContent("#dlg")).includes("Restart needed on 120 computers") ||
+      !(await page.textContent("#dlg")).includes("laptop-a and 119 more") ||
+      !(await page.textContent("#dlg")).includes("2.8.3: 1 computer") ||
+      !(await page.textContent("#dlg")).includes("Security updates waiting on 1 computer") ||
       !(await page.textContent("#dlg")).includes("+1 since last week")) throw "weekly report lines";
   await page.click("#dlg-actions >> text=Print or save as PDF");
   if (await page.evaluate(() => window.printed) !== 1 || !(await page.evaluate(() => window.printedText)).includes("Admin-rights review due")) throw "weekly report printed";
@@ -125,6 +128,14 @@ function reply(b) {
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#log-csv")]);
   const csv = fs.readFileSync(await dl.path(), "utf8");
   if (csv.split("\r\n")[1] !== `2026-10-26T10:00:00Z,a@x,'=cmd,"pc, one","{""n"":1}"`) throw "csv " + JSON.stringify(csv);
+  // Big numbers: the counts, not the lists' length.
+  await page.click("#log-find >> text=Search");
+  await page.fill("#log-who", "someone-else");
+  await page.waitForSelector("#log-more:not(.hidden)");
+  await page.click("#log-more");
+  await page.waitForTimeout(200);
+  const more = state.calls.filter((c) => c.op === "log").pop();
+  if (more.who !== "a@x") throw "Show more changed the search " + JSON.stringify(more);
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);

@@ -7,7 +7,8 @@ read from where the last report stopped, and from the sessions open now
 (loginctl); lastlog2's database is read too if it's installed. What's found
 is kept in /var/lib/kulan/fleet-sign-ins.json (root only), so a sign-in
 between two hourly reports isn't missed. Only accounts with a uid of 1000 or
-more that still exist are reported.
+more that still exist are reported (people's own accounts, and the
+70000s Kulan Fleet gives its people; not systemd's dynamic users).
 """
 from __future__ import annotations
 
@@ -28,11 +29,13 @@ MAX = 200
 
 
 def _person(name: str) -> bool:
+    """A person's account: uid 1000 and up, including the 70000s Kulan Fleet
+    gives its people, but not systemd's dynamic users (60000-65535, nobody)."""
     try:
         uid = pwd.getpwnam(name).pw_uid
     except KeyError:
         return False
-    return 1000 <= uid < 65534
+    return 1000 <= uid < 60000 or 65536 <= uid < 4294967294
 
 
 def from_journal(run, since: float) -> dict[str, int]:

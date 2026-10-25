@@ -422,6 +422,23 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   const [{ n }] = await db`select count(*)::int as n from fleet.weekly_reports where organisation_id = ${org}`;
   ok(n === 2, "one snapshot per week, however often it's opened", n);
 
+  // A bigger organisation: lists name 50, the counts are right, a big report still opens.
+  const items = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`app:install:flatpak:org.example.App${i}`, "couldn't install: not found"]));
+  await db`insert into fleet.devices (organisation_id, hostname, last_seen, last_report)
+           select ${other}, 'pc-' || g, now(), ${db.json({ updates: { waiting: 1, security: 1, restart_required: true },
+                                                         state: { firewall: false }, policy_status: items })}
+           from generate_series(1, 60) g`;
+  r = await admin(BOSS, { op: "weekly-report", organisation_id: other });
+  const big = r.body.summary?.computers;
+  ok(r.status === 200 && big.counts.restart_needed === 60 && big.restart_needed.length === 50 &&
+     big.counts.security_waiting === 60 && big.counts.firewall_off === 60 && big.counts.policy_not_met === 60,
+     "60 computers: 50 named, 60 counted", big?.counts);
+  ok(big.policy_not_met[0].items.length === 10 && big.policy_not_met[0].more === 30, "a computer's unmet items: 10 named, the rest counted", big.policy_not_met[0]);
+  const [{ kept }] = await db`select count(*)::int as kept from fleet.weekly_reports where organisation_id = ${other}`;
+  ok(kept === 1, "and its snapshot is kept", kept);
+  r = await admin(BOSS, { op: "log", organisation_id: other, from: "2026-02-30" });
+  ok(r.status === 400, "a date that doesn't exist is refused, not a server error", r);
+
   // The admin-rights review.
   r = await admin(HELPER, { op: "access-review", organisation_id: org });
   const rv = r.body;
@@ -437,6 +454,8 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   await db`update fleet.organisations set created_at = now() - interval '100 days' where id = ${org}`;
   r = await admin(NEWOWNER, { op: "overview" });
   const alert = r.body.alerts.find((x) => x.kind === "review" && x.organisation_id === org);
+  ok(r.body.alerts.findIndex((x) => x.kind === "review") < r.body.alerts.findIndex((x) => x.kind !== "review"),
+     "the review alert comes before computers' alerts (lists show the first 30)");
   ok(alert && alert.device_id === null && alert.title === "Admin rights" && alert.text.startsWith("No admin-rights review yet"),
      "after 90 days without a review: an alert", r.body.alerts);
   r = await admin(HELPER, { op: "review-access", organisation_id: org });

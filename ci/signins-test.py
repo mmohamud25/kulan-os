@@ -113,6 +113,19 @@ with tempfile.TemporaryDirectory() as tmp:
     box.old_loginctl = True
     check("older loginctl: still finds who's signed in", si.signed_in_now(box.run) == {"omar"})
 
+    # The real check of who's a person: Kulan Fleet's accounts (uid 70000 and up) count.
+    class Pw:
+        def __init__(self, uid): self.pw_uid = uid
+    uids = {"amina": 70001, "local": 1000, "nobody": 65534, "dyn": 61200, "daemon": 1, "big": 100000}
+    real_getpwnam = si.pwd.getpwnam
+    si.pwd.getpwnam = lambda n: Pw(uids[n]) if n in uids else (_ for _ in ()).throw(KeyError(n))
+    try:
+        check("Kulan Fleet's people count (uid 70000s)", si._person("amina") and si._person("local") and si._person("big"))
+        check("not nobody, dynamic users, system accounts or accounts that are gone",
+              not any(si._person(u) for u in ("nobody", "dyn", "daemon", "ghost")))
+    finally:
+        si.pwd.getpwnam = real_getpwnam
+
     # Leaving the organisation.
     si.forget(state)
     check("leaving forgets the record", not state.exists())

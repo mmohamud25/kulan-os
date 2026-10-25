@@ -516,32 +516,42 @@ function weeklySections(s, prev) {
   const c = s.computers || {}, p = s.people || {}, a = s.activity || {}, rv = s.review || {};
   const pc = prev?.computers || {}, pp = prev?.people || {};
   const total = Number(c.total || 0);
-  const n = (v) => Array.isArray(v) ? v.length : Number(v || 0);
-  const since = (key, now, before) => !prev || !(key in before) ? "" :
-    (now - n(before[key]) === 0 ? "same as last week" : `${now - n(before[key]) > 0 ? "+" : "−"}${Math.abs(now - n(before[key]))} since last week`);
-  const names = (lst) => (lst || []).map((x) => typeof x === "string" ? x :
-    `${x.hostname || ""}${x.count ? ` (${x.count})` : ""}${x.failing ? ` (${x.failing} failing)` : ""}`).join(", ");
+  // How many: the server's count (its lists name at most 50), or the list's length.
+  const n = (src, key) => key in (src.counts || {}) ? Number(src.counts[key] || 0)
+    : Array.isArray(src[key]) ? src[key].length : Number(src[key] || 0);
+  const since = (key, now, before) => {
+    if (!prev || !(key in before || key in (before.counts || {}))) return "";
+    const d = now - n(before, key);
+    return d === 0 ? "same as last week" : `${d > 0 ? "+" : "−"}${Math.abs(d)} since last week`;
+  };
+  const names = (src, key) => {
+    const lst = src[key] || [];
+    const text = lst.map((x) => typeof x === "string" ? x :
+      `${x.hostname || ""}${x.count ? ` (${x.count})` : ""}${x.failing ? ` (${x.failing} failing)` : ""}`).join(", ");
+    const extra = n(src, key) - lst.length;
+    return extra > 0 && text ? `${text} and ${extra} more` : text;
+  };
   const detail = (...parts) => parts.filter(Boolean).join(" · ");
   const problem = (none, some, key, src, before) => {
-    const k = n(src[key]);
-    return k === 0 ? [none, detail(since(key, k, before)), "good"] : [some(k), detail(names(src[key]), since(key, k, before)), "bad"];
+    const k = n(src, key);
+    return k === 0 ? [none, detail(since(key, k, before)), "good"] : [some(k), detail(names(src, key), since(key, k, before)), "bad"];
   };
   const comp = [
     [plural(total, "computer"), `${c.reported_this_week || 0} reported this week`, "dim"],
     [`Up to date: ${c.up_to_date || 0} of ${total}`, "", (c.up_to_date || 0) === total ? "good" : "dim"],
     problem("No security updates waiting", (k) => `Security updates waiting on ${plural(k, "computer")}`, "security_waiting", c, pc),
     problem("No restart needed", (k) => `Restart needed on ${plural(k, "computer")}`, "restart_needed", c, pc),
-    [`Encrypted: ${c.encrypted || 0} of ${total}`, n(c.not_encrypted) ? `Not encrypted: ${names(c.not_encrypted)}` : "", n(c.not_encrypted) ? "bad" : "good"],
+    [`Encrypted: ${c.encrypted || 0} of ${total}`, n(c, "not_encrypted") ? `Not encrypted: ${names(c, "not_encrypted")}` : "", n(c, "not_encrypted") ? "bad" : "good"],
     problem("Firewall on everywhere", (k) => `Firewall off on ${plural(k, "computer")}`, "firewall_off", c, pc),
-    [`Compliance passing: ${c.compliance_passing || 0} of ${total}`, names(c.compliance_failing), n(c.compliance_failing) ? "bad" : "good"],
+    [`Compliance passing: ${c.compliance_passing || 0} of ${total}`, names(c, "compliance_failing"), n(c, "compliance_failing") ? "bad" : "good"],
     problem("Every policy met", (k) => `Policy not met on ${plural(k, "computer")}`, "policy_not_met", c, pc),
     problem("Every computer reported this week", (k) => `Not seen for a week: ${plural(k, "computer")}`, "not_seen_week", c, pc),
   ];
-  if (n(c.lost_mode)) comp.push([`In lost mode: ${plural(n(c.lost_mode), "computer")}`, names(c.lost_mode), "bad"]);
-  if (c.versions && Object.keys(c.versions).length) comp.push(["Kulan OS versions", Object.entries(c.versions).sort().reverse().map(([v, k]) => `${v} on ${k}`).join(", "), "dim"]);
+  if (n(c, "lost_mode")) comp.push([`In lost mode: ${plural(n(c, "lost_mode"), "computer")}`, names(c, "lost_mode"), "bad"]);
+  if (c.versions && Object.keys(c.versions).length) comp.push(["Kulan OS versions", Object.entries(c.versions).sort().reverse().map(([v, k]) => `${v}: ${plural(k, "computer")}`).join(", "), "dim"]);
   const people = [
     [plural(Number(p.total || 0), "person", "people"), since("total", Number(p.total || 0), pp), "dim"],
-    [`Administrator rights: ${n(p.admins)}`, names(p.admins), "dim"],
+    [`Administrator rights: ${n(p, "admins")}`, names(p, "admins"), "dim"],
     problem("Nobody disabled", (k) => `Disabled: ${k}`, "disabled", p, pp),
     problem("Every setup code used", (k) => `Setup code not used for a week: ${k}`, "setup_code_unused", p, pp),
   ];
@@ -1022,7 +1032,7 @@ $("p-save").addEventListener("click", async () => {
   try { await api({ op: "set-policy", organisation_id: $("org").value, policy }); $("app-msg").textContent = "Policy saved."; await load(); }
   catch (e) { $("app-msg").textContent = e.message; }
 });
-let logBefore = null;
+let logBefore = null, logSearch = null;
 const logQuery = (extra) => {
   const q = { op: "log", organisation_id: $("org").value, ...extra };
   for (const k of ["from", "to", "who", "what"]) if ($(`log-${k}`).value.trim()) q[k] = $(`log-${k}`).value.trim();
@@ -1030,8 +1040,9 @@ const logQuery = (extra) => {
 };
 const logWhat = (e) => e.what.startsWith("asked: ") ? `asked ${e.hostname || "a computer"}: ${LABEL[e.what.slice(7)] || e.what.slice(7)}` : e.what;
 async function loadLog(more) {
+  if (!more) logSearch = logQuery({});  // "Show more" carries on with the same search
   try {
-    const out = await api(logQuery({ limit: 100, ...(more && logBefore ? { before: logBefore } : {}) }));
+    const out = await api({ ...logSearch, limit: 100, ...(more && logBefore ? { before: logBefore } : {}) });
     const rows = out.entries.map((e) => el("tr", {}, el("td", {}, `${dayLabel(e.at)} · ${ago(e.at)}`), el("td", {}, e.email), el("td", {}, logWhat(e))));
     if (more) $("log").append(...rows);
     else $("log").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "3", class: "empty" }, "Nothing found."))]));
@@ -1060,7 +1071,14 @@ $("log-csv").addEventListener("click", async () => {
 });
 $("weekly").addEventListener("click", openWeekly);
 $("review").addEventListener("click", openReview);
-$("org").addEventListener("change", () => { render(); loadPeople(); loadGroups(); });
+function resetLog() {
+  logBefore = null;
+  logSearch = null;
+  $("log").replaceChildren();
+  $("log-more").classList.add("hidden");
+  $("log-wrap").classList.add("hidden");
+}
+$("org").addEventListener("change", () => { resetLog(); render(); loadPeople(); loadGroups(); });
 $("add-group").addEventListener("click", () => {
   const name = el("input", { maxlength: "60" });
   const err = errorLine();

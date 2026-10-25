@@ -340,27 +340,35 @@ def weekly_sections(s: dict, prev: dict | None) -> list[tuple[str, list[tuple[st
     pc, pp = (prev or {}).get("computers") or {}, (prev or {}).get("people") or {}
     total = int(c.get("total") or 0)
 
-    def n(v) -> int:
+    def n(src: dict, key: str) -> int:
+        """How many: the server's count (its lists name at most 50), or the list's length."""
+        counts = src.get("counts") or {}
+        if key in counts:
+            return int(counts[key] or 0)
+        v = src.get(key)
         return len(v) if isinstance(v, list) else int(v or 0)
 
     def since(key: str, now: int, before_from: dict) -> str:
-        if prev is None or key not in before_from:
+        if prev is None or (key not in before_from and key not in (before_from.get("counts") or {})):
             return ""
-        d = now - n(before_from[key])
+        d = now - n(before_from, key)
         return "same as last week" if d == 0 else f"{'+' if d > 0 else '−'}{abs(d)} since last week"
 
-    def names(lst) -> str:
-        return ", ".join(x if isinstance(x, str) else
+    def names(src: dict, key: str) -> str:
+        lst = src.get(key) or []
+        text = ", ".join(x if isinstance(x, str) else
                          f"{x.get('hostname', '')}" + (f" ({x['count']})" if x.get("count") else "") +
-                         (f" ({x['failing']} failing)" if x.get("failing") else "") for x in (lst or []))
+                         (f" ({x['failing']} failing)" if x.get("failing") else "") for x in lst)
+        extra = n(src, key) - len(lst)
+        return f"{text} and {extra} more" if extra > 0 and text else text
 
     def detail(*parts: str) -> str:
         return " · ".join(x for x in parts if x)
 
     def problem(title_none: str, title_some, key: str, src: dict, before: dict) -> tuple[str, str, str]:
-        k = n(src.get(key))
+        k = n(src, key)
         return ((title_none, detail(since(key, k, before)), "good") if k == 0 else
-                (title_some(k), detail(names(src.get(key)), since(key, k, before)), "bad"))
+                (title_some(k), detail(names(src, key), since(key, k, before)), "bad"))
 
     comp = [
         (f"{plural(total, 'computer')}", f"{c.get('reported_this_week', 0)} reported this week", "dim"),
@@ -368,22 +376,23 @@ def weekly_sections(s: dict, prev: dict | None) -> list[tuple[str, list[tuple[st
         problem("No security updates waiting", lambda k: f"Security updates waiting on {plural(k, 'computer')}",
                 "security_waiting", c, pc),
         problem("No restart needed", lambda k: f"Restart needed on {plural(k, 'computer')}", "restart_needed", c, pc),
-        (f"Encrypted: {c.get('encrypted', 0)} of {total}", names(c.get("not_encrypted")) and
-         f"Not encrypted: {names(c.get('not_encrypted'))}", "good" if not c.get("not_encrypted") else "bad"),
+        (f"Encrypted: {c.get('encrypted', 0)} of {total}", names(c, "not_encrypted") and
+         f"Not encrypted: {names(c, 'not_encrypted')}", "good" if not n(c, "not_encrypted") else "bad"),
         problem("Firewall on everywhere", lambda k: f"Firewall off on {plural(k, 'computer')}", "firewall_off", c, pc),
-        (f"Compliance passing: {c.get('compliance_passing', 0)} of {total}", names(c.get("compliance_failing")),
-         "good" if not c.get("compliance_failing") else "bad"),
+        (f"Compliance passing: {c.get('compliance_passing', 0)} of {total}", names(c, "compliance_failing"),
+         "good" if not n(c, "compliance_failing") else "bad"),
         problem("Every policy met", lambda k: f"Policy not met on {plural(k, 'computer')}", "policy_not_met", c, pc),
         problem("Every computer reported this week", lambda k: f"Not seen for a week: {plural(k, 'computer')}",
                 "not_seen_week", c, pc),
     ]
-    if c.get("lost_mode"):
-        comp.append((f"In lost mode: {plural(n(c['lost_mode']), 'computer')}", names(c["lost_mode"]), "bad"))
+    if n(c, "lost_mode"):
+        comp.append((f"In lost mode: {plural(n(c, 'lost_mode'), 'computer')}", names(c, "lost_mode"), "bad"))
     if c.get("versions"):
-        comp.append(("Kulan OS versions", ", ".join(f"{v} on {k}" for v, k in sorted(c["versions"].items(), reverse=True)), "dim"))
+        comp.append(("Kulan OS versions", ", ".join(f"{v}: {plural(k, 'computer')}"
+                                                    for v, k in sorted(c["versions"].items(), reverse=True)), "dim"))
     people = [
         (plural(int(p.get("total") or 0), "person", "people"), since("total", int(p.get("total") or 0), pp), "dim"),
-        (f"Administrator rights: {n(p.get('admins'))}", names(p.get("admins")), "dim"),
+        (f"Administrator rights: {n(p, 'admins')}", names(p, "admins"), "dim"),
         problem("Nobody disabled", lambda k: f"Disabled: {k}", "disabled", p, pp),
         problem("Every setup code used", lambda k: f"Setup code not used for a week: {k}", "setup_code_unused", p, pp),
     ]
@@ -1356,7 +1365,7 @@ class FleetWindow(Adw.ApplicationWindow):
             fields[key] = row
         results = Adw.PreferencesGroup(title="Entries", description="Loading…")
         page.add(results)
-        state = {"rows": [], "more": None}
+        state = {"rows": [], "more": None, "query": {}}
 
         def query(**extra) -> dict:
             body = {"op": "log", "organisation_id": org["id"], **extra}
@@ -1368,8 +1377,11 @@ class FleetWindow(Adw.ApplicationWindow):
         def problem() -> str | None:
             for key in ("from", "to"):
                 v = fields[key].get_text().strip()
-                if v and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
-                    return "Dates are written 2026-10-26"
+                try:
+                    if v and (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v) or datetime.strptime(v, "%Y-%m-%d") is None):
+                        return "Dates are written 2026-10-26"
+                except ValueError:
+                    return f"There's no {v}: dates are written 2026-10-26"
             return None
 
         def show(entries: list[dict], more: bool, fresh: bool) -> None:
@@ -1398,11 +1410,13 @@ class FleetWindow(Adw.ApplicationWindow):
                 state["more"] = button
 
         def load(before=None) -> None:
-            if problem():
-                self.toast(problem())
-                return
+            if before is None:  # a new search; "Show more" carries on with the same one
+                if problem():
+                    self.toast(problem())
+                    return
+                state["query"] = query()
             extra = {"limit": 100, **({"before": before} if before else {})}
-            self.call(query(**extra), lambda r, error: self.toast(error) if error else
+            self.call({**state["query"], **extra}, lambda r, error: self.toast(error) if error else
                       show((r or {}).get("entries") or [], bool((r or {}).get("more")), before is None),
                       lambda: {"entries": (self.data or {}).get("sample_log", []), "more": False})
         go = Gtk.Button(label="Search", halign=Gtk.Align.END, margin_top=12, css_classes=["suggested-action"])
@@ -1411,12 +1425,13 @@ class FleetWindow(Adw.ApplicationWindow):
         for row in fields.values():
             row.connect("entry-activated", lambda _r: load())
 
-        def everything() -> list[dict]:
+        def everything(base: dict) -> list[dict]:
+            """Every matching entry (in the background: base is the query, read from the page first)."""
             if self.sample_mode():
                 return list((self.data or {}).get("sample_log", []))
             out, before = [], None
             for _page in range(20):  # up to 200,000 entries
-                r = self.session.call(query(limit=10000, **({"before": before} if before else {})))
+                r = self.session.call({**base, "limit": 10000, **({"before": before} if before else {})})
                 out += r.get("entries") or []
                 if not r.get("more") or not out:
                     break
@@ -1428,9 +1443,11 @@ class FleetWindow(Adw.ApplicationWindow):
                 self.toast(problem())
                 return
 
+            base = query()  # the filters as they are now, read here on GTK's thread
+
             def write(path: str) -> None:
                 with open(path, "w", encoding="utf-8", newline="") as f:
-                    f.write(log_csv(everything()))
+                    f.write(log_csv(everything(base)))
             self.save_file(f"Kulan Fleet activity {org['name']} {datetime.now().strftime('%Y-%m-%d')}.csv", write,
                            "Activity log exported")
         export.connect("clicked", export_csv)
@@ -2622,6 +2639,12 @@ class FleetApp(Adw.Application):
                     assert ("Security updates waiting on 1 computer", "kca-desk-02 (2) · +1 since last week", "bad") in flat, flat
                     assert any(l[0] == "Admin-rights review due" and l[2] == "bad" for l in flat), flat
                     assert weekly_sections({}, None)[0][1][0] == ("0 computers", "0 reported this week", "dim")
+                    big = weekly_sections({"computers": {"total": 120, "restart_needed": ["a", "b"],
+                                                         "counts": {"restart_needed": 120}, "versions": {"2.8.3": 120}}},
+                                          {"computers": {"counts": {"restart_needed": 100}}})
+                    flat_big = [line for _h, rows_ in big for line in rows_]
+                    assert ("Restart needed on 120 computers", "a, b and 118 more · +20 since last week", "bad") in flat_big, flat_big
+                    assert ("Kulan OS versions", "2.8.3: 120 computers", "dim") in flat_big, flat_big
                     pdf_path = os.path.join(GLib.get_tmp_dir(), f"kulan-fleet-self-test-{os.getpid()}.pdf")
                     write_pdf(pdf_path, "Kulan: weekly security report", "Week of 26 Oct 2026", sections * 6)
                     with open(pdf_path, "rb") as f:

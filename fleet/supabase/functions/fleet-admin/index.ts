@@ -158,9 +158,10 @@ export function weeklySummary(devices: Device[], people: Record<string, any>[], 
   const seen = (d: Device) => d.last_seen ? now - Date.parse(d.last_seen) : Infinity;
   const security = live.filter((d) => Number(d.updates?.security ?? 0) > 0);
   const failing = live.filter((d) => d.compliance_total && Number(d.compliance_passed) < Number(d.compliance_total));
-  const notMet = live.map((d) => ({ hostname: d.hostname || "(no name)",
-    items: Object.entries(d.policy_status ?? {}).filter(([, v]) => v !== "met" && v !== "n/a").map(([k]) => k) }))
-    .filter((d) => d.items.length);
+  const notMet = live.map((d) => {
+    const items = Object.entries(d.policy_status ?? {}).filter(([, v]) => v !== "met" && v !== "n/a").map(([k]) => k);
+    return { hostname: d.hostname || "(no name)", items: items.slice(0, 10), more: Math.max(0, items.length - 10) };
+  }).filter((d) => d.items.length);
   const versions: Record<string, number> = {};
   for (const d of live) versions[d.kulan_version || "unknown"] = (versions[d.kulan_version || "unknown"] ?? 0) + 1;
   const active = people.filter((p) => !p.removed_at);
@@ -169,30 +170,42 @@ export function weeklySummary(devices: Device[], people: Record<string, any>[], 
     const verb = String(a.what).startsWith("asked") ? "asked computers" : String(a.what).split(" ")[0];
     verbs[verb] = (verbs[verb] ?? 0) + 1;
   }
+  const notSeen = live.filter((d) => seen(d) > 7 * DAY_MS);
+  const restart = live.filter((d) => d.updates?.restart_required === true);
+  const unencrypted = live.filter((d) => d.state?.encrypted === false);
+  const firewallOff = live.filter((d) => d.state?.firewall === false);
+  const lost = live.filter((d) => d.state?.lost_mode === true);
+  const disabled = active.filter((p) => !p.enabled);
+  const unused = active.filter((p) => p.enabled && p.must_change && now - Number(p.password_changed_at) * 1000 > 7 * DAY_MS);
+  const admins = active.filter((p) => p.role !== "employee");
   return {
     computers: {
+      // The lists name at most 50; counts has how many there really are.
+      counts: { not_seen_week: notSeen.length, security_waiting: security.length, restart_needed: restart.length,
+                not_encrypted: unencrypted.length, firewall_off: firewallOff.length, compliance_failing: failing.length,
+                policy_not_met: notMet.length, lost_mode: lost.length },
       total: live.length,
       reported_this_week: live.filter((d) => seen(d) <= 7 * DAY_MS).length,
-      not_seen_week: names(live.filter((d) => seen(d) > 7 * DAY_MS)),
+      not_seen_week: names(notSeen),
       up_to_date: live.filter((d) => d.updates && Number(d.updates.waiting ?? 0) === 0).length,
       security_waiting: security.slice(0, LIST_MAX).map((d) => ({ hostname: d.hostname || "(no name)", count: Number(d.updates.security) })),
-      restart_needed: names(live.filter((d) => d.updates?.restart_required === true)),
+      restart_needed: names(restart),
       encrypted: live.filter((d) => d.state?.encrypted === true).length,
-      not_encrypted: names(live.filter((d) => d.state?.encrypted === false)),
-      firewall_off: names(live.filter((d) => d.state?.firewall === false)),
+      not_encrypted: names(unencrypted),
+      firewall_off: names(firewallOff),
       compliance_passing: live.filter((d) => d.compliance_total && Number(d.compliance_passed) === Number(d.compliance_total)).length,
       compliance_failing: failing.slice(0, LIST_MAX).map((d) => ({ hostname: d.hostname || "(no name)",
         failing: Number(d.compliance_total) - Number(d.compliance_passed) })),
       policy_not_met: notMet.slice(0, LIST_MAX),
-      lost_mode: names(live.filter((d) => d.state?.lost_mode === true)),
+      lost_mode: names(lost),
       versions,
     },
     people: {
+      counts: { disabled: disabled.length, setup_code_unused: unused.length, admins: admins.length },
       total: active.length,
-      disabled: active.filter((p) => !p.enabled).map((p) => p.username).slice(0, LIST_MAX),
-      setup_code_unused: active.filter((p) => p.enabled && p.must_change &&
-        now - Number(p.password_changed_at) * 1000 > 7 * DAY_MS).map((p) => p.username).slice(0, LIST_MAX),
-      admins: active.filter((p) => p.role !== "employee").map((p) => p.username).slice(0, LIST_MAX),
+      disabled: disabled.map((p) => p.username).slice(0, LIST_MAX),
+      setup_code_unused: unused.map((p) => p.username).slice(0, LIST_MAX),
+      admins: admins.map((p) => p.username).slice(0, LIST_MAX),
     },
     activity: {
       changes: activity.length,
@@ -408,7 +421,7 @@ Deno.serve(async (req: Request) => {
         for (const o of organisations) {
           const due = reviewDue(lastReview[o.id] ?? null, o.created_at, now);
           if (due.due) {
-            alerts.push({ kind: "review", device_id: null, organisation_id: o.id, hostname: null, title: "Admin rights",
+            alerts.unshift({ kind: "review", device_id: null, organisation_id: o.id, hostname: null, title: "Admin rights",
                           text: due.never ? "No admin-rights review yet: check who still needs administrator rights"
                                           : `Admin-rights review due: the last was ${due.days} days ago` } as any);
           }
@@ -430,7 +443,11 @@ Deno.serve(async (req: Request) => {
       case "log": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
-        const day = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}/.test(v) && !isNaN(Date.parse(v)) ? v : null;
+        const day = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+          !isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v ? v : null;
+        if ((body.from !== undefined && body.from !== "" && !day(body.from)) || (body.to !== undefined && body.to !== "" && !day(body.to))) {
+          return reply(400, { error: "dates are written 2026-10-26" });
+        }
         const from = day(body.from), to = day(body.to);
         const find = (v: unknown) => typeof v === "string" && v.trim() ? `%${v.trim().slice(0, 80).replace(/[\\%_]/g, "\\$&")}%` : null;
         const who = find(body.who), what = find(body.what);
@@ -879,8 +896,12 @@ Deno.serve(async (req: Request) => {
         const summary = weeklySummary(devices, people, activity,
           { at: last?.reviewed_at ?? null, by: last?.reviewed_by ?? null, due: due.due }, now);
         const week = mondayOf(new Date(now));
-        await sql`insert into fleet.weekly_reports (organisation_id, week, summary) values (${org}, ${week}, ${json(summary)})
-                  on conflict (organisation_id, week) do update set summary = excluded.summary, made_at = now()`;
+        try {  // the snapshot is for next week's comparison; the report doesn't depend on it
+          await sql`insert into fleet.weekly_reports (organisation_id, week, summary) values (${org}, ${week}, ${json(summary)})
+                    on conflict (organisation_id, week) do update set summary = excluded.summary, made_at = now()`;
+        } catch (e) {
+          console.error("fleet-admin: weekly snapshot not kept:", e);
+        }
         const [prev] = await sql`select week, summary from fleet.weekly_reports where organisation_id = ${org} and week < ${week}::date
                                  order by week desc limit 1`;
         if (Math.random() < 0.05) await sql`select fleet.prune_weekly_reports()`;
