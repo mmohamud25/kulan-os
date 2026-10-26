@@ -90,6 +90,11 @@ check("well-formed start", c and c["admin"] == "it@acme.testscript" and c["organ
 for bad in ["", "nope", json.dumps([1]), json.dumps({**good, "session_id": "../x"}), json.dumps({**good, "token": "short"}),
             json.dumps({**good, "server": "file:///etc/passwd"})]:
     check(f"refused start: {bad[:40]}", hs.clean_start(bad) is None)
+check("a key with a line break (a header injection) refused", hs.clean_start(json.dumps({**good, "token": "t" * 41 + "\r\n"})) is None)
+check("too many ICE servers: cut down", len(hs.clean_start(json.dumps({**good, "ice": [{"urls": ["stun:a.b:1"]}] * 9}))["ice"]) == 4)
+check("huge ICE list: dropped", hs.clean_start(json.dumps({**good, "ice": [{"urls": ["x" * 9000]}]}))["ice"] == [])
+check("Phoenix messages: a payload that isn't an object is none", wake._message('{"event": "broadcast", "payload": "x"}')["payload"] == {}
+      and wake._message("[1]") == {})
 check("control only when asked, exactly", hs.clean_start(json.dumps({**good, "control_asked": "yes"}))["control_asked"] is False)
 
 # --- ICE servers for webrtcbin ------------------------------------------------------------

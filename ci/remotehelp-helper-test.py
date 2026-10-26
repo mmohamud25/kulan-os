@@ -133,13 +133,22 @@ try:
     stand = Stand()
     slow = tmp / "kulan-remote-help-slow"
     slow.write_text(agent.read_text().replace("self.asking_timer = GLib.timeout_add_seconds(helpsession.ASK_S,",
-                                              "self.asking_timer = GLib.timeout_add_seconds(1,")
+                                              "self.asking_timer = GLib.timeout_add_seconds(int(os.environ.get('ASK', '1')),")
                     .replace("GLib.timeout_add(200, lambda: answered(", "GLib.timeout_add(60000, lambda: answered("))
     p = subprocess.run([sys.executable, "-I", str(slow)], capture_output=True, text=True, timeout=60, env={
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "KULAN_REMOTE_HELP_TEST": "allow",
         "KULAN_REMOTE_HELP": json.dumps({"server": stand.url, "session_id": SID, "token": TOKEN, "ice": []})})
-    check("nobody answered: it ends the session itself", p.returncode == 0 and stand.calls == [
+    check("nobody answered: it ends the session itself", p.returncode == 0 and [c for c in stand.calls if c["op"] != "signal"] == [
         {"op": "end", "detail": "nobody answered on the computer"}], (stand.calls, p.stdout[-300:], p.stderr[-300:]))
+
+    # 3b. The admin withdraws the request while the question is open: it closes by itself.
+    stand = Stand()
+    stand.state = "ended"
+    p = subprocess.run([sys.executable, "-I", str(slow)], capture_output=True, text=True, timeout=60, env={
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "KULAN_REMOTE_HELP_TEST": "allow", "ASK": "20",
+        "KULAN_REMOTE_HELP": json.dumps({"server": stand.url, "session_id": SID, "token": TOKEN, "ice": []})})
+    check("withdrawn: the question closes, nothing answered", p.returncode == 0 and stand.calls and
+          all(c["op"] == "signal" for c in stand.calls), stand.calls)
 
     # 4. Its windows.
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):

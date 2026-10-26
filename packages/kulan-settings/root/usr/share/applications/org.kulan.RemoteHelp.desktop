@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Remote help
+Comment=An admin of your organisation asks to see your screen (Kulan Fleet)
+Icon=preferences-desktop-remote-desktop
+Exec=/usr/lib/kulan/kulan-remote-help
+NoDisplay=true
+X-GNOME-UsesNotifications=true

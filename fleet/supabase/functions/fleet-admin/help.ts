@@ -88,3 +88,14 @@ export function cleanCandidates(v: unknown): Record<string, unknown>[] {
 
 export const ACTIVE = ["requested", "asking", "allowed", "connected"];
 export const MAX_CANDIDATES = 60;
+
+// Adds a side's network candidates, as many as still fit (60 a side).
+// deno-lint-ignore no-explicit-any
+export async function addCandidates(sql: any, id: string, column: "admin_candidates" | "device_candidates",
+                                    candidates: Record<string, unknown>[]): Promise<void> {
+  const [row] = await sql`select jsonb_array_length(${sql(column)}) as n from fleet.help_sessions where id = ${id}`;
+  const room = MAX_CANDIDATES - Number(row?.n ?? MAX_CANDIDATES);
+  if (room <= 0) return;
+  await sql`update fleet.help_sessions set ${sql(column)} = ${sql(column)} || ${sql.json(candidates.slice(0, room))}
+            where id = ${id}`;
+}

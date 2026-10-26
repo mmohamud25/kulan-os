@@ -48,6 +48,12 @@ create table if not exists fleet.help_sessions (
   ended_at timestamptz
 );
 create index if not exists help_sessions_device_idx on fleet.help_sessions (device_id, created_at desc);
+-- One live session per computer (two admins asking at once: the second is told no).
+create unique index if not exists help_sessions_live_idx on fleet.help_sessions (device_id)
+  where state in ('requested', 'asking', 'allowed', 'connected');
+-- Expiring looks only at live sessions.
+create index if not exists help_sessions_active_idx on fleet.help_sessions (state, updated_at)
+  where state in ('requested', 'asking', 'allowed', 'connected');
 alter table fleet.help_sessions enable row level security;
 revoke all on fleet.help_sessions from public, anon, authenticated;
 
@@ -77,6 +83,11 @@ as $$
                              else 'nobody answered on the computer' end
    where (state = 'requested' and created_at < now() - interval '10 minutes')
       or (state = 'asking' and updated_at < now() - interval '2 minutes');
+  -- A request the computer never picked up doesn't wait in its queue.
+  update fleet.actions a set status = 'expired', finished_at = now()
+   where a.type = 'remote-help' and a.status = 'pending'
+     and not exists (select 1 from fleet.help_sessions s where s.id = (a.payload->>'session_id')::uuid
+                     and s.state in ('requested', 'asking', 'allowed', 'connected'));
   update fleet.help_sessions
      set state = 'ended', ended_at = now(), updated_at = now(), detail = 'an hour is the most a session lasts'
    where state in ('allowed', 'connected') and created_at < now() - interval '61 minutes';

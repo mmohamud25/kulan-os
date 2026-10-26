@@ -1005,6 +1005,8 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   ok(whats.includes(want), `in the activity log: ${want}`, whats);
 }
 
+const BOSS2 = "support@kulan.test";
+await db`insert into fleet.admins (email, organisation_id) values (${BOSS2}, null)`;
 // --- remote help (2.9a) ------------------------------------------------------------------------
 {
   // Every report gives the computer where to listen for "report now".
@@ -1020,15 +1022,20 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   ok(r.status === 200 && wakes.join() === `wake ${wakeA.topic}`, "an action wakes the computer", wakes);
   await report(A);
 
+  // Asking again within 20 seconds is refused (a person isn't asked again and again): the tests age sessions instead.
+  const aged = () => db`update fleet.help_sessions set created_at = created_at - interval '30 seconds'`;
   // Older computers can't.
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   ok(r.status === 400 && r.body.error.includes("2.9a"), "a computer before 2.9a: install its updates first", r);
   await report(A, { kulan_version: "2.9.1 (build 130)" });
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: C.device_id });
   ok(r.status === 404, "another organisation's computer: no", r);
 
   // Without Cloudflare's key: STUN only.
   wakes.length = 0;
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id, control: true });
   ok(r.status === 200 && r.body.relay === false && JSON.stringify(r.body.ice) === '[{"urls":["stun:stun.cloudflare.com:3478"]}]' &&
      r.body.woke === true && wakes.join() === `wake ${wakeA.topic}` && cf.calls.length === 0, "help-start: STUN only, computer woken", r.body);
@@ -1093,8 +1100,13 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   const many = Array.from({ length: 30 }, (_, i) => ({ candidate: `candidate:${i} 1 udp 1 10.0.0.9 ${7000 + i} typ host`, sdpMid: "0" }));
   await helper({ op: "signal", candidates: many });
   await helper({ op: "signal", candidates: many });
-  ok((await db`select jsonb_array_length(device_candidates) as n from fleet.help_sessions where id = ${s1}`)[0].n === 31,
-     "60 candidates at most: the batch that would go over isn't taken");
+  ok((await db`select jsonb_array_length(device_candidates) as n from fleet.help_sessions where id = ${s1}`)[0].n === 60,
+     "60 candidates at most: as many as still fit are taken");
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, answer: { type: "answer", sdp: "v=0 the-answer" } });
+  ok(r.status === 200, "the same answer again (a lost reply) is fine", r);
+  await aged();
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 409 && r.body.error.includes("already connected"), "no new question on a screen the admin already sees", r);
   r = await helper({ op: "connected" });
   ok(r.body.state === "connected", "connected", r.body);
   r = await helper({ op: "end", detail: "Stopped by them\u0000\u001b[31m" });
@@ -1107,6 +1119,7 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   // Cloudflare's relay: credentials per session, port 53 and anything odd left out.
   env.CLOUDFLARE_TURN_KEY_ID = "key-1";
   env.CLOUDFLARE_TURN_TOKEN = "cf-token";
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s2 = r.body.session_id;
   const urls = r.body.ice.flatMap((x) => x.urls);
@@ -1124,10 +1137,12 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await admin(HELPER, { op: "help-signal", session_id: s2 });
   ok(r.body.state === "ended" && r.body.detail === "the admin ended it", "the admin ends it", r.body);
   cf.down = true;
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   ok(r.status === 200 && r.body.relay === false, "Cloudflare unreachable: STUN only, still works", r.body);
   cf.down = false;
   const s3 = r.body.session_id;
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s4 = r.body.session_id;
   ok(r.status === 200 && (await db`select state, detail from fleet.help_sessions where id = ${s3}`)[0].detail === "started again" &&
@@ -1140,21 +1155,25 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   ok(r.body.state === "declined" && r.body.detail === "they said no", "declined", r.body);
 
   // Nobody signed in; an older computer that fails the request; time running out.
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s5 = r.body.session_id;
   await report(A);
   await call("fleet", `/v1/help/${s5}`, { op: "unavailable", device_id: A.device_id, detail: "nobody is signed in" }, A.token);
   ok((await admin(HELPER, { op: "help-signal", session_id: s5 })).body.detail === "nobody is signed in", "nobody signed in");
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s6 = r.body.session_id;
   const act6 = (await report(A)).body.actions.find((a) => a.type === "remote-help");
   await computer(A, `/v1/actions/${act6.id}`, { status: "failed", detail: "unknown action remote-help" });
   ok((await admin(HELPER, { op: "help-signal", session_id: s6 })).body.state === "failed", "a computer that fails the request: failed");
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s7 = r.body.session_id;
   await db`update fleet.help_sessions set created_at = now() - interval '11 minutes' where id = ${s7}`;
   r = await admin(HELPER, { op: "help-signal", session_id: s7 });
   ok(r.body.state === "expired" && r.body.detail.includes("off or offline"), "never picked up: expired", r.body);
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s8 = r.body.session_id;
   await report(A);
@@ -1163,6 +1182,7 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   await db`update fleet.help_sessions set updated_at = now() - interval '3 minutes' where id = ${s8}`;
   r = await helper({ op: "answer", allow: true }, t8, s8);
   ok(r.status === 409 && r.body.state === "expired", "not answered in 2 minutes: too late", r);
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s9 = r.body.session_id;
   await report(A);
@@ -1173,12 +1193,43 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await helper({ op: "signal" }, t9, s9);
   ok(r.body.state === "ended" && r.body.detail.includes("an hour"), "an hour at most", r.body);
   // A computer that leaves ends its session.
+  await aged();
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  await db`update fleet.help_sessions set state = 'ended' where device_id = ${A.device_id} and state in ('requested','asking','allowed','connected')`;
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 429, "asking the same computer again at once: wait", r);
+  // An admin whose access is removed: their session ends at once.
+  await admin(NEWOWNER, { op: "add-admin", organisation_id: org, email: "temp@acme.test" });
+  await aged();
+  await db`update fleet.help_sessions set state = 'ended' where device_id = ${A.device_id} and state in ('requested','asking','allowed','connected')`;
+  r = await admin("temp@acme.test", { op: "help-start", device_id: A.device_id });
+  const sT = r.body.session_id;
+  ok(r.status === 200, "(an admin who'll be removed asks)", r);
+  r = await call("fleet", `/v1/help/${sT}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  ok(r.body.organisation === "Acme", "an organisation's own admin: from Acme", r.body);
+  await admin(NEWOWNER, { op: "remove-admin", organisation_id: org, email: "temp@acme.test" });
+  ok((await db`select state, detail from fleet.help_sessions where id = ${sT}`)[0].detail === "their access was removed",
+     "access removed: their session ends");
+  // Kulan's own support (an admin for every organisation) says so.
+  await aged();
+  r = await admin(BOSS2, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 200, "(a Kulan support admin asks)", r);
+  r = await call("fleet", `/v1/help/${r.body.session_id}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  ok(r.body.organisation === "Kulan Fleet support, for Acme", "Kulan support says so to the person", r.body);
+  // Two at once can't both be live on one computer.
+  let dup = null;
+  try { await db`insert into fleet.help_sessions (organisation_id, device_id, requested_by) values (${org}, ${A.device_id}, 'x@y')`; }
+  catch (e) { dup = e.code; }
+  ok(dup === "23505", "one live session per computer, kept by the database", dup);
+  await db`update fleet.help_sessions set state = 'ended' where device_id = ${A.device_id} and state in ('requested','asking','allowed','connected')`;
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   const s10 = r.body.session_id;
   await computer(A, "/v1/leave");
   ok((await db`select state, detail from fleet.help_sessions where id = ${s10}`)[0].detail === "the computer left the organisation" &&
      (await db`select wake_topic from fleet.devices where id = ${A.device_id}`)[0].wake_topic === null,
      "a computer that leaves: its session ends, its wake topic goes");
+  await aged();
   r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
   ok(r.status === 400, "nothing on a computer that left", r);
 

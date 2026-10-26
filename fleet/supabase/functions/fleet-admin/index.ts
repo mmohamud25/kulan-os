@@ -436,6 +436,20 @@ Deno.serve(async (req: Request) => {
                              and wake_topic is not null`;
       return await help.wake(rows.map((r) => r.wake_topic));
     };
+    // Someone who no longer has Kulan Fleet access to an organisation: their
+    // remote help there ends at once (the computer stops sharing within seconds).
+    const endHelpOf = async (org: string, who: string) => {
+      const still = await sql`select 1 from fleet.admins where email = ${who} and (organisation_id is null or organisation_id = ${org})`;
+      if (still.length) return;
+      const ended = await sql`update fleet.help_sessions set state = 'ended', detail = 'their access was removed', ended_at = now(),
+                                     updated_at = now()
+                              where organisation_id = ${org} and requested_by = ${who} and state = any(${help.ACTIVE}::text[])
+                              returning id, device_id`;
+      for (const e of ended) {
+        await sql`update fleet.actions set status = 'cancelled', finished_at = now()
+                  where device_id = ${e.device_id} and type = 'remote-help' and status = 'pending' and payload->>'session_id' = ${e.id}`;
+      }
+    };
     const isOwner = async (org: string) => {
       if (global) return true;
       const rows = await sql`select owner_email from fleet.organisations where id = ${org}`;
@@ -1050,6 +1064,7 @@ Deno.serve(async (req: Request) => {
           const [o] = await sql`select owner_email from fleet.organisations where id = ${org}`;
           if (o?.owner_email === who) return reply(400, { error: "the Owner stays an admin" });
           await sql`delete from fleet.admins where email = ${who} and organisation_id = ${org}`;
+          await endHelpOf(org, who);
         }
         await audit(org, null, `${body.op === "add-admin" ? "added" : "removed"} admin ${who}`.slice(0, 80));
         return reply(200, {});
@@ -1341,6 +1356,7 @@ Deno.serve(async (req: Request) => {
                    values (${org}, ${email}, ${total - removed}, ${removed},
                            ${json({ admin_role_taken: people.map((p) => p!.username), fleet_access_taken: removeAdmins })})`;
         });
+        for (const e of removeAdmins) await endHelpOf(org, e);
         await audit(org, null, `reviewed admin rights (kept ${total - removed}, removed ${removed})`.slice(0, 80),
                     { admin_role_taken: people.map((p) => p!.username), fleet_access_taken: removeAdmins });
         return reply(200, { kept: total - removed, removed });
@@ -1558,11 +1574,22 @@ Deno.serve(async (req: Request) => {
           return reply(400, { error: "that computer needs Kulan OS 2.9a or newer for remote help: install its updates first" });
         }
         await sql`select fleet.expire_help_sessions()`;
-        const busy = await sql`select id, requested_by from fleet.help_sessions
+        const busy = await sql`select id, requested_by, state from fleet.help_sessions
                                where device_id = ${id} and state = any(${help.ACTIVE}::text[])`;
         if (busy.some((b) => b.requested_by !== email)) {
           return reply(409, { error: `${busy.find((b) => b.requested_by !== email)!.requested_by} is helping on that computer now` });
         }
+        // Never a new question on a screen the admin is already seeing (they could answer it themselves).
+        if (busy.some((b) => b.state === "allowed" || b.state === "connected")) {
+          return reply(409, { error: "you're already connected to that computer: end that session first" });
+        }
+        // A person isn't asked again and again: one request every 20 seconds per computer, 20 an hour per admin.
+        const [recent] = await sql`select
+            count(*) filter (where device_id = ${id} and created_at > now() - interval '20 seconds')::int as here,
+            count(*) filter (where requested_by = ${email} and created_at > now() - interval '1 hour')::int as hour
+          from fleet.help_sessions where created_at > now() - interval '1 hour'`;
+        if (recent.here > 0) return reply(429, { error: "wait a few seconds before asking that computer again" });
+        if (recent.hour >= 20) return reply(429, { error: "that's a lot of remote help requests this hour: try again later" });
         // Started again by the same admin (a closed tab, say): the old one ends.
         for (const b of busy) {
           await sql`update fleet.help_sessions set state = 'ended', detail = 'started again', ended_at = now(), updated_at = now()
@@ -1572,13 +1599,19 @@ Deno.serve(async (req: Request) => {
         }
         const control = body.control === true;
         const ice = await help.iceServers();
-        const session = await sql.begin(async (tx) => {
-          const [s] = await tx`insert into fleet.help_sessions (organisation_id, device_id, requested_by, control_asked, ice)
-                               values (${org}, ${id}, ${email}, ${control}, ${json(ice)}) returning id`;
-          await tx`insert into fleet.actions (device_id, type, requested_by, payload)
-                   values (${id}, 'remote-help', ${email}, ${json({ session_id: s.id })})`;
-          return s;
-        });
+        let session;
+        try {
+          session = await sql.begin(async (tx) => {
+            const [s] = await tx`insert into fleet.help_sessions (organisation_id, device_id, requested_by, control_asked, ice)
+                                 values (${org}, ${id}, ${email}, ${control}, ${json(ice)}) returning id`;
+            await tx`insert into fleet.actions (device_id, type, requested_by, payload)
+                     values (${id}, 'remote-help', ${email}, ${json({ session_id: s.id })})`;
+            return s;
+          });
+        } catch (e) {  // another admin asked at the same moment (one live session per computer)
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "someone else is helping on that computer now" });
+          throw e;
+        }
         await audit(org, id, control ? "asked to see and control the screen" : "asked to see the screen", { session: session.id });
         if (Math.random() < 0.05) await sql`select fleet.prune_help_sessions()`;
         const woke = await wakeDevices([id as string]);
@@ -1606,14 +1639,14 @@ Deno.serve(async (req: Request) => {
         if (active && body.answer !== undefined) {
           const answer = help.cleanDescription(body.answer, "answer");
           if (!answer) return reply(400, { error: "that isn't an answer" });
-          if (!s.offer || s.answer) return reply(409, { error: "not now", state: s.state });
-          await sql`update fleet.help_sessions set answer = ${json(answer)}, updated_at = now() where id = ${sid} and answer is null`;
+          // The same answer again (a reply that got lost) is fine; another one isn't.
+          if (!s.offer || (s.answer && s.answer.sdp !== answer.sdp)) return reply(409, { error: "not now", state: s.state });
+          if (!s.answer) {
+            await sql`update fleet.help_sessions set answer = ${json(answer)}, updated_at = now() where id = ${sid} and answer is null`;
+          }
         }
         const candidates = active ? help.cleanCandidates(body.candidates) : [];
-        if (candidates.length) {
-          await sql`update fleet.help_sessions set admin_candidates = admin_candidates || ${json(candidates)}
-                    where id = ${sid} and jsonb_array_length(admin_candidates) + ${candidates.length} <= ${help.MAX_CANDIDATES}`;
-        }
+        if (candidates.length) await help.addCandidates(sql, sid as string, "admin_candidates", candidates);
         const since = Number.isInteger(body.since) && body.since >= 0 ? body.since : 0;
         const theirs = Array.isArray(s.device_candidates) ? s.device_candidates : [];
         return reply(200, { state: s.state, control: s.control, detail: s.detail, who: s.answered_by,

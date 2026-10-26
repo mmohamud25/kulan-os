@@ -52,6 +52,7 @@ export class RemoteHelp {
     this.useControl = true;
     this.over = false;
     this.listeners = [];
+    this.held = new Map();  // keys and buttons sent as down: let go of when control stops or the page loses focus
   }
 
   async start() {
@@ -78,6 +79,7 @@ export class RemoteHelp {
     } catch (e) {
       this.outgoing.unshift(...sent);
       if (/no such session/.test(e.message)) { this.finish("Remote help ended."); return; }
+      if (/not now/.test(e.message)) this.answer = null;  // the computer already has an answer
       this.timer = setTimeout(() => this.poll(), 3000);
       return;
     }
@@ -137,7 +139,19 @@ export class RemoteHelp {
 
   // The mouse and keyboard, over the picture: only when the person allowed it (the computer checks too).
   send(msg) {
-    if (this.control && this.useControl && this.channel?.readyState === "open") this.channel.send(JSON.stringify(msg));
+    if (!(this.control && this.useControl && this.channel?.readyState === "open")) return;
+    const id = msg.t === "down" || msg.t === "up" ? `b${msg.b}` : msg.t === "kd" || msg.t === "ku" ? `k${msg.code}` : null;
+    if (id && (msg.t === "down" || msg.t === "kd")) this.held.set(id, msg);
+    else if (id) this.held.delete(id);
+    this.channel.send(JSON.stringify(msg));
+  }
+
+  letGo() {
+    for (const msg of this.held.values()) {
+      const up = msg.t === "down" ? { t: "up", b: msg.b } : { t: "ku", code: msg.code };
+      if (this.channel?.readyState === "open") this.channel.send(JSON.stringify(up));
+    }
+    this.held.clear();
   }
 
   attachInput() {
@@ -156,6 +170,7 @@ export class RemoteHelp {
       if (!p) return;
       ev.preventDefault();
       v.focus();
+      v.setPointerCapture?.(ev.pointerId);  // the button is let go of even outside the picture
       this.send({ t: "move", ...p });
       this.send({ t: "down", b: BUTTON[ev.button] });
     });
@@ -177,20 +192,22 @@ export class RemoteHelp {
     };
     on(v, "keydown", key(true));
     on(v, "keyup", key(false));
-    // Keys still down when the picture loses focus are let go on the computer.
-    on(v, "blur", () => {
-      for (const code of ["ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "AltLeft", "AltRight", "MetaLeft", "MetaRight"]) {
-        this.send({ t: "ku", code });
-      }
-    });
+    // Whatever is still down when the picture loses focus, or the page is hidden, is let go of on the computer.
+    on(v, "blur", () => this.letGo());
+    on(v, "pointercancel", () => this.letGo());
+    on(document, "visibilitychange", () => { if (document.hidden) this.letGo(); });
   }
 
-  setUseControl(on) { this.useControl = !!on; }
+  setUseControl(on) {
+    if (!on) this.letGo();
+    this.useControl = !!on;
+  }
 
   finish(text, tellServer = false) {
     if (this.over) return;
     this.over = true;
     clearTimeout(this.timer);
+    this.letGo();
     for (const [t, type, fn, opts] of this.listeners) t.removeEventListener(type, fn, opts);
     this.listeners = [];
     try { this.pc?.close(); } catch { /* closed already */ }

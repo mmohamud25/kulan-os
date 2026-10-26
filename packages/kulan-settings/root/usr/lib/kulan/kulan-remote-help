@@ -38,7 +38,9 @@ gi.require_version("GstWebRTC", "1.0")
 gi.require_version("GstSdp", "1.0")
 from gi.repository import Gio, GLib, Gst, GstSdp, GstWebRTC  # noqa: E402
 
-TEST = os.environ.get("KULAN_REMOTE_HELP_TEST", "")
+# Never for the installed helper: a test hook there would let any of the
+# person's own programs answer for them.
+TEST = os.environ.get("KULAN_REMOTE_HELP_TEST", "") if os.path.realpath(__file__) != "/usr/lib/kulan/kulan-remote-help" else ""
 if not TEST:
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
@@ -228,6 +230,24 @@ class Help:
     def begin(self) -> None:
         self.asking_timer = GLib.timeout_add_seconds(helpsession.ASK_S, self._no_answer)
         self.ui.ask(self.info["admin"], self.info["organisation"], self.info["control_asked"], self.answer)
+        GLib.timeout_add_seconds(3, self._still_asked)
+
+    def _still_asked(self) -> bool:
+        """While the question is open: the admin may have withdrawn it (or lost access)."""
+        if self.state != "asking" or self.over:
+            return False
+        self.server.send({"op": "signal"}, self._asked_reply)
+        return False
+
+    def _asked_reply(self, result, _error) -> bool:
+        if self.state != "asking" or self.over:
+            return False
+        if result and result.get("state") not in ("asking", "allowed", "connected", None):
+            GLib.source_remove(self.asking_timer)
+            self.finish(None, None)
+            return False
+        GLib.timeout_add_seconds(3, self._still_asked)
+        return False
 
     def _no_answer(self) -> bool:
         if self.state == "asking":
@@ -239,10 +259,11 @@ class Help:
             return
         GLib.source_remove(self.asking_timer)
         self.state = "answering"
+        control = bool(allow and control and self.info["control_asked"])
         self.server.send({"op": "answer", "allow": allow, "control": control},
-                         lambda r, e: self._answered(r, e, allow))
+                         lambda r, e: self._answered(r, e, allow, control))
 
-    def _answered(self, result, error, allow) -> bool:
+    def _answered(self, result, error, allow, control) -> bool:
         if error or not result:
             self.ui.done(f"Remote help couldn't start ({error})" if error else "Remote help couldn't start")
             self.finish(None, None)
@@ -251,7 +272,8 @@ class Help:
             self.finish(None, None)
             return False
         self.state = "allowed"
-        self.control = result.get("control") is True
+        # Control only if the person ticked it here, whatever the server says.
+        self.control = control and result.get("control") is True
         self.ui.watching(self.info["admin"], self.control, "Choose the screen to share…", self.stop)
         self.limit_timer = GLib.timeout_add_seconds(helpsession.MAX_S, self._hour)
         cls = TestSource if TEST else Portal
@@ -311,6 +333,7 @@ class Help:
         self.channel = self.webrtc.emit("create-data-channel", "input", opts)
         if self.channel:
             self.channel.connect("on-message-string", self._input)
+            self.channel.connect("on-close", lambda _c: GLib.idle_add(lambda: self._release_all() and False))
         self.pipe.set_state(Gst.State.PLAYING)
         self.ui.status("Connecting…")
         return False
@@ -346,12 +369,16 @@ class Help:
         if self.over:
             return False
         body = {"op": "signal", "since": self.since}
+        sent = []
         for item in self.outgoing:
             if "offer" in item:
                 body["offer"] = item["offer"]
-            else:
+            elif len(body.get("candidates", [])) < 30:  # the server takes 30 a request
                 body.setdefault("candidates", []).append(item["candidate"])
-        sent, self.outgoing = self.outgoing, []
+            else:
+                continue
+            sent.append(item)
+        self.outgoing = [i for i in self.outgoing if i not in sent]
         self.server.send(body, lambda r, e: self._polled(r, e, sent))
         return False
 
@@ -382,7 +409,7 @@ class Help:
                         mline = c.get("sdpMLineIndex") if isinstance(c.get("sdpMLineIndex"), int) else 0
                         self.webrtc.emit("add-ice-candidate", mline, c["candidate"])
                 self.since += len(candidates)
-        GLib.timeout_add(3000 if self.state == "connected" else 1000, self._poll)
+        GLib.timeout_add(1000 if self.outgoing or self.state != "connected" else 3000, self._poll)
         return False
 
     def _ice_state(self, element, _pspec) -> None:
@@ -400,6 +427,7 @@ class Help:
         elif state == S.FAILED:
             self.finish("failed", "it couldn't connect (the computers can't reach each other)")
         elif state == S.DISCONNECTED and self.state == "connected":
+            self._release_all()  # nothing stays held down while the admin can't let go of it
             self.ui.status("Reconnecting…")
         return False
 
@@ -560,6 +588,9 @@ class Window:
         tick()
         GLib.timeout_add_seconds(1, tick)
         no.grab_focus()  # an accidental Enter never allows it
+        # Nor a click that was already on its way to where Allow appears.
+        yes.set_sensitive(False)
+        GLib.timeout_add(1200, lambda: yes.set_sensitive(True) and False)
 
     def watching(self, admin, control, status, on_stop) -> None:
         self.on_stop = on_stop

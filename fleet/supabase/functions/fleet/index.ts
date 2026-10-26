@@ -259,11 +259,11 @@ function newWakeTopic(): string {
 
 // Remote help, the computer's side (see the top of this file).
 async function helpRoute(req: Request, id: string, body: Record<string, unknown>): Promise<Response> {
-  await sql`select fleet.expire_help_sessions()`;
   const op = body.op;
   if (op === "claim" || op === "unavailable") {
     const dev = await device(req, body);
     if (!dev) return reply(401, { error: "unknown computer or key" });
+    await sql`select fleet.expire_help_sessions()`;
     const [s] = await sql`select s.id, s.state, s.requested_by, s.control_asked, s.ice, s.organisation_id, o.name
                           from fleet.help_sessions s join fleet.organisations o on o.id = s.organisation_id
                           where s.id = ${id} and s.device_id = ${dev.id}`;
@@ -282,14 +282,21 @@ async function helpRoute(req: Request, id: string, body: Record<string, unknown>
                                      answered_by = ${user}, updated_at = now()
                               where id = ${id} and state = 'requested' returning id`;
     if (!claimed.length) return reply(409, { error: "that session has changed" });
-    return reply(200, { token, admin: s.requested_by, control_asked: s.control_asked, ice: s.ice, organisation: s.name });
+    // An admin for every organisation (Kulan's own support) says so, not as one of the organisation's own.
+    const kulan = await sql`select 1 from fleet.admins where email = ${s.requested_by} and organisation_id is null`;
+    return reply(200, { token, admin: s.requested_by, control_asked: s.control_asked, ice: s.ice,
+                        organisation: kulan.length ? `Kulan Fleet support, for ${s.name}` : s.name });
   }
 
   // The helper in the person's session: the session's own key, only for this session.
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return reply(401, { error: "no key" });
-  const [s] = await sql`select * from fleet.help_sessions where id = ${id} and token_hash = ${await sha256(auth.slice(7).trim())}`;
-  if (!s) return reply(401, { error: "unknown session or key" });
+  const hash = await sha256(auth.slice(7).trim());
+  if (!(await sql`select 1 from fleet.help_sessions where id = ${id} and token_hash = ${hash}`).length) {
+    return reply(401, { error: "unknown session or key" });
+  }
+  await sql`select fleet.expire_help_sessions()`;
+  const [s] = await sql`select * from fleet.help_sessions where id = ${id} and token_hash = ${hash}`;
   const log = (what: string, detail: Record<string, unknown> = {}) =>
     sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
         values (${s.organisation_id}, ${s.device_id}, ${s.answered_by}, ${what}, ${json({ session: s.id, admin: s.requested_by, ...detail })})`;
@@ -312,10 +319,7 @@ async function helpRoute(req: Request, id: string, body: Record<string, unknown>
       await sql`update fleet.help_sessions set offer = ${json(offer)}, updated_at = now() where id = ${id} and offer is null`;
     }
     const candidates = help.cleanCandidates(body.candidates);
-    if (candidates.length) {
-      await sql`update fleet.help_sessions set device_candidates = device_candidates || ${json(candidates)}
-                where id = ${id} and jsonb_array_length(device_candidates) + ${candidates.length} <= ${help.MAX_CANDIDATES}`;
-    }
+    if (candidates.length) await help.addCandidates(sql, id, "device_candidates", candidates);
     const since = Number.isInteger(body.since) && (body.since as number) >= 0 ? body.since as number : 0;
     const theirs = Array.isArray(s.admin_candidates) ? s.admin_candidates : [];
     return reply(200, { state: s.state, control: s.control, answer: s.answer ?? null,

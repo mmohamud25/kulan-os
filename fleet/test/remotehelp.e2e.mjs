@@ -214,6 +214,7 @@ try {
   ok(st.state === "ended" && st.detail === "the admin ended it", "ended on the server", st);
 
   // 2. View only: no input reaches the computer even if the viewer sends some.
+  await db`update fleet.help_sessions set created_at = created_at - interval '30 seconds'`;  // asked again at once is refused
   const sid2 = await page.evaluate(() => window.startHelp(window.DEVICE, false));
   const agent2 = await computerTakes(sid2, "allow-control", { KULAN_REMOTE_HELP_TEST_STOP_AFTER: "8" });
   await until("view only: the picture arrives", () => page.evaluate(() => document.getElementById("v").videoWidth === 1280), 30000);
@@ -225,6 +226,7 @@ try {
   await until("the helper closes", () => agent2.exited === 0, 10000);
 
   // 3. Declined.
+  await db`update fleet.help_sessions set created_at = created_at - interval '30 seconds'`;  // asked again at once is refused
   const sid3 = await page.evaluate(() => window.startHelp(window.DEVICE, true));
   const agent3 = await computerTakes(sid3, "decline");
   await until("the viewer is told no", () => page.textContent("#end").then((t) => t.startsWith("They said no.")));

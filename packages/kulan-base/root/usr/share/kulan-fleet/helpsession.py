@@ -21,6 +21,7 @@ import urllib.request
 
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 USERNAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")  # a session's key, as the server makes it (32 bytes, base64url)
 AGENT = "/usr/lib/kulan/kulan-remote-help"
 ASK_S = 115          # the person has 2 minutes to answer (the server's limit), a little less here
 MAX_S = 3600         # a session lasts an hour at most
@@ -103,14 +104,18 @@ def clean_start(raw) -> dict | None:
         return None
     server, sid, token = info.get("server"), info.get("session_id"), info.get("token")
     if not (isinstance(server, str) and urllib.parse.urlsplit(server).scheme in ("https", "http")
-            and isinstance(sid, str) and UUID.match(sid) and isinstance(token, str) and 20 <= len(token) <= 200):
+            and not re.search(r"[\s\x00-\x1f]", server)
+            and isinstance(sid, str) and UUID.match(sid) and isinstance(token, str) and TOKEN.match(token)):
         return None
+    ice = info.get("ice") if isinstance(info.get("ice"), list) else []
+    if len(json.dumps(ice)) > 8000:
+        ice = []
     admin = info.get("admin") if isinstance(info.get("admin"), str) else "An admin"
     org = info.get("organisation") if isinstance(info.get("organisation"), str) else "your organisation"
     return {"server": server, "session_id": sid, "token": token,
             "admin": re.sub(r"[^\w@.+' -]", "", admin)[:120] or "An admin",
             "organisation": re.sub(r"[^\w&.,'() -]", "", org)[:80] or "your organisation",
-            "control_asked": info.get("control_asked") is True, "ice": info.get("ice") if isinstance(info.get("ice"), list) else []}
+            "control_asked": info.get("control_asked") is True, "ice": ice[:4]}
 
 
 # --- ICE servers, as GStreamer's webrtcbin takes them -----------------------------------

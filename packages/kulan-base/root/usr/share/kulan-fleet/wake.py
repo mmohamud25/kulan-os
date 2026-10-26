@@ -69,7 +69,10 @@ class WebSocket:
                 ready, _, _ = select.select([self.sock], [], [], left)
                 if not ready:
                     raise TimeoutError
-            chunk = self.sock.recv(65536)
+            try:
+                chunk = self.sock.recv(65536)
+            except (socket.timeout, ssl.SSLError) as e:
+                raise Closed(f"the connection stalled ({e})") from None
             if not chunk:
                 raise Closed("the server closed the connection")
             self.buf += chunk
@@ -152,10 +155,13 @@ def connect(url: str, timeout: float = 20, context: ssl.SSLContext | None = None
         key = base64.b64encode(os.urandom(16)).decode()
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         host = parts.hostname if parts.port is None else f"{parts.hostname}:{parts.port}"
+        deadline = time.monotonic() + timeout
         sock.sendall((f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                       f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nUser-Agent: kulan-fleet/1\r\n\r\n").encode())
         raw = b""
         while b"\r\n\r\n" not in raw:
+            if time.monotonic() > deadline:
+                raise Closed("the server didn't answer in time")
             chunk = sock.recv(4096)
             if not chunk or len(raw) > 16384:
                 raise Closed("the server didn't answer as a WebSocket server")
@@ -168,7 +174,8 @@ def connect(url: str, timeout: float = 20, context: ssl.SSLContext | None = None
         want = base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
         if headers.get("sec-websocket-accept") != want:
             raise Closed("the server's handshake wasn't right")
-        sock.settimeout(None)
+        # Never blocked for ever on a half-sent frame or a full send buffer.
+        sock.settimeout(60)
         return WebSocket(sock, leftover)
     except BaseException:
         sock.close()
@@ -232,8 +239,13 @@ def listen(info: dict, on_wake, still_current=lambda: True, heartbeat_s: float =
 
 
 def _message(text: str) -> dict:
+    """A Phoenix message, its payload always a dict (anything else: none)."""
     try:
         msg = json.loads(text)
     except ValueError:
         return {}
-    return msg if isinstance(msg, dict) else {}
+    if not isinstance(msg, dict):
+        return {}
+    if not isinstance(msg.get("payload"), dict):
+        msg["payload"] = {}
+    return msg

@@ -954,19 +954,28 @@ def listen() -> int:
     each time it fails (up to 5 minutes)."""
     need_root()
     backoff = 5
-    state = {"last": 0.0}
 
-    def on_wake() -> None:
-        now = time.monotonic()
-        if now - state["last"] < 3:  # several requests at once: one report
+    pending = {"wake": False}
+
+    def report_now() -> None:
+        """Reports now, or once the report already running has finished (it may
+        have asked for its actions before this request was made). Wakes in
+        the meantime are all covered by that one report; never waited for
+        here, so the connection keeps its heartbeats."""
+        if run(["systemctl", "is-active", "--quiet", "kulan-fleet.service"], timeout=10).returncode == 0:
+            pending["wake"] = True
             return
-        state["last"] = now
-        # A report already running may have asked for its actions before this
-        # one was made: wait for it, then report again.
-        while run(["systemctl", "is-active", "--quiet", "kulan-fleet.service"], timeout=10).returncode == 0:
-            time.sleep(2)
+        pending["wake"] = False
         run(["systemctl", "start", "--no-block", "kulan-fleet.service"], timeout=30)
         say("Asked to report: reporting now")
+
+    def on_wake() -> None:
+        report_now()
+
+    def still_current(info) -> bool:
+        if pending["wake"]:
+            report_now()
+        return read_json(WAKE, None) == info and CONFIG.exists()
 
     while True:
         if not CONFIG.exists():
@@ -978,9 +987,9 @@ def listen() -> int:
             continue
         started = time.monotonic()
         try:
-            wake.listen(info, on_wake, still_current=lambda: read_json(WAKE, None) == info and CONFIG.exists())
+            wake.listen(info, on_wake, still_current=lambda: still_current(info), heartbeat_s=10)
             backoff = 5
-        except (wake.Closed, OSError, ValueError) as e:
+        except (wake.Closed, OSError, ValueError, TypeError, AttributeError) as e:
             if time.monotonic() - started > 300:
                 backoff = 5
             say(f"Listening stopped ({e}); again in {backoff} seconds")
