@@ -13,7 +13,7 @@
 const STATES = {
   requested: "Waiting for the computer to pick the request up…",
   asking: "Asking the person at the computer…",
-  allowed: "Allowed: connecting…",
+  allowed: "Allowed. Connecting…",
   connected: "Connected",
 };
 const ENDED = { declined: "They said no.", ended: "Remote help ended.", expired: "Remote help timed out.", failed: "Remote help couldn't connect." };
@@ -61,7 +61,7 @@ export class RemoteHelp {
     this.ice = Array.isArray(r.ice) ? r.ice : [];
     this.relay = r.relay === true;
     this.onStatus(r.signed_in === false
-      ? `Waiting for ${this.hostname || "the computer"}… (it says nobody is signed in: someone needs to be there to allow it)`
+      ? `Waiting for ${this.hostname || "the computer"}… Nobody is signed in, and someone needs to be there to allow it.`
       : statusText({ state: "requested" }, this.hostname));
     this.timer = setTimeout(() => this.poll(), 1000);
     return r;
@@ -78,8 +78,8 @@ export class RemoteHelp {
       r = await this.api(body);
     } catch (e) {
       this.outgoing.unshift(...sent);
-      if (/no such session/.test(e.message)) { this.finish("Remote help ended."); return; }
-      if (/not now/.test(e.message)) this.answer = null;  // the computer already has an answer
+      if (/no such session/i.test(e.message)) { this.finish("Remote help ended."); return; }
+      if (/not now/i.test(e.message)) this.answer = null;  // the computer already has an answer
       this.timer = setTimeout(() => this.poll(), 3000);
       return;
     }
@@ -123,11 +123,11 @@ export class RemoteHelp {
     pc.ondatachannel = (ev) => { this.channel = ev.channel; };
     pc.onconnectionstatechange = () => {
       if (this.over) return;
-      if (pc.connectionState === "connected") this.onStatus(this.relay ? "Connected (through the relay when needed)" : "Connected");
-      else if (pc.connectionState === "disconnected") this.onStatus("The connection dropped: reconnecting…");
+      if (pc.connectionState === "connected") this.onStatus("Connected");
+      else if (pc.connectionState === "disconnected") this.onStatus("Connection lost. Reconnecting…");
       else if (pc.connectionState === "failed") {
         this.finish(this.relay ? "Remote help couldn't connect." :
-          "Remote help couldn't connect: the computers can't reach each other directly, and Kulan Fleet's relay isn't set up.", true);
+          "Remote help couldn't connect. The computers can't reach each other directly, and the relay isn't set up.", true);
       }
     };
     await pc.setRemoteDescription(offer);

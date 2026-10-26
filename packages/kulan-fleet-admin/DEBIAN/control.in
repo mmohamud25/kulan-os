@@ -8,13 +8,10 @@ Depends: python3 (>= 3.11), python3-gi, python3-gi-cairo, gir1.2-pango-1.0, gir1
 Recommends: kulan-desktop-settings
 Homepage: @HOME_URL@
 Description: @NAME@ fleet dashboard for administrators
- Kulan Fleet: see the computers that joined your organisation (Kulan OS
- version, compliance results, waiting updates, TPM unlock), make join codes
- and ask computers to report, install updates, turn compliance mode on,
- lock the screen, restart, switch off or go into lost mode. People: the
- accounts on the organisation's computers (add, roles, which computers,
- disable, remove), signed in to with a setup code and then their own
- password. Groups and policies (USB drives, apps), a weekly security report
- (saved as a PDF), admin-rights reviews and the activity log for auditors.
- Only accounts on the fleet's admin list see anything; not
- installed by default.
+ Kulan Fleet shows the computers in your organisation with their updates,
+ compliance and encryption, and lets admins ask them to install updates,
+ lock, restart, switch off or go into lost mode. It also manages people's
+ accounts, groups and policies, Google Workspace mailboxes, remote help,
+ a weekly security report and the activity log.
+ .
+ Only Kulan Fleet admins can use it. Not installed by default.

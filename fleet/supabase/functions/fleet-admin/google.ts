@@ -137,7 +137,7 @@ export async function accessToken(c: Connection, fresh = false): Promise<string>
   try {
     key = await signingKey(c.pem);
   } catch {
-    throw new GoogleError(400, "that isn't a private key Kulan Fleet can use: download a new JSON key for the service account");
+    throw new GoogleError(400, "Kulan Fleet can't use that private key. Download a new JSON key for the service account");
   }
   const now = Math.floor(Date.now() / 1000);
   const unsigned = `${jsonPart({ alg: "RS256", typ: "JWT" })}.${jsonPart({
@@ -152,20 +152,20 @@ export async function accessToken(c: Connection, fresh = false): Promise<string>
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
-    throw new GoogleError(0, "Google couldn't be reached: try again in a minute");
+    throw new GoogleError(0, "Google couldn't be reached. Try again in a minute");
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok || typeof body?.access_token !== "string") {
     const why = `${body?.error ?? ""} ${body?.error_description ?? ""}`.toLowerCase();
     if (why.includes("unauthorized_client") || why.includes("not authorized")) {
-      throw new GoogleError(403, "Google hasn't allowed this service account to act for your domain: in the Google Admin " +
+      throw new GoogleError(403, "Google hasn't allowed this service account to act for your domain. In the Google Admin " +
         "console, give its client ID domain-wide delegation for " + SCOPE);
     }
     if (why.includes("invalid_grant")) {
-      throw new GoogleError(403, `Google didn't accept it: check ${c.admin_email} is a Google super admin of your domain ` +
-        "and the service account's key hasn't been deleted");
+      throw new GoogleError(403, `Google didn't accept the key. Check that ${c.admin_email} is a super admin of your domain ` +
+        "and the key hasn't been deleted");
     }
-    throw new GoogleError(res.status || 502, `Google said no (${String(body?.error ?? res.status).slice(0, 60)})`);
+    throw new GoogleError(res.status || 502, `Google refused the request (${String(body?.error ?? res.status).slice(0, 60)})`);
   }
   const life = Number(body.expires_in) > 120 ? Number(body.expires_in) : 3600;
   tokens.set(cacheKey, { token: body.access_token, until: Date.now() + (life - 120) * 1000 });
@@ -183,7 +183,7 @@ async function call(c: Connection, method: string, path: string, body?: unknown,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch {
-    throw new GoogleError(0, "Google couldn't be reached: try again in a minute");
+    throw new GoogleError(0, "Google couldn't be reached. Try again in a minute");
   }
   const text = await res.text();
   let parsed: any = null;
@@ -196,11 +196,11 @@ async function call(c: Connection, method: string, path: string, body?: unknown,
 function failed(r: { status: number; body: any }, c: Connection, what: string): GoogleError {
   const said = String(r.body?.error?.message ?? "").slice(0, 160);
   if (r.status === 401 || r.status === 403) {
-    return new GoogleError(403, `Google won't let Kulan Fleet ${what}: check ${c.admin_email} is a super admin` +
-      (said ? ` (Google: ${said})` : ""));
+    return new GoogleError(403, `Google won't let Kulan Fleet ${what}. Check that ${c.admin_email} is a super admin` +
+      (said ? ` (${said})` : ""));
   }
   if (r.status === 409) return new GoogleError(409, "that address is already in use in Google Workspace");
-  if (r.status === 429) return new GoogleError(429, "Google is busy: try again in a minute");
+  if (r.status === 429) return new GoogleError(429, "Google is busy. Try again in a minute");
   return new GoogleError(r.status >= 500 ? 502 : 400, `Google couldn't ${what}` + (said ? `: ${said}` : ""));
 }
 

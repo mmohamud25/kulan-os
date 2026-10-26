@@ -161,7 +161,7 @@ export function usernameProblem(u: unknown): string | null {
   if (typeof u !== "string" || !USERNAME.test(u)) {
     return "a username is lower-case letters, digits, - or _, starting with a letter, up to 32";
   }
-  return RESERVED.has(u) ? "that username is kept for the system" : null;
+  return RESERVED.has(u) ? "that username is reserved for the system" : null;
 }
 
 function recoveryCode(): string {
@@ -300,7 +300,7 @@ function alertsFor(d: Device, policy: Record<string, unknown>, now: number): { k
   }
   const security = Number(d.updates?.security ?? 0);
   if (security > 0) out.push({ kind: "updates", text: `${security} security update${security === 1 ? "" : "s"} waiting` });
-  if (d.state?.lost_mode === true) out.push({ kind: "lost", text: "In lost mode: nobody can sign in" });
+  if (d.state?.lost_mode === true) out.push({ kind: "lost", text: "In lost mode. Nobody can sign in" });
   if (d.state?.firewall === false) out.push({ kind: "firewall", text: "Firewall is off" });
   if (d.state?.encrypted === false && policy.require_encryption) {
     out.push({ kind: "encryption", text: "Not encrypted, and the organisation requires it" });
@@ -416,7 +416,7 @@ Deno.serve(async (req: Request) => {
       if (me.hasCode || requiring.length) {
         return reply(403, me.hasCode
           ? { error: "type the code from your authenticator app", two_step: "code" }
-          : { error: "your organisation asks Kulan Fleet admins to set up an authenticator app first", two_step: "set-up" });
+          : { error: "your organisation requires an authenticator app for Kulan Fleet admins. Set one up first", two_step: "set-up" });
       }
     }
 
@@ -512,8 +512,8 @@ Deno.serve(async (req: Request) => {
       if (!c) return null;
       const pem = await google.openText(c.private_key, org);
       if (!pem) {
-        throw new google.GoogleError(500, "Kulan Fleet can't open the Google Workspace key (Kulan Fleet's own key is " +
-          "missing or changed): tell Kulan, or connect Google Workspace again");
+        throw new google.GoogleError(500, "Kulan Fleet can't open the Google Workspace key. " +
+          "Connect Google Workspace again, or contact Kulan");
       }
       return { organisation_id: org, domain: c.domain, admin_email: c.admin_email, client_email: c.client_email, pem };
     };
@@ -525,7 +525,7 @@ Deno.serve(async (req: Request) => {
     };
     // Only the Owner manages admins' and the Owner's accounts; the same for their mailboxes.
     const mayManage = async (p: Record<string, any>) => p.role === "employee" || await isOwner(p.organisation_id);
-    const ADMIN_MAILBOX = "that mailbox is a Google admin account: only the Owner can change it";
+    const ADMIN_MAILBOX = "that mailbox is a Google admin account, so only the Owner can change it";
     // What's left to do, strongest first: a rename never hides a suspend or a delete.
     const RANK: Record<string, number> = { rename: 1, suspend: 2, unsuspend: 2, delete: 3 };
     // The mailbox in Google that is this person's: by Google's id once known
@@ -535,8 +535,8 @@ Deno.serve(async (req: Request) => {
       const u = await google.getUser(conn, p.mailbox_google_id || p.mailbox);
       if (!u) return null;
       if (p.mailbox_google_id ? u.id !== p.mailbox_google_id : u.address !== p.mailbox) {
-        throw new google.GoogleError(409, `Google's mailbox for ${p.mailbox} isn't the one Kulan Fleet made or linked any more: ` +
-          "check it in the Google Admin console, then link it again");
+        throw new google.GoogleError(409, `${p.mailbox} in Google is no longer the mailbox Kulan Fleet made or linked. ` +
+          "Check it in the Google Admin console, then link it again");
       }
       if (!p.mailbox_google_id && u.id) {
         await sql`update fleet.people set mailbox_google_id = ${u.id} where id = ${p.id}`;
@@ -616,7 +616,7 @@ Deno.serve(async (req: Request) => {
     // A mailbox address an admin gave: well-formed, and nobody else's in the organisation.
     const freeAddress = async (org: string, value: unknown, exceptPerson: string | null = null): Promise<string | Response> => {
       const address = typeof value === "string" ? value.trim().toLowerCase() : "";
-      if (!google.ADDRESS.test(address)) return reply(400, { error: "that mailbox address doesn't look right" });
+      if (!google.ADDRESS.test(address)) return reply(400, { error: "check the mailbox address" });
       const taken = await sql`select username from fleet.people where organisation_id = ${org} and mailbox = ${address}
                               and mailbox_state is distinct from 'deleted' and id is distinct from ${exceptPerson}`;
       if (taken.length) return reply(409, { error: `${taken[0].username} already has that mailbox` });
@@ -626,8 +626,8 @@ Deno.serve(async (req: Request) => {
     const giveMailbox = async (p: Record<string, any>, action: unknown, address: string, conn: google.Connection) => {
       if (action === "link") {
         const u = await google.getUser(conn, address);
-        if (!u) return { status: 404, body: { error: `Google has no mailbox ${address}: make one instead` } };
-        if (u.address !== address) return { status: 400, body: { error: `that's another name for ${u.address}: link ${u.address}` } };
+        if (!u) return { status: 404, body: { error: `Google has no mailbox ${address}. Make one instead` } };
+        if (u.address !== address) return { status: 400, body: { error: `that's an alias of ${u.address}. Link ${u.address} instead` } };
         await sql`update fleet.people set mailbox = ${address}, mailbox_state = ${u.suspended ? "suspended" : "active"},
                     mailbox_google_id = ${u.id || null}, mailbox_todo = null, mailbox_error = null where id = ${p.id}`;
         await audit(p.organisation_id, null, `linked ${p.username}'s mailbox`.slice(0, 80), { mailbox: address });
@@ -640,10 +640,10 @@ Deno.serve(async (req: Request) => {
         return { status: 200, body: { mailbox: address } };
       }
       if (address.split("@")[1] !== conn.domain && !(await isOwner(p.organisation_id))) {
-        return { status: 403, body: { error: `mailboxes are made on ${conn.domain} (only the Owner chooses another of your domains)` } };
+        return { status: 403, body: { error: `mailboxes are made on ${conn.domain}. Only the Owner can choose another domain` } };
       }
       if (await google.getUser(conn, address)) {
-        return { status: 409, body: { error: "that address is already in use in Google Workspace (the Owner can link it instead)" } };
+        return { status: 409, body: { error: "that address is already in Google Workspace. The Owner can link it instead" } };
       }
       const password = google.tempPassword();
       const gid = await google.createUser(conn, address, google.splitName(p.full_name ?? "", p.username), password);
@@ -693,7 +693,7 @@ Deno.serve(async (req: Request) => {
           for (const c of coded) {
             alerts.unshift({ kind: "two-step", device_id: null, organisation_id: c.organisation_id, hostname: null,
                              title: "Two-step sign-in",
-                             text: "Phone codes can't be sent to computers right now (Kulan Fleet's key is missing): tell Kulan" } as any);
+                             text: "Phone codes can't reach computers right now. Contact Kulan" } as any);
           }
         }
         // Google Workspace: a connection that stopped working, and mailboxes with something left to do.
@@ -722,8 +722,8 @@ Deno.serve(async (req: Request) => {
           const due = reviewDue(lastReview[o.id] ?? null, o.created_at, now);
           if (due.due) {
             alerts.unshift({ kind: "review", device_id: null, organisation_id: o.id, hostname: null, title: "Admin rights",
-                          text: due.never ? "No admin-rights review yet: check who still needs administrator rights"
-                                          : `Admin-rights review due: the last was ${due.days} days ago` } as any);
+                          text: due.never ? "No admin-rights review yet. Check who still needs administrator rights"
+                                          : `Admin-rights review due. The last was ${due.days} days ago` } as any);
           }
         }
         return reply(200, { email, global, organisations, devices, actions, alerts,
@@ -747,7 +747,7 @@ Deno.serve(async (req: Request) => {
         const day = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
           !isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v ? v : null;
         if ((body.from !== undefined && body.from !== "" && !day(body.from)) || (body.to !== undefined && body.to !== "" && !day(body.to))) {
-          return reply(400, { error: "dates are written 2026-10-26" });
+          return reply(400, { error: "write dates as 2026-10-26" });
         }
         const from = day(body.from), to = day(body.to);
         const find = (v: unknown) => typeof v === "string" && v.trim() ? `%${v.trim().slice(0, 80).replace(/[\\%_]/g, "\\$&")}%` : null;
@@ -771,7 +771,7 @@ Deno.serve(async (req: Request) => {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
         const policy = cleanPolicy(body.policy);
-        if (!policy) return reply(400, { error: "something in that policy can't be used (an app name, or a part of Kulan OS that can't be blocked)" });
+        if (!policy) return reply(400, { error: "that policy has an app name that can't be used, or blocks part of Kulan OS" });
         await sql`update fleet.organisations set policy = ${json(policy)} where id = ${org}`;
         await audit(org, null, "changed the policy", policy);
         return reply(200, { policy });
@@ -853,7 +853,7 @@ Deno.serve(async (req: Request) => {
         const old = await sql`select removed_at from fleet.people where organisation_id = ${org} and username = ${body.username}`;
         if (old.length) {
           return reply(409, { error: old[0].removed_at
-            ? "someone with that username was removed in the last 30 days: choose another username for now"
+            ? "someone with that username was removed in the last 30 days. Choose another username"
             : "someone already has that username" });
         }
         const [{ count }] = await sql`select count(*)::int as count from fleet.people where organisation_id = ${org}`;
@@ -863,7 +863,7 @@ Deno.serve(async (req: Request) => {
         let conn: google.Connection | null = null;
         if (body.mailbox !== undefined && body.mailbox !== null) {
           const action = body.mailbox?.action;
-          if (action !== "create" && action !== "link") return reply(400, { error: "a mailbox is made (create) or linked (link)" });
+          if (action !== "create" && action !== "link") return reply(400, { error: "the mailbox action is create or link" });
           if (action === "link" && !(await isOwner(org))) return reply(403, { error: "only the Owner links an existing mailbox" });
           const address = await freeAddress(org, body.mailbox?.address);
           if (address instanceof Response) return address;
@@ -872,7 +872,7 @@ Deno.serve(async (req: Request) => {
           } catch (e) {
             return reply(502, { error: why(e) });
           }
-          if (!conn) return reply(400, { error: "connect Google Workspace first (Settings › Google Workspace)" });
+          if (!conn) return reply(400, { error: "connect Google Workspace first" });
           wantMailbox = { action, address };
         }
         let added: Record<string, any> | null = null;
@@ -902,7 +902,7 @@ Deno.serve(async (req: Request) => {
             throw e;
           }
         }
-        if (!added) return reply(500, { error: "couldn't give them a user ID: try again" });
+        if (!added) return reply(500, { error: "couldn't assign a user ID. Try again" });
         await audit(org, null, `added ${body.username}`, { role, all_computers: all, computers: chosen.length, groups: chosenGroups.length });
         if (!wantMailbox || !conn) return reply(200, { id: added.id, uid: added.uid });
         // They're added whatever Google says; a mailbox that couldn't be made can be made from People later.
@@ -1019,7 +1019,7 @@ Deno.serve(async (req: Request) => {
         const managed = p.mailbox && p.mailbox_state !== "deleted" &&
           (await sql`select 1 from fleet.mail_connections where organisation_id = ${p.organisation_id}`).length > 0;
         if (managed && body.mailbox !== "suspend" && body.mailbox !== "delete") {
-          return reply(400, { error: "choose what happens to their mailbox: suspend it or delete it", mailbox: p.mailbox });
+          return reply(400, { error: "choose whether to suspend or delete their mailbox", mailbox: p.mailbox });
         }
         if (managed && (p.mailbox_state !== "suspended" || body.mailbox === "delete")) {
           // A Google admin account: only the Owner (checked before anything changes, when Google answers).
@@ -1103,13 +1103,13 @@ Deno.serve(async (req: Request) => {
           if (!d.hostname || typeof body.confirm !== "string" || body.confirm.trim() !== d.hostname) {
             return reply(400, { error: "type the computer's name to confirm" });
           }
-          if (!d.state?.erase_allowed) return reply(400, { error: "the computer's user hasn't allowed erasing it from afar" });
-          if (!d.state?.encrypted) return reply(400, { error: "only encrypted computers can be erased from afar" });
+          if (!d.state?.erase_allowed) return reply(400, { error: "the person using that computer hasn't allowed remote erase" });
+          if (!d.state?.encrypted) return reply(400, { error: "only encrypted computers can be erased remotely" });
         }
         let payload: Record<string, unknown> | null = null;
         if (body.type === "install-app") {
           payload = cleanApp(body.payload);
-          if (!payload) return reply(400, { error: "which app? (a Debian package or a Flathub app id)" });
+          if (!payload) return reply(400, { error: "choose a Debian package or Flathub app id" });
         }
         const [row] = await sql`insert into fleet.actions (device_id, type, requested_by, payload)
                                 values (${id}, ${body.type}, ${email}, ${payload === null ? null : json(payload)}) returning id`;
@@ -1136,7 +1136,7 @@ Deno.serve(async (req: Request) => {
         const name = typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ").slice(0, 60) : "";
         if (!name) return reply(400, { error: "a group needs a name" });
         const policy = body.policy === undefined ? {} : cleanPolicy(body.policy);
-        if (!policy) return reply(400, { error: "something in that policy can't be used (an app name, or a part of Kulan OS that can't be blocked)" });
+        if (!policy) return reply(400, { error: "that policy has an app name that can't be used, or blocks part of Kulan OS" });
         try {
           const [g] = await sql`insert into fleet.groups (organisation_id, name, policy, created_by)
                                 values (${org}, ${name}, ${json(policy)}, ${email}) returning id`;
@@ -1154,7 +1154,7 @@ Deno.serve(async (req: Request) => {
         const name = body.name === undefined ? g.name : (typeof body.name === "string" ? body.name.trim().replace(/\s+/g, " ").slice(0, 60) : "");
         if (!name) return reply(400, { error: "a group needs a name" });
         const policy = body.policy === undefined ? g.policy : cleanPolicy(body.policy);
-        if (!policy) return reply(400, { error: "something in that policy can't be used (an app name, or a part of Kulan OS that can't be blocked)" });
+        if (!policy) return reply(400, { error: "that policy has an app name that can't be used, or blocks part of Kulan OS" });
         const devices = body.devices === undefined ? null : await computersOf(org, body.devices);
         if (body.devices !== undefined && devices === null) return reply(400, { error: "choose computers from this organisation" });
         const members = body.people === undefined ? null : await peopleOf(org, body.people);
@@ -1225,7 +1225,7 @@ Deno.serve(async (req: Request) => {
         const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "";
         if (!name || typeof vendor_id !== "string" || !HEX4.test(vendor_id) || typeof product_id !== "string" ||
             !HEX4.test(product_id) || typeof serial !== "string" || !SERIAL.test(serial)) {
-          return reply(400, { error: "a drive needs a name, and the vendor, product and serial its computer reported" });
+          return reply(400, { error: "a drive needs a name, vendor, product and serial number" });
         }
         await sql`insert into fleet.approved_drives (organisation_id, name, vendor_id, product_id, serial, created_by)
                   values (${org}, ${name}, ${vendor_id}, ${product_id}, ${serial}, ${email})
@@ -1248,7 +1248,7 @@ Deno.serve(async (req: Request) => {
         let payload: Record<string, unknown> | null = null;
         if (body.type === "install-app") {
           payload = cleanApp(body.payload);
-          if (!payload) return reply(400, { error: "which app? (a Debian package or a Flathub app id)" });
+          if (!payload) return reply(400, { error: "choose a Debian package or Flathub app id" });
         }
         const rows = await sql`
           insert into fleet.actions (device_id, type, requested_by, payload)
@@ -1365,7 +1365,7 @@ Deno.serve(async (req: Request) => {
       case "set-admin-two-step": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
-        if (!(await isOwner(org))) return reply(403, { error: "only the Owner decides this" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner can change this" });
         if (typeof body.required !== "boolean") return reply(400, { error: "required is true or false" });
         if (body.required && me.aal !== "aal2") {
           return reply(400, { error: "set up your own authenticator app first, so you aren't locked out", two_step: "set-up" });
@@ -1389,17 +1389,17 @@ Deno.serve(async (req: Request) => {
                                     union all
                                     select 1 from fleet.organisations where owner_email = ${who} and id <> ${org}`;
         if (elsewhere.length && !global) {
-          return reply(403, { error: "they're also an admin elsewhere: ask Kulan to reset their authenticator app" });
+          return reply(403, { error: "they're also an admin in another organisation. Ask Kulan to reset their authenticator app" });
         }
         const [user] = await sql`select id from auth.users where lower(email) = ${who} limit 1`;
         let removed = 0;
         if (user) {
           const list = await authAdmin(`/users/${user.id}/factors`);
-          if (!list.ok) return reply(502, { error: "Supabase Auth didn't answer: try again" });
+          if (!list.ok) return reply(502, { error: "the sign-in service didn't respond. Try again" });
           for (const f of (await list.json()) as Record<string, unknown>[]) {
             if (f?.factor_type !== "totp" || typeof f.id !== "string") continue;
             const del = await authAdmin(`/users/${user.id}/factors/${f.id}`, "DELETE");
-            if (!del.ok) return reply(502, { error: "Supabase Auth didn't answer: try again" });
+            if (!del.ok) return reply(502, { error: "the sign-in service didn't respond. Try again" });
             removed++;
           }
         }
@@ -1435,11 +1435,11 @@ Deno.serve(async (req: Request) => {
         if (!(await isOwner(org))) return reply(403, { error: "only the Owner connects Google Workspace" });
         const key = google.parseServiceAccount(body.key);
         if (!key) {
-          return reply(400, { error: "that isn't a service account's JSON key: in Google Cloud, open the service account, " +
-                                     "Keys › Add key › Create new key › JSON, and paste the whole file" });
+          return reply(400, { error: "that isn't a service account's JSON key. In Google Cloud, open the service account and " +
+                                     "choose Keys › Add key › Create new key › JSON" });
         }
         const adminEmail = cleanEmail(body.admin_email);
-        if (!adminEmail) return reply(400, { error: "the Google super admin's email is needed (Kulan Fleet acts as them)" });
+        if (!adminEmail) return reply(400, { error: "enter a Google super admin's email" });
         const domain = typeof body.domain === "string" && body.domain.trim() ? body.domain.trim().toLowerCase() : adminEmail.split("@")[1];
         if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) {
           return reply(400, { error: "that domain doesn't look right" });
@@ -1447,10 +1447,10 @@ Deno.serve(async (req: Request) => {
         // One organisation per Google domain (Kulan's own admins may decide otherwise).
         const elsewhere = await sql`select 1 from fleet.mail_connections where domain = ${domain} and organisation_id <> ${org}`;
         if (elsewhere.length && !global) {
-          return reply(409, { error: `${domain} is connected to another organisation in Kulan Fleet: ask Kulan` });
+          return reply(409, { error: `${domain} is connected to another organisation. Contact Kulan` });
         }
         const sealed = await google.sealText(key.private_key, org);
-        if (!sealed) return reply(500, { error: "Kulan Fleet's key for keeping secrets is missing: tell Kulan" });
+        if (!sealed) return reply(500, { error: "the server's encryption key is missing. Contact Kulan" });
         try {
           await google.check({ organisation_id: org, domain, admin_email: adminEmail, client_email: key.client_email,
                                pem: key.private_key });
@@ -1511,8 +1511,8 @@ Deno.serve(async (req: Request) => {
         }
         const stopsOffboarding = p.mailbox_todo === "suspend" || p.mailbox_todo === "delete";
         if ((action === "forget" || action === "unlink") && stopsOffboarding && !(await isOwner(org))) {
-          return reply(403, { error: `their mailbox is ${p.mailbox_todo === "delete" ? "still to delete" : "still to suspend"}: ` +
-                                     "retry it, or ask the Owner if it was done by hand" });
+          return reply(403, { error: `their mailbox is ${p.mailbox_todo === "delete" ? "still to delete" : "still to suspend"}. ` +
+                                     "Retry it, or ask the Owner if it was done by hand" });
         }
         if (action === "forget") {
           if (!p.mailbox_todo) return reply(200, {});
@@ -1533,10 +1533,10 @@ Deno.serve(async (req: Request) => {
         } catch (e) {
           return reply(502, { error: why(e) });
         }
-        if (!conn) return reply(400, { error: "connect Google Workspace first (Settings › Google Workspace)" });
+        if (!conn) return reply(400, { error: "connect Google Workspace first" });
         try {
           if (action === "create" || action === "link") {
-            if (p.mailbox && p.mailbox_state !== "deleted") return reply(400, { error: `they have a mailbox already: ${p.mailbox}` });
+            if (p.mailbox && p.mailbox_state !== "deleted") return reply(400, { error: `they already have a mailbox, ${p.mailbox}` });
             if (action === "link" && !(await isOwner(org))) return reply(403, { error: "only the Owner links an existing mailbox" });
             const address = await freeAddress(org, body.address, p.id);
             if (address instanceof Response) return address;
@@ -1571,7 +1571,7 @@ Deno.serve(async (req: Request) => {
                               from fleet.devices where id = ${id}`;
         if (d.left_at) return reply(400, { error: "that computer has left the organisation" });
         if (!versionAtLeast(d.kulan_version, HELP_SINCE)) {
-          return reply(400, { error: "that computer needs Kulan OS 2.9a or newer for remote help: install its updates first" });
+          return reply(400, { error: "remote help needs Kulan OS 2.9a or later on that computer. Install its updates first" });
         }
         await sql`select fleet.expire_help_sessions()`;
         const busy = await sql`select id, requested_by, state from fleet.help_sessions
@@ -1581,7 +1581,7 @@ Deno.serve(async (req: Request) => {
         }
         // Never a new question on a screen the admin is already seeing (they could answer it themselves).
         if (busy.some((b) => b.state === "allowed" || b.state === "connected")) {
-          return reply(409, { error: "you're already connected to that computer: end that session first" });
+          return reply(409, { error: "you're already connected to that computer. End that session first" });
         }
         // A person isn't asked again and again: one request every 20 seconds per computer, 20 an hour per admin.
         const [recent] = await sql`select
@@ -1589,7 +1589,7 @@ Deno.serve(async (req: Request) => {
             count(*) filter (where requested_by = ${email} and created_at > now() - interval '1 hour')::int as hour
           from fleet.help_sessions where created_at > now() - interval '1 hour'`;
         if (recent.here > 0) return reply(429, { error: "wait a few seconds before asking that computer again" });
-        if (recent.hour >= 20) return reply(429, { error: "that's a lot of remote help requests this hour: try again later" });
+        if (recent.hour >= 20) return reply(429, { error: "too many remote help requests this hour. Try again later" });
         // Started again by the same admin (a closed tab, say): the old one ends.
         for (const b of busy) {
           await sql`update fleet.help_sessions set state = 'ended', detail = 'started again', ended_at = now(), updated_at = now()
@@ -1659,7 +1659,7 @@ Deno.serve(async (req: Request) => {
         if (!rows.length || !canOrg(rows[0].organisation_id)) return reply(404, { error: "no such request" });
         const done = await sql`update fleet.actions set status = 'cancelled', finished_at = now()
                                where id = ${id} and status = 'pending' returning id`;
-        if (!done.length) return reply(400, { error: "too late: the computer already has it" });
+        if (!done.length) return reply(400, { error: "too late. The computer already picked it up" });
         await audit(rows[0].organisation_id, rows[0].device_id, `cancelled: ${rows[0].type}`);
         return reply(200, {});
       }

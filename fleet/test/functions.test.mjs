@@ -770,7 +770,7 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.status === 409 && r.body.error.includes("leyla"), "one person per mailbox", r);
   gstate.users.set("taken@acme.test", { primaryEmail: "taken@acme.test", name: { givenName: "T", familyName: "T" }, suspended: false, isAdmin: false });
   r = await add(HELPER, { username: "tariq", mailbox: { action: "create", address: "taken@acme.test" } });
-  ok(r.status === 200 && r.body.mailbox_error?.includes("already in use") && !r.body.mailbox_password,
+  ok(r.status === 200 && r.body.mailbox_error?.includes("already in Google Workspace") && !r.body.mailbox_password,
      "an address Google already has: they're added, the mailbox isn't (the Owner can link it)", r.body);
   const tariq = r.body.id;
   r = await admin(NEWOWNER, { op: "mailbox", person_id: tariq, action: "link", address: "taken@acme.test" });

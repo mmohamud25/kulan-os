@@ -390,7 +390,7 @@ Deno.serve(async (req: Request) => {
         const [o] = await tx`select name from fleet.organisations where id = ${org}`;
         return { device_id: dev.id, organisation: o.name };
       });
-      if (!result) return reply(403, { error: "that code isn't valid (used, expired or mistyped)" });
+      if (!result) return reply(403, { error: "that code isn't valid. It may be used, expired or mistyped" });
       return reply(200, { ...result, token });
     }
 

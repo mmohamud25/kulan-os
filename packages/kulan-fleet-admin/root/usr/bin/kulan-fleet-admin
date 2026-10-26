@@ -59,14 +59,14 @@ ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
            ("install-updates", "Install updates", "software-update-available-symbolic"),
            ("compliance-on", "Turn compliance mode on", "security-high-symbolic"),
            ("lock-screen", "Lock the screen", "system-lock-screen-symbolic"),
-           ("restart", "Restart (5 minutes' notice)", "system-reboot-symbolic"),
-           ("shutdown", "Switch off (5 minutes' notice)", "system-shutdown-symbolic")]
+           ("restart", "Restart", "system-reboot-symbolic"),
+           ("shutdown", "Switch off", "system-shutdown-symbolic")]
 ACTION_LABEL = {a: t for a, t, _i in ACTIONS}
 ACTION_LABEL.update({"erase": "Erase", "lost-mode-on": "Turn on lost mode", "lost-mode-off": "Release from lost mode",
                      "install-app": "Install an app"})
 ROLE_LABEL = {"owner": "Owner", "admin": "Admin", "employee": "Employee"}
 ROLE_HELP = {"employee": "A standard account", "admin": "Administrator rights on the computers",
-             "owner": "The Owner's own account (administrator rights)"}
+             "owner": "The Owner's account, with administrator rights"}
 USERNAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 RESERVED = {"root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
             "www-data", "backup", "list", "irc", "nobody", "admin", "sudo", "kulan", "gdm", "systemd"}
@@ -78,7 +78,7 @@ POLICY_LABEL = {"auto_updates": "Automatic updates", "firewall": "Firewall", "sc
                 "require_encryption": "Disk encryption", "usb": "USB drives", "two_step": "Two-step sign-in"}
 TWO_STEP_CHOICES = [(None, "Not required"), ("admins", "For admins and the Owner"), ("everyone", "For everyone")]
 USB_CHOICES = [(None, "Not set", "Any USB drive works"),
-               ("approved", "Approved drives only", "Only the drives approved under USB drives work"),
+               ("approved", "Approved drives only", "Only approved drives work"),
                ("block", "Blocked", "No USB drive works")]
 # (keyboards, mice, phones charging and the rest always work)
 SOURCE_LABEL = {"debian": "Debian package", "flatpak": "Flathub app"}
@@ -91,8 +91,8 @@ PROTECTED = re.compile(r"^(kulan|linux-|systemd|gnome-shell|gnome-session|gdm3|m
 GROUP_ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
                  ("install-updates", "Install updates", "software-update-available-symbolic"),
                  ("lock-screen", "Lock the screen", "system-lock-screen-symbolic"),
-                 ("restart", "Restart (5 minutes' notice)", "system-reboot-symbolic"),
-                 ("shutdown", "Switch off (5 minutes' notice)", "system-shutdown-symbolic")]
+                 ("restart", "Restart", "system-reboot-symbolic"),
+                 ("shutdown", "Switch off", "system-shutdown-symbolic")]
 ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update-urgent-symbolic",
               "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
               "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic",
@@ -183,14 +183,16 @@ def http(url: str, body: dict | None, headers: dict | None = None, method: str =
             two_step = detail.get("two_step") if detail.get("two_step") in ("code", "set-up") else None
         except (ValueError, AttributeError):
             message = None
-        raise FleetError(message or f"The server said {e.code}", two_step) from e
+        if isinstance(message, str) and message:
+            message = message[0].upper() + message[1:]  # the server's messages start in lower case
+        raise FleetError(message or f"Server error {e.code}", two_step) from e
     except (urllib.error.URLError, OSError) as e:
-        raise FleetOffline("Couldn't reach the Kulan Fleet server. Check the internet connection, then try "
-                           f"again ({getattr(e, 'reason', e)})") from e
+        print(f"kulan-fleet-admin: {getattr(e, 'reason', e)}", file=sys.stderr)  # the details, for whoever looks
+        raise FleetOffline("Can't reach the Kulan Fleet server. Check your internet connection and try again.") from e
     try:
         return json.loads(text) if text.strip() else {}
     except ValueError as e:
-        raise FleetError("The server's answer wasn't JSON") from e
+        raise FleetError("The server sent an unexpected reply") from e
 
 
 class Session:
@@ -252,7 +254,7 @@ class Session:
         if self.access_token and time.time() < self.expires:
             return self.access_token
         if not self.refresh_token:
-            raise FleetError("Please sign in")
+            raise FleetError("Sign in to continue")
         try:
             self._take(http(f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
                             {"refresh_token": self.refresh_token}))
@@ -260,7 +262,7 @@ class Session:
             raise  # offline: keep the sign-in for when the connection is back
         except FleetError:
             self.sign_out(local_only=True)
-            raise FleetError("Your sign-in ran out; please sign in again")
+            raise FleetError("Your sign-in has expired. Sign in again.")
         return self.access_token
 
     def call(self, body: dict) -> dict:
@@ -324,7 +326,7 @@ def hash_password(code: str) -> str:
             continue
         if HASH.match(out):
             return out
-    raise FleetError("Couldn't make the setup code on this computer (mkpasswd or openssl is needed)")
+    raise FleetError("Can't make a setup code. Install mkpasswd or openssl.")
 
 
 def suggest_username(name: str) -> str:
@@ -338,7 +340,7 @@ def suggest_username(name: str) -> str:
 def username_problem(name: str) -> str | None:
     if not USERNAME.match(name):
         return "Lower-case letters, digits, - or _, starting with a letter"
-    return "That name is kept for the system" if name in RESERVED else None
+    return "That name is reserved for the system" if name in RESERVED else None
 
 
 def ago(iso: str | None) -> str:
@@ -443,10 +445,10 @@ def weekly_sections(s: dict, prev: dict | None) -> list[tuple[str, list[tuple[st
         problem("Every setup code used", lambda k: f"Setup code not used for a week: {k}", "setup_code_unused", p, pp),
     ]
     if p.get("two_step"):
-        people.append(problem("Everyone asked has set up two-step sign-in",
+        people.append(problem("Everyone required has two-step sign-in",
                               lambda k: f"Two-step sign-in not set up: {k}", "two_step_missing", p, pp))
     if n(p, "mailbox_problems"):
-        people.append((f"Mailboxes with something left to do: {n(p, 'mailbox_problems')}",
+        people.append((f"Mailboxes needing attention: {n(p, 'mailbox_problems')}",
                        ", ".join(f"{x.get('username')} ({MAILBOX_TODO.get(x.get('todo'), x.get('todo'))})"
                                  for x in p.get("mailbox_problems") or []), "bad"))
     kinds = ", ".join(f"{x.get('what')} {x.get('count')}" for x in a.get("by_kind") or [])
@@ -500,7 +502,7 @@ def write_pdf(path: str, title: str, subtitle: str, sections: list[tuple[str, li
                 text(esc(detail), 9, colour=(0.38, 0.42, 0.5), indent=20)
             y += 3
     y += 18
-    text(esc("Made by Kulan Fleet. Worked out from each computer's last report."), 8, colour=(0.5, 0.53, 0.6))
+    text(esc("Made by Kulan Fleet from each computer's last report."), 8, colour=(0.5, 0.53, 0.6))
     surface.finish()
 
 
@@ -526,11 +528,11 @@ def yes_no(value, yes: str = "yes", no: str = "no") -> str:
 def app_problem(source: str, app_id: str, blocking: bool) -> str | None:
     """Why an app can't go in a policy, or None (the server checks the same)."""
     if source == "debian" and not DEBIAN_NAME.match(app_id):
-        return "A Debian package name: lowercase letters, numbers and + . - (for example vlc)"
+        return "Use lowercase letters, numbers and + . - (for example vlc)"
     if source == "flatpak" and (len(app_id) > 255 or not FLATPAK_ID.match(app_id)):
         return "A Flathub app id has at least three parts (for example org.videolan.VLC)"
     if blocking and source == "debian" and PROTECTED.match(app_id):
-        return "That's part of Kulan OS: it can't be blocked"
+        return "That's part of Kulan OS and can't be blocked"
     return None
 
 
@@ -547,7 +549,7 @@ def policy_summary(policy: dict) -> str:
     if policy.get("screen_lock_minutes"):
         parts.append(f"lock after {policy['screen_lock_minutes']} min")
     if policy.get("usb"):
-        parts.append("USB: approved drives only" if policy["usb"] == "approved" else "USB blocked")
+        parts.append("approved USB drives only" if policy["usb"] == "approved" else "USB blocked")
     if policy.get("two_step"):
         parts.append("two-step sign-in for " + ("everyone" if policy["two_step"] == "everyone" else "admins"))
     for key, word in (("required_apps", "required"), ("blocked_apps", "blocked")):
@@ -662,8 +664,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 self.code_row.set_visible(True)
                 self.code_row.grab_focus()
                 self.signin_button.set_label("Sign in")
-                self.signin_note.set_label((f"We emailed {email}. Right-click “Sign in” in the email, choose Copy Link, "
-                                        "and paste it here. (Opened it already? Paste the address the browser went to.)"))
+                self.signin_note.set_label(f"We emailed {email}. Copy the “Sign in” link from the email and paste it here. "
+                                        "If you already opened it, paste the address from your browser.")
             self.background(lambda: self.session.send_code(email), sent)
             return
         code = self.code_row.get_text().strip()
@@ -733,12 +735,12 @@ class FleetWindow(Adw.ApplicationWindow):
                 self.reload()
             self.background(work, done)
         return self.code_dialog("Your authenticator app's code",
-                                "You set up an authenticator app for Kulan Fleet: type the 6-digit code it shows now.",
+                                "Enter the 6-digit code from your authenticator app.",
                                 None, check)
 
     def set_up_authenticator(self, required: bool = False) -> Adw.AlertDialog:
         holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        holder.append(Gtk.Label(label="Making a code to scan…", css_classes=["dim-label"]))
+        holder.append(Gtk.Label(label="Making a QR code…", css_classes=["dim-label"]))
         state: dict = {}
 
         def enrolled(result, error):
@@ -769,14 +771,14 @@ class FleetWindow(Adw.ApplicationWindow):
                 if error:
                     self.toast(f"Not set up: {error}")
                     return
-                self.toast("Authenticator app set up: Kulan Fleet asks its code after your email code")
+                self.toast("Authenticator app set up")
                 self.reload()
             self.background(lambda: self.session.verify_authenticator(state["id"], code), done)
         dialog = self.code_dialog(
             "Set up an authenticator app",
-            ("Your organisation asks Kulan Fleet admins for a second step. " if required else "") +
-            "Scan this with an authenticator app on your phone (Google Authenticator, Microsoft Authenticator, Aegis…) "
-            "or type the key below, then type the code it shows. If you lose the phone, the Owner can reset it.",
+            ("Your organisation requires an authenticator app for admins. " if required else "") +
+            "Scan the QR code with an authenticator app on your phone, or type the key, then enter the code it shows. "
+            "If you lose your phone, the Owner can reset it.",
             holder, check)
         if self.sample_mode():
             enrolled({"id": "f-sample", "totp": {"uri": "otpauth://totp/Kulan%20Fleet:admin?secret=JBSWY3DPEHPK3PXP",
@@ -796,8 +798,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 self.set_up_authenticator()
                 return
             dialog = Adw.AlertDialog(heading="Your authenticator app",
-                                     body="Kulan Fleet asks its 6-digit code after your email code. Remove it only if "
-                                          "you'll set it up again (your organisation may require it).")
+                                     body="Kulan Fleet asks for its code after your email code. Your organisation may "
+                                          "require it, so remove it only to set it up again.")
             dialog.add_response("close", "Close")
             dialog.add_response("remove", "Remove it")
             dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -921,9 +923,7 @@ class FleetWindow(Adw.ApplicationWindow):
         return g
 
     def policy_group(self, org: dict) -> None:
-        group = self.add_group("Policy", "Every computer in the organisation keeps to this, from its next report; "
-                                         "groups can add stricter rules. Encryption can't be switched on from afar: "
-                                         "computers without it show an alert.")
+        group = self.add_group("Policy", "Applies to every computer at its next report. Groups can add stricter rules.")
 
         def save(new, done):
             if self.sample_mode():
@@ -938,23 +938,23 @@ class FleetWindow(Adw.ApplicationWindow):
         """The policy's rows in `group`; each change is saved with save(new, done(policy, error))."""
         policy = dict(saved)
         rows = {}
-        for key, subtitle in (("auto_updates", "Updates install by themselves, with a restore point first"),
-                              ("firewall", "Block connections from outside")):
+        for key, subtitle in (("auto_updates", "Install updates automatically, with a restore point first"),
+                              ("firewall", "Block incoming connections")):
             row = Adw.SwitchRow(title=POLICY_LABEL[key], subtitle=subtitle, active=bool(policy.get(key)))
             group.add(row)
             rows[key] = row
-        lock = Adw.ComboRow(title=POLICY_LABEL["screen_lock_minutes"], subtitle="Locks when not used; users can't "
-                            "turn it off", model=Gtk.StringList.new([t for _m, t in SCREEN_LOCK]))
+        lock = Adw.ComboRow(title=POLICY_LABEL["screen_lock_minutes"], subtitle="Locks when idle. Users can't "
+                            "turn it off.", model=Gtk.StringList.new([t for _m, t in SCREEN_LOCK]))
         minutes = int(policy.get("screen_lock_minutes") or 0)
         lock.set_selected(next((i for i, (m, _t) in enumerate(SCREEN_LOCK) if m == minutes), 0))
         group.add(lock)
-        enc = Adw.SwitchRow(title="Require disk encryption", subtitle="Computers without it show an alert",
+        enc = Adw.SwitchRow(title="Require disk encryption", subtitle="Can't be turned on remotely. Computers without it show an alert.",
                             active=bool(policy.get("require_encryption")))
         group.add(enc)
         rows["require_encryption"] = enc
         two = Adw.ComboRow(title=POLICY_LABEL["two_step"], model=Gtk.StringList.new([t for _v, t in TWO_STEP_CHOICES]),
-                           subtitle="A security key or a phone code after the password, on the computers. Each person "
-                                    "sets theirs up in Kulan Settings; until then they're reminded", subtitle_lines=0)
+                           subtitle="A security key or phone code after the password. People set it up in Kulan "
+                                    "Settings and are reminded until they do.", subtitle_lines=0)
         two.set_selected(next((i for i, (v, _t) in enumerate(TWO_STEP_CHOICES) if v == policy.get("two_step")), 0))
         group.add(two)
         usb = Adw.ComboRow(title=POLICY_LABEL["usb"], model=Gtk.StringList.new([t for _v, t, _h in USB_CHOICES]),
@@ -973,8 +973,8 @@ class FleetWindow(Adw.ApplicationWindow):
             for key, row in apps_rows.items():
                 apps = policy.get(key) or []
                 row.set_subtitle(GLib.markup_escape_text(", ".join(a["id"] for a in apps[:6]) + (" …" if len(apps) > 6 else ""))
-                                 if apps else ("Installed on every computer, and kept installed" if key == "required_apps"
-                                               else "Removed from every computer, and kept off"))
+                                 if apps else ("Installed and kept on every computer" if key == "required_apps"
+                                               else "Removed and kept off every computer"))
         show_apps()
 
         def collect() -> dict:
@@ -1004,7 +1004,7 @@ class FleetWindow(Adw.ApplicationWindow):
                     return
                 saved.clear()
                 saved.update(result or new)
-                self.toast("Policy saved: computers apply it at their next report")
+                self.toast("Policy saved")
             save(new, done)
         for row in rows.values():
             row.connect("notify::active", changed)
@@ -1027,10 +1027,9 @@ class FleetWindow(Adw.ApplicationWindow):
     def apps_dialog(self, key: str, apps: list[dict], chosen) -> Adw.AlertDialog:
         blocking = key == "blocked_apps"
         dialog = Adw.AlertDialog(heading="Blocked apps" if blocking else "Required apps",
-                                 body="Removed from the computers and kept off. A Debian package is kept if removing it "
-                                      "would remove other packages too; parts of Kulan OS can't be blocked." if blocking
-                                 else "Installed on the computers from Debian or Flathub, and installed again if "
-                                      "someone removes it.")
+                                 body="Removed from the computers and kept off. A Debian package stays if removing it "
+                                      "would remove other packages. Parts of Kulan OS can't be blocked." if blocking
+                                 else "Installed from Debian or Flathub, and reinstalled if someone removes it.")
         listing = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         adding = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, margin_top=12)
         source = Adw.ComboRow(title="From", model=Gtk.StringList.new([SOURCE_LABEL["debian"], SOURCE_LABEL["flatpak"]]))
@@ -1086,7 +1085,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def alerts_group(self, org: dict) -> None:
         alerts = [a for a in (self.data or {}).get("alerts", []) if a.get("organisation_id") == org["id"]]
-        group = self.add_group("Needs attention", None if alerts else "Nothing: every computer looks fine.")
+        group = self.add_group("Needs attention", None if alerts else "Every computer looks fine.")
         devices = {d["id"]: d for d in (self.data or {}).get("devices", [])}
         for a in alerts[:30]:
             row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("title") or a.get("hostname") or "Computer"),
@@ -1139,11 +1138,10 @@ class FleetWindow(Adw.ApplicationWindow):
         head.add(stats)
         self.alerts_group(org)
 
-        people = self.add_group("People and groups", "The accounts on the organisation's computers: each person "
-                                "signs in with their own name and password, on the computers you choose.")
+        people = self.add_group("People and groups", "Accounts on the organisation's computers. Each person signs "
+                                "in with their own password.")
         self.load_groups(org)
-        row = Adw.ActionRow(title="People", subtitle="Add someone, change their role or computers, disable or remove "
-                            "them", activatable=True)
+        row = Adw.ActionRow(title="People", subtitle="Add, change, disable or remove accounts", activatable=True)
         row.add_prefix(Gtk.Image(icon_name="system-users-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_people(org))
@@ -1156,27 +1154,25 @@ class FleetWindow(Adw.ApplicationWindow):
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_admins(org))
         people.add(row)
-        row = Adw.ActionRow(title="Groups", subtitle="Computers and people together, with a policy of their own and "
-                            "requests for all of a group's computers at once", activatable=True)
+        row = Adw.ActionRow(title="Groups", subtitle="Sets of computers and people with their own policy", activatable=True)
         row.add_prefix(Gtk.Image(icon_name="view-grid-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_groups(org))
         people.add(row)
-        row = Adw.ActionRow(title="USB drives", subtitle="The drives that work where a policy allows approved drives "
-                            "only", activatable=True)
+        row = Adw.ActionRow(title="USB drives", subtitle="Drives approved for computers that limit USB drives", activatable=True)
         row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_drives(org))
         people.add(row)
         row = Adw.ActionRow(title="Google Workspace", subtitle=GLib.markup_escape_text(
-            f"Connected: mailboxes on {org['mail_domain']} are made and suspended with People" if org.get("mail_domain")
-            else "Not connected: connect it to make people's mailboxes with People"), activatable=True)
+            f"Mailboxes on {org['mail_domain']} are managed with People" if org.get("mail_domain")
+            else "Not connected"), activatable=True)
         row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_mail(org))
         people.add(row)
 
-        group = self.add_group("Computers", "Reports arrive every hour. Select a computer for its details.")
+        group = self.add_group("Computers", "Computers report every hour.")
         if not devices:
             group.add(Adw.ActionRow(title="No computers yet", subtitle="Make a join code below"))
         for d in devices:
@@ -1201,7 +1197,7 @@ class FleetWindow(Adw.ApplicationWindow):
         self.policy_group(org)
 
         add = self.add_group("Add computers",
-                             "On each computer: Kulan Settings → About → Organisation → Join an organisation.")
+                             "On each computer, open Kulan Settings → About → Organisation → Join an organisation.")
         hours = Adw.ComboRow(title="Code works for", model=Gtk.StringList.new(["1 day", "3 days", "1 week", "30 days"]),
                              selected=1)
         uses = Adw.SpinRow.new_with_range(1, 500, 1)
@@ -1223,11 +1219,9 @@ class FleetWindow(Adw.ApplicationWindow):
         acts = [a for a in data.get("actions", []) if a["device_id"] in ids][:15]
         security = self.add_group("Security and activity")
         for title, subtitle, icon, opener in (
-                ("Weekly security report", "Updates, encryption, firewall, compliance and people, compared with last "
-                 "week; save it as a PDF", "security-high-symbolic", self.open_weekly),
-                ("Admin-rights review", "Who has administrator rights, and when they last used them: keep or take "
-                 "away (every 90 days)", "security-medium-symbolic", self.open_review),
-                ("Activity log", "Who changed what, and when; search it and export it for auditors",
+                ("Weekly security report", "This week compared with last, ready to save as a PDF", "security-high-symbolic", self.open_weekly),
+                ("Admin-rights review", "Check who has administrator rights, every 90 days", "security-medium-symbolic", self.open_review),
+                ("Activity log", "Who changed what, and when. Search and export it.",
                  "document-open-recent-symbolic", self.open_log)):
             row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True, subtitle_lines=2)
             row.add_prefix(Gtk.Image(icon_name=icon))
@@ -1283,9 +1277,8 @@ class FleetWindow(Adw.ApplicationWindow):
                                     if isinstance(value, str) and value not in ("met", "not met") else "")
                 row.add_suffix(tag("met" if value == "met" else "not met", "good" if value == "met" else "bad"))
                 pol.add(row)
-        users = Adw.PreferencesGroup(title="Who uses it", description="Each account's username and when it was "
-                                     "last used, from the computer's reports" if d.get("sign_ins") else
-                                     "Not reported yet (Kulan OS 2.8c and later report it)")
+        users = Adw.PreferencesGroup(title="Who uses it", description="Accounts and when they were last used" if d.get("sign_ins") else
+                                     "Not reported yet. Needs Kulan OS 2.8c or later.")
         page.add(users)
         for si in (d.get("sign_ins") or [])[:50]:
             row = Adw.ActionRow(title=GLib.markup_escape_text(si.get("username", "")),
@@ -1297,15 +1290,14 @@ class FleetWindow(Adw.ApplicationWindow):
         apps = Adw.PreferencesGroup()
         page.add(apps)
         apps_row = Adw.ActionRow(title="Apps", subtitle=f"{d.get('app_count') or 0} · sent {ago(d.get('apps_at'))}"
-                                 if d.get("apps_at") else "Not sent yet (once a day)", activatable=bool(d.get("apps_at")))
+                                 if d.get("apps_at") else "Not sent yet", activatable=bool(d.get("apps_at")))
         apps_row.add_prefix(Gtk.Image(icon_name="view-app-grid-symbolic"))
         if d.get("apps_at"):
             apps_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             apps_row.connect("activated", lambda _r: self.open_apps(d))
         apps.add(apps_row)
         if not d.get("left_at"):
-            ask = Adw.PreferencesGroup(title="Ask it to", description="The computer does it at its next report "
-                                                                       "(within the hour, or now with Report now).")
+            ask = Adw.PreferencesGroup(title="Ask it to", description="The computer does it at its next report.")
             page.add(ask)
             for kind, label, icon in ACTIONS:
                 row = Adw.ActionRow(title=label, activatable=True)
@@ -1321,9 +1313,10 @@ class FleetWindow(Adw.ApplicationWindow):
             page.add(helping)
             now = [x.get("username") for x in (d.get("sign_ins") or []) if x.get("now")]
             help_row = Adw.ActionRow(title="Remote help", subtitle_lines=0, activatable=True,
-                                     subtitle="See their screen, and with their permission use the mouse and keyboard. "
-                                     "They're asked first and can stop it any time. Opens in your browser"
-                                     + (f" ({', '.join(now)} signed in now)" if now else " (nobody signed in at its last report)"))
+                                     subtitle="See their screen and, if they allow it, use their mouse and keyboard. "
+                                     "They're asked first and can stop at any time. Opens in your browser."
+                                     + (f" {', '.join(now)} {'is' if len(now) == 1 else 'are'} signed in." if now
+                                        else " Nobody was signed in at its last report."))
             help_row.add_prefix(Gtk.Image(icon_name="preferences-desktop-remote-desktop-symbolic"))
             help_row.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
             help_row.connect("activated", lambda _r: self.open_remote_help(d))
@@ -1332,21 +1325,20 @@ class FleetWindow(Adw.ApplicationWindow):
             lost = Adw.PreferencesGroup(title="If it’s lost or stolen")
             page.add(lost)
             erase = Adw.ActionRow(title="Erase this computer", activatable=bool(st.get("erase_allowed") and st.get("encrypted")),
-                                  subtitle="Makes everything on its disk unreadable, for good, and switches it off"
+                                  subtitle="Makes everything on its disk unreadable and switches it off. This can’t be undone."
                                   if st.get("erase_allowed") and st.get("encrypted") else
-                                  "Not possible: its disk isn’t encrypted" if st.get("erase_allowed") else
-                                  "Not possible: the person using it hasn’t allowed it (Kulan Settings › About › "
-                                  "Organisation on that computer)", subtitle_lines=0)
+                                  "Needs an encrypted disk" if st.get("erase_allowed") else
+                                  "The person using it hasn’t allowed it in Kulan Settings", subtitle_lines=0)
             erase.add_prefix(Gtk.Image(icon_name="edit-delete-symbolic"))
             if st.get("lost_mode"):
-                lost_row = Adw.ActionRow(title="Release from lost mode", subtitle="It's in lost mode: nobody can sign "
-                                         "in until you release it", activatable=True, subtitle_lines=0)
+                lost_row = Adw.ActionRow(title="Release from lost mode", subtitle="Nobody can sign in until you "
+                                         "release it", activatable=True, subtitle_lines=0)
                 lost_row.add_prefix(Gtk.Image(icon_name="changes-allow-symbolic"))
                 lost_row.connect("activated", lambda _r: self.send_action(d, "lost-mode-off"))
             else:
-                lost_row = Adw.ActionRow(title="Turn on lost mode", subtitle="Nobody can sign in until you release it; "
-                                         "whoever is using it is signed out after 20 seconds' notice. It keeps "
-                                         "reporting, so you see when it's next online", activatable=True,
+                lost_row = Adw.ActionRow(title="Turn on lost mode", subtitle="Nobody can sign in until you release it. "
+                                         "Anyone using it is signed out after 20 seconds' notice. It keeps "
+                                         "reporting, so you'll see when it's online", activatable=True,
                                          subtitle_lines=0)
                 lost_row.add_prefix(Gtk.Image(icon_name="system-lock-screen-symbolic"))
                 lost_row.connect("activated", lambda _r: self.send_action(d, "lost-mode-on"))
@@ -1407,7 +1399,7 @@ class FleetWindow(Adw.ApplicationWindow):
                 group.set_description(error)
                 return
             apps = sorted((result or {}).get("apps") or [], key=lambda a: (a.get("source") != "flatpak", a.get("name", "").lower()))
-            group.set_description(f"{len(apps)} apps and programs someone chose to install · sent {ago((result or {}).get('apps_at'))}")
+            group.set_description(f"{len(apps)} apps people installed · sent {ago((result or {}).get('apps_at'))}")
             for a in apps[:1000]:
                 row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("name", "")),
                                     subtitle=GLib.markup_escape_text(a.get("version", "")))
@@ -1447,7 +1439,7 @@ class FleetWindow(Adw.ApplicationWindow):
         page, header = self.push_page("Weekly security report")
         pdf = Gtk.Button(label="Save as PDF", sensitive=False, css_classes=["suggested-action"])
         header.pack_end(pdf)
-        head = Adw.PreferencesGroup(title=f"{org['name']}: weekly security report", description="Loading…")
+        head = Adw.PreferencesGroup(title=f"Weekly security report for {org['name']}", description="Loading…")
         page.add(head)
 
         def done(result, error):
@@ -1457,9 +1449,8 @@ class FleetWindow(Adw.ApplicationWindow):
             result = result or {}
             prev = (result.get("previous") or {}).get("summary")
             week = day_label(result.get("week"))
-            head.set_description(f"Week of {week}. Worked out now from each computer's last report" +
-                                 (f"; compared with the week of {day_label(result['previous']['week'])}." if prev else
-                                  ". Next week's report shows what changed."))
+            head.set_description(f"Week of {week}, from each computer's last report" +
+                                 (f". Compared with the week of {day_label(result['previous']['week'])}." if prev else "."))
             sections = weekly_sections(result.get("summary") or {}, prev)
             for heading, rows in sections:
                 group = Adw.PreferencesGroup(title=heading)
@@ -1471,7 +1462,7 @@ class FleetWindow(Adw.ApplicationWindow):
                                                         "bad": "dialog-warning-symbolic"}.get(kind, "pan-end-symbolic")))
                     group.add(row)
             pdf.set_sensitive(True)
-            title = f"{org['name']}: weekly security report"
+            title = f"Weekly security report for {org['name']}"
             subtitle = f"Week of {week} · made {day_label(result.get('made_at'))}"
             pdf.connect("clicked", lambda _b: self.save_file(
                 f"Kulan Fleet weekly report {result.get('week', '')}.pdf",
@@ -1494,13 +1485,13 @@ class FleetWindow(Adw.ApplicationWindow):
             last = result.get("last_review")
             owner = bool(result.get("is_owner"))
             head.set_description(
-                ("Due: " if result.get("due") else "") +
-                (f"last reviewed {day_label(last.get('reviewed_at'))} by {last.get('reviewed_by')}." if last else
-                 "not reviewed yet.") + " Untick anyone who no longer needs administrator rights, then Finish review." +
+                ("Review due. " if result.get("due") else "") +
+                (f"Last reviewed {day_label(last.get('reviewed_at'))} by {last.get('reviewed_by')}." if last else
+                 "Not reviewed yet.") + " Untick anyone who no longer needs administrator rights, then Finish review." +
                 ("" if owner else " Only the Owner can finish a review."))
             keeps: list[tuple[str, str, Gtk.CheckButton]] = []
-            on_computers = Adw.PreferencesGroup(title="On the computers", description="People with the admin role, or "
-                                                "the Owner's account: administrator rights on the computers they use")
+            on_computers = Adw.PreferencesGroup(title="On the computers", description="Admins and the Owner have "
+                                                "administrator rights on the computers they use")
             page.add(on_computers)
             for p in result.get("people") or []:
                 where = "all computers" if p.get("where") == "all" else ", ".join(p.get("where") or []) or "no computers yet"
@@ -1531,7 +1522,7 @@ class FleetWindow(Adw.ApplicationWindow):
                 fleet.add(row)
             if result.get("all_organisations_admins"):
                 everywhere = Adw.PreferencesGroup(title="Kulan Fleet admins for every organisation",
-                                                  description="Kulan's own administrators (not changed here)")
+                                                  description="Kulan's own administrators. They can't be changed here.")
                 page.add(everywhere)
                 for a in result["all_organisations_admins"]:
                     everywhere.add(Adw.ActionRow(title=GLib.markup_escape_text(a["email"])))
@@ -1545,10 +1536,10 @@ class FleetWindow(Adw.ApplicationWindow):
         admins = [i for kind, i, c in keeps if kind == "admin" and not c.get_active()]
         kept = len(keeps) - len(people) - len(admins)
         body = (f"Keeping {kept}. " +
-                (f"Taking the admin role from {plural(len(people), 'person', 'people')} (they stay, as employees). "
+                (f"Removing the admin role from {plural(len(people), 'person', 'people')}. They stay as employees. "
                  if people else "") +
-                (f"Taking Kulan Fleet access from {', '.join(admins)}. " if admins else "") +
-                "The review is recorded in the activity log.")
+                (f"Removing Kulan Fleet access for {', '.join(admins)}. " if admins else "") +
+                "The review is saved in the activity log.")
         dialog = Adw.AlertDialog(heading="Finish the review?", body=body)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("finish", "Finish review")
@@ -1563,7 +1554,7 @@ class FleetWindow(Adw.ApplicationWindow):
                 if error:
                     self.toast(error)
                     return
-                self.toast(f"Review recorded: kept {r.get('kept', kept)}, took away {r.get('removed', 0)}")
+                self.toast(f"Review saved: {r.get('kept', kept)} kept, {r.get('removed', 0)} removed")
                 if not self.sample_mode():
                     self.reload()
                 self.nav.pop_to_tag("org")
@@ -1575,9 +1566,9 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def open_log(self, org: dict) -> None:
         page, header = self.push_page("Activity log", "log")
-        export = Gtk.Button(label="Export CSV", tooltip_text="Every entry that matches, for auditors")
+        export = Gtk.Button(label="Export CSV", tooltip_text="Export every matching entry")
         header.pack_end(export)
-        search = Adw.PreferencesGroup(title="Find", description="Dates as 2026-10-26; leave anything empty")
+        search = Adw.PreferencesGroup(title="Find", description="Write dates as 2026-10-26. Any field can be empty.")
         page.add(search)
         fields = {}
         for key, title in (("from", "From (date)"), ("to", "To (date)"), ("who", "Who (email)"),
@@ -1601,9 +1592,9 @@ class FleetWindow(Adw.ApplicationWindow):
                 v = fields[key].get_text().strip()
                 try:
                     if v and (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v) or datetime.strptime(v, "%Y-%m-%d") is None):
-                        return "Dates are written 2026-10-26"
+                        return "Write dates as 2026-10-26"
                 except ValueError:
-                    return f"There's no {v}: dates are written 2026-10-26"
+                    return f"{v} isn't a real date"
             return None
 
         def show(entries: list[dict], more: bool, fresh: bool) -> None:
@@ -1678,10 +1669,9 @@ class FleetWindow(Adw.ApplicationWindow):
     def ask_erase(self, d: dict) -> Adw.AlertDialog:
         name = d.get("hostname") or ""
         dialog = Adw.AlertDialog(heading=f"Erase {name}?",
-                                 body="At its next report it tells whoever is using it, 20 seconds later makes "
-                                      "everything on its disk unreadable, for good, and switches off. Switching it "
-                                      "off then only delays it. Nobody can undo this or get the files back. To "
-                                      "confirm, type the computer’s name.")
+                                 body="At its next report, anyone using it gets a 20-second warning. Then everything "
+                                      "on its disk is made unreadable and it switches off. This can’t be undone, "
+                                      "and switching it off only delays it. Type the computer’s name to confirm.")
         entry = Adw.EntryRow(title=f"Type {name}")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         box.append(entry)
@@ -1710,13 +1700,12 @@ class FleetWindow(Adw.ApplicationWindow):
                             lambda _r, error: (self.toast(error) if error else
                                                (self.toast(f"Asked {d.get('hostname')} to {ACTION_LABEL[kind].lower()}"),
                                                 self.reload())))
-        bodies = {"restart": "Whoever is using it gets five minutes' notice before the restart.",
-                  "shutdown": "Whoever is using it gets five minutes' notice, then it switches off. It reports again "
-                              "when someone switches it on.",
-                  "install-updates": "Updates install in the background; a restart may follow.",
-                  "lost-mode-on": "At its next report nobody can sign in any more, and whoever is using it is signed "
-                                  "out 20 seconds after a notice (unsaved work is lost). The sign-in screen says it's "
-                                  "lost and to return it to your organisation. Release it here when it's found."}
+        bodies = {"restart": "Anyone using it gets 5 minutes' notice.",
+                  "shutdown": "Anyone using it gets 5 minutes' notice. It reports again when it's switched on.",
+                  "install-updates": "Updates install in the background. A restart may be needed.",
+                  "lost-mode-on": "At its next report, nobody can sign in. Anyone using it is signed out after a "
+                                  "20-second warning, and unsaved work is lost. The sign-in screen asks for it to be "
+                                  "returned to your organisation."}
         if kind not in bodies:
             go()
             return None
@@ -1744,7 +1733,7 @@ class FleetWindow(Adw.ApplicationWindow):
             box.append(Gtk.Label(label=result["code"], xalign=0, selectable=True, css_classes=["fleet-code"]))
             dialog = Adw.AlertDialog(heading="Join code",
                                      body=f"Works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
-                                          f"within {result['hours']} hours. It's shown only now.")
+                                          f"within {result['hours']} hours. It's shown only once.")
             dialog.set_extra_child(box)
             dialog.add_response("copy", "Copy code")
             dialog.add_response("close", "Done")
@@ -1756,8 +1745,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def new_org(self) -> None:
         dialog = Adw.AlertDialog(heading="New organisation",
-                                 body="The Owner is the one person who decides who the admins are. Leave it empty "
-                                      "to be the Owner yourself.")
+                                 body="The Owner decides who the admins are. Leave it empty to be the Owner yourself.")
         entry = Adw.EntryRow(title="Name")
         owner = Adw.EntryRow(title="Owner's email (optional)")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
@@ -1791,8 +1779,8 @@ class FleetWindow(Adw.ApplicationWindow):
     def install_app_dialog(self, where: str, body: dict) -> Adw.AlertDialog:
         """Ask for an app to install once; body is the action's call without type and payload."""
         dialog = Adw.AlertDialog(heading=f"Install an app on {where}",
-                                 body="Installed at the next report, once. To keep it installed, add it to a policy's "
-                                      "required apps instead.")
+                                 body="Installs once, at the next report. To keep it installed, add it to a policy's "
+                                      "required apps.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         source = Adw.ComboRow(title="From", model=Gtk.StringList.new([SOURCE_LABEL["debian"], SOURCE_LABEL["flatpak"]]))
         entry = Adw.EntryRow(title="App (for example vlc, or org.videolan.VLC)")
@@ -1868,7 +1856,7 @@ class FleetWindow(Adw.ApplicationWindow):
             if error:
                 group.set_description(error)
                 return
-            group.set_description("A computer keeps to the organisation's policy and to every group it's in: the "
+            group.set_description("A computer follows the organisation's policy and every group it's in. The "
                                   "stricter rule wins." if groups else
                                   "No groups yet. Add one with the + button, for example Office or Finance.")
             for g in groups or []:
@@ -1883,7 +1871,7 @@ class FleetWindow(Adw.ApplicationWindow):
         self.load_groups(org, done)
 
     def add_group_dialog(self, org: dict) -> Adw.AlertDialog:
-        dialog = Adw.AlertDialog(heading="Add a group", body="Then choose its computers and its policy.")
+        dialog = Adw.AlertDialog(heading="Add a group", body="Then choose its computers and policy.")
         entry = Adw.EntryRow(title="Name")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         box.append(entry)
@@ -1926,8 +1914,8 @@ class FleetWindow(Adw.ApplicationWindow):
         rename.connect("activated", lambda _r: self.rename_group(org, g))
         info.add(rename)
 
-        pol = Adw.PreferencesGroup(title="Policy", description="On top of the organisation's: where the two differ, "
-                                                               "the stricter rule wins.")
+        pol = Adw.PreferencesGroup(title="Policy", description="Adds to the organisation's policy. "
+                                                               "The stricter rule wins.")
         page.add(pol)
 
         def save(new, done):
@@ -1943,8 +1931,8 @@ class FleetWindow(Adw.ApplicationWindow):
             self.open_group(org, g)
         self.policy_editor(pol, g.setdefault("policy", {}), save, reset)
 
-        computers = Adw.PreferencesGroup(title="Computers", description="Saved when you press Save; each computer "
-                                         "takes the group's policy at its next report.")
+        computers = Adw.PreferencesGroup(title="Computers", description="Each computer takes the group's "
+                                         "policy at its next report.")
         page.add(computers)
         checks = []
         for d in self.org_computers(org):
@@ -1987,8 +1975,8 @@ class FleetWindow(Adw.ApplicationWindow):
 
         danger = Adw.PreferencesGroup()
         page.add(danger)
-        remove = Adw.ActionRow(title="Remove this group", subtitle="Its computers keep to the organisation's policy "
-                               "and any other groups'; people who could use them only through it lose access",
+        remove = Adw.ActionRow(title="Remove this group", subtitle="Its computers keep their other policies. People "
+                               "who used them only through this group lose access",
                                activatable=True, subtitle_lines=0, css_classes=["error"])
         remove.add_prefix(Gtk.Image(icon_name="user-trash-symbolic"))
         remove.connect("activated", lambda _r: self.remove_group(org, g))
@@ -2004,8 +1992,8 @@ class FleetWindow(Adw.ApplicationWindow):
             go()
             return None
         dialog = Adw.AlertDialog(heading=f"{ACTION_LABEL[kind]} on every computer in {g['name']}?",
-                                 body="Whoever is using them gets five minutes' notice." if kind != "install-updates"
-                                 else "Updates install in the background; a restart may follow.")
+                                 body="Anyone using them gets 5 minutes' notice." if kind != "install-updates"
+                                 else "Updates install in the background. A restart may be needed.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", ACTION_LABEL[kind])
         dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED if kind == "install-updates"
@@ -2043,9 +2031,9 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def remove_group(self, org: dict, g: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading=f"Remove {g['name']}?",
-                                 body="Its computers stop keeping to its policy at their next report (USB drives "
-                                      "work again unless another policy says otherwise; apps stay as they are). "
-                                      "To confirm, type the group's name.")
+                                 body="Its computers stop following its policy at their next report. Apps stay as "
+                                      "they are, and USB drives work again unless another policy blocks them. "
+                                      "Type the group's name to confirm.")
         entry = Adw.EntryRow(title=f"Type {g['name']}")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         box.append(entry)
@@ -2083,9 +2071,8 @@ class FleetWindow(Adw.ApplicationWindow):
         view.set_content(page)
         self.nav.push(Adw.NavigationPage(title="USB drives", child=view, tag="drives"))
         approved = Adw.PreferencesGroup(title="Approved drives", description="Loading…")
-        seen = Adw.PreferencesGroup(title="Seen on computers", description="Drives plugged into computers where a "
-                                    "policy controls USB drives. Approve one to let it work where only approved "
-                                    "drives do.")
+        seen = Adw.PreferencesGroup(title="Seen on computers", description="Drives plugged into computers with a "
+                                    "USB policy. Approve one to let it work.")
         page.add(approved)
         page.add(seen)
 
@@ -2094,10 +2081,9 @@ class FleetWindow(Adw.ApplicationWindow):
                 approved.set_description(error)
                 return
             result = result or {}
-            approved.set_description("They work on computers whose policy allows approved drives only (not where "
-                                     "USB drives are blocked)." if result.get("approved") else
-                                     "None yet. Plug the drive into a computer whose policy controls USB drives, then "
-                                     "approve it below.")
+            approved.set_description("They work where a policy allows approved drives only, but not where USB "
+                                     "drives are blocked." if result.get("approved") else
+                                     "None yet. Plug a drive into a computer with a USB policy, then approve it below.")
             for a in result.get("approved") or []:
                 row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("name") or "Drive"),
                                     subtitle=GLib.markup_escape_text(f"{a.get('vendor_id')}:{a.get('product_id')} · "
@@ -2128,8 +2114,8 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def approve_drive(self, org: dict, d: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Approve this drive",
-                                 body="It works on computers whose policy allows approved drives only. Only this "
-                                      "drive: another of the same model has its own serial number.")
+                                 body="It will work where a policy allows approved drives only. Other drives of the "
+                                      "same model aren't included.")
         entry = Adw.EntryRow(title="A name you'll recognise (for example Finance backup drive)",
                              text=(d.get("name") or "")[:80])
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
@@ -2148,7 +2134,7 @@ class FleetWindow(Adw.ApplicationWindow):
             self.call({"op": "approve-drive", "organisation_id": org["id"], "name": name,
                        "vendor_id": d.get("vendor_id"), "product_id": d.get("product_id"), "serial": d.get("serial")},
                       lambda _r, error: self.toast(error) if error else
-                      (self.toast(f"{name} approved: it works from each computer's next report"), self.open_drives(org)))
+                      (self.toast(f"{name} approved"), self.open_drives(org)))
         dialog.connect("response", answered)
         dialog.present(self)
         return dialog
@@ -2225,9 +2211,8 @@ class FleetWindow(Adw.ApplicationWindow):
             add.set_sensitive(True)
             add.connect("clicked", lambda _b: self.add_person(org, is_owner))
             group.set_description(f"{len(people)} {'person' if len(people) == 1 else 'people'}. Computers get "
-                                  "changes at their next report (within the hour)." if people else
-                                  "Nobody yet. Add someone with the + button: they get a setup code to sign in "
-                                  "with, then choose their own password.")
+                                  "changes at their next report." if people else
+                                  "Nobody yet. Add someone with the + button.")
             for person in people:
                 n = len(person.get("on") or [])
                 where = "all computers" if person.get("all_computers") else f"{n} computer{'s' if n != 1 else ''}"
@@ -2265,7 +2250,7 @@ class FleetWindow(Adw.ApplicationWindow):
         self.nav.push(Adw.NavigationPage(title=name, child=view))
         info = Adw.PreferencesGroup(title=name)
         page.add(info)
-        state = ("Disabled: can't sign in" if not person.get("enabled") else
+        state = ("Disabled" if not person.get("enabled") else
                  "Hasn't used the setup code yet" if person.get("must_change") else "Signs in with their own password")
         for title, value in (("Username", person["username"]), ("Email", person.get("email") or "–"),
                              ("Role", ROLE_LABEL.get(person.get("role"), person.get("role"))), ("Sign-in", state),
@@ -2297,7 +2282,7 @@ class FleetWindow(Adw.ApplicationWindow):
         roles = ["employee", "admin", "owner"]
         role = Adw.ComboRow(title="Role", model=Gtk.StringList.new([ROLE_LABEL[r] for r in roles]),
                             subtitle=ROLE_HELP.get(person.get("role"), "") if is_owner else
-                            "Only the Owner gives or takes the admin role",
+                            "Only the Owner can change roles",
                             selected=roles.index(person.get("role")) if person.get("role") in roles else 0,
                             sensitive=is_owner)
         role.connect("notify::selected", lambda r, _p: self.change_role(org, person, roles[r.get_selected()], r))
@@ -2312,7 +2297,7 @@ class FleetWindow(Adw.ApplicationWindow):
         change.add(row)
 
         used = Adw.PreferencesGroup(title="Last used", description=None if person.get("signed_in") else
-                                    "Not used on any computer yet (or its Kulan OS doesn't report it)")
+                                    "Not used on any computer yet")
         page.add(used)
         for si in (person.get("signed_in") or [])[:20]:
             row = Adw.ActionRow(title=GLib.markup_escape_text(si.get("hostname") or ""),
@@ -2321,8 +2306,7 @@ class FleetWindow(Adw.ApplicationWindow):
             used.add(row)
         manages = is_owner or person.get("role") == "employee"
         two = Adw.PreferencesGroup(title="Two-step sign-in", description=None if person.get("two_step") else
-                                   "Not set up: they sign in with their password only. They set it up in Kulan Settings "
-                                   "› About › Organisation on a computer.")
+                                   "Not set up. They sign in with a password only, and can set it up in Kulan Settings.")
         page.add(two)
         for f in person.get("two_step") or []:
             row = Adw.ActionRow(title=GLib.markup_escape_text(f.get("label") or "Second step"),
@@ -2332,8 +2316,7 @@ class FleetWindow(Adw.ApplicationWindow):
             row.add_prefix(Gtk.Image(icon_name="auth-smartcard-symbolic" if f.get("kind") == "key" else "phone-symbolic"))
             two.add(row)
         if person.get("two_step"):
-            row = Adw.ActionRow(title="Reset two-step sign-in", subtitle="A lost security key or phone: they set up a new "
-                                "one", activatable=manages, sensitive=manages)
+            row = Adw.ActionRow(title="Reset two-step sign-in", subtitle="For a lost security key or phone", activatable=manages, sensitive=manages)
             row.add_prefix(Gtk.Image(icon_name="view-refresh-symbolic"))
             row.connect("activated", lambda _r: self.reset_two_step(org, person))
             two.add(row)
@@ -2341,14 +2324,14 @@ class FleetWindow(Adw.ApplicationWindow):
             page.add(self.mailbox_group(org, person, is_owner, manages))
         sign_in = Adw.PreferencesGroup(title="Signing in")
         page.add(sign_in)
-        row = Adw.ActionRow(title="Give a new setup code", subtitle="If they forgot their password. The old one stops "
+        row = Adw.ActionRow(title="Give a new setup code", subtitle="For a forgotten password. Their current one stops "
                             "working at each computer's next report", activatable=manages, sensitive=manages)
         row.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
         row.connect("activated", lambda _r: self.new_setup_code(org, person))
         sign_in.add(row)
         enabled = person.get("enabled")
         row = Adw.ActionRow(title="Disable" if enabled else "Enable again",
-                            subtitle="Locked on every computer at its next report; their files stay" if enabled else
+                            subtitle="Locked on every computer at its next report. Their files stay." if enabled else
                             "They can sign in again at each computer's next report", activatable=manages,
                             sensitive=manages)
         row.add_prefix(Gtk.Image(icon_name="action-unavailable-symbolic" if enabled else "object-select-symbolic"))
@@ -2356,25 +2339,25 @@ class FleetWindow(Adw.ApplicationWindow):
         sign_in.add(row)
         leave = Adw.PreferencesGroup()
         page.add(leave)
-        row = Adw.ActionRow(title=f"Remove {person['username']}", subtitle="Their account is removed from every "
-                            "computer; you choose whether their files are kept", activatable=manages, sensitive=manages)
+        row = Adw.ActionRow(title=f"Remove {person['username']}", subtitle="Removed from every computer. You choose "
+                            "whether to keep their files.", activatable=manages, sensitive=manages)
         row.add_prefix(Gtk.Image(icon_name="user-trash-symbolic"))
         row.add_css_class("error")
         row.connect("activated", lambda _r: self.remove_person(org, person))
         leave.add(row)
         if not manages:
-            leave.set_description("Only the Owner changes an admin's or the Owner's sign-in.")
+            leave.set_description("Only the Owner can change an admin's or the Owner's sign-in.")
 
     def after_people_change(self, org: dict, message: str) -> None:
         self.toast(message)
         self.open_people(org)
 
     def add_person(self, org: dict, is_owner: bool) -> Adw.AlertDialog:
-        dialog = Adw.AlertDialog(heading="Add a person", body="They get a setup code to sign in with, then choose "
-                                 "their own password. Computers get their account at their next report.")
+        dialog = Adw.AlertDialog(heading="Add a person", body="They sign in with a setup code, then choose their own "
+                                 "password. Computers add the account at their next report.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         full = Adw.EntryRow(title="Full name")
-        user = Adw.EntryRow(title="Username (how they sign in)")
+        user = Adw.EntryRow(title="Username")
         email = Adw.EntryRow(title="Work email (optional)")
         roles = ["employee"] + (["admin", "owner"] if is_owner else [])
         role = Adw.ComboRow(title="Role", model=Gtk.StringList.new([ROLE_LABEL[r] for r in roles]),
@@ -2384,7 +2367,7 @@ class FleetWindow(Adw.ApplicationWindow):
             box.append(w)
         domain = org.get("mail_domain")
         make_mailbox = Adw.SwitchRow(title="Make a Google mailbox", subtitle=GLib.markup_escape_text(
-            f"On {domain}: Google asks them for a new password at their first sign-in"), active=bool(domain),
+            f"On {domain}. Google asks them to choose a password at first sign-in."), active=bool(domain),
             visible=bool(domain))
         address = Adw.EntryRow(title="Mailbox address", visible=bool(domain))
         make_mailbox.connect("notify::active", lambda sw, _p: (address.set_visible(sw.get_active()),
@@ -2475,10 +2458,10 @@ class FleetWindow(Adw.ApplicationWindow):
     def show_setup_code(self, display: str, code: str, first: bool) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(
             heading=f"Setup code for {display}",
-            body=(f"Give this to {display} in person or over a call, not by email. At the sign-in screen of "
-                  f"{'any of the computers they may use' if first else 'their computer'}, they choose their name, "
-                  "type this code exactly (capital letters and dashes), and then choose their own password. "
-                  "Computers get it at their next report (within the hour). It's shown only now."))
+            body=(f"Give this to {display} in person or by phone, not by email. At the sign-in screen of "
+                  f"{'any computer they can use' if first else 'their computer'}, they choose their name, "
+                  "type this code with its capitals and dashes, then choose a password. "
+                  "It works from each computer's next report. It's shown only once."))
         label = Gtk.Label(label=code, selectable=True, css_classes=["fleet-code"], margin_top=6)
         dialog.set_extra_child(label)
         dialog.add_response("copy", "Copy code")
@@ -2489,7 +2472,7 @@ class FleetWindow(Adw.ApplicationWindow):
         return dialog
 
     def edit_person_details(self, org: dict, person: dict) -> Adw.AlertDialog:
-        dialog = Adw.AlertDialog(heading=f"{person['username']}: name and email")
+        dialog = Adw.AlertDialog(heading=f"Name and email for {person['username']}")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         full = Adw.EntryRow(title="Full name", text=person.get("full_name") or "")
         email = Adw.EntryRow(title="Work email", text=person.get("email") or "")
@@ -2522,13 +2505,13 @@ class FleetWindow(Adw.ApplicationWindow):
                 combo.set_selected(roles.index(person.get("role")) if person.get("role") in roles else 0)
                 return
             person["role"] = role
-            self.toast(f"{person['username']} is now {'the Owner' if role == 'owner' else 'an ' + ROLE_LABEL[role].lower()}"
-                       ": computers change at their next report")
+            self.toast(f"{person['username']} is now {'the Owner' if role == 'owner' else 'an ' + ROLE_LABEL[role].lower()}")
         self.call({"op": "edit-person", "person_id": person["id"], "role": role}, done)
 
     def edit_person_computers(self, org: dict, person: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading=f"Where {person['username']} can sign in",
-                                 body="Taken off a computer, their account there is removed and their files kept.")
+                                 body="If you take them off a computer, their account there is removed and their files "
+                                      "are kept.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         rows, picked = self.computer_picker(org, bool(person.get("all_computers")), person.get("computers") or [],
                                             person.get("groups") or [])
@@ -2553,8 +2536,8 @@ class FleetWindow(Adw.ApplicationWindow):
     def new_setup_code(self, org: dict, person: dict) -> Adw.AlertDialog:
         name = person.get("full_name") or person["username"]
         dialog = Adw.AlertDialog(heading=f"A new setup code for {name}?",
-                                 body="Their password stops working on each computer at its next report; they sign "
-                                      "in with the new code and choose a new password.")
+                                 body="Their password stops working at each computer's next report. They sign in "
+                                      "with the new code and choose a new password.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Make a code")
         dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
@@ -2583,17 +2566,16 @@ class FleetWindow(Adw.ApplicationWindow):
         def go():
             self.call({"op": "set-person-enabled", "person_id": person["id"], "enabled": enabled},
                       lambda r, error: self.toast(error) if error else self.after_people_change(
-                          org, f"{person['username']} {'enabled' if enabled else 'disabled'}: computers change at "
-                               "their next report" + self.mailbox_note(r)))
+                          org, f"{person['username']} {'enabled' if enabled else 'disabled'}" + self.mailbox_note(r)))
         if enabled:
             go()
             return None
         has_mailbox = person.get("mailbox") and person.get("mailbox_state") not in (None, "deleted") and org.get("mail_domain")
         dialog = Adw.AlertDialog(heading=f"Disable {person['username']}?",
-                                 body="At each computer's next report (within the hour) their account is locked and "
-                                      "they're signed out. Their files stay, and you can enable them again." +
-                                      (f" Their mailbox {person['mailbox']} is suspended now, and unsuspended when "
-                                       "they're enabled again." if has_mailbox else ""))
+                                 body="At each computer's next report, their account is locked and they're signed "
+                                      "out. Their files stay, and you can enable them again." +
+                                      (f" Their mailbox {person['mailbox']} is suspended now and unsuspended when "
+                                       "they're enabled." if has_mailbox else ""))
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Disable")
         dialog.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -2604,21 +2586,21 @@ class FleetWindow(Adw.ApplicationWindow):
     def remove_person(self, org: dict, person: dict) -> Adw.AlertDialog:
         user = person["username"]
         dialog = Adw.AlertDialog(heading=f"Remove {user}?",
-                                 body="Their account is removed from every computer at its next report. To confirm, "
-                                      "type their username.")
+                                 body="Their account is removed from every computer at its next report. Type their "
+                                      "username to confirm.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         files = Adw.SwitchRow(title="Delete their files too",
-                              subtitle="Off: each computer keeps their files for an administrator to hand over "
-                                       "(in /home/.kulan-left)")
+                              subtitle="If off, each computer keeps their files in /home/.kulan-left for an "
+                                       "administrator to hand over")
         entry = Adw.EntryRow(title=f"Type {user}")
         box.append(files)
         mailbox = person.get("mailbox") if person.get("mailbox_state") not in (None, "deleted") and org.get("mail_domain") else None
         choice = Adw.ComboRow(title=GLib.markup_escape_text(f"Their mailbox {mailbox}" if mailbox else "Their mailbox"),
                               model=Gtk.StringList.new(["Suspend it", "Delete it"]), visible=bool(mailbox),
-                              subtitle="Suspended: mail kept, it can come back (Google may still charge for it)")
+                              subtitle="Mail is kept and can be restored. Google may still charge for it.")
         choice.connect("notify::selected", lambda c, _p: c.set_subtitle(
-            "Suspended: mail kept, it can come back (Google may still charge for it)" if c.get_selected() == 0 else
-            "Deleted: Google keeps it restorable for 20 days, then it's gone for good"))
+            "Mail is kept and can be restored. Google may still charge for it." if c.get_selected() == 0 else
+            "Google can restore it for 20 days, then it's gone."))
         box.append(choice)
         box.append(entry)
         dialog.set_extra_child(box)
@@ -2636,7 +2618,7 @@ class FleetWindow(Adw.ApplicationWindow):
             if mailbox:
                 body["mailbox"] = "suspend" if choice.get_selected() == 0 else "delete"
             self.call(body, lambda r, error: self.toast(error) if error else self.after_people_change(
-                org, f"{user} removed: computers remove the account at their next report" + self.mailbox_note(r)))
+                org, f"{user} removed" + self.mailbox_note(r)))
         dialog.connect("response", answered)
         dialog.present(self)
         return dialog
@@ -2646,19 +2628,17 @@ class FleetWindow(Adw.ApplicationWindow):
     def mailbox_note(reply: dict | None) -> str:
         """What a toast adds when Google couldn't follow Fleet's change."""
         err = (reply or {}).get("mailbox_error")
-        return f". The mailbox isn't done yet ({err}): retry it from their page" if err else ""
+        return f". The mailbox wasn't updated ({err}). Retry it from their page." if err else ""
 
     def mailbox_group(self, org: dict, person: dict, is_owner: bool, manages: bool) -> Adw.PreferencesGroup:
         mailbox, state = person.get("mailbox"), person.get("mailbox_state")
         live = bool(mailbox) and state != "deleted"
         group = Adw.PreferencesGroup(title="Work email", description=None if live else
-                                     "No mailbox made with Kulan Fleet. Their computers offer to connect one once "
-                                     "it's made.")
+                                     "No mailbox yet. Once one is made, their computers offer to connect it.")
         if mailbox:
             label, kind = MAILBOX_STATE.get(state, (state or "unknown", "dim"))
             row = Adw.ActionRow(title=GLib.markup_escape_text(mailbox), subtitle_selectable=True,
-                                subtitle="Google Workspace · suspended while they're disabled, and when removed you "
-                                         "choose suspend or delete" if live else "Deleted when they were removed")
+                                subtitle="Google Workspace" if live else "Deleted when they were removed")
             row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic"))
             row.add_suffix(tag(label, kind))
             group.add(row)
@@ -2668,9 +2648,9 @@ class FleetWindow(Adw.ApplicationWindow):
             return group
         if live:
             for title, subtitle, icon, action in (
-                    ("Give a new Google password", "If they forgot it: shown once, and Google asks them for a new one",
+                    ("Give a new Google password", "For a forgotten password",
                      "dialog-password-symbolic", "new-password"),
-                    ("Stop managing this mailbox", "Kulan Fleet forgets it; the mailbox stays in Google as it is",
+                    ("Stop managing this mailbox", "The mailbox stays in Google as it is",
                      "list-remove-symbolic", "unlink")):
                 row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=manages, sensitive=manages)
                 row.add_prefix(Gtk.Image(icon_name=icon))
@@ -2679,8 +2659,8 @@ class FleetWindow(Adw.ApplicationWindow):
         else:
             choices = [("Make a mailbox", f"A new Google mailbox on {org['mail_domain']}", "list-add-symbolic", "create",
                         manages)]
-            choices.append(("Link an existing mailbox", "Only the Owner: then it's suspended, renamed and "
-                            "removed with them", "insert-link-symbolic", "link", is_owner))
+            choices.append(("Link an existing mailbox", "Only the Owner can link a mailbox", "insert-link-symbolic",
+                            "link", is_owner))
             for title, subtitle, icon, action, allowed in choices:
                 row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=allowed, sensitive=allowed)
                 row.add_prefix(Gtk.Image(icon_name=icon))
@@ -2698,7 +2678,7 @@ class FleetWindow(Adw.ApplicationWindow):
         for label, action in (("Retry", "retry"), ("Done by hand", "forget")):
             b = Gtk.Button(label=label, valign=Gtk.Align.CENTER, sensitive=manages,
                            css_classes=["suggested-action"] if action == "retry" else ["flat"],
-                           tooltip_text=None if action == "retry" else "You did it in the Google Admin console: stop retrying")
+                           tooltip_text=None if action == "retry" else "Already done in the Google Admin console")
             b.connect("clicked", lambda _b, a=action: self.mailbox_action(org, person, a))
             row.add_suffix(b)
         return row
@@ -2726,10 +2706,10 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog = Adw.AlertDialog(
             heading=f"A new Google password for {person['username']}?" if action == "new-password" else
             f"Stop managing {person.get('mailbox')}?",
-            body="Their old Google password stops working now. You see the new one once; give it to them in "
-                 "person, and Google asks them to choose their own." if action == "new-password" else
-                 "The mailbox stays in Google Workspace as it is, but Kulan Fleet no longer suspends, renames or "
-                 "removes it with them, and their computers stop offering it.")
+            body="Their current Google password stops working now. The new one is shown once. Give it to them "
+                 "in person." if action == "new-password" else
+                 "The mailbox stays in Google Workspace. Kulan Fleet stops suspending, renaming or removing it "
+                 "with their account, and their computers stop offering it.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Make a password" if action == "new-password" else "Stop managing")
         dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED if action == "new-password"
@@ -2743,10 +2723,10 @@ class FleetWindow(Adw.ApplicationWindow):
         domain = org.get("mail_domain") or ""
         dialog = Adw.AlertDialog(
             heading=f"A mailbox for {person['username']}" if action == "create" else f"Link a mailbox to {person['username']}",
-            body=(f"A new Google Workspace mailbox. You see its first password once; Google asks them for a new one "
-                  "at their first sign-in." if action == "create" else
-                  "A mailbox that's already in Google Workspace. From now on it's suspended, renamed and removed "
-                  "with them."))
+            body=("Its first password is shown once. Google asks them to change it at first sign-in."
+                  if action == "create" else
+                  "A mailbox already in Google Workspace. From now on it's suspended, renamed and removed "
+                  "with their account."))
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         address = Adw.EntryRow(title="Mailbox address", text=f"{person['username']}@{domain}" if domain else "")
         box.append(address)
@@ -2779,7 +2759,7 @@ class FleetWindow(Adw.ApplicationWindow):
                 if r.get("mailbox_password"):
                     self.show_mailbox_password(person.get("full_name") or person["username"], r["mailbox"],
                                                r["mailbox_password"])
-                self.after_people_change(org, f"{where}: {'made' if action == 'create' else 'linked'}" +
+                self.after_people_change(org, f"{where} {'made' if action == 'create' else 'linked'}" +
                                          self.mailbox_note(r))
             self.call({"op": "mailbox", "person_id": person["id"], "action": action, "address": where}, done,
                       {"mailbox": where, **({"mailbox_password": "abcd-EFGH-2346-mnpq"} if action == "create" else {})})
@@ -2790,9 +2770,8 @@ class FleetWindow(Adw.ApplicationWindow):
     def show_mailbox_password(self, display: str, address: str, password: str) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(
             heading=f"Google password for {display}",
-            body=(f"Give this to {display} in person or over a call, not by email. They sign in to Google as "
-                  f"{address} with it (on their Kulan OS computer, when it offers to connect their work email), "
-                  "and Google asks them to choose their own password. It's shown only now."))
+            body=(f"Give this to {display} in person or by phone, not by email. They use it to sign in to "
+                  f"Google as {address}, then choose their own password. It's shown only once."))
         dialog.set_extra_child(Gtk.Label(label=password, selectable=True, css_classes=["fleet-code"], margin_top=6))
         dialog.add_response("copy", "Copy password")
         dialog.add_response("close", "Done")
@@ -2816,16 +2795,14 @@ class FleetWindow(Adw.ApplicationWindow):
             c, is_owner = result.get("connection"), bool(result.get("is_owner"))
             org["mail_domain"] = c.get("domain") if c else None
             group.set_description(
-                "People's mailboxes are made, suspended, renamed and removed with People, and their computers offer "
-                "to connect them." if c else
-                "Connect your organisation's Google Workspace, and mailboxes are made and suspended with People: "
-                "a new person gets a mailbox, someone disabled has theirs suspended, someone removed has theirs "
-                "suspended or deleted (you choose).")
+                "Mailboxes are made, suspended and removed along with people's accounts." if c else
+                "Connect Google Workspace to manage mailboxes with People. New people get a mailbox. Mailboxes "
+                "are suspended when people are disabled, and suspended or deleted when they're removed.")
             if c:
                 for title, value in (("Domain", c.get("domain")), ("Acting as", c.get("admin_email")),
                                      ("Service account", c.get("client_email")), ("Client ID", c.get("client_id") or "–"),
                                      ("Connected", f"{ago(c.get('connected_at'))} by {c.get('connected_by') or '–'}"),
-                                     ("Mailboxes Kulan Fleet manages", str(result.get("mailboxes", 0)))):
+                                     ("Managed mailboxes", str(result.get("mailboxes", 0)))):
                     row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(str(value)), subtitle_selectable=True)
                     row.add_css_class("property")
                     group.add(row)
@@ -2834,15 +2811,14 @@ class FleetWindow(Adw.ApplicationWindow):
                                         subtitle_lines=0)
                     row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
                     group.add(row)
-            actions = Adw.PreferencesGroup(description=None if is_owner else "Only the Owner connects or disconnects it.")
+            actions = Adw.PreferencesGroup(description=None if is_owner else "Only the Owner can connect or disconnect it.")
             page.add(actions)
             for title, subtitle, icon, opener, show in (
                     ("Connect again with a new key" if c else "Connect Google Workspace",
-                     "Paste a service account's JSON key; Kulan Fleet checks it works before keeping it",
+                     "Choose a service account's JSON key. Kulan Fleet checks it before saving.",
                      "insert-link-symbolic", lambda: self.connect_mail(org), True),
-                    ("Existing mailboxes", "The domain's mailboxes, and who in People has each: link one from a "
-                     "person's page", "mail-unread-symbolic", lambda: self.open_mail_users(org), bool(c)),
-                    ("Disconnect", "Kulan Fleet forgets the key; mailboxes stay in Google as they are",
+                    ("Existing mailboxes", "Every mailbox on the domain, and who has each", "mail-unread-symbolic", lambda: self.open_mail_users(org), bool(c)),
+                    ("Disconnect", "Mailboxes stay in Google as they are",
                      "list-remove-symbolic", lambda: self.disconnect_mail(org), bool(c))):
                 if not show:
                     continue
@@ -2854,18 +2830,18 @@ class FleetWindow(Adw.ApplicationWindow):
                     row.add_css_class("error")
                 actions.add(row)
             how = Adw.PreferencesGroup(title="How to connect it",
-                                       description="Once, as a Google Workspace super admin (about 10 minutes).")
+                                       description="Do this once as a Google Workspace super admin. It takes about 10 minutes.")
             page.add(how)
             for n_, step in enumerate((
-                    "In Google Cloud (console.cloud.google.com): make a project, and turn on the Admin SDK API",
-                    "IAM & Admin › Service accounts: make one (no roles needed), then Keys › Add key › JSON",
-                    "In the Google Admin console: Security › Access and data control › API controls › Domain-wide "
-                    f"delegation › Add new: the service account's client ID, and the scope {GOOGLE_SCOPE}",
-                    "Here: Connect Google Workspace, choose the key file, and give a super admin's email "
-                    "(Kulan Fleet acts as them)"), 1):
+                    "In Google Cloud at console.cloud.google.com, make a project and turn on the Admin SDK API",
+                    "In IAM & Admin › Service accounts, make a service account with no roles, then add a JSON key "
+                    "under Keys",
+                    "In the Google Admin console, go to Security › Access and data control › API controls › "
+                    f"Domain-wide delegation and add the service account's client ID with the scope {GOOGLE_SCOPE}",
+                    "Here, choose Connect Google Workspace, then the key file and a super admin's email"), 1):
                 row = Adw.ActionRow(title=GLib.markup_escape_text(f"{n_}. {step}"), title_lines=0)
                 how.add(row)
-            guide = Adw.ActionRow(title="The full guide, with pictures", activatable=True)
+            guide = Adw.ActionRow(title="Full guide", activatable=True)
             guide.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
             guide.connect("activated", lambda _r: Gtk.UriLauncher.new(GOOGLE_GUIDE).launch(self, None, None, None))
             how.add(guide)
@@ -2874,15 +2850,15 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def connect_mail(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Connect Google Workspace",
-                                 body="Choose the service account's JSON key file, and the email of a Google super "
-                                      "admin Kulan Fleet acts as. The key is kept sealed: nobody can read it back, "
-                                      "and you can delete the file afterwards.")
+                                 body="Choose the service account's JSON key file and enter a Google super admin's "
+                                      "email. Kulan Fleet acts as that admin. The key is stored encrypted and can't "
+                                      "be read back, so you can delete the file afterwards.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        key_row = Adw.ActionRow(title="Key file", subtitle="Not chosen yet", activatable=True)
+        key_row = Adw.ActionRow(title="Key file", subtitle="None chosen", activatable=True)
         key_row.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
         choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
         key_row.add_suffix(choose)
-        admin = Adw.EntryRow(title="Super admin's email (Kulan Fleet acts as them)")
+        admin = Adw.EntryRow(title="Super admin's email")
         box.append(key_row)
         box.append(admin)
         note = Gtk.Label(wrap=True, xalign=0, selectable=True, css_classes=["dim-label"], margin_top=6)
@@ -2949,7 +2925,7 @@ class FleetWindow(Adw.ApplicationWindow):
                     self.toast(error)
                     return
                 key.clear()
-                self.toast(f"Google Workspace connected: {(r or {}).get('domain', '')}")
+                self.toast(f"Connected to {(r or {}).get('domain', '')}")
                 self.reload()
                 self.open_mail(org)
             self.call({"op": "connect-mail", "organisation_id": org["id"], "key": json.dumps(key),
@@ -2960,9 +2936,9 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def disconnect_mail(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Disconnect Google Workspace?",
-                                 body="Kulan Fleet forgets the key. Mailboxes stay in Google as they are, but they're "
-                                      "no longer made, suspended or removed with People, and computers stop offering "
-                                      "them. Mailboxes still to suspend or delete stay on the list, to do by hand. To stop the key working too, "
+                                 body="Kulan Fleet deletes its copy of the key. Mailboxes stay in Google but are no "
+                                      "longer managed with People, and computers stop offering them. Unfinished "
+                                      "suspensions or deletions are left for you to do by hand. To revoke the key, "
                                       "delete it in Google Cloud.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Disconnect")
@@ -2991,8 +2967,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 group.set_description(error)
                 return
             users = (result or {}).get("users") or []
-            group.set_description(f"{plural(len(users), 'mailbox', 'mailboxes')}. To link one to someone, open them "
-                                  "in People › Work email › Link an existing mailbox.")
+            group.set_description(f"{plural(len(users), 'mailbox', 'mailboxes')}. To link one, open the person in "
+                                  "People and choose Link an existing mailbox.")
             for u in users[:500]:
                 row = Adw.ActionRow(title=GLib.markup_escape_text(u.get("address") or ""),
                                     subtitle=GLib.markup_escape_text(" · ".join(x for x in (
@@ -3024,9 +3000,9 @@ class FleetWindow(Adw.ApplicationWindow):
                 return
             result = result or {}
             owner, is_owner = result.get("owner"), bool(result.get("is_owner"))
-            group.set_description("They sign in to Kulan Fleet with their email and manage computers and people. "
+            group.set_description("Admins manage computers and people. "
                                   + ("As the Owner, you choose who they are." if is_owner else
-                                     "Only the Owner changes who they are."))
+                                     "Only the Owner can change who they are."))
             row = Adw.ActionRow(title=GLib.markup_escape_text(owner or "No Owner yet"), subtitle="Owner")
             row.add_prefix(Gtk.Image(icon_name="starred-symbolic"))
             group.add(row)
@@ -3036,11 +3012,10 @@ class FleetWindow(Adw.ApplicationWindow):
                 row = Adw.ActionRow(title=GLib.markup_escape_text(a["email"]), subtitle=f"admin since {ago(a.get('created_at'))}")
                 row.add_prefix(Gtk.Image(icon_name="avatar-default-symbolic"))
                 if is_owner:
-                    reset = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Reset their authenticator app "
-                                       "(a lost phone)", valign=Gtk.Align.CENTER, css_classes=["flat"])
+                    reset = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Reset their authenticator app", valign=Gtk.Align.CENTER, css_classes=["flat"])
                     reset.connect("clicked", lambda _b, e=a["email"]: self.reset_admin_authenticator(org, e))
                     row.add_suffix(reset)
-                    remove = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="No longer an admin",
+                    remove = Gtk.Button(icon_name="user-trash-symbolic", tooltip_text="Remove admin",
                                         valign=Gtk.Align.CENTER, css_classes=["flat"])
                     remove.connect("clicked", lambda _b, e=a["email"]: self.change_admin(org, "remove-admin", e))
                     row.add_suffix(remove)
@@ -3048,8 +3023,8 @@ class FleetWindow(Adw.ApplicationWindow):
             security = Adw.PreferencesGroup(title="Signing in to Kulan Fleet")
             page.add(security)
             require = Adw.SwitchRow(title="Require an authenticator app for admins",
-                                    subtitle="After the email code, a 6-digit code from an app on their phone. Set "
-                                             "up yours first (menu › Your authenticator app)", subtitle_lines=0,
+                                    subtitle="Admins enter a code from their phone after the email code. Set up "
+                                             "yours first from the menu.", subtitle_lines=0,
                                     active=bool(org.get("admin_two_step")), sensitive=is_owner)
 
             def required(row_, _p):
@@ -3063,7 +3038,7 @@ class FleetWindow(Adw.ApplicationWindow):
                         row_.set_active(not want)
                         return
                     org["admin_two_step"] = want
-                    self.toast("Kulan Fleet admins need their authenticator app now" if want else
+                    self.toast("Authenticator app required for admins" if want else
                                "An authenticator app is no longer required")
                 self.call({"op": "set-admin-two-step", "organisation_id": org["id"], "required": want}, done)
             require.connect("notify::active", required)
@@ -3085,23 +3060,23 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def reset_admin_authenticator(self, org: dict, email: str) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading=f"Reset {email}'s authenticator app?",
-                                 body="For a lost or new phone: their authenticator app stops working for Kulan Fleet, "
-                                      "and they set one up again when they next sign in. Check it's really them asking.")
+                                 body="Use this for a lost or new phone. They set up their authenticator app again "
+                                      "at their next sign-in. Make sure the request really comes from them.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("reset", "Reset")
         dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.connect("response", lambda _d, r: r == "reset" and self.call(
             {"op": "reset-admin-two-step", "organisation_id": org["id"], "email": email},
-            lambda res, error: self.toast(error or f"Reset: {email} sets it up again when they next sign in"),
+            lambda res, error: self.toast(error or f"{email} will set it up at their next sign-in"),
             {"removed": 1}))
         dialog.present(self)
         return dialog
 
     def reset_two_step(self, org: dict, person: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading=f"Reset {person['username']}'s two-step sign-in?",
-                                 body="For a lost security key or phone: their keys and codes stop working on every "
-                                      "computer at its next report, and they sign in with their password until they set "
-                                      "up a new one (Kulan Settings reminds them if it's required).")
+                                 body="Use this for a lost security key or phone. Their keys and codes stop working at "
+                                      "each computer's next report, and they sign in with only their password until "
+                                      "they set up a new one.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("reset", "Reset")
         dialog.set_response_appearance("reset", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -3137,10 +3112,9 @@ class FleetWindow(Adw.ApplicationWindow):
             return None
         dialog = Adw.AlertDialog(
             heading=f"Recovery code for {name}",
-            body="Write this down and keep it somewhere safe, away from this computer. If the Owner ever loses their "
-                 "email account, signing in to Kulan Fleet with a new email and entering this code (menu › Become "
-                 "the Owner with a recovery code) makes that email the Owner. It's shown only now; using it gives "
-                 "a new one.")
+            body="Write this down and keep it safe, away from this computer. If the Owner loses their email "
+                 "account, sign in with another email and enter this code under Become the Owner in the menu. "
+                 "It's shown only once. Using it makes a new one.")
         dialog.set_extra_child(Gtk.Label(label=code, selectable=True, css_classes=["fleet-code"], wrap=True,
                                          margin_top=6))
         dialog.add_response("copy", "Copy code")
@@ -3152,8 +3126,8 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def recover_owner(self) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Become the Owner",
-                                 body="Enter the organisation's recovery code (written down when the Owner was set). "
-                                      "The email you're signed in with becomes the Owner.")
+                                 body="Enter the organisation's recovery code. The email you're signed in with "
+                                      "becomes the Owner.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         entry = Adw.EntryRow(title="Recovery code")
         box.append(entry)
@@ -3229,7 +3203,7 @@ def sample() -> dict:
             "sample_people": [
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
                  "mailbox": "amina@kulan.example", "mailbox_state": "active", "mailbox_todo": "rename",
-                 "mailbox_error": "Google couldn't be reached: try again in a minute",
+                 "mailbox_error": "Google couldn't be reached. Try again in a minute",
                  "uid": 70000, "role": "employee", "enabled": True, "must_change": True, "all_computers": True,
                  "computers": [], "groups": [],
                  "two_step": [{"id": "t1", "kind": "key", "label": "YubiKey 5", "created_on": "kca-laptop-01",
@@ -3289,7 +3263,7 @@ def sample() -> dict:
                 "provider": "google", "domain": "kulan.example", "admin_email": "it@kulan.example",
                 "client_email": "kulan-fleet@kulan-mail.iam.gserviceaccount.com", "client_id": "112233445566778899001",
                 "connected_by": "admin@kulan.example", "connected_at": iso(86400),
-                "last_error": "Google couldn't be reached: try again in a minute"}},
+                "last_error": "Google couldn't be reached. Try again in a minute"}},
             "sample_mail_users": {"users": [{"address": "amina@kulan.example", "name": "Amina Yusuf", "suspended": False,
                                              "admin": False, "username": "amina"},
                                             {"address": "ceo@kulan.example", "name": "Mohamud", "suspended": False,
@@ -3370,7 +3344,7 @@ class FleetApp(Adw.Application):
                     assert app_problem("debian", "Bad Name", False)
                     assert policy_key_label("app:block:debian:steam") == "Block steam" and policy_key_label("usb") == "USB drives"
                     summary = policy_summary({"firewall": True, "usb": "approved", "required_apps": [{"source": "debian", "id": "x"}]})
-                    assert summary == "Firewall, USB: approved drives only, 1 app required", summary
+                    assert summary == "Firewall, approved USB drives only, 1 app required", summary
                     assert policy_summary({}) == "No policy of its own"
                     # Security and activity (2.8c): the report, the PDF, the review, the log and its CSV.
                     win.open_weekly(org)
@@ -3416,7 +3390,7 @@ class FleetApp(Adw.Application):
                     flat2 = [line for _h, rows_ in weekly_sections(win.data["sample_weekly"]["summary"], None) for line in rows_]
                     assert ("Two-step sign-in not set up: 1", "omar", "bad") in flat2, flat2
                     # Google Workspace mailboxes (2.8e): the page, connecting, each mailbox dialog.
-                    assert ("Mailboxes with something left to do: 1", "amina (name still to change)", "bad") in flat2, flat2
+                    assert ("Mailboxes needing attention: 1", "amina (name still to change)", "bad") in flat2, flat2
                     win.open_mail(org)
                     connect = win.connect_mail(org)
                     assert not connect.get_response_enabled("connect")
@@ -3435,7 +3409,7 @@ class FleetApp(Adw.Application):
                                    win.mailbox_action(org, amina, "new-password"), win.mailbox_action(org, amina, "unlink"),
                                    win.show_mailbox_password("Amina", "amina@kulan.example", "abcd-EFGH-2346-mnpq")):
                         dialog.force_close()
-                    assert win.mailbox_note({"mailbox_error": "x"}).startswith(". The mailbox isn't done yet")
+                    assert win.mailbox_note({"mailbox_error": "x"}).startswith(". The mailbox wasn't updated")
                     assert win.mailbox_note({}) == "" and MAILBOX_ADDRESS.match("amina.y@kulan.example")
                     assert not MAILBOX_ADDRESS.match("Amina@kulan.example") and not MAILBOX_ADDRESS.match("a@b")
                     assert policy_summary({"two_step": "everyone"}) == "Two-step sign-in for everyone"

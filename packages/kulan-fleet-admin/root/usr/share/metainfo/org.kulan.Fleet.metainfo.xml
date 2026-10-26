@@ -6,14 +6,14 @@
   <name>Kulan Fleet</name>
   <summary>Look after your organisation's Kulan OS computers</summary>
   <description>
-    <p>For IT admins: see every computer that joined your organisation, and keep them safe and up to date from this one.</p>
+    <p>See every computer that joins your organisation, and keep them all secure, compliant and up to date.</p>
     <ul>
       <li>Which computers need security updates, and which don't meet the organisation's policy</li>
       <li>Policies for automatic updates, the firewall, the screen lock and disk encryption</li>
       <li>Each computer's apps, alerts and an activity log</li>
-      <li>Lock, restart or erase a lost or stolen computer, only when its user allowed it and its disk is encrypted</li>
+      <li>Lock, restart or erase a lost or stolen computer. Erasing needs the user's permission and an encrypted disk</li>
     </ul>
-    <p>Sign in with your work email: Kulan Fleet sends you a one-time code. Computers join from Kulan Settings › About.</p>
+    <p>Sign in with your work email. Computers join from Kulan Settings.</p>
   </description>
   <launchable type="desktop-id">org.kulan.Fleet.desktop</launchable>
   <developer id="com.kulangroup">
