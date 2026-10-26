@@ -204,6 +204,8 @@ function reply(b) {
   if (cm.admin_email !== "it@acme.test" || JSON.parse(cm.key).client_email !== "kf@acme-mail.iam.gserviceaccount.com") throw "connect-mail " + JSON.stringify(cm);
   await page.click("#add-person");
   await page.fill("#dlg input >> nth=0", "Leyla Nur");
+  await page.fill("#dlg input[spellcheck=false] >> nth=0", "Leyla");
+  if (await page.inputValue("#dlg input[spellcheck=false] >> nth=0") !== "leyla") throw "capitals in a username weren't made lower case";
   if (await page.inputValue("#dlg input[spellcheck=false] >> nth=1") !== "leyla@acme.test") throw "mailbox address not suggested";
   await page.click("#dlg-actions >> text=Add");
   await page.waitForSelector("#dlg-title:has-text('Setup code for Leyla Nur')");
@@ -311,6 +313,11 @@ function reply(b) {
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);
   if (wide > 390) throw "the page scrolls sideways on a phone: " + wide;
-  console.log("dashboard: every flow passed");
+  // A sign-in link that had expired: said plainly, and the address cleared.
+  const fresh = await browser.newPage();
+  await fresh.goto("http://127.0.0.1:18899/#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired");
+  await fresh.waitForSelector("#signin-msg:has-text('expired or was already used')");
+  if (new URL(fresh.url()).hash) throw "the error was left in the address";
+    console.log("dashboard: every flow passed");
   await browser.close(); srv.close();
 })().catch((e) => { console.log("FAIL", e); process.exit(1); });

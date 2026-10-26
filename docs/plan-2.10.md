@@ -13,6 +13,17 @@ when this list is empty.
 - One list of every bug and rough edge found; all fixed.
 - No developer tools or leftovers where people look (e.g. the Lynis entry in
   the app grid); the try-out session made obvious (Storage, About).
+- Found so far:
+  - Apps installed from outside Kulan OS (Claude Desktop, say) didn't show
+    in the app grid; only search found them.
+  - Apps that ask for desktop-wide shortcuts are refused without asking
+    (the GlobalShortcuts portal).
+  - In libadwaita forms (Kulan Fleet's Add a person), the line under each
+    field stops halfway across: a theme glitch.
+  - `lsb_release -d` says "Kulan OS" without the version.
+- Kulan Fleet sign-in emails from kulangroup.com through our own mail
+  service: a 6-digit code to type as well as the link, no low hourly limit,
+  and the Supabase Site URL set to the dashboard.
 
 ## 2. Security
 - An independent review of each part: the base system, Kulan Fleet (server,

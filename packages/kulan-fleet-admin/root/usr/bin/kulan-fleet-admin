@@ -185,6 +185,9 @@ def http(url: str, body: dict | None, headers: dict | None = None, method: str =
             message = None
         if isinstance(message, str) and message:
             message = message[0].upper() + message[1:]  # the server's messages start in lower case
+        if e.code == 429 and isinstance(message, str) and re.search(r"rate limit|only request this after", message, re.I):
+            message = ("Too many sign-in emails for now. Wait a few minutes (up to an hour if you asked several "
+                       "times), then try again.")
         raise FleetError(message or f"Server error {e.code}", two_step) from e
     except (urllib.error.URLError, OSError) as e:
         print(f"kulan-fleet-admin: {getattr(e, 'reason', e)}", file=sys.stderr)  # the details, for whoever looks
@@ -236,7 +239,11 @@ class Session:
         fragment = urllib.parse.parse_qs(url.fragment)
         query = urllib.parse.parse_qs(url.query)
         if "error_description" in fragment or "error_description" in query:
-            raise FleetError((fragment.get("error_description") or query["error_description"])[0])
+            reason = (fragment.get("error_description") or query["error_description"])[0]
+            if re.search(r"expired|invalid", reason, re.I):
+                raise FleetError("That sign-in link has expired or was already used. Each link works once, and asking "
+                                 "for a new one cancels the earlier ones. Ask for a new link and use the newest email.")
+            raise FleetError(reason)
         if "refresh_token" in fragment:
             # The browser already used the link: swap its refresh token for our own session.
             self._take(http(f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
@@ -339,8 +346,8 @@ def suggest_username(name: str) -> str:
 
 def username_problem(name: str) -> str | None:
     if not USERNAME.match(name):
-        return "Lower-case letters, digits, - or _, starting with a letter"
-    return "That name is reserved for the system" if name in RESERVED else None
+        return "Username: use lower-case letters, digits, - or _, starting with a letter."
+    return f"Username: {name} is used by the system. Choose another." if name in RESERVED else None
 
 
 def ago(iso: str | None) -> str:
@@ -665,7 +672,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 self.code_row.grab_focus()
                 self.signin_button.set_label("Sign in")
                 self.signin_note.set_label(f"We emailed {email}. Copy the “Sign in” link from the email and paste it here. "
-                                        "If you already opened it, paste the address from your browser.")
+                                        "If you already opened it, paste the address from your browser. If you ask "
+                                        "again, only the newest email's link works.")
             self.background(lambda: self.session.send_code(email), sent)
             return
         code = self.code_row.get_text().strip()
@@ -2404,6 +2412,12 @@ class FleetWindow(Adw.ApplicationWindow):
             return problem
 
         def user_changed(_e):
+            text = user.get_text()
+            if text != text.lower():  # capitals typed: lower case, as the computers need
+                at = user.get_position()
+                user.set_text(text.lower())  # runs this again with the lower-case name
+                user.set_position(at)
+                return
             if domain and address.get_text() in ("", suggested_address["last"]):
                 suggested_address["last"] = f"{user.get_text()}@{domain}" if user.get_text() else ""
                 address.set_text(suggested_address["last"])
@@ -3315,7 +3329,12 @@ class FleetApp(Adw.Application):
                                        win.set_person_enabled(org, person, False)):
                             dialog.force_close()
                         win.open_person(org, person, False)
-                    win.add_person(org, True).force_close()
+                    adding = win.add_person(org, True)
+                    username_row = adding.get_extra_child().get_first_child().get_row_at_index(1)
+                    username_row.set_text("MohamedM")
+                    assert username_row.get_text() == "mohamedm", username_row.get_text()
+                    assert adding.get_response_enabled("add"), "a lower-cased username can be added"
+                    adding.force_close()
                     win.add_person(org, False).force_close()
                     win.show_setup_code("Amina", setup_code(), True).force_close()
                     win.open_admins(org)

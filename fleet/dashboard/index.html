@@ -371,6 +371,16 @@ const MAILBOX_STATE = { active: ["working", "good"], suspended: ["suspended", "w
 const mailNote = (out) => out?.mailbox_error ? ` The mailbox wasn't updated (${out.mailbox_error}). Retry it from their page.` : "";
 const orgNow = () => data?.organisations.find((o) => o.id === $("org").value);
 
+// A sign-in link that didn't work comes back with the reason in the address: said plainly, then cleared.
+const linkError = (() => {
+  const p = new URLSearchParams(location.hash.slice(1) + "&" + location.search.slice(1));
+  const code = p.get("error_code"), text = p.get("error_description");
+  if (!code && !text) return null;
+  history.replaceState(null, "", location.pathname);
+  return code === "otp_expired" || /expired|invalid/i.test(text || "")
+    ? "That sign-in link has expired or was already used. Each link works once, and asking for a new one cancels the earlier ones. Ask for a new link, then use the newest email."
+    : `That sign-in link didn't work (${(text || code).replace(/\+/g, " ")}). Ask for a new one.`;
+})();
 const supabase = createClient(SUPABASE_URL, PUBLISHABLE_KEY, { auth: { flowType: "pkce", detectSessionInUrl: true } });
 const $ = (id) => document.getElementById(id);
 let data = null;
@@ -981,8 +991,8 @@ function suggestUsername(name) {
   return first && !RESERVED.has(first) ? first : "";
 }
 function usernameProblem(u) {
-  if (!USERNAME.test(u)) return "Lower-case letters, digits, - or _, starting with a letter";
-  return RESERVED.has(u) ? "That name is reserved for the system" : null;
+  if (!USERNAME.test(u)) return "Username: use lower-case letters, digits, - or _, starting with a letter.";
+  return RESERVED.has(u) ? `Username: ${u} is used by the system. Choose another.` : null;
 }
 
 function showCode(name, code, first) {
@@ -1026,6 +1036,11 @@ function addPerson() {
   const problem = () => usernameProblem(user.value) ||
     (domain && makeMailbox.checked && !MAILBOX_ADDRESS.test(address.value.trim().toLowerCase()) ? "The mailbox address doesn't look right" : null);
   const userChanged = () => {
+    if (user.value !== user.value.toLowerCase()) {  // capitals typed: lower case, as the computers need
+      const at = user.selectionStart;
+      user.value = user.value.toLowerCase();
+      user.setSelectionRange(at, at);
+    }
     if (domain && (address.value === "" || address.value === suggestedAddress)) { suggestedAddress = user.value ? `${user.value}@${domain}` : ""; address.value = suggestedAddress; }
     err.textContent = user.value ? problem() || "" : "";
   };
@@ -1803,8 +1818,14 @@ $("signin-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const email = $("email").value.trim();
   const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true } });
-  $("signin-msg").textContent = error ? error.message : "Check your email for the sign-in link.";
+  $("signin-msg").textContent = !error
+    ? "Check your email and open the sign-in link in this browser. If you ask again, only the newest email's link works."
+    : error.status === 429 || /rate limit|only request this after/i.test(error.message)
+      ? "Too many sign-in emails for now. Wait a few minutes (up to an hour if you asked several times), then try again."
+      : error.message;
 });
+
+if (linkError) $("signin-msg").textContent = linkError;
 
 // Fires once at start (INITIAL_SESSION) and on every sign-in or sign-out.
 supabase.auth.onAuthStateChange((event, session) => {
