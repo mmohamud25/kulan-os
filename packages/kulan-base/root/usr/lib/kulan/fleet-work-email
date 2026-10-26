@@ -30,8 +30,8 @@ try:
         "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
         GLib.Variant("(susssasa{sv}i)", (
             "Kulan Settings", 0, "mail-unread-symbolic", "Connect your work email",
-            f"Your organisation made you a mailbox: {mail['address']}. Connect it to get your mail, calendar, "
-            f"contacts and Google Drive here. Sign in as {mail['address']}.",
+            f"Your organisation set up {mail['address']} for you. Connect it to get your mail, calendar, "
+            "contacts and Google Drive here.",
             ["connect", "Connect", "default", "Connect", "later", "Not now"],
             {"urgency": GLib.Variant("y", 1), "desktop-entry": GLib.Variant("s", "org.kulan.Settings")}, 0)),
         GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 10_000, None).unpack()

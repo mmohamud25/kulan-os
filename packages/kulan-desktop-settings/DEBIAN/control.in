@@ -8,5 +8,5 @@ Depends: kulan-base (= @VERSION@), libglib2.0-bin, dconf-cli, plymouth, plymouth
 Recommends: gnome-shell-extension-appindicator, gnome-shell-extension-desktop-icons-ng, gir1.2-dbusmenu-glib-0.4, gtk-update-icon-cache, initramfs-tools, console-setup, gnome-shell-extension-tiling-assistant, power-profiles-daemon, gnome-sushi, gnome-characters, gnome-weather, gnome-clocks, baobab, tesseract-ocr, tesseract-ocr-eng, tesseract-ocr-ara, fwupd, systemd-timesyncd, python3-nautilus, xdg-user-dirs, ptyxis, zsh, zsh-autosuggestions, zsh-syntax-highlighting, fzf, ripgrep, fd-find, bat, eza, zoxide, btop, qt5-gtk-platformtheme, qt6-gtk-platformtheme
 Homepage: @HOME_URL@
 Description: @NAME@ desktop look and defaults
- Wallpapers, logo, fonts and icon choices, the frosted-glass dock and top
- bar, login screen branding, boot splash and boot menu settings for @NAME@.
+ The @NAME@ wallpapers, logo, fonts and icons, the dock and top bar, and
+ the look of the login screen, boot splash and boot menu.

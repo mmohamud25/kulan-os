@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 """Kulan OS fleet management, the computer's side.
 
-  kulan-fleet status [--json]          joined or not, and what is shared (no root needed)
-  kulan-fleet join SERVER [--allow-erase]  join an organisation; the one-time code on stdin (root)
-  kulan-fleet report                   send this computer's status now (root; hourly by timer)
+  kulan-fleet status [--json]          show whether it's managed and what it shares
+  kulan-fleet join SERVER [--allow-erase]  join an organisation, with the one-time code on stdin (root)
+  kulan-fleet report                   send this computer's status now (root; also runs hourly)
   kulan-fleet allow-erase on|off       let the organisation erase this computer if it's lost (root)
-  kulan-fleet leave                    stop reporting and forget the organisation (root)
-  kulan-fleet listen                   report at once when the organisation asks (root; the
-                                       kulan-fleet-listen service)
+  kulan-fleet leave                    stop reporting and leave the organisation (root)
+  kulan-fleet listen                   report as soon as the organisation asks (root; used by
+                                       kulan-fleet-listen.service)
 
 A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
@@ -128,13 +128,13 @@ SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version 
           "Waiting updates and whether a restart is needed", "Compliance mode results", "TPM unlock on or off",
           "Disk encryption and firewall on or off", "Names and versions of installed apps (once a day)",
           "Host name and when it last started",
-          "For accounts the organisation manages: a scrambled form (hash) of a new password, never the password",
-          "If the organisation controls USB drives: the maker, model, serial number and name of drives plugged in "
-          "(nothing about what's on them)",
-          "Who uses it: each account's username and when it was last used (not what they do)",
-          "If you set up two-step sign-in: your security key's public key or your phone code's secret, so it "
-          "works on the organisation's other computers you use",
-          "Your screen, only during remote help you allowed, straight to the admin who asked (never recorded or kept)"]
+          "For accounts the organisation manages, a scrambled copy of a new password, never the password itself",
+          "If the organisation controls USB drives, the maker, model, serial number and name of drives you "
+          "plug in. Nothing about what's on them",
+          "Each account's username and when it was last used. Not what anyone does",
+          "If you set up two-step sign-in, your security key's public key or your phone code's secret, so it "
+          "works on your organisation's other computers",
+          "Your screen, only during remote help you allow, sent straight to the admin. Never recorded or kept"]
 APPS_EVERY_S = 24 * 3600
 MAX_APPS = 3000
 TIMEOUT = 30
@@ -640,7 +640,7 @@ def lost_mode_on(notice_s: int = LOST_NOTICE_S) -> tuple[bool, str]:
     first, so nobody new gets in during the notice."""
     org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
     already = LOST.exists()
-    message = (f"This computer was reported lost. {org} has locked it: nobody can sign in. "
+    message = (f"This computer was reported lost, and {org} has locked it. Nobody can sign in. "
                f"If you found it, please return it to {org}.")
     try:
         current = NOLOGIN.read_text()
@@ -658,7 +658,7 @@ def lost_mode_on(notice_s: int = LOST_NOTICE_S) -> tuple[bool, str]:
     run(["dconf", "update"])
     if not already:
         warn_users("This computer is in lost mode",
-                   f"{org} reported it lost. Everyone is signed out in {notice_s} seconds: save your work now.")
+                   f"{org} reported it lost. Save your work. Everyone will be signed out in {notice_s} seconds.")
         time.sleep(notice_s)
     signed_out = 0
     for line in run(["loginctl", "list-users", "--no-legend"]).stdout.splitlines():
@@ -743,12 +743,12 @@ def erase_with_notice(action_id: str, resumed: bool = False) -> tuple[bool, str]
     org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
     if resumed:
         warn_users("This computer is being erased",
-                   f"{org} asked for it to be erased, and it was switched off before that finished. "
-                   "It's being erased now and will switch off.")
+                   f"{org} asked for this computer to be erased. Erasing will finish now, and then "
+                   "it will switch off.")
     else:
         warn_users("This computer will be erased",
-                   f"{org} is erasing this computer, as it was allowed to if the computer was lost. "
-                   f"In {ERASE_NOTICE_S} seconds everything on it becomes unreadable and it switches off.")
+                   f"{org} is erasing this computer, as allowed if it was lost. In {ERASE_NOTICE_S} "
+                   "seconds, everything on it becomes unreadable and it switches off.")
         time.sleep(ERASE_NOTICE_S)
     result = erase()
     ERASE_PENDING.unlink(missing_ok=True)
@@ -810,7 +810,7 @@ def join(server: str, allow_erase: bool = False) -> int:
         return 64
     code = sys.stdin.readline().strip()
     if not code:
-        say("The one-time code from your organisation is needed (one line on standard input)")
+        say("Enter the one-time code from your organisation on standard input")
         return 64
     try:
         reply = post(server, "/v1/enrol", {"code": code, "hostname": socket.gethostname(),
@@ -1033,7 +1033,7 @@ def leave() -> int:
     # Its accounts stay as ordinary accounts on this computer, no longer managed.
     people.STATE.unlink(missing_ok=True)
     publish(None)
-    say("Left the organisation: nothing is reported any more")
+    say("Left the organisation. Nothing is reported any more")
     return 0
 
 
@@ -1048,7 +1048,7 @@ def status(as_json: bool) -> int:
         if public.get("last_error"):
             print("Last problem: " + public["last_error"])
     else:
-        print("Not managed: this computer doesn't report to anyone")
+        print("Not managed. This computer doesn't report to anyone")
     return 0
 
 

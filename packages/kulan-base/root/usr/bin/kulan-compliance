@@ -149,8 +149,8 @@ def apply_updates() -> None:
 
 def check_lock() -> tuple[str, str]:
     if not DCONF_LOCKS.exists() or not DCONF_KEYS.exists():
-        return FAIL, "Each person sets their own screen lock (it can be turned off)"
-    return PASS, f"Locks after {IDLE_SECONDS // 60} minutes away, for everyone; it can't be turned off"
+        return FAIL, "Each person sets their own screen lock and can turn it off"
+    return PASS, f"Locks after {IDLE_SECONDS // 60} minutes away for everyone. It can't be turned off"
 
 
 def apply_lock() -> None:
@@ -270,8 +270,8 @@ def check_secure_boot() -> tuple[str, str]:
     except OSError:
         data = b""
     if data and data[-1] == 1:
-        return PASS, "On: only signed software can start the computer"
-    return INFO, "Off. It's turned on in the computer's firmware settings"
+        return PASS, "On. Only signed software can start the computer"
+    return INFO, "Off. Turn it on in the computer's firmware settings"
 
 
 CONTROLS = [
@@ -373,7 +373,7 @@ def turn_off() -> int:
         p.unlink(missing_ok=True)
     run(["dconf", "update"])
     write(STATE_FILE, json.dumps({"mode": "off", "since": int(time.time())}) + "\n")
-    print("Compliance mode off: the screen-lock setting can be changed again; everything else stays as it is")
+    print("Compliance mode is off. The screen lock can be changed again. Everything else stays as it is")
     return 0
 
 

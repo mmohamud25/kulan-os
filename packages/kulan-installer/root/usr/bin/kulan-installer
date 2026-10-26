@@ -218,8 +218,8 @@ class Installer(Adw.ApplicationWindow):
                                          expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
         rows.append(self.language_row)
         box.append(rows)
-        try_it = Gtk.Label(label="You can keep trying Kulan OS from the USB stick: close this window. Nothing "
-                                 "changes on this computer until you press Install at the end.",
+        try_it = Gtk.Label(label="To keep trying Kulan OS, close this window. Nothing changes on this "
+                                 "computer until you press Install.",
                            wrap=True, xalign=0, css_classes=["dim-label"])
         box.append(try_it)
         return self.page("welcome", "Welcome", "Install Kulan OS", "Welcome to Kulan OS",
@@ -283,7 +283,7 @@ class Installer(Adw.ApplicationWindow):
         self.disks_loading = True
         if button is not None:
             button.set_sensitive(False)
-            button.set_label("Looking at the disks…")
+            button.set_label("Checking disks…")
 
         def work() -> None:
             try:
@@ -291,7 +291,7 @@ class Installer(Adw.ApplicationWindow):
                 info = json.loads(out.stdout or "{}")
                 error = info.get("error") if isinstance(info, dict) else "unexpected answer"
                 if out.returncode in (126, 127) and not out.stdout:
-                    error = "the administrator password wasn’t given"
+                    error = "no admin password was entered"
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
                 info, error = {}, str(exc)
             GLib.idle_add(done, info, error)
@@ -302,7 +302,7 @@ class Installer(Adw.ApplicationWindow):
                 button.set_sensitive(True)
                 button.set_label("Continue")
             if error:
-                self.toast(f"Couldn’t look at the disks: {error}. Press Continue to try again.")
+                self.toast(f"Couldn’t check the disks: {error}. Press Continue to try again.")
                 return False
             self.disk_info = info
             self.push(self.disk_page())
@@ -326,11 +326,11 @@ class Installer(Adw.ApplicationWindow):
                 first = first or check
                 if mode == "erase":
                     title = f"Erase {name} and install"
-                    sub = f"{size_text(disk['size'])} · everything on it now ({what}) is deleted"
+                    sub = f"{size_text(disk['size'])} · Deletes everything on it ({what})"
                 else:
                     title = f"Install next to {', '.join(disk['contents']) or 'what’s there'} on {name}"
-                    sub = f"Uses its {size_text(disk['largest_free'])} of free space; nothing is deleted. You " \
-                          "choose the system each time the computer starts"
+                    sub = f"Uses {size_text(disk['largest_free'])} of free space. Nothing is deleted. Choose " \
+                          "a system each time the computer starts"
                 row = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(sub),
                                     activatable_widget=check, sensitive=disk["big_enough"])
                 if disk["removable"]:
@@ -348,21 +348,21 @@ class Installer(Adw.ApplicationWindow):
                 continue
             other = ", ".join(disk["contents"])
             if disk["table"] != "gpt":
-                why = (f"To keep {other}, this disk would need the newer GPT layout. Erase it instead, or "
-                       "install on another disk.")
+                why = (f"This disk’s layout is too old to install next to {other}. Erase it, or "
+                       "choose another disk.")
             elif "Windows" in disk["contents"]:
-                why = ("To keep Windows, first make room: in Windows, open Disk Management, right-click the "
-                       "C: drive, choose Shrink Volume and free at least 20 GB, then start this installer again.")
+                why = ("To keep Windows, first free at least 20 GB. In Windows, open Disk Management, "
+                       "right-click the C: drive and choose Shrink Volume. Then start the installer again.")
             else:
-                why = f"To keep {other}, first make at least 20 GB of free space on this disk in that system."
-            hint = Adw.ActionRow(title=GLib.markup_escape_text(f"Installing next to {other} isn’t possible yet"),
+                why = f"To keep {other}, first use it to free at least 20 GB on this disk."
+            hint = Adw.ActionRow(title=GLib.markup_escape_text(f"Can’t install next to {other} yet"),
                                  subtitle=GLib.markup_escape_text(why), subtitle_lines=0)
             hint.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
             group.append(hint)
         if not self.disk_buttons:
             group.append(Adw.ActionRow(title="No disk to install on",
-                                       subtitle="Kulan OS needs a disk of at least 20 GB (not the USB stick "
-                                                "it runs from)"))
+                                       subtitle="Kulan OS needs a disk of at least 20 GB, other than "
+                                                "this USB stick"))
         box.append(group)
         # Free space first when it's there (safer), else the first disk.
         preferred = next((b for b in self.disk_buttons if b[2] == "free"), self.disk_buttons[0] if self.disk_buttons else None)
@@ -371,8 +371,8 @@ class Installer(Adw.ApplicationWindow):
 
         enc = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         self.encrypt_row = Adw.SwitchRow(title="Encrypt the disk",
-                                         subtitle="If the computer is lost or stolen, nobody can read your files. "
-                                                  "You type a disk password when it starts",
+                                         subtitle="Protects your files if the computer is lost or stolen. "
+                                                  "You enter a password when it starts",
                                          active=not self.is_virtual_machine())
         self.disk_password = Adw.PasswordEntryRow(title="Disk password (at least 8 characters)")
         self.disk_password2 = Adw.PasswordEntryRow(title="Disk password again")
@@ -382,8 +382,8 @@ class Installer(Adw.ApplicationWindow):
         enc.append(self.disk_password)
         enc.append(self.disk_password2)
         box.append(enc)
-        note = Gtk.Label(label="Write the disk password down somewhere safe: without it, your files can’t be "
-                               "recovered. With TPM unlock (Kulan Settings › Security) you can type a short PIN instead later.",
+        note = Gtk.Label(label="Keep the disk password somewhere safe. Without it, your files can’t be "
+                               "recovered. Later, you can use a short PIN instead in Kulan Settings › Security.",
                          wrap=True, xalign=0, css_classes=["dim-label"])
         self.encrypt_row.bind_property("active", note, "visible", GObject.BindingFlags.SYNC_CREATE)
         box.append(note)
@@ -429,20 +429,20 @@ class Installer(Adw.ApplicationWindow):
             self.zone_row.set_selected(self.zones.index(guess))
         rows.append(self.zone_row)
         return self.page("time", "Time zone", "Step 3 of 4", "Your time zone",
-                         "Type a city to find it. The clock sets itself from the internet.", rows,
+                         "Type a city to find it.", rows,
                          on_next=lambda: self.push(self.account_page()))
 
     # 5. account
     def account_page(self) -> Adw.NavigationPage:
         rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         self.full_name = Adw.EntryRow(title="Your name")
-        self.username = Adw.EntryRow(title="User name (for signing in)")
+        self.username = Adw.EntryRow(title="User name")
         self.hostname = Adw.EntryRow(title="This computer’s name")
         self.password = Adw.PasswordEntryRow(title="Password")
         self.password2 = Adw.PasswordEntryRow(title="Password again")
         self.autologin = Adw.SwitchRow(title="Sign in automatically",
-                                       subtitle="Not recommended: anyone who starts the computer gets your files, "
-                                                "and saved passwords ask for a password after you sign in")
+                                       subtitle="Not recommended. Anyone who starts the computer can open "
+                                                "your files")
         self.edited = {"user": False, "host": False}
 
         def name_changed(_e) -> None:
@@ -461,16 +461,16 @@ class Installer(Adw.ApplicationWindow):
         for row in (self.full_name, self.username, self.hostname, self.password, self.password2, self.autologin):
             rows.append(row)
         return self.page("account", "Account", "Step 4 of 4", "Your account",
-                         "You’ll sign in with this. More people can have their own accounts later.", rows,
+                         "You’ll use this to sign in. You can add more people later.", rows,
                          on_next=self.check_account)
 
     def check_account(self) -> None:
         if not self.full_name.get_text().strip():
             self.toast("Type your name")
         elif not NAME_RULE.match(self.username.get_text()):
-            self.toast("The user name must start with a small letter, then small letters, digits, - or _")
+            self.toast("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
         elif not HOST_RULE.match(self.hostname.get_text()):
-            self.toast("The computer’s name may use small letters, digits and dashes")
+            self.toast("Use lowercase letters, digits and dashes for the computer’s name")
         elif len(self.password.get_text()) < 6:
             self.toast("Choose a password of at least 6 characters")
         elif self.password.get_text() != self.password2.get_text():
@@ -542,8 +542,7 @@ class Installer(Adw.ApplicationWindow):
         box.append(self.bar)
         box.append(self.status)
         tips = Gtk.Label(wrap=True, xalign=0, margin_top=24,
-                         label="While you wait: Kulan Settings has everything in one place, the Store has "
-                               "apps checked for Kulan OS, and Cmd+Space finds apps, files and settings.")
+                         label="Tip. After you restart, press Cmd+Space to find apps, files and settings.")
         box.append(tips)
         page = self.page("installing", "Installing", "Installing", "Installing Kulan OS", None, box, next_label=None)
         page.set_can_pop(False)
@@ -615,7 +614,7 @@ class Installer(Adw.ApplicationWindow):
         self.set_deletable(True)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         if ok:
-            box.append(Gtk.Label(label="Take out the USB stick when the screen goes dark, then Kulan OS starts.",
+            box.append(Gtk.Label(label="Remove the USB stick when the screen goes dark.",
                                  wrap=True, xalign=0))
             page = self.page("done", "Done", "Done", "Kulan OS is installed", None, box, next_label="Restart now",
                              on_next=self.restart)
@@ -623,13 +622,12 @@ class Installer(Adw.ApplicationWindow):
             box.append(Gtk.Label(label=error, wrap=True, xalign=0, css_classes=["kulan-warning"]))
             changed = (getattr(self, "result", None) or {}).get("changed", "")
             what = {
-                "erased": "The disk had already been erased when this happened, so what was on it before is gone. "
+                "erased": "The disk was already erased, so what was on it is gone. "
                           "You can try again, or keep using Kulan OS from the USB stick.",
-                "removed": "The new partitions were taken away again: the other system and its free space are as "
-                           "they were.",
-                "left": "New partitions were made in the free space and couldn’t be taken away. Before trying "
-                        "again, delete the partitions named “Kulan OS”, “Kulan boot” or “EFI” that were just made, "
-                        "with the Disks app, or the installer won’t find the free space.",
+                "removed": "The new partitions were removed. The other system and its free space are "
+                           "unchanged.",
+                "left": "The new partitions couldn’t be removed. Before trying again, use the Disks app to "
+                        "delete the new partitions named “Kulan OS”, “Kulan boot” or “EFI”.",
             }.get(changed, "Nothing on the disk was changed.")
             box.append(Gtk.Label(label=what, wrap=True, xalign=0))
             box.append(Gtk.Label(label=f"The full log is in {LOG}.", wrap=True, xalign=0, css_classes=["dim-label"]))
@@ -658,7 +656,7 @@ class Installer(Adw.ApplicationWindow):
                                       "org.freedesktop.login1.Manager", "Reboot", GLib.Variant("(b)", (True,)), None,
                                       Gio.DBusCallFlags.NONE, 10000, None)
         except GLib.Error as exc:
-            self.toast(f"Restart from the top-right menu: {exc.message}")
+            self.toast("Couldn’t restart. Use the menu at the top right.")
 
 
 class App(Adw.Application):
@@ -733,7 +731,7 @@ def main(argv: list[str]) -> int:
             return 2
     if not self_test and not demo and not Path("/run/live/medium").is_dir() \
             and os.environ.get("KULAN_INSTALLER_ANYWHERE") != "1":
-        print("Kulan Installer runs from the Kulan OS USB stick (the live session).", file=sys.stderr)
+        print("Kulan Installer runs from the Kulan OS USB stick.", file=sys.stderr)
     app = App(self_test, demo)
     status = app.run([argv[0]])
     return status or app.code

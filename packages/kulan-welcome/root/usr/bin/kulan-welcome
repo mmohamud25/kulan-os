@@ -346,7 +346,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def on_close(self, _window: Gtk.Window) -> bool:
         if self.migrating:
-            self.toast("Your files are still being copied. Wait until it finishes.")
+            self.toast("Your files are still being copied.")
             return True
         try:
             if self.startup_switch.get_active():
@@ -405,16 +405,16 @@ class WelcomeWindow(Adw.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER, vexpand=True)
         box.append(Gtk.Image(icon_name="kulan-logo", pixel_size=112))
         box.append(Gtk.Label(label="hello", css_classes=["kulan-hello"]))
-        box.append(Gtk.Label(label=f"Welcome to {self.name}. Let's set things up the way you like.",
+        box.append(Gtk.Label(label=f"Welcome to {self.name}. Let's get you set up.",
                              css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER))
-        box.append(Gtk.Label(label="Every step can be skipped and changed later in Kulan Settings.",
+        box.append(Gtk.Label(label="You can skip any step and change it later in Kulan Settings.",
                              css_classes=["dim-label", "caption"], wrap=True, justify=Gtk.Justification.CENTER))
         return box
 
     # --- 2: look --------------------------------------------------------------
     def build_appearance(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("Choose your look", "Change it any time in Kulan Settings > Appearance."))
+        box.append(self.heading("Choose your look", "You can change this later in Kulan Settings."))
 
         cards = Gtk.Box(spacing=14, halign=Gtk.Align.CENTER, homogeneous=True)
         current = self.current_style()
@@ -503,7 +503,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         apps = settings("org.gnome.desktop.a11y.applications")
         rows = []
         if has_key(self.settings, "text-scaling-factor"):
-            larger = Adw.SwitchRow(title="Larger text", subtitle="Text in every app is a quarter bigger",
+            larger = Adw.SwitchRow(title="Larger text", subtitle="Makes text bigger in every app",
                                    active=self.settings.get_double("text-scaling-factor") > 1.0)
             larger.connect("notify::active", lambda r, _p: self.settings.set_double(
                 "text-scaling-factor", 1.25 if r.get_active() else 1.0))
@@ -513,7 +513,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
             a11y.bind("high-contrast", contrast, "active", Gio.SettingsBindFlags.DEFAULT)
             rows.append(contrast)
         if has_key(self.settings, "enable-animations"):
-            motion = Adw.SwitchRow(title="Reduce motion", subtitle="Windows and menus appear without animation")
+            motion = Adw.SwitchRow(title="Reduce motion", subtitle="Turns off animations")
             self.settings.bind("enable-animations", motion, "active",
                                Gio.SettingsBindFlags.DEFAULT | Gio.SettingsBindFlags.INVERT_BOOLEAN)
             rows.append(motion)
@@ -542,28 +542,27 @@ class WelcomeWindow(Adw.ApplicationWindow):
     def build_privacy(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.append(self.heading("Your privacy", f"{self.name} sends no usage data, crash reports or "
-                                "advertising IDs. These choices keep more of you private.",
+                                "advertising IDs.",
                                 "preferences-system-privacy-symbolic"))
         group = Adw.PreferencesGroup()
         location = settings("org.gnome.system.location")
         if has_key(location, "enabled"):
-            loc = Adw.SwitchRow(title="Location services", subtitle="Lets apps such as Maps and Weather find "
-                                "where you are. Off by default")
+            loc = Adw.SwitchRow(title="Location services", subtitle="Lets apps like Maps and Weather use your location")
             location.bind("enabled", loc, "active", Gio.SettingsBindFlags.DEFAULT)
             group.add(loc)
 
         self.name_row = Adw.ActionRow(title="Computer name",
                                       subtitle=GLib.markup_escape_text(
-                                          f"“{GLib.get_host_name()}”: other devices on your network can see it"))
+                                          f"“{GLib.get_host_name()}” is visible to other devices on your network"))
         private = Gtk.Button(label="Make private", valign=Gtk.Align.CENTER)
         private.connect("clicked", self.on_private_name)
         private.set_sensitive(not self.live and Path(UPDATE_HELPER).exists())
         self.name_row.add_suffix(private)
         group.add(self.name_row)
 
-        self.dns_row = Adw.ActionRow(title="Block ads and trackers everywhere",
-                                     subtitle="Name lookups that block ads in every app and browser, encrypted "
-                                              "whenever the network allows (Mullvad's free DNS)")
+        self.dns_row = Adw.ActionRow(title="Block ads and trackers",
+                                     subtitle="In every app and browser, using Mullvad’s free DNS. Encrypted "
+                                              "when the network allows")
         dns = Gtk.Button(label="Turn on", valign=Gtk.Align.CENTER)
         dns.connect("clicked", self.on_adblock_dns)
         dns.set_sensitive(not self.live and Path(UPDATE_HELPER).exists())
@@ -580,9 +579,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
         if Path("/usr/lib/kulan/countme").exists():
             self.count_row = Adw.SwitchRow(
                 title="Count this computer, anonymously",
-                subtitle=f"Once a week {self.name} sends only its version, PC or Mac, and roughly how long it’s "
-                         "been installed. No ID and nothing about you. It helps us know how many computers to "
-                         "support. Change it any time in Kulan Settings › Privacy",
+                subtitle=f"Once a week, {self.name} sends its version, PC or Mac, and roughly how long it’s "
+                         "been installed. No ID and nothing about you.",
                 subtitle_lines=0, active=not Path(COUNTME_OFF).exists())
             self.count_row.set_sensitive(not self.live and Path(UPDATE_HELPER).exists())
             self.count_row.connect("notify::active", self.on_count)
@@ -652,12 +650,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
     def build_migration(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.append(self.heading("Bring your files", "Copy documents, photos, music and videos from another "
-                                "computer: plug in a drive with them, or a backup, then choose the folder.",
+                                "computer’s drive or backup.",
                                 "folder-download-symbolic"))
-        group = Adw.PreferencesGroup(description="Mac, Windows and Linux folders are recognised: Documents go to "
-                                     "Documents, Movies to Videos, and so on; anything else goes to a folder in "
-                                     "Documents. Nothing on the drive is changed, and files you already have here "
-                                     "are kept.")
+        group = Adw.PreferencesGroup(description="Folders from a Mac, Windows or Linux computer go to the matching "
+                                     "folders here. Anything else goes to a folder in Documents. Nothing on the "
+                                     "drive is changed, and files you already have are kept.")
         self.migrate_row = Adw.ActionRow(title="Choose a folder", subtitle="Your old home folder, or any folder")
         self.migrate_button = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         self.migrate_button.connect("clicked", self.on_choose_migration)
@@ -718,8 +715,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
             total = sum(size for _, _, size in files)
             free = shutil.disk_usage(Path.home()).free
             if total > free - 512 * 1024 ** 2:  # keep half a gigabyte spare
-                problem = (f"There isn't enough space: it needs {GLib.format_size(total)}, "
-                           f"and {GLib.format_size(max(free, 0))} is free here.")
+                problem = (f"Not enough space. This needs {GLib.format_size(total)}, "
+                           f"and {GLib.format_size(max(free, 0))} is free.")
                 return
             done_bytes = 0
             last = 0.0
@@ -768,12 +765,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
     def build_backups(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         box.append(self.heading("Back up your files", "Keep a copy of your files on a USB drive or another "
-                                "disk, so nothing is lost if this computer is.",
+                                "disk.",
                                 "drive-harddisk-symbolic"))
         group = Adw.PreferencesGroup()
         backups = Adw.ActionRow(title="File backups",
-                                subtitle="Automatic and encrypted, to a USB drive or another disk. Set up in "
-                                         "Kulan Settings › Backups")
+                                subtitle="Automatic and encrypted")
         button = Gtk.Button(label="Set up", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         button.connect("clicked", lambda _b: self.open_settings("backups"))
         button.set_sensitive(not self.live)
@@ -782,11 +778,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
         if self.live:
             restore = Adw.ActionRow(title="Restore points", subtitle="Set up automatically after you install")
         elif RESTORE_CONFIG.exists():
-            restore = Adw.ActionRow(title="Restore points", subtitle="On: the system can be rolled back if an "
-                                    "update ever causes trouble")
+            restore = Adw.ActionRow(title="Restore points", subtitle="Roll back the system if an update causes "
+                                    "problems")
             restore.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["success"]))
         else:
-            restore = self.link_row("Restore points", "Roll the system back if an update causes trouble",
+            restore = self.link_row("Restore points", "Roll back the system if an update causes problems",
                                     lambda: self.open_settings("updates"))
         group.add(restore)
         box.append(group)
@@ -795,20 +791,20 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- 7: passwords ---------------------------------------------------------------
     def build_passwords(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("Your passwords", "Keep every password in an encrypted vault on this computer. "
-                                "With KeePassXC’s browser add-on, Firefox can fill them in for you.",
+        box.append(self.heading("Your passwords", "Keep your passwords in an encrypted vault on this computer. "
+                                "Firefox can fill them in with the KeePassXC add-on.",
                                 "dialog-password-symbolic"))
-        group = Adw.PreferencesGroup(description="Choose one strong main password for the vault and write it "
-                                     "down somewhere safe: it can't be recovered.")
+        group = Adw.PreferencesGroup(description="Choose a strong main password and keep it somewhere safe. "
+                                     "It can't be recovered.")
         vault = Adw.ActionRow(title="Set up your password vault",
-                              subtitle="KeePassXC, built in and offline: choose “Create new database”")
+                              subtitle="In KeePassXC, choose “Create new database”")
         button = Gtk.Button(label="Open KeePassXC", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         button.connect("clicked", lambda _b: self.open_app("org.keepassxc.KeePassXC.desktop",
                                                            "KeePassXC isn't installed. Get it in Software."))
         vault.add_suffix(button)
         group.add(vault)
         group.add(Adw.ActionRow(title="Already use Bitwarden or 1Password?",
-                                subtitle="Bitwarden is on the next page; KeePassXC can also import from them"))
+                                subtitle="Get Bitwarden on the next page, or import into KeePassXC"))
         box.append(group)
         return self.page(box)
 
@@ -818,7 +814,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         box.append(
             self.heading(
                 "Add your apps",
-                "Pick the apps you want and install them in one go. More are in the Software app.",
+                "Choose apps to install. Find more in Software.",
             )
         )
         self.apps_status = Gtk.Label(label="Checking which apps this computer can run…", css_classes=["dim-label"])
@@ -852,8 +848,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         box.append(self.install_spinner)
 
         addons = Adw.PreferencesGroup(title="Add-ons",
-                                      description="Developer Kit, office and media apps, Phone Link, Nearby "
-                                                  "Share and more, one click each.")
+                                      description="Developer Kit, office and media apps, Phone Link and more.")
         addons.add(self.link_row("Kulan add-ons", "Open Add-ons in Kulan Settings",
                                  lambda: self.open_settings("add-ons")))
         box.append(addons)
@@ -906,11 +901,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 check.set_active(False)
                 check.set_sensitive(False)
                 row.set_sensitive(False)
-                row.set_subtitle("Not available for this computer - use its website instead")
+                row.set_subtitle("Not available for this computer")
         machine = {"aarch64": "ARM", "x86_64": "PC"}.get(arch or "", "this")
         if unavailable:
             self.apps_status.set_label(
-                f"{unavailable} of these aren't made for {machine} computers yet and are greyed out."
+                f"{unavailable} of these aren't available for {machine} computers yet."
             )
         else:
             self.apps_status.set_label("All of these work on this computer.")
@@ -931,7 +926,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         if not apps:
             return
         self.install_button.set_sensitive(False)
-        self.install_button.set_label("Installing… this can take a few minutes")
+        self.install_button.set_label("Installing…")
         self.install_spinner.set_visible(True)
         self.install_spinner.start()
         for check in self.app_checks.values():
@@ -962,10 +957,10 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
         group.add(self.status_row("Firewall", "Blocks connections coming in from the network",
                                   self.firewall_enabled()))
-        group.add(self.status_row("Automatic security updates", "Fixes for security problems install every day",
+        group.add(self.status_row("Automatic security updates", "Security fixes install every day",
                                   self.auto_updates_enabled()))
         if live:
-            group.add(self.info_row("Disk encryption", "Choose it when you install - it's on by default"))
+            group.add(self.info_row("Disk encryption", "On by default when you install"))
         else:
             encrypted = self.disk_encrypted()
             group.add(
@@ -973,7 +968,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
                     "Disk encryption",
                     "Your files are locked if this computer is lost"
                     if encrypted
-                    else "Reinstall with encryption turned on to protect your files if this computer is lost",
+                    else "Reinstall with encryption to protect your files if this computer is lost",
                     encrypted,
                 )
             )
@@ -985,7 +980,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                   Path("/etc/firefox/policies/policies.json").exists()))
         box.append(group)
         more = Adw.PreferencesGroup()
-        more.add(self.link_row("Security in Kulan Settings", "Run a security checkup and see every protection",
+        more.add(self.link_row("Security in Kulan Settings", "Run a checkup and see all protections",
                                lambda: self.open_settings("security")))
         box.append(more)
         return self.page(box)
@@ -1012,9 +1007,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
     def automatic_sign_in_row(self) -> Adw.ActionRow:
         """Automatic sign-in: why saved passwords ask to be unlocked, and the fix."""
         row = Adw.ActionRow(title="Sign in automatically",
-                            subtitle="On: no password at start-up, so nothing unlocks your saved passwords. Apps that "
-                                     "use them (Wi-Fi, browsers, online accounts) will ask for the keyring’s password "
-                                     "after you sign in. Fix it in Kulan Settings › Users.")
+                            subtitle="Saved passwords stay locked, so Wi-Fi, browsers and online accounts "
+                                     "ask you to unlock them after you sign in")
         row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
         fix = Gtk.Button(label="Fix…", valign=Gtk.Align.CENTER)
         fix.connect("clicked", lambda _b: self.open_settings("users"))
@@ -1029,8 +1023,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         if locks is None:
             return self.status_row("Screen lock", "Set it in Kulan Settings › Security", None)
         if not locks or not delay:
-            return self.status_row("Screen lock", "Off: anyone at this computer can use it while you’re away. "
-                                   "Turn it on in Kulan Settings › Security", False)
+            return self.status_row("Screen lock", "Anyone can use this computer while you’re away", False)
         minutes = max(1, delay // 60)
         return self.status_row("Screen lock", f"Locks after {minutes} minute{'s' if minutes != 1 else ''} away, "
                                "or when the lid closes", True)
@@ -1076,7 +1069,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         status = Adw.StatusPage(
             icon_name="object-select-symbolic",
             title="You're all set",
-            description="Open Setup Assistant again any time from your apps. Kulan Settings has everything else.",
+            description="You can open Setup Assistant again from your apps.",
             vexpand=True,
         )
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)

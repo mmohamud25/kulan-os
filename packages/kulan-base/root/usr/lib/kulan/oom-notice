@@ -103,8 +103,8 @@ def handle(message: str, recent: dict[str, float]) -> None:
     label = app_label(cgroup, home)
     named = not label.startswith(("A program", "An app"))
     title = f"{label} was closed" if named else "An app was closed"
-    body = (f"{label} was using too much memory, so Kulan OS closed it to keep your computer working. "
-            "Anything not saved in it may be lost. Closing apps you aren’t using helps prevent this.")
+    body = (f"{label} was using too much memory, so it was closed to keep your computer working. "
+            "Anything not saved in it may be lost.")
     notify_user(uid, title, body)
 
 

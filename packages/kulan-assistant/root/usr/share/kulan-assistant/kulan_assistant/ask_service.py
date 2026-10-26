@@ -71,7 +71,7 @@ def _result(step: agent.Step) -> dict:
     return {"text": step.text, "ok": bool(r and r.ok), "message": r.message if r else "", "found": r.found if r else []}
 
 
-INSTANT_NOTE = "Until then, you can still ask the time, the date, the battery or free space."
+INSTANT_NOTE = "You can still ask about the time, date, battery or free space."
 
 
 def status() -> dict:
@@ -137,7 +137,7 @@ def undo(plans: Plans, pid: str) -> dict:
         except Exception:  # noqa: BLE001 - try every undo
             failed += 1
     item["undos"] = []
-    return {"ok": not failed, "message": "Put back as it was." if not failed else "Mostly put back as it was."}
+    return {"ok": not failed, "message": "Undone." if not failed else "Some changes couldn’t be undone."}
 
 
 class Service:

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Setup Assistant
-Comment=First-login setup (shown once per user)
+Comment=Set up your computer at first sign-in
 Exec=kulan-welcome --autostart
 Icon=kulan-setup-assistant
 Terminal=false

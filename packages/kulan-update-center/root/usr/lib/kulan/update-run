@@ -77,7 +77,7 @@ repair_dpkg() {
 	dpkg --force-confdef --force-confold --configure -a 1>&2 || true
 	run_apt -f install || true
 	if [[ -n "$(dpkg --audit 2>/dev/null)" ]]; then
-		die "An earlier update couldn't be finished. Restart the computer and try again; if it still fails, run \"sudo dpkg --configure -a\" in the Terminal to see why."
+		die "An earlier update couldn't be finished. Restart the computer and try again. If it still fails, run \"sudo dpkg --configure -a\" in Terminal."
 	fi
 }
 
@@ -106,7 +106,7 @@ print(int(need))
 		avail="$(df --output=avail -B1 "${dir}" 2>/dev/null | tail -n 1 | tr -dc 0-9)"
 		[[ -n "${avail}" ]] || continue
 		if (( avail < need + margin )); then
-			die "Not enough free space to install these updates: about $(( (need + margin) / 1000000 )) MB is needed and $(( avail / 1000000 )) MB is free. Free up space in Kulan Settings › Storage, then try again."
+			die "Not enough space for these updates. They need about $(( (need + margin) / 1000000 )) MB, and $(( avail / 1000000 )) MB is free. Free up space in Kulan Settings › Storage."
 		fi
 	done
 }
@@ -138,7 +138,7 @@ firmware_install() {
 		rm -f "${FIRMWARE_LIST}"
 		return 0
 	fi
-	echo "Device firmware couldn't be updated this time; it's tried again with the next updates." >&2
+	echo "Couldn't update device firmware. It will try again with the next updates." >&2
 	return 1
 }
 
@@ -376,7 +376,7 @@ case "${1:-}" in
 		;;
 	security-checkup)
 		[[ $# -eq 1 ]] || die "usage: update-run security-checkup"
-		command -v lynis >/dev/null 2>&1 || die "The security checkup tool (lynis) isn't installed."
+		command -v lynis >/dev/null 2>&1 || die "The security checkup isn't installed."
 		REPORT="$(mktemp)"
 		PROFILE="$(mktemp --suffix=.prf)"
 		trap 'rm -f "${REPORT}" "${PROFILE}"' EXIT

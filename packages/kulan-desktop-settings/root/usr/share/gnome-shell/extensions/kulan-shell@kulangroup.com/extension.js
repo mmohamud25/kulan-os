@@ -402,7 +402,7 @@ class KulanUpdateIndicator extends PanelMenu.Button {
             this._title.label.text = `${plural(available, 'update')} available`;
             this._detail.label.text = security > 0
                 ? `${plural(security, 'security fix')} included`
-                : 'Open Software Update to install them now.';
+                : 'Open Software Update to install them.';
         }
     }
 });

@@ -36,7 +36,7 @@ export class LiveText {
             return;
         const tesseract = GLib.find_program_in_path('tesseract');
         if (!tesseract) {
-            Main.notify(TITLE, 'Text recognition isn’t installed. In the Terminal: sudo apt install tesseract-ocr');
+            Main.notify(TITLE, 'Text recognition isn’t installed. To add it, run sudo apt install tesseract-ocr in Terminal.');
             return;
         }
         this._busy = true;

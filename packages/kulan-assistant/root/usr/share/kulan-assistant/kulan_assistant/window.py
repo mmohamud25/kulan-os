@@ -78,8 +78,8 @@ class AssistantWindow(Adw.ApplicationWindow):
             self.replace_button.connect("clicked", lambda _b: self.finish(EXIT_REPLACE))
             buttons.append(self.replace_button)
         box.append(buttons)
-        box.append(Gtk.Label(label="Written on this computer by Kulan Assistant. It can make mistakes: check "
-                                   "important details.", wrap=True, css_classes=["dim-label", "caption"]))
+        box.append(Gtk.Label(label="Kulan Assistant can make mistakes. Check important details.", wrap=True,
+                             css_classes=["dim-label", "caption"]))
 
         self.toasts = Adw.ToastOverlay(child=box)
         view = Adw.ToolbarView(content=self.toasts)
@@ -103,7 +103,7 @@ class AssistantWindow(Adw.ApplicationWindow):
         self.result = ""
         if self.not_ready():
             return
-        self.set_busy(True, "Starting the assistant… the first time can take a few seconds."
+        self.set_busy(True, "Starting the assistant…"
                       if not engine.healthy() else "Writing…")
         threading.Thread(target=self.worker, args=(self.current_task().id, self.cancel), daemon=True).start()
 

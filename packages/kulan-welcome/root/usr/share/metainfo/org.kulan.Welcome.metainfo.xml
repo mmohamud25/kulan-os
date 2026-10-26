@@ -4,9 +4,10 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LicenseRef-proprietary</project_license>
   <name>Setup Assistant</name>
-  <summary>Set up Kulan OS the way you like it</summary>
+  <summary>Set up your new computer</summary>
   <description>
-    <p>Shown once at your first sign-in, like a Mac's Setup Assistant: choose light, dark or automatic mode and an accent colour, turn on accessibility options, make your computer more private, bring files over from another computer, set up backups and a password vault, install popular apps in one go, and see which protections are on.</p>
+    <p>Opens once at your first sign-in. Choose your look, accessibility and privacy settings, and bring over files from another computer.</p>
+    <p>You can also set up backups and a password vault, install popular apps and see which protections are on.</p>
   </description>
   <launchable type="desktop-id">org.kulan.Welcome.desktop</launchable>
   <developer id="com.kulangroup">

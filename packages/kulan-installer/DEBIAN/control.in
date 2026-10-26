@@ -8,9 +8,9 @@ Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), p
 Recommends: kulan-desktop-settings
 Homepage: @HOME_URL@
 Description: @NAME@ installer
- Kulan Installer puts @NAME@ on a computer in a few steps: language,
- keyboard, where to install (erase a disk, or the free space next to Windows
- or another system, optionally encrypted), time zone and account. The boot
- loader comes from the package pool on the USB stick, so no internet is
- needed. Only on the live USB stick; the installer removes itself from the
- installed system. Calamares stays available as Advanced install.
+ Installs @NAME@ in a few steps: language, keyboard, disk, time zone and
+ account. It can erase a disk or install next to Windows, with optional
+ encryption, and needs no internet connection.
+ .
+ Runs from the live USB stick and isn't kept on the installed system.
+ Calamares is still available as Advanced install.

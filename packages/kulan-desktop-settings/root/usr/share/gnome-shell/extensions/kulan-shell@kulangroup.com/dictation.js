@@ -54,13 +54,13 @@ export class Dictation {
         }
         // Before recording, not after you've spoken.
         if (!this._assistant.hasModel('dictation')) {
-            this._assistant.notifyFix('Dictation needs a speech model first: a free download, chosen once in ' +
+            this._assistant.notifyFix('Dictation needs a speech model first. Download one for free in ' +
                 'Kulan Settings › Assistant.', 'assistant');
             return;
         }
         const recorder = GLib.find_program_in_path('pw-record');
         if (!recorder) {
-            Main.notify(TITLE, 'Recording isn’t available (PipeWire’s pw-record is missing).');
+            Main.notify(TITLE, 'Recording isn’t available on this computer.');
             return;
         }
         const dir = GLib.build_filenamev([GLib.get_user_runtime_dir(), 'kulan-assistant']);

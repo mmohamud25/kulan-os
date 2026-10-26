@@ -189,7 +189,7 @@ export class TodoPanel {
             return;
         const items = readTodos();
         if (items.length >= MAX_TASKS) {
-            Main.notify('To-do is full', `Clear completed tasks to add more (up to ${MAX_TASKS}).`);
+            Main.notify('To-do is full', `You can have up to ${MAX_TASKS} tasks. Clear completed ones to add more.`);
             return;
         }
         // New tasks go to the top of what's left, as people expect.

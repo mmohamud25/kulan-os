@@ -146,13 +146,13 @@ def status() -> dict:
     if not Path("/sys/firmware/efi").exists():
         reasons.append("This computer starts without UEFI")
     if not tpm2_present():
-        reasons.append("No TPM 2.0 security chip was found (it may be switched off in the firmware settings)")
+        reasons.append("No TPM 2.0 security chip was found. It may be turned off in the firmware settings")
     if not secure_boot_on():
-        reasons.append("Secure Boot is off; turn it on in the firmware settings first")
+        reasons.append("Secure Boot is off. Turn it on in the firmware settings first")
     if luks is None:
         reasons.append("The system disk isn't encrypted")
     elif dump and luks_version(dump) not in ("", "2"):
-        reasons.append("The disk uses LUKS1; TPM unlock needs LUKS2")
+        reasons.append("The disk’s encryption is too old for TPM unlock")
     return {
         "on": bool(enrolled),
         "pin": bool(enrolled and pin),
@@ -231,7 +231,7 @@ def turn_on(with_pin: bool = False) -> int:
              "-o", "Dpkg::Options::=--force-confold", "dracut", "systemd-cryptsetup", "tpm2-tools"],
             env={"DEBIAN_FRONTEND": "noninteractive"}, input_text="")
     if r.returncode != 0:
-        say("dracut couldn't be installed (is the computer online?): " + r.stderr.strip()[-300:])
+        say("Couldn't install the start-up tools. Check the internet connection: " + r.stderr.strip()[-300:])
         return 1
     DRACUT_CONF.parent.mkdir(parents=True, exist_ok=True)
     DRACUT_CONF.write_text(
@@ -275,8 +275,8 @@ def turn_on(with_pin: bool = False) -> int:
         return 1
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps({"on": True, "pin": with_pin, "since": int(time.time()), "pcrs": PCRS}) + "\n")
-    say("TPM unlock on: type your PIN at start-up instead of the disk password" if with_pin
-        else "TPM unlock on: the disk opens by itself on this computer")
+    say("TPM unlock is on. Type your PIN at start-up instead of the disk password" if with_pin
+        else "TPM unlock is on. The disk unlocks automatically on this computer")
     return 0
 
 
@@ -300,7 +300,7 @@ def turn_off() -> int:
         return 1
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps({"on": False, "since": int(time.time())}) + "\n")
-    say("TPM unlock off: the disk password is asked at start-up again")
+    say("TPM unlock is off. You’ll enter the disk password at start-up again")
     return 0
 
 

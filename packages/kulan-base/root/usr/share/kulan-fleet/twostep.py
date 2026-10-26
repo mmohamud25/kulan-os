@@ -193,12 +193,12 @@ def add(run, user: str, kind: str, label: str, data: str, state_path: Path = STA
     """Set one up here (fleet-two-step, for the person themselves). Returns its id."""
     state = load(state_path)
     if user not in state["server"]:
-        raise ValueError("only accounts your organisation manages here")
+        raise ValueError("Only accounts your organisation manages can use this")
     f = clean_factor({"id": str(uuid.uuid4()), "kind": kind, "label": label, "data": data})
     if f is None:
-        raise ValueError("that isn't a security key or a phone code Kulan OS can use")
+        raise ValueError("That security key or phone code can't be used")
     if len(effective(state)[user]["factors"]) >= MAX_FACTORS:
-        raise ValueError(f"at most {MAX_FACTORS}: remove one first")
+        raise ValueError(f"You can have up to {MAX_FACTORS}. Remove one first")
     state["adds"].append({"username": user, **f})
     save(state, state_path)
     write_files(run, effective(state), directory, public)
@@ -209,7 +209,7 @@ def remove(run, user: str, factor_id: str, state_path: Path = STATE, directory: 
            public: Path = PUBLIC) -> None:
     state = load(state_path)
     if not any(f["id"] == factor_id for f in effective(state).get(user, {}).get("factors", [])):
-        raise ValueError("no such second step")
+        raise ValueError("That second step wasn't found")
     state["adds"] = [a for a in state["adds"] if not (a["username"] == user and a["id"] == factor_id)]
     if any(f["id"] == factor_id for f in state["server"].get(user, {}).get("factors", [])):
         state["removes"].append({"username": user, "id": factor_id})

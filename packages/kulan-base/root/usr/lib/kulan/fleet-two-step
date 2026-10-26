@@ -48,7 +48,7 @@ def main(args: list[str]) -> int:
                 raise ValueError("the secret and a code are needed")
             secret, code = lines[0].lower(), lines[1]
             if run(["oathtool", "--totp", "-w", "1", secret, code]).returncode != 0:
-                raise ValueError("that code isn't right: check the phone's time, and type the newest code")
+                raise ValueError("That code isn't right. Check the time on your phone and enter the newest code.")
             print(twostep.add(run, user, "code", args[2], secret))
         elif len(args) == 2 and args[0] == "remove":
             twostep.remove(run, user, args[1])

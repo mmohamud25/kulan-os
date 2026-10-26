@@ -124,7 +124,7 @@ export class AskKulan {
             top.add_child(this._micButton);
         }
         if (this._liveText) {
-            top.add_child(this._iconButton('edit-select-all-symbolic', 'Ask about text on the screen (an error, say)',
+            top.add_child(this._iconButton('edit-select-all-symbolic', 'Ask about text on the screen',
                 () => this._readScreen()));
         }
         this._panel.add_child(top);
@@ -223,7 +223,7 @@ export class AskKulan {
         if (!listening && this._dictation.isRecording) {
             this._micButton?.add_style_pseudo_class('checked');
             this._clear();
-            this._addText('Listening… press the microphone again when you’ve finished.', 'kulan-ask-thinking');
+            this._addText('Listening… Press the microphone again when you’re done.', 'kulan-ask-thinking');
         } else if (listening) {
             this._micButton?.remove_style_pseudo_class('checked');
             this._thinking('Writing what you said');
@@ -298,7 +298,7 @@ export class AskKulan {
         if (!text)
             return;
         this._plan = null;
-        this._thinking('Thinking (on this computer)');
+        this._thinking('Thinking');
         this._call('Ask', new GLib.Variant('(s)', [text]), reply => this._showReply(text, reply));
     }
 
@@ -312,10 +312,10 @@ export class AskKulan {
     }
 
     _undo(plan) {
-        this._thinking('Putting it back');
+        this._thinking('Undoing');
         this._call('Undo', new GLib.Variant('(s)', [plan.id]), reply => {
             this._clear();
-            this._addText(reply.message || 'Put back as it was.', 'kulan-ask-reply');
+            this._addText(reply.message || 'Undone.', 'kulan-ask-reply');
             this._addButtons([['Close', () => this.close(), true]]);
         });
     }

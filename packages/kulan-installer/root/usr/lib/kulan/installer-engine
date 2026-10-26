@@ -167,18 +167,18 @@ def check_plan(plan: dict) -> dict:
     if not re.fullmatch(r"/dev/[A-Za-z0-9/_-]+", disk or "") or not Path(disk).is_block_device():
         raise Failure("Choose a disk to install on")
     if disk in live_disks() and not plan.get("source"):
-        raise Failure("That’s the Kulan OS USB stick itself; choose another disk")
+        raise Failure("That’s the Kulan OS USB stick. Choose another disk")
     if plan.get("mode") not in ("erase", "free"):
         raise Failure("Choose to erase the disk or to use its free space")
     user = plan.get("user") or {}
     if not NAME_RULE.match(user.get("username", "")):
-        raise Failure("The user name must start with a small letter and use only small letters, digits, - and _")
+        raise Failure("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
     if not user.get("password"):
         raise Failure("Choose a password for the account")
     if plan.get("encrypt") and len(plan.get("password", "")) < 8:
         raise Failure("The disk password must be at least 8 characters")
     if not HOST_RULE.match(plan.get("hostname", "")):
-        raise Failure("The computer’s name may use only small letters, digits and dashes")
+        raise Failure("Use lowercase letters, digits and dashes for the computer’s name")
     zone = plan.get("timezone", "UTC")
     if not re.fullmatch(r"[A-Za-z0-9_+/-]+", zone) or not Path("/usr/share/zoneinfo", zone).is_file():
         raise Failure(f"Unknown time zone {zone}")
@@ -193,15 +193,15 @@ def check_plan(plan: dict) -> dict:
         raise Failure("The Kulan OS system files weren’t found on the USB stick")
     size = int(run(["blockdev", "--getsize64", disk]).stdout.strip() or 0)
     if plan["mode"] == "erase" and size < MIN_SIZE:
-        raise Failure("That disk is too small: Kulan OS needs at least 20 GB")
+        raise Failure("That disk is too small. Kulan OS needs at least 20 GB")
     if plan["mode"] == "free":
         if partition_table(disk).get("label") != "gpt":
-            raise Failure("Installing next to another system needs a GPT disk; erase the disk instead")
+            raise Failure("This disk’s layout is too old to install next to another system. Erase the disk instead")
         areas = free_areas(disk)
         need = MIN_SIZE + (BOOT_MB * 2 ** 20 if plan.get("encrypt") else 0)
         if not areas or areas[0]["bytes"] < need:
-            raise Failure("There isn’t enough free space (Kulan OS needs 20 GB). Make room in the other "
-                          "system first, for example with Windows’ Disk Management")
+            raise Failure("Not enough free space. Kulan OS needs 20 GB. Make room in the other system "
+                          "first, for example with Disk Management in Windows")
     return {**plan, "source": source, "medium": plan.get("medium") or "/run/live/medium"}
 
 
@@ -289,7 +289,7 @@ def partition(plan: dict) -> dict:
         cursor += size_mb * mib
     root_size = ((area["end"] + 1 - cursor) // mib) * mib
     if root_size * sector < MIN_SIZE:
-        raise Failure("There isn’t enough free space (Kulan OS needs 20 GB)")
+        raise Failure("Not enough free space. Kulan OS needs 20 GB")
     layout.append(f'start={cursor}, size={root_size}, type={LINUX_TYPE}, name="Kulan OS"')
     names.append("root")
     run(["sfdisk", "--append", "--no-reread", disk], input_text="\n".join(layout) + "\n")
@@ -367,7 +367,7 @@ def copy_system(plan: dict, target: Path, progress) -> None:
                 last = value
                 progress(value / 100)
     if proc.wait() != 0:
-        raise Failure("Copying the system failed (is the USB stick still plugged in?)")
+        raise Failure("Couldn’t copy the system. Check that the USB stick is still plugged in")
 
 
 class Chroot:
@@ -531,9 +531,9 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
                              *(MEDIA_ONLY if pool else []),
                              *boot_packages(bool(plan.get("encrypt")))], check=False)
         if result.returncode != 0:
-            raise Failure("The boot loader’s packages couldn’t be installed"
-                          + ("" if pool else " (this USB stick has no package pool, and the internet isn’t "
-                                             "reachable)"))
+            raise Failure("Couldn’t install the boot loader"
+                          + ("" if pool else ". The USB stick doesn’t have it, and there’s no internet "
+                                             "connection"))
     finally:
         sources_list.unlink(missing_ok=True)
         if mounted:
@@ -549,7 +549,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
         settings.append(f'GRUB_CMDLINE_LINUX_DEFAULT="${{GRUB_CMDLINE_LINUX_DEFAULT}} {plan["kernel_args"]}"')
     write(grub_d / "60-kulan-installer.cfg", "\n".join(settings) + "\n")
 
-    progress(0.45, "Building the start-up image…")
+    progress(0.45, "Preparing start-up files…")
     chroot.run(["update-initramfs", "-u", "-k", "all"])
     progress(0.75, "Making the disk start Kulan OS…")
     if firmware() == "uefi":
@@ -617,13 +617,13 @@ def install(plan: dict) -> None:
         with Chroot(target, parts.get("esp"), efivars=not plan.get("no_nvram")) as chroot:
             chroot.run(["systemd-machine-id-setup"], check=False)
             chroot.run(["locale-gen"], check=False)
-            at("clean", 0, "Removing the live session’s tools…")
+            at("clean", 0, "Removing installer tools…")
             installed = chroot.run(["dpkg-query", "-W", "-f=${Package}\\n"], check=False).stdout.split()
             remove = [p for p in LIVE_PACKAGES if p in installed]
             if remove:
                 chroot.run(["apt-get", "purge", "-y", "-q", *remove], check=False)
                 chroot.run(["apt-get", "autoremove", "-y", "-q"], check=False)
-            at("user", 0, "Making your account…")
+            at("user", 0, "Creating your account…")
             make_user(chroot, plan)
             at("boot", 0, "Making the disk start Kulan OS…")
             install_boot_loader(chroot, plan, parts, disk_info, lambda f, text: at("boot", f, text))

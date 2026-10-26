@@ -179,7 +179,7 @@ try:
             texts = " ".join(w.get_text() for w in widgets if isinstance(w, Gtk.Label))
             buttons = {w.get_label(): w for w in widgets if isinstance(w, Gtk.Button) and w.get_label()}
             ticks = [w for w in widgets if isinstance(w, Gtk.CheckButton)]
-            results["question"] = "it@acme.test, from Acme, is asking to see your screen" in texts and "an hour" in texts
+            results["question"] = "it@acme.test from Acme wants to see your screen" in texts and "an hour" in texts
             results["buttons"] = {"Allow", "Don't allow"} <= set(buttons)
             results["focus"] = buttons.get("Don't allow") is not None and win.win.get_focus() is buttons["Don't allow"]
             results["tick"] = len(ticks) == 1 and "mouse and keyboard" in ticks[0].get_label()

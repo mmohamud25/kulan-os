@@ -133,7 +133,7 @@ export class Assistant {
             return;
         }
         if (!this.hasModel()) {
-            this.notifyFix('Kulan Assistant needs a model first: a free download, chosen once in Kulan Settings › Assistant.',
+            this.notifyFix('Kulan Assistant needs a model first. Download one for free in Kulan Settings › Assistant.',
                 'assistant');
             return;
         }

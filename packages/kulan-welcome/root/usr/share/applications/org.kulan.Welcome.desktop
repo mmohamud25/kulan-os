@@ -2,7 +2,7 @@
 Type=Application
 Name=Setup Assistant
 GenericName=Set up Kulan OS
-Comment=Choose your look, accessibility and privacy, bring your files over, and add apps
+Comment=Set up your look, privacy, files and apps
 Exec=kulan-welcome
 Icon=kulan-setup-assistant
 Terminal=false

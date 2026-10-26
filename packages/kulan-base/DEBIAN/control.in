@@ -8,8 +8,8 @@ Pre-Depends: dpkg (>= 1.19.1)
 Depends: ufw, unattended-upgrades, python3, libpam-runtime, libpam-u2f, pamu2fcfg, libpam-oath, oathtool
 Recommends: apparmor-profiles-extra, systemd-zram-generator, systemd-oomd, kexec-tools
 Homepage: @HOME_URL@
-Description: @NAME@ identity, update channel and security defaults
- Makes the system identify as @NAME@ (Settings > About, os-release), adds
- the @NAME@ software update channel, and sets security and privacy
- defaults: firewall on, automatic security updates, Wi-Fi address
- randomization and private Firefox defaults.
+Description: @NAME@ system name, updates and security defaults
+ Names the system @NAME@ and adds its software update channel.
+ .
+ Also turns on the firewall, automatic security updates, Wi-Fi address
+ randomisation and private Firefox defaults.

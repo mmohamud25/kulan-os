@@ -189,7 +189,7 @@ export class QuickNote {
         if (this._status) {
             this._status.visible = this._saveError !== null;
             this._status.text = this._saveError
-                ? `Couldn’t save the note (${this._saveError}). What you typed is still here; it’s saved again as you type.`
+                ? `Couldn’t save the note (${this._saveError}). Your text is still here.`
                 : '';
         }
     }
@@ -235,7 +235,7 @@ export class QuickNote {
             // you log out) and say so where it's still seen.
             this._unsaved = this._entry.get_text();
             Main.notify('Quick Note isn’t saved yet', `Your note couldn’t be saved (${this._saveError}). ` +
-                'It’s kept until you log out: free up some space, then open Quick Note again to save it.');
+                'It’s kept until you log out. Free up some space, then open Quick Note again.');
         }
         if (this._grab) {
             Main.popModal(this._grab);

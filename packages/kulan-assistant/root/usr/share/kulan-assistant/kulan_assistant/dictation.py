@@ -30,7 +30,7 @@ def transcribe(audio: Path) -> str:
         raise engine.EngineError("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.")
     model_id = engine.usable_model("dictation")
     if model_id is None:
-        raise engine.EngineError("No dictation model yet. Download one in Kulan Settings > Assistant.")
+        raise engine.EngineError("No dictation model yet. Download one in Kulan Settings › Assistant.")
     threads = max(1, min(8, (os.cpu_count() or 2) - 1))
     out = subprocess.run([str(WHISPER), "-m", str(engine.model_path(model_id)), "-f", str(audio), "-l", language(),
                           "-t", str(threads), "-nt", "-np"],

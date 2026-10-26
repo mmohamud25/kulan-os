@@ -79,7 +79,7 @@ def _set(schema: str, key: str, value: GLib.Variant, done: str) -> Result:
     if s is None:
         return Result(False, "That setting isn't available here")
     if not s.is_writable(key):
-        return Result(False, "That setting is locked (compliance mode or your organisation)")
+        return Result(False, "This setting is locked by compliance mode or your organisation")
     old = s.get_value(key)
     s.set_value(key, value)
     Gio.Settings.sync()
@@ -279,7 +279,7 @@ def tidy_folder(a: dict) -> Result:
         return Result(False, f"There's no {a['where'].capitalize()} folder")
     moves = tidy_moves(folder)
     if not moves:
-        return Result(True, "Nothing to sort: it's already tidy")
+        return Result(True, "It's already tidy")
     made: list[Path] = []
     done: list[tuple[Path, Path]] = []
     for src, dst in moves:
@@ -598,7 +598,7 @@ def add_todo(a: dict) -> Result:
         return Result(False, "There's no task to add")
     items = read_todos()
     if len(items) >= 200:
-        return Result(False, "The to-do list is full: clear completed tasks first")
+        return Result(False, "The to-do list is full. Clear completed tasks first")
     tid = GLib.uuid_string_random()
     write_todos([{"id": tid, "text": text, "done": False}, *items])
 
@@ -641,7 +641,7 @@ def fix_sound(_a: dict) -> Result:
             return Result(False, "Sound restarted, but no speakers or headphones were found. Check the cable or "
                                  "Bluetooth")
         if "MUTED" in volume:
-            return Result(True, "Sound restarted. It's muted: press the volume key or open Sound settings")
+            return Result(True, "Sound restarted. It's muted, so press the volume key or open Sound settings")
     return Result(True, "Sound restarted")
 
 
@@ -674,7 +674,7 @@ def fix_bluetooth(_a: dict) -> Result:
     names = [line.split(" ", 2)[2] for line in connected.splitlines() if line.startswith("Device ") and line.count(" ") >= 2]
     if names:
         return Result(True, "Bluetooth restarted. Connected: " + ", ".join(names[:4]))
-    return Result(True, "Bluetooth restarted. Nothing is connected yet: turn the device off and on, or pair it again "
+    return Result(True, "Bluetooth restarted. Nothing is connected yet. Turn the device off and on, or pair it again "
                         "in Bluetooth settings")
 
 
@@ -694,8 +694,8 @@ def fix_printer(_a: dict) -> Result:
     jobs = subprocess.run(["lpstat", "-o"], capture_output=True, text=True, timeout=15).stdout.strip().splitlines()
     message = (f"Turned {', '.join(resumed)} back on. " if resumed else "")
     if jobs:
-        message += (f"{len(jobs)} print job{'s are' if len(jobs) != 1 else ' is'} waiting: check the printer is on and "
-                    "has paper. Kulan Settings › Printers shows the queue")
+        message += (f"{len(jobs)} print job{'s are' if len(jobs) != 1 else ' is'} waiting. Check the printer is on and "
+                    "has paper")
     else:
         message += "Nothing is waiting to print. If the printer is on and still doesn't print, remove and add it again in Printers"
     return Result(bool(resumed) or not jobs, message)
@@ -708,7 +708,7 @@ def back_up_now(_a: dict) -> Result:
     backend = deja.get_string("backend") if deja is not None and deja.props.settings_schema.has_key("backend") else ""
     if backend not in ("drive", "local", "remote", "google", "microsoft"):
         open_settings({"page": "backups"})
-        return Result(False, "Backups aren't set up yet: I opened Kulan Settings › Backups to choose a drive")
+        return Result(False, "Backups aren't set up yet. Choose a drive in Kulan Settings › Backups")
     try:
         subprocess.Popen(["deja-dup", "--backup"], start_new_session=True, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
@@ -755,7 +755,7 @@ ACTIONS = [
                           f"Do Not Disturb {'on' if a['on'] else 'off'}")),
     Action("set_screen_lock", "Minutes away before the screen locks (0 means never).",
            {"minutes": {"enum": LOCK_MINUTES}}, True,
-           lambda a: "Never lock the screen by itself" if not a["minutes"]
+           lambda a: "Never lock the screen automatically" if not a["minutes"]
            else f"Lock the screen after {a['minutes']} minute{'s' if a['minutes'] != 1 else ''} away",
            lambda a: _set("org.gnome.desktop.session", "idle-delay", GLib.Variant("u", a["minutes"] * 60),
                           "Screen lock changed")),

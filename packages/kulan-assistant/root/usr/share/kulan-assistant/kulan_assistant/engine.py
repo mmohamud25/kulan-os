@@ -61,7 +61,7 @@ def prepare_runtime_dir() -> Path:
     os.chmod(path, 0o700)
     info = path.stat()
     if info.st_uid != os.getuid():
-        raise EngineError("The assistant's private folder belongs to someone else; not using it.")
+        raise EngineError("The assistant's folder belongs to another user, so it can't be used.")
     return path
 
 
@@ -143,9 +143,9 @@ def readiness(kind: str = "writing") -> tuple[str, str] | None:
         return ("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.", "add-ons")
     if usable_model(kind) is None:
         if kind == "dictation":
-            return ("Dictation needs a speech model first: a free download, chosen once in Kulan Settings › "
+            return ("Dictation needs a speech model first. Download one for free in Kulan Settings › "
                     "Assistant.", "assistant")
-        return ("Kulan Assistant needs a model first: a free download, chosen once in Kulan Settings › Assistant.",
+        return ("Kulan Assistant needs a model first. Download one for free in Kulan Settings › Assistant.",
                 "assistant")
     return None
 
@@ -232,7 +232,7 @@ def ensure_running(timeout: float = 120) -> None:
     if not ENGINE.exists():
         raise EngineError("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.")
     if usable_model() is None:
-        raise EngineError("Kulan Assistant needs a model first: a free download, chosen once in Kulan Settings › "
+        raise EngineError("Kulan Assistant needs a model first. Download one for free in Kulan Settings › "
                           "Assistant.")
     api_key()  # create it before the service reads it
     if state == "wrong-key":

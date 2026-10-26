@@ -160,7 +160,7 @@ def cmd_update(args: list[str]) -> int:
         return rc
     waiting = status().get("available") or []
     if not waiting:
-        print("Nothing waiting (from the last check). Checking now…")
+        print("Checking for updates…")
         run_update("check")
         waiting = status().get("available") or []
         if not waiting:
@@ -189,36 +189,36 @@ def cmd_doctor(_args: list[str]) -> int:
     disk = shutil.disk_usage("/")
     free_pct = disk.free / disk.total * 100 if disk.total else 100
     report(free_pct >= 10, "Disk space", f"{gib(disk.free)} free ({free_pct:.0f}%)",
-           "Kulan Settings › Storage frees space (Bin, old caches, old updates)")
+           "Free up space in Kulan Settings › Storage")
     total, avail = memory()
     report(avail >= total * 0.1 if total else None, "Memory", f"{gib(avail)} free of {gib(total)}",
-           "close apps you're not using, or see what's using it with btop")
+           "Close apps you're not using, or run btop to see what's using it")
     failed = [line.split()[0] for line in out(["systemctl", "--failed", "--no-legend", "--plain"]).splitlines()
               if line.strip()]
     report(not failed, "System services", "all running" if not failed else f"not running: {', '.join(failed[:4])}",
-           "sudo systemctl restart <name>, or a restart of the computer")
+           "Restart the computer, or run sudo systemctl restart <name>")
     if shutil.which("nmcli"):
         conn = out(["nmcli", "-t", "-f", "CONNECTIVITY", "general"]) or "unknown"
         words = {"full": "connected", "none": "not connected", "limited": "limited",
-                 "portal": "needs you to sign in (a Wi-Fi sign-in page)", "unknown": "couldn't check"}
+                 "portal": "needs you to sign in to the network", "unknown": "couldn't check"}
         report(None if conn == "unknown" else conn == "full", "Internet", words.get(conn, conn),
-               "Kulan Settings › Wi-Fi and network; for a sign-in page, open Firefox")
+               "Check Kulan Settings › Wi-Fi, or open Firefox to sign in")
     ufw = read("/etc/ufw/ufw.conf")
     report("ENABLED=yes" in ufw if ufw else None, "Firewall", "on" if "ENABLED=yes" in ufw else "off",
-           "Kulan Settings › Security turns it on")
+           "Turn it on in Kulan Settings › Security")
     waiting = status().get("available") or []
     security = [u for u in waiting if isinstance(u, dict) and u.get("security")]
     report(not security, "Updates", f"{len(security)} security update(s) waiting" if security else
            (f"{len(waiting)} waiting" if waiting else "up to date"), "kulan update")
     report(not restart_needed(), "Restart", "needed to finish updating" if restart_needed() else "not needed",
-           "restart when it suits you")
+           "Restart when it suits you")
     synced = out(["timedatectl", "show", "-p", "NTPSynchronized", "--value"])
     report(synced == "yes" if synced else None, "Clock", "set from the internet" if synced == "yes" else
-           "not synchronised", "Kulan Settings › Date and time › Set automatically")
+           "not synchronised", "Turn on Set automatically in Kulan Settings › Date and time")
     if shutil.which("pactl"):
         sink = out(["pactl", "get-default-sink"])
         report(bool(sink) and "auto_null" not in sink, "Sound", "output found" if sink and "auto_null" not in sink
-               else "no speakers or headphones found", "Kulan Settings › Sound; check the cable or Bluetooth")
+               else "no speakers or headphones found", "Check the cable or Bluetooth, and Kulan Settings › Sound")
     print()
     print(f"{TEAL}Everything looks fine.{OFF}" if not problems else
           f"{AMBER}{problems} thing(s) to look at.{OFF} Ask for help any time: {BOLD}kulan ask …{OFF}")
@@ -244,9 +244,9 @@ def cmd_settings(args: list[str]) -> int:
 # --- Kulan Assistant ------------------------------------------------------------------
 def assistant(task: str, text: str) -> int:
     if not Path(ASSISTANT).exists():
-        print("Kulan Assistant isn't installed here (Kulan Settings › Add-ons).", file=sys.stderr)
+        print("Kulan Assistant isn't installed. Turn it on in Kulan Settings › Add-ons.", file=sys.stderr)
         return 1
-    print(f"{DIM}Kulan Assistant is thinking (on this computer)…{OFF}", file=sys.stderr)
+    print(f"{DIM}Kulan Assistant is thinking…{OFF}", file=sys.stderr)
     return subprocess.call([ASSISTANT, "ask", task, text])
 
 
@@ -263,7 +263,7 @@ def cmd_why(_args: list[str]) -> int:
     line = read(path) if path else ""
     code, _tab, command = line.partition("\t")
     if not command:
-        print("No failed command to explain (it works in Kulan OS's zsh Terminal).", file=sys.stderr)
+        print("No failed command to explain.", file=sys.stderr)
         return 1
     print(f"{DIM}Explaining: {command}  (exit code {code}){OFF}", file=sys.stderr)
     return assistant("terminal-error", f"Command: {command}\nExit code: {code}")

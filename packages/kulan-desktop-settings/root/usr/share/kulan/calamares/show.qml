@@ -56,31 +56,31 @@ Presentation
     KulanSlide {
         image: "slide1.png"
         headline: qsTr("Welcome to Kulan OS")
-        body: qsTr("The rest of the installation is automatic and takes a few minutes. Here's what's waiting for you.")
+        body: qsTr("The rest of the installation is automatic and takes a few minutes.")
     }
     KulanSlide {
         image: "slide-look.png"
         headline: qsTr("Make it yours")
-        body: qsTr("Light, dark, or automatic at sunset. Choose an accent colour, the dock and the window buttons in Kulan Settings.")
+        body: qsTr("Light, dark or automatic. Choose your accent colour, dock and window buttons in Kulan Settings.")
     }
     KulanSlide {
         image: "slide-privacy.png"
         headline: qsTr("Private and protected")
-        body: qsTr("A firewall, disk encryption, daily security fixes and a security checkup. Block ads and trackers in every app with one switch.")
+        body: qsTr("A firewall, disk encryption and daily security fixes. Block ads and trackers in every app with one switch.")
     }
     KulanSlide {
         image: "slide-shortcuts.png"
         headline: qsTr("Feels like a Mac")
-        body: qsTr("Super+Space to search, Super+Shift+4 for a screenshot, Live Text, window snapping and Quick Look. In UTM, Command is the Super key.")
+        body: qsTr("Super+Space to search, Super+Shift+4 for a screenshot, plus Live Text, window snapping and Quick Look.")
     }
     KulanSlide {
         image: "slide-addons.png"
         headline: qsTr("Add more in one click")
-        body: qsTr("The Developer Kit, office apps, Phone Link for Android, Nearby Share and a virus scanner, whenever you want them.")
+        body: qsTr("The Developer Kit, office apps, Phone Link, a virus scanner and more, whenever you want them.")
     }
     KulanSlide {
         image: "slide1.png"
         headline: qsTr("Almost there")
-        body: qsTr("After the restart, Setup Assistant helps you bring your files over, set up backups and a password vault, and add your apps.")
+        body: qsTr("After the restart, Setup Assistant helps you bring over your files and add your apps.")
     }
 }

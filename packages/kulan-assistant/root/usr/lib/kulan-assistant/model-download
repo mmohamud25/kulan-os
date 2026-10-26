@@ -102,8 +102,8 @@ def download(info: dict) -> None:
         part.unlink()
         have = 0
     if shutil.disk_usage(MODELS_DIR).free < size - have + SPARE:
-        fail(f"Not enough free space: this model needs {gb(size - have + SPARE)} free. "
-             "Free up space in Kulan Settings > Storage, or choose a smaller model.")
+        fail(f"Not enough space. This model needs {gb(size - have + SPARE)} free. "
+             "Free up space in Kulan Settings › Storage, or choose a smaller model.")
 
     title = info.get("title", info["id"])
     attempts = 0
@@ -135,14 +135,14 @@ def download(info: dict) -> None:
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             attempts += 1
             if attempts > 5:
-                fail(f"The download stopped ({getattr(exc, 'reason', exc)}). Try again later: it will continue "
+                fail(f"The download stopped ({getattr(exc, 'reason', exc)}). Try again later to continue "
                      "where it stopped.")
             time.sleep(min(30, 3 * attempts))
             have = part.stat().st_size if part.exists() else 0
 
     if sha256_of(part, size) != info["sha256"]:
         part.unlink()
-        fail("The downloaded model didn't pass its check, so it was deleted. Please try again.")
+        fail("The downloaded model was damaged and has been deleted. Try again.")
     os.chmod(part, 0o644)
     part.replace(final)
     progress(100, "Ready")

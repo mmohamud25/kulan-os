@@ -547,14 +547,14 @@ class Window:
         title.add_css_class("title-2")
         box.append(title)
         text = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=48)
-        text.set_text(f"{admin}, from {org}, is asking to see your screen to help you. "
+        text.set_text(f"{admin} from {org} wants to see your screen to help you. "
                       "They'll see everything on it while it's shared.")
         box.append(text)
         check = None
         if control_asked:
             check = Gtk.CheckButton(label="Let them use my mouse and keyboard too")
             box.append(check)
-        note = Gtk.Label(label="You can stop it at any time. It ends by itself after an hour.", wrap=True,
+        note = Gtk.Label(label="You can stop sharing at any time. It ends automatically after an hour.", wrap=True,
                          justify=Gtk.Justification.CENTER)
         note.add_css_class("dim-label")
         box.append(note)

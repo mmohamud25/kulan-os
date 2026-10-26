@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Install Kulan OS
-Comment=Put Kulan OS on this computer
+Comment=Install Kulan OS on this computer
 Exec=kulan-installer
 Icon=kulan-logo
 Terminal=false

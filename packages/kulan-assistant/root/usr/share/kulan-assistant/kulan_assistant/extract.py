@@ -32,10 +32,10 @@ def text_of(path: Path, limit: int = 200_000) -> str:
         out = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", "-l", "60", str(path), "-"],
                              capture_output=True, timeout=120, check=False)
         if out.returncode != 0:
-            raise ExtractError("This PDF couldn't be read (it may be password-protected).")
+            raise ExtractError("This PDF couldn't be read. It may be password-protected.")
         text = out.stdout.decode("utf-8", "replace")
         if not text.strip():
-            raise ExtractError("This PDF has no text in it (it may be scanned pages). Try Live Text on it.")
+            raise ExtractError("This PDF has no text, so it may be scanned. Try Live Text on it.")
         return clean(text)[:limit]
     if suffix in (".docx", ".odt"):
         return clean(_zipped_xml(path, "word/document.xml" if suffix == ".docx" else "content.xml"))[:limit]

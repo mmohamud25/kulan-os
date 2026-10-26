@@ -193,7 +193,7 @@ class Turn:
             except Exception:  # noqa: BLE001 - try every undo, then say how it went
                 failed += 1
         self.undos = []
-        self.say("Put back as it was." if not failed else "Mostly put back; some changes couldn’t be undone.")
+        self.say("Undone." if not failed else "Some changes couldn’t be undone.")
         self.update_buttons()
 
 
@@ -222,8 +222,8 @@ class AskKulanWindow(Adw.ApplicationWindow):
         side_header.pack_end(more)
         self.conv_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
         self.conv_list.connect("row-activated", self.on_pick)
-        self.conv_empty = Gtk.Label(label="Your conversations will be listed here." if self.keep
-                                    else "Conversations aren’t kept (Kulan Settings › Assistant).",
+        self.conv_empty = Gtk.Label(label="Your conversations appear here." if self.keep
+                                    else "Conversations aren’t saved. You can change this in Kulan Settings.",
                                     wrap=True, justify=Gtk.Justification.CENTER, css_classes=["dim-label"],
                                     margin_top=24, margin_start=12, margin_end=12)
         side_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -264,7 +264,7 @@ class AskKulanWindow(Adw.ApplicationWindow):
         entry = Gtk.Box(spacing=6, css_classes=["card", "kulan-ask-input"])
         entry.append(overlay)
         entry.append(self.send)
-        note = Gtk.Label(label="Runs on this computer: nothing you type leaves it. It can make mistakes.",
+        note = Gtk.Label(label="Runs on this computer. Nothing you type leaves it. It can make mistakes.",
                          css_classes=["dim-label", "caption"], wrap=True, justify=Gtk.Justification.CENTER)
         bottom = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_start=12, margin_end=12,
                          margin_bottom=10, margin_top=6)
@@ -329,7 +329,7 @@ class AskKulanWindow(Adw.ApplicationWindow):
         problem = engine.readiness()
         if problem:
             self.fix_page = problem[1]
-            self.banner.set_title(problem[0] + " Until then, you can still ask the time, the date, the battery "
+            self.banner.set_title(problem[0] + " You can still ask about the time, date, battery "
                                   "or free space.")
         self.banner.set_revealed(problem is not None)
 
@@ -413,7 +413,7 @@ class AskKulanWindow(Adw.ApplicationWindow):
 
     def confirm_delete_all(self) -> None:
         dialog = Adw.AlertDialog(heading="Delete all conversations?",
-                                 body="They’re removed from this computer and can’t be brought back.")
+                                 body="They’ll be deleted from this computer. This can’t be undone.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete all")
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -468,7 +468,7 @@ class AskKulanWindow(Adw.ApplicationWindow):
         box = Gtk.Box(spacing=8)
         spinner = Gtk.Spinner(spinning=True)
         box.append(spinner)
-        box.append(Gtk.Label(label="Thinking (on this computer)…", css_classes=["dim-label"]))
+        box.append(Gtk.Label(label="Thinking…", css_classes=["dim-label"]))
         self.thinking_box = box
         self.messages.append(box)
 
