@@ -323,18 +323,28 @@ me = pwd.getpwuid(os.getuid())
 gethelp.person = lambda name: me if name in ("mo", "amina") else None
 help_dir = tmp / "fleet-help"
 gethelp.DIR, gethelp.SENT, gethelp.SEEN = help_dir, tmp / "help-sent.json", tmp / "help-seen.json"
+gethelp.STATE, gethelp.LOCK = tmp / "help-state.json", tmp / "help.lock"
 now = time.time()
-check("nothing sent yet: it may send", gethelp.may_send(now))
-for i in range(5):
+check("nothing sent yet: it may send", gethelp.may_send("mo", now))
+for i in range(3):
     gethelp.note_sent("mo", f"0000000{i}-0000-4000-8000-000000000000", f"ask {i}", now - 60 + i)
-check("5 in the last hour: no more", not gethelp.may_send(now))
-check("an hour later: again", gethelp.may_send(now + 3600))
+check("3 from one person in the last hour: no more from them", not gethelp.may_send("mo", now))
+check("but someone else on the computer still may", gethelp.may_send("amina", now))
+for i in range(3, 5):
+    gethelp.note_sent("amina", f"0000000{i}-0000-4000-8000-000000000000", f"ask {i}", now - 60 + i)
+check("5 from the computer in the last hour: no more from anyone", not gethelp.may_send("omar", now))
+check("an hour later: again", gethelp.may_send("mo", now + 3600))
 mine = json.loads((help_dir / "mo.json").read_text())
-check("what they sent is shown to them straight away, newest first", mine["requests"][0]["text"] == "ask 4" and
-      mine["requests"][0]["state"] == "open" and len(mine["requests"]) == 5, mine)
+check("what they sent is shown to them straight away, newest first", mine["requests"][0]["text"] == "ask 2" and
+      mine["requests"][0]["state"] == "open" and len(mine["requests"]) == 3, mine)
+(help_dir / "mo.json").write_text("[" * 100000)
+gethelp.note_sent("mo", "00000009-0000-4000-8000-000000000000", "ask 9", now)
+check("what a person writes into their own copy is never read back", json.loads((help_dir / "mo.json").read_text())
+      ["requests"][0]["text"] == "ask 9" and len(json.loads(gethelp.STATE.read_text())["mo"]) == 4)
+check("sending makes sure an early answer will be shown", json.loads(gethelp.SEEN.read_text()) == [])
 check("their file is theirs alone; the folder can't be listed", (help_dir / "mo.json").stat().st_mode & 0o777 == 0o600 and
       help_dir.stat().st_mode & 0o777 == 0o711)
-gethelp.SEEN.unlink(missing_ok=True)
+gethelp.remove_all()
 R1, R2, R3 = ("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
               "33333333-3333-4333-8333-333333333333")
 rows = [{"id": R1, "username": "mo", "text": "old one", "state": "done", "reply": "Fixed", "created_at": "2026-10-01T10:00:00Z"},
@@ -361,8 +371,16 @@ check("then never again", gethelp.apply(rows) == [])
 check("an older server without help requests: nothing changes", gethelp.apply(None) == [] and (help_dir / "mo.json").exists())
 gethelp.apply([rows[0]])
 check("someone with no requests left: their file goes", not (help_dir / "amina.json").exists() and (help_dir / "mo.json").exists())
+R4 = "44444444-4444-4444-8444-444444444444"
+gethelp.note_sent("amina", R4, "just sent")
+gethelp.apply([rows[0]])
+check("one just sent, not in a reply that was already on its way: kept", [r["id"] for r in
+      json.loads((help_dir / "amina.json").read_text())["requests"]] == [R4])
+show = gethelp.apply([rows[0], {"id": R4, "username": "amina", "text": "just sent", "state": "done", "reply": "Done <b>now</b>"}])
+check("answered before the next report: still shown", [x[1] for x in show] == [R4], show)
 gethelp.remove_all()
-check("leaving: nothing of it stays", not help_dir.exists() and not gethelp.SEEN.exists() and not gethelp.SENT.exists())
+check("leaving: nothing of it stays", not help_dir.exists() and not gethelp.SEEN.exists() and not gethelp.SENT.exists()
+      and not gethelp.STATE.exists())
 
 # kulan-fleet get-help: as the person, with the computer's key.
 kf_mod.gethelp = gethelp

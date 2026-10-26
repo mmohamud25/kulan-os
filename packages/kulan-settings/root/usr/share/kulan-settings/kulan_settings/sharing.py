@@ -13,7 +13,9 @@ GNOME Settings does it:
   - their gnome-remote-desktop service on.
 Kulan's firewall blocks it until it's allowed from local networks only
 (update-run remote-desktop-on, which asks an administrator's password);
-never from the internet. Remote help from an organisation (Kulan Fleet) is
+never from the internet. Turning it off leaves that rule (others on the
+computer may use remote desktop, and closing it needs an administrator); the
+page then offers to close it. Remote help from an organisation (Kulan Fleet) is
 separate, and is asked for each time.
 """
 from __future__ import annotations
@@ -200,6 +202,14 @@ class SharingPage(Page):
             allow.connect("clicked", lambda _b: self.allow_firewall())
             self.firewall.add_suffix(allow)
             remote.add(self.firewall)
+            self.still_open = Adw.ActionRow(title="The firewall still lets remote desktop in",
+                                            subtitle="From your local network only, and nothing answers while remote "
+                                                     "desktop is off. Close it if nobody here will use it again",
+                                            subtitle_lines=0)
+            close = Gtk.Button(label="Close", valign=Gtk.Align.CENTER)
+            close.connect("clicked", lambda _b: self.close_firewall())
+            self.still_open.add_suffix(close)
+            remote.add(self.still_open)
             self.watch(self.rdp, "changed::enable", lambda *_a: self.sync())
 
         more = self.add_group("More sharing")
@@ -256,17 +266,35 @@ class SharingPage(Page):
             self.switch.set_active(on)
             self.switch.handler_unblock(self.switch_handler)
         self.switch.set_subtitle("On. Others can connect while you’re signed in" if on else "Off")
-        creds = load_credentials() if on else None
-        host = GLib.get_host_name()
-        ip = local_address()
-        self.set_row(self.address, f"{host}.local" + (f" or {ip}" if ip else "") if on else "")
-        self.set_row(self.username, creds[0] if creds else "")
-        self.set_row(self.password, creds[1] if creds else "")
-        cert = Path(self.rdp.get_string("tls-cert")) if self.rdp.get_string("tls-cert") else None
-        self.fingerprint.set_subtitle(fingerprint(cert) if on and cert and cert.exists() else "")
         for row in (self.control, self.address, self.username, self.password, self.fingerprint):
             row.set_visible(on)
         self.firewall.set_visible(on and firewall_on() and not FIREWALL_MARK.exists())
+        self.still_open.set_visible(not on and FIREWALL_MARK.exists())
+        if not on:
+            return
+        cert_path = self.rdp.get_string("tls-cert")
+        self.sync_turn = getattr(self, "sync_turn", 0) + 1
+        turn = self.sync_turn
+
+        def look() -> None:
+            # The keyring and openssl can take a moment (the keyring may even ask to be
+            # unlocked): never on the window's own thread.
+            creds = load_credentials()
+            cert = Path(cert_path) if cert_path else None
+            print_ = fingerprint(cert) if cert and cert.exists() else ""
+            ip = local_address()
+            GLib.idle_add(lambda: (self.show_details(turn, creds, print_, ip), False)[1])
+
+        threading.Thread(target=look, daemon=True).start()
+
+    def show_details(self, turn: int, creds: tuple[str, str] | None, print_: str, ip: str | None) -> None:
+        if self.torn_down or turn != self.sync_turn:
+            return
+        host = GLib.get_host_name()
+        self.set_row(self.address, f"{host}.local" + (f" or {ip}" if ip else ""))
+        self.set_row(self.username, creds[0] if creds else "")
+        self.set_row(self.password, creds[1] if creds else "")
+        self.fingerprint.set_subtitle(print_)
 
     def on_switch(self, row: Adw.SwitchRow, _pspec) -> None:
         if self.busy:
@@ -324,7 +352,7 @@ class SharingPage(Page):
             return
         self.rdp.set_string("tls-cert", str(made[0]))
         self.rdp.set_string("tls-key", str(made[1]))
-        self.rdp.set_uint("port", PORT)
+        self.rdp.set_value("port", GLib.Variant("q", PORT))
         if self.rdp.props.settings_schema.has_key("negotiate-port"):
             self.rdp.set_boolean("negotiate-port", False)  # always 3389, the port the firewall allows
         self.rdp.set_boolean("enable", True)
@@ -348,11 +376,16 @@ class SharingPage(Page):
             self.busy = False
             self.sync()
 
-        # The firewall rule stays (local networks only): nothing listens on it while this is off.
+        # The firewall rule stays until someone closes it (it needs an administrator, and others on this
+        # computer may still use remote desktop); the page offers to close it while it's off.
         self.service("disable", stopped)
 
     def allow_firewall(self) -> None:
         self.window.helper.run(["remote-desktop-on"], "Remote desktop allowed from your local network",
+                               on_done=lambda _ok: self.sync())
+
+    def close_firewall(self) -> None:
+        self.window.helper.run(["remote-desktop-off"], "Remote desktop is no longer let through the firewall",
                                on_done=lambda _ok: self.sync())
 
     def change_password(self) -> None:

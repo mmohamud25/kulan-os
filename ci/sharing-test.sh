@@ -22,6 +22,11 @@ assert schema is not None, "no GNOME Remote Desktop settings"
 missing = [k for k in ("enable", "tls-cert", "tls-key", "view-only", "port", "negotiate-port") if not schema.has_key(k)]
 assert not missing, f"settings missing: {missing}"
 assert s.SERVICE_FILE.exists(), f"no {s.SERVICE_FILE}"
+from gi.repository import GLib
+rdp = s.settings(s.SCHEMA_ID)
+rdp.set_value("port", GLib.Variant("q", 4000))
+rdp.set_value("port", GLib.Variant("q", s.PORT))
+assert rdp.get_value("port").unpack() == s.PORT, rdp.get_value("port")
 assert s.load_credentials() is None, "credentials before any were kept"
 assert s.store_credentials("amina", "Pa'ss {x} \"y\""), "the keyring didn't keep them"
 assert s.load_credentials() == ("amina", "Pa'ss {x} \"y\""), s.load_credentials()

@@ -614,17 +614,31 @@ Deno.serve(async (req: Request) => {
     if (path === "/v1/help-requests") {
       const h = acts.cleanHelpRequest(body);
       if (!h) return reply(400, { error: "write what's wrong. A screenshot must be a JPEG or PNG of at most 360 KB" });
-      // Never a flood on the admins: 5 an hour and 20 a day from one computer.
-      const [n] = await sql`select count(*) filter (where created_at > now() - interval '1 hour')::int as hour,
-                                   count(*)::int as day
-                            from fleet.help_requests where device_id = ${dev.id} and created_at > now() - interval '1 day'`;
-      if (n.hour >= 5 || n.day >= 20) return reply(429, { error: "too many help requests from this computer. Try again later" });
-      const [p] = await sql`select full_name from fleet.people where organisation_id = ${dev.organisation_id}
-                            and username = ${h.username} and removed_at is null`;
-      const [row] = await sql`insert into fleet.help_requests (organisation_id, device_id, username, full_name, body, screenshot,
-                                                               screenshot_type)
-                              values (${dev.organisation_id}, ${dev.id}, ${h.username}, ${p?.full_name ?? ""}, ${h.body},
-                                      ${h.screenshot}, ${h.type}) returning id, created_at`;
+      // The name admins see only for an organisation account allowed on this computer:
+      // a computer can't make a request look like it came from someone who doesn't use it.
+      const [p] = await sql`
+        select pe.full_name from fleet.people pe
+        where pe.organisation_id = ${dev.organisation_id} and pe.username = ${h.username} and pe.removed_at is null
+          and (pe.all_computers
+               or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
+               or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
+                          where pg.person_id = pe.id and gd.device_id = ${dev.id}))`;
+      // Never a flood on the admins: 5 an hour and 20 a day from one computer, 3 an hour from
+      // one person there. Counted and kept in one step (one computer at a time).
+      const row = await sql.begin(async (tx) => {
+        await tx`select pg_advisory_xact_lock(hashtext(${"help:" + dev.id}))`;
+        const [n] = await tx`select count(*) filter (where created_at > now() - interval '1 hour')::int as hour,
+                                    count(*) filter (where created_at > now() - interval '1 hour' and username = ${h.username})::int as mine,
+                                    count(*)::int as day
+                             from fleet.help_requests where device_id = ${dev.id} and created_at > now() - interval '1 day'`;
+        if (n.hour >= 5 || n.mine >= 3 || n.day >= 20) return null;
+        const [added] = await tx`insert into fleet.help_requests (organisation_id, device_id, username, full_name, body, screenshot,
+                                                                  screenshot_type)
+                                 values (${dev.organisation_id}, ${dev.id}, ${h.username}, ${p?.full_name ?? ""}, ${h.body},
+                                         ${h.screenshot}, ${h.type}) returning id, created_at`;
+        return added;
+      });
+      if (!row) return reply(429, { error: "too many help requests from this computer. Try again later" });
       await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
                 values (${dev.organisation_id}, ${dev.id}, ${h.username}, 'asked for help',
                         ${json({ request: row.id, computer: dev.hostname, screenshot: h.screenshot !== null })})`;

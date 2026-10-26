@@ -10,7 +10,8 @@ the person at the computer can do it)."""
 from __future__ import annotations
 
 import base64
-import getpass
+import os
+import pwd
 import json
 import time
 from datetime import datetime, timezone
@@ -59,9 +60,14 @@ def when(stamp: str | None) -> str:
     return at.strftime("Today, %H:%M") if at.date() == today else at.strftime("%-d %b, %H:%M")
 
 
+def me() -> str:
+    """This account's name (from the system, never from the environment)."""
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
 def my_requests(user: str | None = None) -> list[dict]:
     try:
-        data = json.loads((MINE_DIR / f"{user or getpass.getuser()}.json").read_text())
+        data = json.loads((MINE_DIR / f"{user or me()}.json").read_text())
     except (OSError, ValueError):
         return []
     requests = data.get("requests") if isinstance(data, dict) else None
@@ -100,7 +106,7 @@ class HelpPage(Page):
 
     def mine_changed(self) -> bool:
         try:
-            stamp = (MINE_DIR / f"{getpass.getuser()}.json").stat().st_mtime
+            stamp = (MINE_DIR / f"{me()}.json").stat().st_mtime
         except OSError:
             stamp = None
         return stamp != self.mine_stamp
@@ -332,7 +338,7 @@ class HelpPage(Page):
             self.groups.remove(self.mine_group)
         self.mine_group = None
         try:
-            self.mine_stamp = (MINE_DIR / f"{getpass.getuser()}.json").stat().st_mtime
+            self.mine_stamp = (MINE_DIR / f"{me()}.json").stat().st_mtime
         except OSError:
             self.mine_stamp = None
         requests = my_requests()
@@ -377,7 +383,7 @@ def self_test(window) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         PUBLIC, MINE_DIR, HELPER = Path(tmp) / "public.json", Path(tmp), "/bin/true"
         PUBLIC.write_text(json.dumps({"joined": True, "organisation": "Acme"}))
-        (MINE_DIR / f"{getpass.getuser()}.json").write_text(json.dumps({"requests": [
+        (MINE_DIR / f"{me()}.json").write_text(json.dumps({"requests": [
             {"id": "1", "text": "Printer <b>broken</b>\nsecond line", "state": "done", "reply": "Fixed it"},
             {"id": "2", "text": "Slow", "state": "open"}, "not a request"]}))
         try:

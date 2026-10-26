@@ -1031,9 +1031,14 @@ def report() -> int:
             write_json(PUSHED, done, 0o644)
         # Get help (2.9c): each person's requests, and any answer shown on their screen once.
         if "help_requests" in reply:
-            shown = [rid for username, rid, title, text in gethelp.apply(reply.get("help_requests"))
-                     if notify_users(title, text, only=username)]
-            gethelp.mark_seen(shown)
+            try:
+                # Shown as typed: never as links or tags (GNOME's notifications read a little markup).
+                shown = [rid for username, rid, title, text in gethelp.apply(reply.get("help_requests"))
+                         if notify_users(title, text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"),
+                                         only=username)]
+                gethelp.mark_seen(shown)
+            except OSError as e:
+                say(f"Help requests: not kept ({e})")
         again = False
         actions = reply.get("actions")
         for action in (actions if isinstance(actions, list) else [])[:10]:
@@ -1193,8 +1198,8 @@ def get_help(username: str) -> int:
     except ValueError as e:
         say(str(e) if str(e).endswith(".") else "Something went wrong. Try again.")
         return 1
-    if not gethelp.may_send():
-        say("You've asked several times in the last hour. Wait a little, then try again.")
+    if not gethelp.may_send(username):
+        say("Help was asked for several times in the last hour. Wait a little, then try again.")
         return 1
     body = {"device_id": config["device_id"], "username": username, "text": request["text"]}
     if request["screenshot"]:
@@ -1207,7 +1212,11 @@ def get_help(username: str) -> int:
             else f"It wasn't sent: {e}. Check the internet connection and try again.")
         return 1
     request_id = str(reply.get("id", ""))
-    gethelp.note_sent(username, request_id, request["text"])
+    if read_json(CONFIG, None):  # not if the computer left the organisation meanwhile
+        try:
+            gethelp.note_sent(username, request_id, request["text"])
+        except OSError as e:
+            say(f"get-help: sent, but not noted here ({e})")
     print(json.dumps({"id": request_id, "organisation": config.get("organisation") or ""}))
     return 0
 

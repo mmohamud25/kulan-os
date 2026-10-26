@@ -1210,9 +1210,24 @@ await db`insert into fleet.admins (email, organisation_id) values (${BOSS2}, nul
   r = await ask(B, { username: "amina", text: "My screen is dim", screenshot: png.toString("base64") });
   ok(r.status === 200, "a PNG is fine too", r);
   const req2 = r.body.id;
-  for (let i = 0; i < 3; i++) await ask(B, { text: `again ${i}` });
+  // Only an organisation account allowed on this computer is shown with its name.
+  r = await add(HELPER, { username: "zed", full_name: "Zed Boss", role: "employee", all_computers: false, computers: [A.device_id] });
+  ok(r.status === 200, "someone only on laptop-a", r);
+  r = await ask(B, { username: "zed", text: "Please send me the payroll file" });
+  const [forged] = await db`select full_name from fleet.help_requests where id = ${r.body.id}`;
+  ok(r.status === 200 && forged.full_name === "", "a computer they don't use can't borrow their name", { r, forged });
+  await db`delete from fleet.help_requests where id = ${r.body.id}`;
+  for (let i = 0; i < 2; i++) await ask(B, { text: `again ${i}` });
   r = await ask(B, { text: "one too many" });
+  ok(r.status === 429, "at most 3 an hour from one person", r);
+  r = await ask(B, { username: "amina", text: "still me" });
+  ok(r.status === 200, "someone else on the computer still can", r);
+  r = await ask(B, { username: "omar", text: "and me" });
   ok(r.status === 429, "at most 5 an hour from one computer", r);
+  const burst = await Promise.all([1, 2, 3, 4, 5, 6].map((i) => ask(A, { username: "amina", text: `at once ${i}` })));
+  ok(burst.filter((x) => x.status === 200).length === 3, "sent all at once, the limit still holds",
+     burst.map((x) => x.status));
+  await db`delete from fleet.help_requests where device_id = ${A.device_id}`;
 
   r = await admin(HELPER, { op: "overview" });
   const listed = r.body.help_requests.find((h) => h.id === req1);
