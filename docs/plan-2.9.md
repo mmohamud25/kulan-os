@@ -100,13 +100,41 @@ How the picture gets there (as built):
   passwords kept sealed like the other secrets; removed again when a
   computer leaves the group).
 
-## 2.9c Get help and Sharing: how it works (design)
-- Kulan Settings › Get help (for computers in an organisation): what's
-  wrong, and optionally a screenshot the person sees first. It reaches
-  Kulan Fleet as a help request (an alert), with Start remote help.
-- Kulan Settings › Sharing: remote desktop (GNOME Remote Desktop), file
-  sharing and media sharing switches, natively, replacing the link to
-  GNOME Settings.
+## 2.9c Get help and Sharing: how it works (as built)
+Get help:
+- Kulan Settings › Get help. On a computer in an organisation: what's
+  wrong (up to 2,000 characters), and optionally a screenshot. The person
+  takes it with GNOME's own screenshot tool (they choose the area), sees it,
+  and can remove it before sending. It's made small enough to send (a JPEG
+  of at most 340 KB). On other computers the page links to Kulan OS help
+  and support, and to Kulan Assistant.
+- Sending: pkexec runs /usr/lib/kulan/fleet-get-help (polkit: the person at
+  the computer only, no password), which runs "kulan-fleet get-help USER"
+  as that person, with the computer's own key. At most 5 an hour from a
+  computer (checked on the computer and on the server).
+- Server: fleet.help_requests (the text, the screenshot kept 30 days, open or
+  done, the admin's answer). Each open request is an alert. Admins open it
+  (the screenshot), start remote help from it, and mark it done with an
+  optional answer. The computer is woken, and the answer appears as a
+  notification on that person's screen, once. If they weren't signed in, it
+  appears at a later report when they are. Each person's own requests and
+  answers are listed on the page (/var/lib/kulan/fleet-help/USER.json,
+  theirs alone). Asking and answering are in the activity log; what they
+  wrote isn't.
+Sharing:
+- Kulan Settings › Sharing: remote desktop with GNOME Remote Desktop (RDP),
+  set up as GNOME Settings does: a certificate of its own, a username and a
+  generated password in the person's keyring, port 3389, and their
+  gnome-remote-desktop service. Its own switch for using the mouse and
+  keyboard (off: watch only), the address, username and password with copy
+  buttons, a new-password button, and the certificate's fingerprint.
+- The firewall: remote desktop is allowed from local networks only
+  (update-run remote-desktop-on, an administrator's password), never from
+  the internet.
+- File and media sharing stay in GNOME Settings, linked from the page:
+  they listen on ports that change each time, which Kulan's firewall
+  blocks, so a switch here wouldn't work. Making them work with the firewall
+  is 2.10 work.
 
 ## Not in 2.9's headline (moved to 2.10 or later unless decided otherwise)
 ## Moved from 2.8 (first moved from 2.6, then 2.7)

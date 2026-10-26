@@ -26,6 +26,10 @@ when this list is empty.
     protection is on without USBGuard (Kulan Fleet controls USB drives);
     switch it off. Two media-key shortcuts (hibernate, repeat) fail to bind
     at every sign-in.
+  - File and media sharing (GNOME's, linked from Sharing) listen on ports
+    that change each time, so Kulan's firewall blocks them. Give them fixed
+    ports the firewall allows from local networks, then put their switches
+    on the Sharing page.
 - Kulan Fleet sign-in emails from kulangroup.com through our own mail
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.

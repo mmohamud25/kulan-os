@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.9.3",
+    "label": "2.9c",
+    "title": "Get help, and remote desktop in Settings",
+    "items": [
+      "Get help in Settings: on a computer in an organisation, write what's wrong and add a screenshot if you like. You see the screenshot before it's sent. It reaches your organisation's admins, and their answer appears on your screen",
+      "Kulan Fleet shows each help request with its screenshot, next to Start remote help. Admins answer it and mark it done from the web or the app",
+      "Sharing in Settings: turn on remote desktop to use this computer from Remote Desktop on Windows, Windows App on a Mac or Remmina on Linux, while you're signed in. It has its own username, password and certificate, and the firewall lets it in from your local network only",
+      "On a computer that isn't in an organisation, Get help links to Kulan OS help and support"
+    ]
+  },
+  {
     "version": "2.9.2",
     "label": "2.9b",
     "title": "Fixes, scripts and messages with Kulan Fleet",

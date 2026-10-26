@@ -87,6 +87,15 @@ lock-screen, restart):
   bound to the group, and opened only into the reply to that group's
   computers. Computers report how each went (`pushed` in their report).
 
+## Get help (Kulan OS 2.9c)
+Someone at a computer writes what's wrong in Kulan Settings › Get help, and
+may add a screenshot they see first. The computer sends it with its own key
+(POST /fleet/v1/help-requests, at most 5 an hour). Admins see it as an alert
+and in Help requests (web and app), with the screenshot (kept 30 days),
+start remote help from it, and mark it done with an optional answer. The
+answer reaches that person's screen with the computer's next report, which
+starts at once.
+
 ## Dashboard
 
 `dashboard/` is a static page, published with the website at
