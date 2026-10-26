@@ -8,10 +8,10 @@ name: Fleet server
 on:
   push:
     paths: ["fleet/**", ".github/workflows/fleet-server.yml", "packages/kulan-base/root/usr/share/kulan-fleet/**",
-            "packages/kulan-settings/root/usr/lib/kulan/kulan-remote-help", "ci/remotehelp-*.py"]
+            "packages/kulan-settings/root/usr/lib/kulan/kulan-remote-help", "ci/remotehelp-*.py", "ci/fleet-actions-test.py"]
   pull_request:
     paths: ["fleet/**", ".github/workflows/fleet-server.yml", "packages/kulan-base/root/usr/share/kulan-fleet/**",
-            "packages/kulan-settings/root/usr/lib/kulan/kulan-remote-help", "ci/remotehelp-*.py"]
+            "packages/kulan-settings/root/usr/lib/kulan/kulan-remote-help", "ci/remotehelp-*.py", "ci/fleet-actions-test.py"]
   workflow_dispatch:
 
 permissions:
