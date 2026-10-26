@@ -322,6 +322,19 @@ check "Phone link firewall" "phone-link-on opens KDE Connect's ports (1714-1764)
 	[ "$(grep -c "^allow proto .* from .* to any port 1714:1764 comment Kulan Phone link$" /tmp/ufw-on.log)" = 10 ] || { cat /tmp/ufw-on.log; exit 1; }
 	grep -q "from 192.168.0.0/16" /tmp/ufw-on.log && ! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
 	[ "$(grep -c "^--force delete allow proto .* from .* to any port 1714:1764$" "$log")" = 10 ] || { cat "$log"; exit 1; }'
+check "Remote desktop firewall" "remote-desktop-on allows RDP (3389) from local networks only, and marks it for Sharing; off closes it" bash -c '
+	real=/usr/sbin/ufw; log=/tmp/ufw-calls.log; rm -f "$log"
+	[ -e "$real" ] && mv "$real" "$real.kulan-test"
+	printf "#!/bin/sh\necho \"\$*\" >> %s\n" "$log" > "$real"; chmod +x "$real"
+	/usr/lib/kulan/update-run remote-desktop-on >/dev/null 2>&1; on=$?; [ -e /var/lib/kulan/remote-desktop-firewall ]; marked=$?
+	cp "$log" /tmp/ufw-on.log; rm -f "$log"
+	/usr/lib/kulan/update-run remote-desktop-off >/dev/null 2>&1; off=$?
+	rm -f "$real"; [ -e "$real.kulan-test" ] && mv "$real.kulan-test" "$real"
+	[ "$on" = 0 ] && [ "$off" = 0 ] && [ "$marked" = 0 ] && [ ! -e /var/lib/kulan/remote-desktop-firewall ] || { echo "on=$on off=$off marked=$marked"; exit 1; }
+	[ "$(grep -c "^allow proto tcp from .* to any port 3389 comment Kulan remote desktop$" /tmp/ufw-on.log)" = 5 ] || { cat /tmp/ufw-on.log; exit 1; }
+	! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
+	[ "$(grep -c "^--force delete allow proto tcp from .* to any port 3389$" "$log")" = 5 ] || { cat "$log"; exit 1; }'
+check "Remote desktop with GNOME 48" "Sharing's settings, username and password (read back by GNOME Remote Desktop's grdctl) and certificate" bash -c 'command -v gnome-keyring-daemon >/dev/null || apt-get install -y -q --no-install-recommends gnome-keyring >/dev/null 2>&1; command -v grdctl >/dev/null || { echo "gnome-remote-desktop not installed"; exit 1; }; out="$(HOME=$(mktemp -d) timeout 120 dbus-run-session -- bash ci/sharing-test.sh 2>&1)"; echo "$out" | grep -qx "sharing self-test passed" || { echo "$out" | grep -v "fd limit" | tail -n 4; exit 1; }'
 check "Phone link works with GNOME 48" "Debian's GSConnect (the Phone link add-on) is made for GNOME 48" bash -c '
 	apt-get install -y -q --no-install-recommends gnome-shell-extension-gsconnect >/dev/null 2>&1 || { echo "not installable"; exit 1; }
 	python3 -c "import json, sys; m = json.load(open(\"/usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io/metadata.json\")); v = [str(x) for x in m.get(\"shell-version\", [])]; sys.exit(0 if \"48\" in v else \"made for GNOME \" + \", \".join(v))"; ok=$?
@@ -805,12 +818,13 @@ check "Fleet two-step" "2.8d: two-step sign-in on the computer, every case" pyth
 check "Fleet two-step sign-in" "2.8d: a phone code through the real PAM stack; sudo and everyone else as before" bash ci/two-step-pam-test.sh
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet two-step in Settings" "2.8d: the row and the dialogs to add a security key or a phone code (with its QR code)" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 -I -B ci/two-step-settings-test.py 2>&1)"; echo "$out" | grep -qx "two-step settings: every dialog built" || { echo "$out" | tail -n 4; exit 1; }'
+check "Fleet Get help helper" "2.9c: only through pkexec, from the person at the computer (no password), sent as them" bash -c '! echo "{\"text\":\"x\"}" | /usr/lib/kulan/fleet-get-help 2>/dev/null; grep -q "<allow_active>yes</allow_active>" /usr/share/polkit-1/actions/org.kulan.fleet.get-help.policy && grep -q "<allow_inactive>no</allow_inactive>" /usr/share/polkit-1/actions/org.kulan.fleet.get-help.policy && grep -q "<allow_any>no</allow_any>" /usr/share/polkit-1/actions/org.kulan.fleet.get-help.policy && echo "{\"text\":\"x\"}" | PKEXEC_UID=0 /usr/lib/kulan/fleet-get-help 2>&1 | grep -q "account here\|isn.t in an organisation"'
 check "Fleet two-step helper" "only through pkexec, for yourself; polkit asks your own password" bash -c '! /usr/lib/kulan/fleet-two-step add key x </dev/null 2>/dev/null; grep -q "<allow_active>auth_self</allow_active>" /usr/share/polkit-1/actions/org.kulan.fleet.two-step.policy && test -x /usr/lib/kulan/fleet-two-step-reminder'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet work email" "2.8e: who has a work mailbox, whether it's connected (Online Accounts), once a day; the Settings row" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 -I -B ci/workmail-test.py /usr/share/kulan-fleet/workmail.py /usr/share/kulan-settings 2>&1)"; echo "$out" | grep -qx "workmail: every case passed" || { echo "$out" | tail -n 6; exit 1; }'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet work email at sign-in" "2.8e: offered once a day; Connect opens Settings › Online Accounts › Google" bash -c 'out="$(timeout 120 dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py 2>&1)"; echo "$out" | grep -qx "work email reminder: asked, connected, then not asked again" || { echo "$out" | tail -n 6; exit 1; }; grep -qx "Exec=/usr/lib/kulan/fleet-work-email" /etc/xdg/autostart/org.kulan.WorkEmail.desktop'
-check "Fleet actions" "2.9b: Kulan's fixes, the organisation's scripts (only when allowed, only unchanged, stopped after the time limit), messages, Wi-Fi networks and printers from a group" python3 -I -B ci/fleet-actions-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
+check "Fleet actions" "2.9b and 2.9c: Kulan's fixes, the organisation's scripts (only when allowed, only unchanged, stopped after the time limit), messages, Wi-Fi networks and printers from a group, and Get help" python3 -I -B ci/fleet-actions-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
 check "Fleet remote help" "2.9a: who is at the computer, the request picked up (the helper gets only the session's key), input checked, the wake listener" python3 -I -B ci/remotehelp-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet remote help on the computer" "2.9a: the helper on this GStreamer: asks first, offers the screen (VP8, sent only) and the input channel; declined and unanswered share nothing; its windows" bash -c 'out="$(HOME=$(mktemp -d) timeout 240 xvfb-run -a dbus-run-session -- python3 -I -B ci/remotehelp-helper-test.py /usr/lib/kulan/kulan-remote-help /usr/share/kulan-fleet 2>&1)"; echo "$out" | grep -qx "remote help helper: every case passed" || { echo "$out" | grep -v "^libEGL\|a11y\|fd limit" | tail -n 8; exit 1; }; systemd-analyze verify /usr/lib/systemd/system/kulan-fleet-listen.service >/dev/null 2>&1 || test ! -d /run/systemd/system'

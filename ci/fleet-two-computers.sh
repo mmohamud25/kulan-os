@@ -270,6 +270,29 @@ adm "{\"op\":\"remove-network\",\"network_id\":\"${NET}\"}" >/dev/null
 report laptop-a
 expect "laptop-a: the network removed with it" on laptop-a "test ! -e /etc/NetworkManager/system-connections/kulan-fleet-${NET}.nmconnection"
 
+step "Get help (2.9c)"
+# What Kulan Settings sends through pkexec: as amina (PKEXEC_UID), with a screenshot (a JPEG's first bytes are enough).
+SHOT="$(printf '\xff\xd8\xff\xe0kulan-test-screenshot' | base64 -w0)"
+asked() { docker exec -i laptop-a bash -c 'PKEXEC_UID=$(id -u amina) /usr/lib/kulan/fleet-get-help' \
+	<<<"{\"text\":\"The printer won't print.\\nIt says offline.\",\"screenshot\":\"${SHOT}\"}" | jq -e '.id and .organisation == "Two computers"' >/dev/null; }
+expect "laptop-a: amina asks for help, with a screenshot, through the helper" asked
+expect "laptop-a: not through pkexec, refused" on laptop-a "! echo '{\"text\":\"x\"}' | /usr/lib/kulan/fleet-get-help 2>/dev/null"
+expect "laptop-a: nothing written, refused, and said why" on laptop-a \
+	"echo '{\"text\":\"  \"}' | PKEXEC_UID=\$(id -u amina) /usr/lib/kulan/fleet-get-help 2>&1 >/dev/null | grep -q \"Write what's wrong first.\""
+expect "laptop-a: shown to her as waiting, readable by her alone" on laptop-a \
+	'test "$(stat -c %U:%a /var/lib/kulan/fleet-help/amina.json)" = amina:600 && test "$(stat -c %a /var/lib/kulan/fleet-help)" = 711 && grep -q "\"state\": \"open\"" /var/lib/kulan/fleet-help/amina.json'
+HELP="$(adm '{"op":"overview"}' | jq -r '.help_requests[] | select(.username == "amina" and .hostname == "laptop-a") | .id')"
+listed() { adm '{"op":"overview"}' | jq -e --arg h "${HELP}" '(.help_requests[] | select(.id == $h) | .has_screenshot and .state == "open" and .body == "The printer won'"'"'t print.\nIt says offline.") and ([.alerts[] | select(.kind == "help" and .request_id == $h)] | length == 1)' >/dev/null; }
+expect "server: the admins see it, and it's an alert" listed
+shot() { adm "{\"op\":\"help-request\",\"request_id\":\"${HELP}\"}" | jq -e --arg s "${SHOT}" '.request.screenshot == $s and .request.screenshot_type == "image/jpeg"' >/dev/null; }
+expect "server: the screenshot, when an admin opens it" shot
+adm "{\"op\":\"close-help\",\"request_id\":\"${HELP}\",\"reply\":\"Restarted the printer. Try again now.\"}" >/dev/null
+report laptop-a
+expect "laptop-a: the answer arrives for her" on laptop-a \
+	"grep -q '\"state\": \"done\"' /var/lib/kulan/fleet-help/amina.json && grep -q 'Restarted the printer. Try again now.' /var/lib/kulan/fleet-help/amina.json"
+# Nobody is signed in on these containers: the answer stays to be shown when she is.
+expect "laptop-a: not shown to anyone yet, so kept to show her later" on laptop-a "! grep -q '${HELP}' /var/lib/kulan/fleet-help-seen.json"
+
 step "Leaving the organisation's people"
 on laptop-a "echo handover > /home/amina/report.txt"
 adm "{\"op\":\"remove-person\",\"person_id\":\"${AMINA}\",\"remove_files\":false,\"confirm\":\"amina\",\"mailbox\":\"delete\"}" >/dev/null
@@ -286,7 +309,7 @@ for want in "ci@kulan.example: added amina" "amina: changed their password on a 
 	"ci@kulan.example: removed amina" "ci@kulan.example: asked: lost-mode-on" "ci@kulan.example: added group Office" \
 	"ci@kulan.example: asked group Office: install-app" "ci@kulan.example: connected Google Workspace" \
 	"ci@kulan.example: made a mailbox for amina" "ci@kulan.example: suspended amina's mailbox" \
-	"ci@kulan.example: deleted amina's mailbox"; do
+	"ci@kulan.example: deleted amina's mailbox" "amina: asked for help" "ci@kulan.example: answered amina's help request"; do
 	expect "in the log: ${want}" grep -qxF "${want}" <<<"${LOGS}"
 done
 
@@ -294,6 +317,7 @@ step "Teardown"
 for host in laptop-a laptop-b; do on "${host}" "kulan-fleet leave >/dev/null 2>&1" || true; done
 expect "laptop-a: leaving takes the USB rule and the pin away, apps stay" on laptop-a 'test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules && test ! -e /etc/apt/preferences.d/60-kulan-fleet-blocked && dpkg -s sl >/dev/null 2>&1'
 expect "laptop-a: no work email offered after leaving" on laptop-a 'test ! -e /var/lib/kulan/fleet-mail'
+expect "laptop-a: no help requests kept after leaving" on laptop-a 'test ! -e /var/lib/kulan/fleet-help && test ! -e /var/lib/kulan/fleet-help-seen.json'
 cleanup
 sudo "${HERE}/fleet/test-server/teardown.sh"
 expect "the test server leaves nothing" test ! -e /opt/kulan-fleet-test

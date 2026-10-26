@@ -147,6 +147,12 @@ dialog.help[open] { display: flex; flex-direction: column; }
       <ul id="alerts" class="alerts"></ul>
     </div>
 
+    <div class="card hidden" id="help-card">
+      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Help requests</h3>
+      <p class="sub">What people asked for in Settings › Get help on their computers. Open one to see their screenshot, start remote help, or answer it.</p>
+      <ul id="help-requests" class="alerts"></ul>
+    </div>
+
     <div class="card">
       <div class="row" style="margin-bottom: 8px">
         <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">People</h3>
@@ -1315,8 +1321,10 @@ function render() {
   $("alerts").replaceChildren(...(alerts.length ? alerts.slice(0, 50).map((a) => el("li", {},
     el("b", {}, a.title || a.hostname || "Computer"), ` · ${a.text}`,
     a.kind === "review" ? el("button", { style: "margin-left: 8px", onclick: openReview }, "Review now…") : "",
-    a.kind === "mailbox" && a.person_id ? mailboxButton({ id: a.person_id }, "retry", "Retry") : ""))
+    a.kind === "mailbox" && a.person_id ? mailboxButton({ id: a.person_id }, "retry", "Retry") : "",
+    a.kind === "help" && a.request_id ? el("button", { style: "margin-left: 8px", onclick: () => openHelpRequest(a.request_id) }, "Open…") : ""))
     : [el("li", { class: "small" }, "Every computer looks fine.")]));
+  renderHelpRequests(org);
   orgPolicy = policyForm(data.organisations.find((o) => o.id === org)?.policy || {});
   $("policy").replaceChildren(orgPolicy.node);
   $("policy").classList.toggle("hidden", !org);
@@ -1582,6 +1590,61 @@ function openGroupNetwork(g) {
     el("p", { class: "note" }, "Most office printers made since 2015 work without a driver. Their address is usually ipp://, the printer's IP address, then /ipp/print."),
     el("button", { type: "button", onclick: () => add({ op: "add-printer", group_id: g.id, name: pname.value.trim(), uri: uri.value.trim() }) }, "Add printer"),
     err], [closeButton("Close")]);
+}
+
+// --- Help requests (2.9c) --------------------------------------------------------------------
+function renderHelpRequests(org) {
+  const list = (data.help_requests || []).filter((h) => h.organisation_id === org);
+  $("help-card").classList.toggle("hidden", !list.length);
+  $("help-requests").replaceChildren(...list.slice(0, 50).map((h) => el("li", { class: h.state === "done" ? "small" : "" },
+    el("b", {}, h.full_name || h.username), ` on ${h.hostname || "a computer"} · ${ago(h.created_at)}`,
+    h.state === "done" ? el("span", { class: "tag good", style: "margin-left: 8px" }, "Done") : "",
+    h.has_screenshot ? el("span", { class: "tag dim", style: "margin-left: 8px" }, "Screenshot") : "",
+    el("button", { style: "margin-left: 8px", onclick: () => openHelpRequest(h.id) }, "Open…"),
+    el("div", { class: "note", style: "white-space: pre-wrap; margin-top: 2px" }, String(h.body).slice(0, 300) + (h.body.length > 300 ? "…" : "")))));
+}
+
+async function openHelpRequest(id) {
+  let h;
+  try { h = (await api({ op: "help-request", request_id: id })).request; }
+  catch (e) { $("app-msg").textContent = e.message; return; }
+  const device = data.devices.find((d) => d.id === h.device_id);
+  const who = h.full_name ? `${h.full_name} (${h.username})` : h.username;
+  const parts = [
+    el("p", { class: "note" }, `${who} on ${h.hostname || "a computer"} · ${ago(h.created_at)}`),
+    el("pre", { style: "font: inherit; font-size: 14px" }, h.body)];
+  if (h.screenshot) {
+    const src = `data:${h.screenshot_type};base64,${h.screenshot}`;
+    parts.push(el("a", { href: "#", "aria-label": "Their screenshot, full size", onclick: (ev) => {
+      ev.preventDefault();
+      const bytes = Uint8Array.from(atob(h.screenshot), (c) => c.charCodeAt(0));
+      window.open(URL.createObjectURL(new Blob([bytes], { type: h.screenshot_type })), "_blank", "noopener");
+    } }, el("img", { src, alt: "The screenshot they added", style: "max-width: 100%; max-height: 50vh; border-radius: 10px; border: 1px solid var(--line)" })));
+    parts.push(el("p", { class: "note" }, "Screenshots are kept for 30 days."));
+  }
+  const buttons = [];
+  if (device && !device.left_at) {
+    buttons.push(el("button", { type: "button", onclick: () => askRemoteHelp(device) }, "Start remote help…"));
+  }
+  if (h.state === "done") {
+    parts.push(el("p", {}, el("b", {}, "Done"), ` · ${ago(h.done_at)} by ${h.done_by}`), h.reply ? el("pre", { style: "font: inherit; font-size: 14px" }, h.reply) : el("p", { class: "note" }, "No answer was written."));
+    buttons.push(closeButton("Close"));
+  } else {
+    const answer = el("textarea", { rows: "3", maxlength: "500", placeholder: "For example: I restarted the printer. Try again now.",
+                                    style: "width: 100%; box-sizing: border-box; font: inherit" });
+    const err = errorLine();
+    parts.push(field("Answer (optional). It appears on their screen when you mark it done", answer), err);
+    const done = el("button", { type: "button", class: "primary", onclick: async () => {
+      done.disabled = true;
+      try {
+        await api({ op: "close-help", request_id: h.id, ...(answer.value.trim() ? { reply: answer.value.trim() } : {}) });
+        $("dlg").close();
+        await load();
+      } catch (e) { err.textContent = e.message; done.disabled = false; }
+    } }, "Mark as done");
+    buttons.push(closeButton("Close"), done);
+  }
+  dialog(`Help request from ${h.full_name || h.username}`, parts, buttons);
 }
 
 // --- Remote help (2.9a) ----------------------------------------------------------------------

@@ -112,7 +112,7 @@ ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update
               "firewall": "security-low-symbolic", "encryption": "channel-insecure-symbolic",
               "disk": "drive-harddisk-symbolic", "compliance": "dialog-warning-symbolic", "policy": "dialog-warning-symbolic",
               "lost": "system-lock-screen-symbolic", "review": "security-medium-symbolic",
-              "mail": "mail-unread-symbolic", "mailbox": "mail-unread-symbolic"}
+              "mail": "mail-unread-symbolic", "mailbox": "mail-unread-symbolic", "help": "help-browser-symbolic"}
 # Google Workspace (2.8e)
 GOOGLE_SCOPE = "https://www.googleapis.com/auth/admin.directory.user"
 GOOGLE_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md"
@@ -399,6 +399,10 @@ def pushed_line(devices: list[dict], kind: str, item_id: str) -> str:
             problems.append(f"{d.get('hostname') or '(no name)'}: {state}")
     return " · ".join([f"Added on {added} of {len(devices)}"] +
                       ([f"{waiting} waiting for their next report"] if waiting else []) + problems)
+
+
+# The self-test's stand-in screenshot (a 1x1 PNG).
+SAMPLE_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkaPhfDwAEhgHHwhxYFAAAAABJRU5ErkJggg=="
 
 
 def ago(iso: str | None) -> str:
@@ -1156,7 +1160,9 @@ class FleetWindow(Adw.ApplicationWindow):
             row.add_prefix(Gtk.Image(icon_name=ALERT_ICON.get(a.get("kind"), "dialog-warning-symbolic")))
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             dev = devices.get(a.get("device_id"))
-            if dev:
+            if a.get("kind") == "help" and a.get("request_id"):
+                row.connect("activated", lambda _r, rid=a["request_id"]: self.open_help_request(org, rid))
+            elif dev:
                 row.connect("activated", lambda _r, d=dev: self.open_device(d))
             elif a.get("kind") == "review":
                 row.connect("activated", lambda _r: self.open_review(org))
@@ -1167,6 +1173,113 @@ class FleetWindow(Adw.ApplicationWindow):
             group.add(row)
         if len(alerts) > 30:
             group.add(Adw.ActionRow(title=f"And {len(alerts) - 30} more"))
+        self.help_requests_group(org)
+
+    # --- Get help (2.9c) ----------------------------------------------------------------------
+    def help_requests_group(self, org: dict) -> None:
+        """What people asked for in Settings › Get help: open ones first, then those done this week."""
+        requests = [h for h in (self.data or {}).get("help_requests", []) if h.get("organisation_id") == org["id"]]
+        if not requests:
+            return
+        group = self.add_group("Help requests", "What people asked for in Settings › Get help on their computers")
+        for h in requests[:30]:
+            first = (str(h.get("body") or "").splitlines() or [""])[0]
+            done = h.get("state") == "done"
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f"{h.get('full_name') or h.get('username')} on "
+                                                              f"{h.get('hostname') or 'a computer'}"),
+                                subtitle=GLib.markup_escape_text(" · ".join(x for x in (
+                                    ago(h.get("created_at")), "Done" if done else "", first[:120]) if x)),
+                                activatable=True)
+            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic" if done else "help-browser-symbolic"))
+            if h.get("has_screenshot"):
+                row.add_suffix(Gtk.Image(icon_name="camera-photo-symbolic", tooltip_text="Has a screenshot"))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r, rid=h["id"]: self.open_help_request(org, rid))
+            group.add(row)
+
+    def open_help_request(self, org: dict, request_id: str) -> None:
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        page = Adw.PreferencesPage()
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title="Help request", child=view))
+        about = Adw.PreferencesGroup(title="Help request", description="Loading…")
+        page.add(about)
+        self.help_page = page  # for the self-test
+
+        def done(r, error):
+            if error:
+                about.set_description(error)
+                return
+            h = (r or {}).get("request") or {}
+            who = f"{h['full_name']} ({h.get('username')})" if h.get("full_name") else h.get("username") or "Someone"
+            about.set_title(GLib.markup_escape_text(f"From {who}"))
+            about.set_description(GLib.markup_escape_text(f"{h.get('hostname') or 'A computer'} · {ago(h.get('created_at'))}"))
+            text = Gtk.Label(label=str(h.get("body") or ""), wrap=True, xalign=0, selectable=True, margin_top=4,
+                             margin_bottom=4)
+            about.add(text)
+            if h.get("screenshot"):
+                try:
+                    texture = Gdk.Texture.new_from_bytes(GLib.Bytes.new(base64.b64decode(h["screenshot"])))
+                    shot = Adw.PreferencesGroup(title="Screenshot", description="Kept for 30 days")
+                    shot.add(Gtk.Picture(paintable=texture, content_fit=Gtk.ContentFit.CONTAIN, height_request=320,
+                                         can_shrink=True, alternative_text="The screenshot they added"))
+                    page.add(shot)
+                except (GLib.Error, ValueError):
+                    pass
+            device = next((d for d in self.org_computers(org) if d["id"] == h.get("device_id")), None)
+            actions = Adw.PreferencesGroup()
+            page.add(actions)
+            if device:
+                remote = Adw.ActionRow(title="Start remote help", subtitle="They’re asked first, and see your email",
+                                       activatable=True)
+                remote.add_prefix(Gtk.Image(icon_name="preferences-desktop-remote-desktop-symbolic"))
+                remote.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+                remote.connect("activated", lambda _r: self.open_remote_help(device))
+                actions.add(remote)
+            if h.get("state") == "done":
+                actions.add(Adw.ActionRow(title="Done", subtitle=GLib.markup_escape_text(
+                    f"{ago(h.get('done_at'))} by {h.get('done_by') or '–'}" +
+                    (f" · Answer: {h['reply']}" if h.get("reply") else " · No answer was written")), subtitle_lines=0))
+                return
+            answer_group = Adw.PreferencesGroup(title="Answer", description="Optional. It appears on their screen when you "
+                                                                             "mark the request done")
+            answer = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=10, bottom_margin=10, left_margin=12,
+                                  right_margin=12, accepts_tab=False)
+            answer.update_property([Gtk.AccessibleProperty.LABEL], ["Answer"])
+            answer_group.add(Gtk.Frame(child=Gtk.ScrolledWindow(child=answer, min_content_height=90,
+                                                                hscrollbar_policy=Gtk.PolicyType.NEVER)))
+            mark = Gtk.Button(label="Mark as done", css_classes=["suggested-action", "pill"], halign=Gtk.Align.END,
+                              margin_top=12)
+            answer_group.add(mark)
+            page.add(answer_group)
+            self.help_answer, self.help_mark = answer, mark  # for the self-test
+
+            def close_it(_b) -> None:
+                buf = answer.get_buffer()
+                reply = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()
+                if len(reply) > 500:
+                    self.toast("The answer is up to 500 characters")
+                    return
+                mark.set_sensitive(False)
+                body = {"op": "close-help", "request_id": request_id, **({"reply": reply} if reply else {})}
+                self.last_close_help = body  # for the self-test
+
+                def closed(_r, err):
+                    if err:
+                        mark.set_sensitive(True)
+                        self.toast(err)
+                        return
+                    self.toast("Marked as done" + (". Your answer goes to their screen" if reply else ""))
+                    if self.sample_mode():
+                        h["state"] = "done"
+                        return
+                    self.nav.pop()
+                    self.reload()
+                self.call(body, closed, {})
+            mark.connect("clicked", close_it)
+        self.call({"op": "help-request", "request_id": request_id}, done,
+                  lambda: {"request": next((dict(h) for h in (self.data or {}).get("sample_help", []) if h["id"] == request_id), {})})
 
     def render_org(self) -> None:
         self.clear()
@@ -3796,7 +3909,9 @@ def sample() -> dict:
                          "state": {"encrypted": False, "firewall": False, "auto_updates": False, "erase_allowed": False,
                                    "lost_mode": True},
                          "policy_status": {"auto_updates": "not met", "require_encryption": "not met"}}],
-            "alerts": [{"organisation_id": org, "device_id": None, "hostname": None, "title": "Admin rights",
+            "alerts": [{"organisation_id": org, "device_id": "d1", "hostname": "kca-laptop-01", "title": "Help request",
+                        "kind": "help", "request_id": "h1", "text": "Amina Yusuf asked for help: The printer won't print"},
+                       {"organisation_id": org, "device_id": None, "hostname": None, "title": "Admin rights",
                         "kind": "review", "text": "No admin-rights review yet"},
                        {"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "updates",
                         "text": "2 security updates waiting"},
@@ -3813,6 +3928,13 @@ def sample() -> dict:
                         {"id": "a3", "device_id": "d1", "type": "run-fix", "status": "done", "detail": "no problems found",
                          "created_at": iso(600), "requested_by": "admin@kulan.example", "exit_code": 0, "has_output": True,
                          "what": "check-disk"}],
+            "help_requests": [{"id": "h1", "organisation_id": org, "device_id": "d1", "hostname": "kca-laptop-01",
+                               "username": "amina", "full_name": "Amina Yusuf", "state": "open", "has_screenshot": True,
+                               "body": "The printer won't print.\nIt says it's offline.", "created_at": iso(900)}],
+            "sample_help": [{"id": "h1", "device_id": "d1", "hostname": "kca-laptop-01", "username": "amina",
+                             "full_name": "Amina Yusuf", "state": "open", "created_at": iso(900),
+                             "body": "The printer won't print.\nIt says it's offline. <b>not bold</b>",
+                             "screenshot": SAMPLE_PNG, "screenshot_type": "image/png"}],
             "sample_output": {"output": "== Disk errors in the last 7 days\nnone", "exit_code": 0, "status": "done",
                               "type": "run-fix"},
             "sample_scripts": {"allowed": True, "is_owner": True, "scripts": [
@@ -4091,6 +4213,13 @@ class FleetApp(Adw.Application):
                     assert pushed_line([d1], "networks", "n2") == "Added on 0 of 1 · 1 waiting for their next report"
                     assert network_problem("Acme", "wpa-psk", "short") and network_problem("x" * 33, "open", "")
                     assert network_problem("Acme", "open", "") is None and network_problem("Acme ☕", "wpa-psk", "correct horse") is None
+                    # Get help (2.9c): a request opened from its alert, its screenshot, answered and marked done.
+                    win.open_help_request(org, "h1")
+                    win.help_answer.get_buffer().set_text("  Restarted the printer. Try again now.  ")
+                    win.help_mark.emit("clicked")
+                    assert win.last_close_help == {"op": "close-help", "request_id": "h1",
+                                                   "reply": "Restarted the printer. Try again now."}, win.last_close_help
+                    win.nav.pop_to_tag("org")
                     win.org_id = None
                     win.render_org()
                     print("Kulan Fleet: every page built")

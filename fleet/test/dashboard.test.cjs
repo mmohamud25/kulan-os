@@ -1,5 +1,5 @@
 // The web dashboard (fleet/dashboard) in a real browser: sign-in faked, fleet-admin answered
-// by a stand-in, every flow clicked through (2.8b to 2.9b).
+// by a stand-in, every flow clicked through (2.8b to 2.9c).
 //   node dashboard.test.cjs ../dashboard     (needs playwright and its Chromium)
 const { chromium } = require("playwright");
 const path = require("path"), http = require("http"), fs = require("fs");
@@ -11,7 +11,8 @@ const org = "11111111-1111-4111-8111-111111111111";
 const AAL2 = "eyJhYWwiOiJhYWwyIiwiZXhwIjo5OTk5OTk5OTk5LCJzdWIiOiJ4In0";  // {"aal":"aal2","exp":9999999999,"sub":"x"}
 const AAL2_TOKEN = `eyJhbGciOiJub25lIn0.${AAL2}.c2lnbg`;
 const state = { needCode: true, auth: [], verifiedWith: null, policy: { firewall: true, usb: "block" }, groups: [], calls: [], approved: [],
-                mail: null, allowScripts: false, scripts: [] };
+                mail: null, allowScripts: false, scripts: [], helpDone: false };
+const PNG1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkaPhfDwAEhgHHwhxYFAAAAABJRU5ErkJggg==";
 function reply(b) {
   state.calls.push(b);
   switch (b.op) {
@@ -19,7 +20,16 @@ function reply(b) {
       devices: [{ id: "d1", organisation_id: org, hostname: "laptop-a", last_seen: new Date().toISOString(),
                   pushed: { networks: { n1: "added" }, printers: { pr1: "couldn't reach the printer; tried again at the next report" } } }],
       actions: [{ id: "a1", device_id: "d1", type: "run-fix", status: "done", detail: "no problems found", created_at: "2026-10-26T09:00:00Z",
-                  requested_by: "a@x", exit_code: 0, has_output: true, what: "check-disk" }], alerts: [] };
+                  requested_by: "a@x", exit_code: 0, has_output: true, what: "check-disk" }],
+      alerts: state.helpDone ? [] : [{ kind: "help", organisation_id: org, device_id: "d1", hostname: "laptop-a", request_id: "h1", title: "Help request",
+                                       text: "Amina asked for help: The printer won't print" }],
+      help_requests: [{ id: "h1", organisation_id: org, device_id: "d1", hostname: "laptop-a", username: "amina", full_name: "Amina",
+                        body: "The printer won't print.\nIt says offline.", state: state.helpDone ? "done" : "open", reply: null,
+                        created_at: new Date().toISOString(), has_screenshot: true }] };
+    case "help-request": return { request: { id: "h1", device_id: "d1", hostname: "laptop-a", username: "amina", full_name: "Amina",
+      body: "The printer won't print.\nIt says offline. <img src=x onerror=alert(1)>", state: "open", reply: null,
+      created_at: new Date().toISOString(), screenshot: PNG1, screenshot_type: "image/png" } };
+    case "close-help": state.helpDone = true; return {};
     case "action-output": return { output: "== Disk errors in the last 7 days\nnone", exit_code: 0, status: "done", type: "run-fix" };
     case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true };
     case "set-scripts-allowed": state.allowScripts = b.allowed; return {};
@@ -309,6 +319,26 @@ function reply(b) {
   if ((await page.textContent("#help-end")) !== "Close") throw "remote help: no Close after it ended";
   await page.click("#help-end");
   if (await page.locator("#help-dialog[open]").count()) throw "remote help: viewer didn't close";
+  // 2.9c: a help request: an alert and the Help requests card; opened, its screenshot seen, answered and done.
+  await page.waitForSelector("#help-card:not(.hidden) >> text=The printer won't print.");
+  await page.click("#alerts >> button:has-text('Open…')");
+  await page.waitForSelector("#dlg-title:has-text('Help request from Amina')");
+  if (!(await page.textContent("#dlg pre")).includes("<img src=x onerror=alert(1)>")) throw "help request: text not shown as written";
+  if (await page.locator("#dlg pre img").count()) throw "help request: text turned into markup";
+  const shot = await page.getAttribute("#dlg img", "src");
+  if (shot !== `data:image/png;base64,${PNG1}`) throw "help request: screenshot not shown " + shot;
+  if (!(await page.locator("#dlg-actions >> text=Start remote help…").count())) throw "help request: no Start remote help";
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/help-request.png` });
+  await page.fill("#dlg textarea", "  I restarted the printer. Try again now.  ");
+  await page.click("#dlg-actions >> text=Mark as done");
+  await page.waitForFunction(() => !document.getElementById("dlg").open);
+  if (JSON.stringify(last("close-help")) !== JSON.stringify({ op: "close-help", request_id: "h1", reply: "I restarted the printer. Try again now." })) throw "close-help " + JSON.stringify(last("close-help"));
+  await page.waitForSelector("#help-requests >> text=Done");
+  if (await page.locator("#alerts >> text=asked for help").count()) throw "a done help request is still an alert";
+  await page.click("#help-requests >> button:has-text('Open…')");
+  await page.click("#dlg-actions >> text=Start remote help…");
+  await page.waitForSelector("#dlg-title:has-text('Remote help on laptop-a')");
+  await page.click("#dlg-actions >> text=Cancel");
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);
