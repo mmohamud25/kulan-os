@@ -25,6 +25,16 @@ when this list is empty.
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.
 
+## 1b. A new design for Kulan Fleet
+- The web dashboard and the Fleet app get one shared design, so they read as
+  one product. Today the dashboard is one long page of look-alike cards.
+- First, three different design directions of the main screens (the list of
+  computers, one computer, people, groups and policy). Mohamud picks one, or
+  a mix, before anything is built.
+- Then both are rebuilt in it: navigation by section (Computers, People,
+  Groups, Policy, Scripts, Activity, Settings), list and detail views,
+  search, and the same words and icons on the web and in the app.
+
 ## 2. Security
 - An independent review of each part: the base system, Kulan Fleet (server,
   computers, dashboard), Ask Kulan, the installer, the update channel.
