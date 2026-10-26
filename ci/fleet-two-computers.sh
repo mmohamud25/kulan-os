@@ -245,6 +245,30 @@ report laptop-b
 expect "laptop-b: out of Office, USB and the pin back to normal, apps kept" on laptop-b 'test ! -e /etc/udev/rules.d/60-kulan-fleet-usb.rules && test ! -e /etc/apt/preferences.d/60-kulan-fleet-blocked && dpkg -s hello >/dev/null 2>&1'
 adm "{\"op\":\"remove-person\",\"person_id\":\"${HODAN}\",\"remove_files\":true,\"confirm\":\"hodan\"}" >/dev/null
 
+step "Fixes, messages, Wi-Fi and printers (2.9b)"
+FIX="$(adm "{\"op\":\"action\",\"device_id\":\"${DEV_B}\",\"type\":\"run-fix\",\"payload\":{\"fix\":\"check-disk\"}}" | jq -r .id)"
+adm "{\"op\":\"action\",\"device_id\":\"${DEV_B}\",\"type\":\"message\",\"payload\":{\"title\":\"Restart tonight\",\"body\":\"Save your work.\"}}" >/dev/null
+report laptop-b
+fixed() { adm "{\"op\":\"action-output\",\"action_id\":\"${FIX}\"}" | jq -e '.status == "done" and .exit_code == 0 and (.output | contains("== Space"))' >/dev/null; }
+expect "laptop-b: Check the disk ran, its output and exit code back on the server" fixed
+shown() { adm '{"op":"overview"}' | jq -e '[.actions[] | select(.type == "message" and .status == "done")] | length == 1' >/dev/null; }
+expect "laptop-b: the message was shown" shown
+# NetworkManager and CUPS aren't in these containers: laptop-a gets NetworkManager's folder, so the
+# network is written there; the printer can only be reported as not possible.
+on laptop-a 'mkdir -p /etc/NetworkManager/system-connections'
+NET="$(adm "{\"op\":\"add-network\",\"group_id\":\"${OFFICE}\",\"ssid\":\"Office Wi-Fi\",\"security\":\"wpa-psk\",\"password\":\"correct horse battery\"}" | jq -r .id)"
+adm "{\"op\":\"add-printer\",\"group_id\":\"${OFFICE}\",\"name\":\"Front desk\",\"uri\":\"ipp://192.0.2.20/ipp/print\"}" >/dev/null
+report laptop-a
+report laptop-a
+expect "laptop-a: the group's Wi-Fi network written for NetworkManager, root only, password included" on laptop-a \
+	"f=/etc/NetworkManager/system-connections/kulan-fleet-${NET}.nmconnection; test \"\$(stat -c %a \$f)\" = 600 && grep -qx 'psk=correct horse battery' \$f && grep -qx 'key-mgmt=wpa-psk' \$f"
+went() { adm '{"op":"overview"}' | jq -e --arg n "${NET}" '.devices[] | select(.hostname == "laptop-a") | .pushed | (.networks[$n] == "added") and ([.printers[]] == ["printing isn'"'"'t installed"])' >/dev/null; }
+expect "server: how the network and the printer went on laptop-a" went
+expect "laptop-b: not in Office, no network" on laptop-b '! ls /etc/NetworkManager/system-connections/kulan-fleet-* >/dev/null 2>&1'
+adm "{\"op\":\"remove-network\",\"network_id\":\"${NET}\"}" >/dev/null
+report laptop-a
+expect "laptop-a: the network removed with it" on laptop-a "test ! -e /etc/NetworkManager/system-connections/kulan-fleet-${NET}.nmconnection"
+
 step "Leaving the organisation's people"
 on laptop-a "echo handover > /home/amina/report.txt"
 adm "{\"op\":\"remove-person\",\"person_id\":\"${AMINA}\",\"remove_files\":false,\"confirm\":\"amina\",\"mailbox\":\"delete\"}" >/dev/null
