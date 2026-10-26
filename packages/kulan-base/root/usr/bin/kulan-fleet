@@ -10,6 +10,8 @@
                                        kulan-fleet-listen.service)
   kulan-fleet run-job ACTION_ID        run a fix or script the last report started (root; in a
                                        unit of its own, so reports never wait for it)
+  kulan-fleet get-help USER            ask the organisation for help: {text, screenshot?} on stdin
+                                       (root; Kulan Settings › Get help, through fleet-get-help)
 
 A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
@@ -66,6 +68,7 @@ The protocol (JSON over HTTPS, version 1):
   POST {server}/v1/actions/{id}   {device_id, status: done|failed, detail}
   POST {server}/v1/leave   {device_id}
   POST {server}/v1/help/{session}  {op: claim | unavailable, device_id, ...} (remote help)
+  POST {server}/v1/help-requests   {device_id, username, text, screenshot?} -> {id} (Get help)
 
 Each report's reply also says where to listen for "report now" (wake:
 {topic, url, key}, Supabase Realtime, wake.py): an admin's request then
@@ -96,6 +99,7 @@ import people  # noqa: E402
 import pushed  # noqa: E402
 import signins  # noqa: E402
 import fixes  # noqa: E402
+import gethelp  # noqa: E402
 import helpsession  # noqa: E402
 import twostep  # noqa: E402
 import wake  # noqa: E402
@@ -824,8 +828,9 @@ def run_job_now(action_id: str) -> int:
     return 0
 
 
-def notify_users(title: str, body: str) -> int:
-    """A notification on each signed-in desktop; how many were shown."""
+def notify_users(title: str, body: str, only: str | None = None) -> int:
+    """A notification on each signed-in desktop (only: just that person's);
+    how many were shown."""
     shown = 0
     if not NOTICE.exists():
         return 0
@@ -836,6 +841,8 @@ def notify_users(title: str, body: str) -> int:
         try:
             user = pwd.getpwuid(int(uid)).pw_name
         except KeyError:
+            continue
+        if only is not None and user != only:
             continue
         shown += run(["runuser", "-u", user, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
                       f"XDG_RUNTIME_DIR={bus.parent}", str(NOTICE), "notify", title, body], timeout=20).returncode == 0
@@ -1022,6 +1029,11 @@ def report() -> int:
             done = {"networks": pushed.apply_networks(reply.get("networks"), run),
                     "printers": pushed.apply_printers(reply.get("printers"), run)}
             write_json(PUSHED, done, 0o644)
+        # Get help (2.9c): each person's requests, and any answer shown on their screen once.
+        if "help_requests" in reply:
+            shown = [rid for username, rid, title, text in gethelp.apply(reply.get("help_requests"))
+                     if notify_users(title, text, only=username)]
+            gethelp.mark_seen(shown)
         again = False
         actions = reply.get("actions")
         for action in (actions if isinstance(actions, list) else [])[:10]:
@@ -1153,6 +1165,7 @@ def leave() -> int:
     twostep.remove_all(run)  # people sign in with their password alone again
     workmail.remove_all()  # no work email offered (people's own Online Accounts stay theirs)
     pushed.remove_all(run)  # the organisation's Wi-Fi networks and printers go; people's own stay
+    gethelp.remove_all()  # people's help requests and answers
     PUSHED.unlink(missing_ok=True)
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
@@ -1161,6 +1174,41 @@ def leave() -> int:
     people.STATE.unlink(missing_ok=True)
     publish(None)
     say("Left the organisation. Nothing is reported any more")
+    return 0
+
+
+def get_help(username: str) -> int:
+    """kulan-fleet get-help USER: what USER wrote in Kulan Settings › Get help
+    (JSON on stdin), to the organisation. Prints {id} or the reason it wasn't sent."""
+    need_root()
+    config = read_json(CONFIG, None)
+    if not config or not all(config.get(k) for k in ("server", "device_id", "token")):
+        say("This computer isn't in an organisation")
+        return 3
+    if not gethelp.person(username):
+        say("Only someone with an account here can ask for help")
+        return 64
+    try:
+        request = gethelp.clean_request(json.loads(sys.stdin.read(600_000) or "{}"))
+    except ValueError as e:
+        say(str(e) if str(e).endswith(".") else "Something went wrong. Try again.")
+        return 1
+    if not gethelp.may_send():
+        say("You've asked several times in the last hour. Wait a little, then try again.")
+        return 1
+    body = {"device_id": config["device_id"], "username": username, "text": request["text"]}
+    if request["screenshot"]:
+        body["screenshot"] = request["screenshot"]
+    try:
+        reply = post(config["server"], "/v1/help-requests", body, config["token"])
+    except RuntimeError as e:
+        too_many = "429" in str(e)
+        say("This computer has asked several times in the last hour. Wait a little, then try again." if too_many
+            else f"It wasn't sent: {e}. Check the internet connection and try again.")
+        return 1
+    request_id = str(reply.get("id", ""))
+    gethelp.note_sent(username, request_id, request["text"])
+    print(json.dumps({"id": request_id, "organisation": config.get("organisation") or ""}))
     return 0
 
 
@@ -1194,8 +1242,10 @@ def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         return status("--json" in argv[2:])
-    if command in ("join", "report", "allow-erase", "leave", "listen", "run-job"):
+    if command in ("join", "report", "allow-erase", "leave", "listen", "run-job", "get-help"):
         need_root()
+    if command == "get-help" and len(argv) == 3:
+        return get_help(argv[2])
     if command == "run-job" and len(argv) == 3:
         return run_job_now(argv[2])
     if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]):

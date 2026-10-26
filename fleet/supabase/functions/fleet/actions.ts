@@ -72,3 +72,49 @@ export function cleanPushed(v: unknown): { networks: Record<string, string>; pri
   const { networks, printers } = v as Record<string, unknown>;
   return { networks: side(networks), printers: side(printers) };
 }
+
+// Get help (2.9c): what someone at a computer wrote, and the screenshot they
+// added (base64, a JPEG or PNG they saw first, at most 360 KB).
+export const HELP_TEXT_MAX = 2000;
+export const HELP_REPLY_MAX = 500;
+export const SCREENSHOT_MAX = 368640;
+const HELP_USER = /^[a-z_][a-z0-9_.-]{0,31}$/;
+
+export function imageType(bytes: Uint8Array): "image/jpeg" | "image/png" | null {
+  if (bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length > 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((b, i) => bytes[i] === b)) return "image/png";
+  return null;
+}
+
+export function cleanHelpRequest(v: unknown):
+    { username: string; body: string; screenshot: Uint8Array | null; type: string | null } | null {
+  if (typeof v !== "object" || v === null) return null;
+  const { username, text, screenshot } = v as Record<string, unknown>;
+  if (typeof username !== "string" || !HELP_USER.test(username)) return null;
+  const body = typeof text === "string" ? text.replace(/[^\P{Cc}\n]/gu, " ").replace(/[ \t]+/g, " ").trim().slice(0, HELP_TEXT_MAX) : "";
+  if (!body) return null;
+  if (screenshot === undefined || screenshot === null || screenshot === "") return { username, body, screenshot: null, type: null };
+  if (typeof screenshot !== "string" || screenshot.length > Math.ceil(SCREENSHOT_MAX / 3) * 4 + 4 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(screenshot)) return null;
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(screenshot), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  const type = imageType(bytes);
+  if (!type || bytes.length > SCREENSHOT_MAX) return null;
+  return { username, body, screenshot: bytes, type };
+}
+
+// The admin's answer, shown to the person: plain text, a few sentences.
+export function cleanReply(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  return v.replace(/[^\P{Cc}\n]/gu, " ").replace(/[ \t]+/g, " ").trim().slice(0, HELP_REPLY_MAX) || null;
+}
+
+export function toBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}

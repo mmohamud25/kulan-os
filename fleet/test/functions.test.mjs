@@ -1185,6 +1185,88 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
 
 const BOSS2 = "support@kulan.test";
 await db`insert into fleet.admins (email, organisation_id) values (${BOSS2}, null)`;
+// --- Get help (2.9c) ---------------------------------------------------------------------------
+{
+  // A tiny JPEG and PNG (only their first bytes matter to the server), and things that aren't images.
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 7)]);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(50, 1)]);
+  const ask = (c, extra) => computer(c, "/v1/help-requests", { username: "mo", text: "The printer won't print", ...extra });
+  await db`delete from fleet.help_requests`;
+  r = await ask(B, { text: "  The printer\u0007 won't\tprint.\nIt says offline.  ", screenshot: jpeg.toString("base64") });
+  ok(r.status === 200 && r.body.id, "someone at a computer asks for help, with a screenshot", r);
+  const req1 = r.body.id;
+  const [row1] = await db`select body, username, full_name, screenshot_type, octet_length(screenshot) as n from fleet.help_requests where id = ${req1}`;
+  ok(row1.body === "The printer won't print.\nIt says offline." && row1.screenshot_type === "image/jpeg" && row1.n === jpeg.length,
+     "kept cleaned, with the screenshot", row1);
+  for (const [bad, why] of [[{ text: "   " }, "nothing written"], [{ username: "Bad Name" }, "not a username"],
+                            [{ screenshot: Buffer.from("GIF89a....").toString("base64") }, "not a JPEG or PNG"],
+                            [{ screenshot: "not base64!" }, "not base64"],
+                            [{ screenshot: Buffer.concat([jpeg, Buffer.alloc(368640)]).toString("base64") }, "too big"]]) {
+    r = await ask(B, bad);
+    ok(r.status === 400 || r.status === 413, `refused: ${why}`, r);
+  }
+  r = await call("fleet", "/v1/help-requests", { device_id: B.device_id, username: "mo", text: "hi" }, "wrong-key");
+  ok(r.status === 401, "only a joined computer, with its key", r);
+  r = await ask(B, { username: "amina", text: "My screen is dim", screenshot: png.toString("base64") });
+  ok(r.status === 200, "a PNG is fine too", r);
+  const req2 = r.body.id;
+  for (let i = 0; i < 3; i++) await ask(B, { text: `again ${i}` });
+  r = await ask(B, { text: "one too many" });
+  ok(r.status === 429, "at most 5 an hour from one computer", r);
+
+  r = await admin(HELPER, { op: "overview" });
+  const listed = r.body.help_requests.find((h) => h.id === req1);
+  ok(listed && listed.hostname === "laptop-b" && listed.username === "mo" && listed.has_screenshot === true &&
+     listed.state === "open" && !("screenshot" in listed), "admins see it in the overview, without the screenshot", listed);
+  ok(r.body.alerts.some((a) => a.kind === "help" && a.request_id === req1 && a.device_id === B.device_id &&
+                              a.text.includes("asked for help: The printer won't print.")), "and as an alert", r.body.alerts);
+  r = await admin(HELPER, { op: "help-request", request_id: req1 });
+  ok(r.status === 200 && r.body.request.screenshot === jpeg.toString("base64") && r.body.request.screenshot_type === "image/jpeg",
+     "the screenshot, when they open it", { ...r.body.request, screenshot: r.body.request?.screenshot?.length });
+  r = await admin("other.admin@x.test", { op: "help-request", request_id: req1 });
+  ok(r.status === 404, "another organisation's admin doesn't see it", r);
+  r = await admin("other.admin@x.test", { op: "close-help", request_id: req1 });
+  ok(r.status === 404, "nor closes it", r);
+  r = await admin(HELPER, { op: "help-request", request_id: "not-an-id" });
+  ok(r.status === 404, "no such request", r);
+
+  let rep = await report(B);
+  ok(rep.body.help_requests?.some((h) => h.id === req1 && h.username === "mo" && h.state === "open" && h.reply === null),
+     "the computer hears it's open", rep.body.help_requests);
+  r = await admin(HELPER, { op: "close-help", request_id: req1, reply: "\u0000" });
+  ok(r.status === 400, "an answer that's only control characters is refused", r);
+  wakes.length = 0;
+  r = await admin(HELPER, { op: "close-help", request_id: req1, reply: "Restarted the printer\u0007. Try again now." });
+  ok(r.status === 200, "an admin answers and marks it done", r);
+  ok(wakes.length === 1, "the computer is woken, so the answer arrives in seconds", wakes);
+  r = await admin(HELPER, { op: "close-help", request_id: req1 });
+  ok(r.status === 400, "done only once", r);
+  r = await admin(HELPER, { op: "close-help", request_id: req2 });
+  ok(r.status === 200, "done without an answer", r);
+  rep = await report(B);
+  const back = rep.body.help_requests.find((h) => h.id === req1);
+  ok(back?.state === "done" && back.reply === "Restarted the printer . Try again now." && back.done_at,
+     "the answer goes back to the computer", back);
+  ok(rep.body.help_requests.find((h) => h.id === req2)?.reply === null, "no answer: just done", rep.body.help_requests);
+  r = await admin(HELPER, { op: "overview" });
+  ok(!r.body.alerts.some((a) => a.request_id === req1) && r.body.help_requests.find((h) => h.id === req1)?.state === "done",
+     "a done request is no longer an alert", r.body.alerts);
+  r = await admin(HELPER, { op: "log", organisation_id: org, what: "help" });
+  const hl = r.body.entries.map((e) => `${e.email}: ${e.what}`);
+  for (const want of ["mo: asked for help", "amina: asked for help", `${HELPER}: answered mo's help request`]) {
+    ok(hl.includes(want), `in the activity log: ${want}`, hl);
+  }
+  ok(!JSON.stringify(r.body.entries).includes("printer"), "what they wrote isn't copied into the log");
+  // Screenshots go after 30 days, requests after a year.
+  await db`update fleet.help_requests set created_at = now() - interval '31 days' where id = ${req2}`;
+  await db`select fleet.prune_help_requests()`;
+  const [aged] = await db`select screenshot, screenshot_type from fleet.help_requests where id = ${req2}`;
+  ok(aged.screenshot === null && aged.screenshot_type === null, "an old screenshot is removed", aged);
+  rep = await report(B);
+  ok(!rep.body.help_requests.some((h) => h.id === req2), "the computer only hears of the last 30 days", rep.body.help_requests);
+  await db`delete from fleet.help_requests`;
+}
+
 // --- remote help (2.9a) ------------------------------------------------------------------------
 {
   // Every report gives the computer where to listen for "report now".

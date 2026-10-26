@@ -119,6 +119,13 @@
 //   POST {op: "add-printer", group_id, name, uri} | {op: "remove-printer", printer_id}
 //   "groups" lists each group's networks (never a password) and printers.
 //
+// Get help (2.9c): someone at a computer writes what's wrong in Kulan Settings,
+// with a screenshot if they add one. "overview" lists open requests (and those
+// done in the last week) and makes each open one an alert; then
+//   POST {op: "help-request", request_id}                 -> {request} with the screenshot (base64)
+//   POST {op: "close-help", request_id, reply?}           marks it done; the answer goes to their screen
+// Start remote help from it with "help-start" (the computer's device_id).
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 import * as google from "./google.ts";
@@ -779,7 +786,19 @@ Deno.serve(async (req: Request) => {
                                           : `Admin-rights review due. The last was ${due.days} days ago` } as any);
           }
         }
-        return reply(200, { email, global, organisations, devices, actions, alerts,
+        // Help requests (2.9c): the open ones, and those done in the last week; never the screenshot here.
+        const helpRequests = await sql`
+          select h.id, h.organisation_id, h.device_id, d.hostname, h.username, h.full_name, h.body, h.state, h.reply,
+                 h.created_at, h.done_at, h.done_by, h.screenshot is not null as has_screenshot
+          from fleet.help_requests h join fleet.devices d on d.id = h.device_id
+          where h.organisation_id = any(${ids}::uuid[]) and (h.state = 'open' or h.done_at > now() - interval '7 days')
+          order by (h.state = 'open') desc, h.created_at desc limit 100`;
+        for (const h of helpRequests.filter((x) => x.state === "open").reverse()) {
+          alerts.unshift({ kind: "help", device_id: h.device_id, organisation_id: h.organisation_id, hostname: h.hostname,
+                           request_id: h.id, title: "Help request",
+                           text: `${h.full_name || h.username} asked for help: ${String(h.body).replace(/\s+/g, " ").slice(0, 120)}` } as any);
+        }
+        return reply(200, { email, global, organisations, devices, actions, alerts, help_requests: helpRequests,
                             me: { aal: me.aal, authenticator: me.hasCode } });
       }
       case "report": {
@@ -1859,6 +1878,30 @@ Deno.serve(async (req: Request) => {
           if ((e as { code?: string }).code === "23505") return reply(409, { error: "the group already has a printer with that name" });
           throw e;
         }
+      }
+      // --- Get help (2.9c) -----------------------------------------------------------------
+      case "help-request": {
+        const id = uuid(body.request_id);
+        const [h] = id ? await sql`select h.id, h.organisation_id, h.device_id, d.hostname, h.username, h.full_name, h.body,
+                                          h.state, h.reply, h.created_at, h.done_at, h.done_by, h.screenshot, h.screenshot_type
+                                   from fleet.help_requests h join fleet.devices d on d.id = h.device_id where h.id = ${id}` : [];
+        if (!h || !canOrg(h.organisation_id)) return reply(404, { error: "no such help request" });
+        const { screenshot, ...rest } = h;
+        return reply(200, { request: { ...rest, screenshot: screenshot ? acts.toBase64(new Uint8Array(screenshot)) : null } });
+      }
+      case "close-help": {
+        const id = uuid(body.request_id);
+        const [h] = id ? await sql`select organisation_id, device_id, username, state from fleet.help_requests where id = ${id}` : [];
+        if (!h || !canOrg(h.organisation_id)) return reply(404, { error: "no such help request" });
+        const answer = body.reply === undefined || body.reply === null || body.reply === "" ? null : acts.cleanReply(body.reply);
+        if (body.reply && !answer) return reply(400, { error: "the answer is plain text, up to 500 characters" });
+        const closed = await sql`update fleet.help_requests set state = 'done', reply = ${answer}, done_at = now(), done_by = ${email}
+                                 where id = ${id} and state = 'open' returning id`;
+        if (!closed.length) return reply(400, { error: "that help request is already done" });
+        await audit(h.organisation_id, h.device_id, `answered ${h.username}'s help request`.slice(0, 80),
+                    { request: id, answered: answer !== null });
+        await wakeDevices([h.device_id]);  // the answer reaches their screen in seconds
+        return reply(200, {});
       }
       case "cancel-action": {
         const id = uuid(body.action_id);

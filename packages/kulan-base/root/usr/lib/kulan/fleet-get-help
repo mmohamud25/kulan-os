@@ -1,0 +1,43 @@
+#!/usr/bin/python3 -I
+"""Ask your organisation for help (Kulan Settings › Get help runs this through
+pkexec; only the person at the computer, and no password is asked).
+
+  fleet-get-help     {"text": ..., "screenshot": base64 JPEG or PNG, optional} on stdin
+
+Sent as the person running it (PKEXEC_UID), never as anyone else, by
+kulan-fleet with the computer's own key. Prints {"id", "organisation"}, or
+says on stderr why it wasn't sent.
+"""
+import os
+import pwd
+import subprocess
+import sys
+
+STDIN_MAX = 600_000
+
+
+def main() -> int:
+    if os.geteuid() != 0 or not os.environ.get("PKEXEC_UID", "").isdigit():
+        print("fleet-get-help: ask for help from Kulan Settings", file=sys.stderr)
+        return 64
+    try:
+        user = pwd.getpwuid(int(os.environ["PKEXEC_UID"])).pw_name
+    except KeyError:
+        return 64
+    data = sys.stdin.buffer.read(STDIN_MAX + 1)
+    if len(data) > STDIN_MAX:
+        print("The screenshot is too big.", file=sys.stderr)
+        return 1
+    try:
+        r = subprocess.run(["/usr/bin/kulan-fleet", "get-help", user], input=data, capture_output=True, timeout=90,
+                           check=False, env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8"})
+    except (OSError, subprocess.TimeoutExpired):
+        print("It wasn't sent. Check the internet connection and try again.", file=sys.stderr)
+        return 1
+    sys.stdout.buffer.write(r.stdout)
+    sys.stderr.buffer.write(r.stderr)
+    return r.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -7,6 +7,7 @@
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
 //   POST /fleet/v1/help/{id}      remote help (2.9a), below
+//   POST /fleet/v1/help-requests  Bearer token, {device_id, username, text, screenshot?} -> {id} (2.9c)
 //
 // People (Kulan OS 2.8): each reply lists the organisation's accounts allowed
 // on that computer, with their password hashes (one-way; never a password),
@@ -54,6 +55,13 @@
 // whether the organisation allows scripts ("scripts": true), and lists the
 // Wi-Fi networks ("networks", passwords opened only for this) and printers
 // ("printers") its groups give it.
+//
+// Get help (2.9c): someone at the computer writes what's wrong in Kulan
+// Settings, and may add a screenshot they saw first (base64 JPEG or PNG, 360
+// KB at most); it reaches the organisation's admins (fleet-admin). Each
+// report reply lists the computer's help requests of the last 30 days
+// ("help_requests": {id, username, text, state, reply, ...}), so the person
+// sees theirs, and the admin's answer when it's done.
 //
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
@@ -585,7 +593,13 @@ Deno.serve(async (req: Request) => {
           !(policy.required_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id)) {
         sent.required_apps = [...(policy.required_apps ?? []), MAIL_APP];
       }
+      // This computer's help requests of the last 30 days, so each person sees theirs and any answer.
+      const helpRequests = await sql`select id, username, body, state, reply, created_at, done_at from fleet.help_requests
+                                     where device_id = ${dev.id} and created_at > now() - interval '30 days'
+                                     order by created_at desc limit 50`;
       return reply(200, {
+        help_requests: helpRequests.map((h) => ({ id: h.id, username: h.username, text: String(h.body).slice(0, 200),
+                                                  state: h.state, reply: h.reply, created_at: h.created_at, done_at: h.done_at })),
         actions: actions.filter((a) => ACTIONS.has(a.type))
           .map((a) => a.payload ? { id: a.id, type: a.type, payload: a.payload } : { id: a.id, type: a.type }),
         policy: sent,
@@ -595,6 +609,27 @@ Deno.serve(async (req: Request) => {
         networks,
         printers: printers.map((p) => ({ id: p.id, name: p.name, uri: p.uri })),
       });
+    }
+
+    if (path === "/v1/help-requests") {
+      const h = acts.cleanHelpRequest(body);
+      if (!h) return reply(400, { error: "write what's wrong. A screenshot must be a JPEG or PNG of at most 360 KB" });
+      // Never a flood on the admins: 5 an hour and 20 a day from one computer.
+      const [n] = await sql`select count(*) filter (where created_at > now() - interval '1 hour')::int as hour,
+                                   count(*)::int as day
+                            from fleet.help_requests where device_id = ${dev.id} and created_at > now() - interval '1 day'`;
+      if (n.hour >= 5 || n.day >= 20) return reply(429, { error: "too many help requests from this computer. Try again later" });
+      const [p] = await sql`select full_name from fleet.people where organisation_id = ${dev.organisation_id}
+                            and username = ${h.username} and removed_at is null`;
+      const [row] = await sql`insert into fleet.help_requests (organisation_id, device_id, username, full_name, body, screenshot,
+                                                               screenshot_type)
+                              values (${dev.organisation_id}, ${dev.id}, ${h.username}, ${p?.full_name ?? ""}, ${h.body},
+                                      ${h.screenshot}, ${h.type}) returning id, created_at`;
+      await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+                values (${dev.organisation_id}, ${dev.id}, ${h.username}, 'asked for help',
+                        ${json({ request: row.id, computer: dev.hostname, screenshot: h.screenshot !== null })})`;
+      if (Math.random() < 0.05) await sql`select fleet.prune_help_requests()`;
+      return reply(200, { id: row.id, created_at: row.created_at });
     }
 
     const done = path.match(/^\/v1\/actions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);

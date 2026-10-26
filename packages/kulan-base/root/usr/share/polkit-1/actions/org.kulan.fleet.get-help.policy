@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Kulan Fleet Get help: the person at the computer (the active session
+     only, never from afar) asks their organisation for help, without a
+     password. The helper sends it as that person, never as anyone else. -->
+<policyconfig>
+  <vendor>Kulan OS</vendor>
+  <vendor_url>https://github.com/mmohamud25/kulan-os</vendor_url>
+  <icon_name>kulan-logo</icon_name>
+  <action id="org.kulan.fleet.get-help">
+    <description>Ask your organisation for help</description>
+    <message>Ask your organisation for help</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/kulan/fleet-get-help</annotate>
+  </action>
+</policyconfig>
