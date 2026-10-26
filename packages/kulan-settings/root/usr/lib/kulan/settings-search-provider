@@ -4,8 +4,8 @@
 A GNOME Shell search provider (org.gnome.Shell.SearchProvider2), started by
 D-Bus when someone searches and gone after a few idle minutes. Typing
 "restore points", "dark mode" or "prayer" finds the Kulan Settings page.
-The few pages that still live in GNOME Settings (Printers, Online accounts,
-Sharing) are listed here too, and GNOME Settings' own search source is off
+The page that still lives in GNOME Settings (Online accounts) is listed
+here too, and GNOME Settings' own search source is off
 (org.gnome.desktop.search-providers), so nothing shows up twice.
 """
 from __future__ import annotations
@@ -64,8 +64,7 @@ def load_pages() -> list[dict]:
         pages.append({"id": page_id, "title": title, "icon": str(getattr(cls, "icon", "preferences-system-symbolic")),
                       "words": plain(words), "title_plain": plain(title), "where": "Kulan Settings"})
     for title, icons, panel in GNOME_PANELS:
-        extra = {"printers": "printer printing scanner", "online-accounts": "google microsoft account email calendar",
-                 "sharing": "remote desktop screen sharing file sharing media"}.get(panel[0], "")
+        extra = {"online-accounts": "google microsoft account email calendar"}.get(panel[0], "")
         pages.append({"id": GNOME_PREFIX + panel[0], "title": title, "icon": icons.split("|")[-1],
                       "words": plain(f"{title} {panel[0].replace('-', ' ')} {extra}"), "title_plain": plain(title),
                       "where": "GNOME Settings", "panel": list(panel)})

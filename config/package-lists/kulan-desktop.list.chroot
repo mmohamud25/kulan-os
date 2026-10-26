@@ -11,6 +11,8 @@ kulan-assistant-engine
 
 # Desktop
 gnome-core
+# Remote desktop (Kulan Settings > Sharing), off until someone turns it on
+gnome-remote-desktop
 # Languages can be added in Kulan Settings > Language and region
 locales
 gnome-tweaks

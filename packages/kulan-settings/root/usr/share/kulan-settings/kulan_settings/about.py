@@ -220,7 +220,7 @@ class AboutPage(Page):
         for title, action in (
                 ("Check for updates", lambda: self.window.show_page("updates")),
                 ("Kulan OS website", lambda: self.open_url(conf.get("KULAN_HOME_URL"))),
-                ("Get help", lambda: self.open_url(conf.get("KULAN_SUPPORT_URL")))):
+                ("Get help", lambda: self.window.show_page("help"))):
             row = Adw.ActionRow(title=title, activatable=True)
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             row.connect("activated", lambda _r, a=action: a())

@@ -18,6 +18,8 @@
 #   update-run countme-on|countme-off     the anonymous weekly count on or off (/usr/lib/kulan/countme)
 #   update-run lighter on|off|auto        lighter mode for computers with little memory (/usr/lib/kulan/lighter-mode)
 #   update-run phone-link-on|phone-link-off  let phones (KDE Connect) reach this computer through the firewall
+#   update-run remote-desktop-on|remote-desktop-off  let remote desktop apps (RDP, port 3389) through the
+#                                         firewall, from local networks only
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
@@ -473,6 +475,30 @@ PY
 			for PROTO in udp tcp; do
 				ufw --force delete allow 1714:1764/"${PROTO}" >/dev/null 2>&1 || true
 			done
+		fi
+		;;
+	remote-desktop-on | remote-desktop-off)
+		[[ $# -eq 1 ]] || die "usage: update-run remote-desktop-on|remote-desktop-off"
+		# GNOME Remote Desktop's RDP port, from local networks only (the same
+		# ranges as Phone link's), never the internet. Kulan Settings › Sharing
+		# reads the mark to know it's open.
+		MARK=/var/lib/kulan/remote-desktop-firewall
+		if command -v ufw >/dev/null 2>&1; then
+			for NET in "${PRIVATE_NETS[@]}"; do
+				if [[ "$1" == remote-desktop-on && "${NET}" == *:* ]]; then
+					ufw allow proto tcp from "${NET}" to any port 3389 comment "Kulan remote desktop" 1>&2 || true
+				elif [[ "$1" == remote-desktop-on ]]; then
+					ufw allow proto tcp from "${NET}" to any port 3389 comment "Kulan remote desktop" 1>&2
+				else
+					ufw --force delete allow proto tcp from "${NET}" to any port 3389 >/dev/null 2>&1 || true
+				fi
+			done
+		fi
+		if [[ "$1" == remote-desktop-on ]]; then
+			install -d -m 0755 /var/lib/kulan
+			touch "${MARK}"
+		else
+			rm -f "${MARK}"
 		fi
 		;;
 	lighter)

@@ -21,6 +21,7 @@ from .display import DisplayPage
 from .family import FamilyPage
 from .dock import DockPage
 from .focus import FocusPage
+from .help import HelpPage
 from .keyboard import KeyboardPage
 from .loginitems import LoginItemsPage
 from .mouse import MousePage
@@ -31,6 +32,7 @@ from .printers import PrintersPage
 from .privacy import PrivacyPage
 from .region import RegionPage
 from .security import SecurityPage
+from .sharing import SharingPage
 from .sound import SoundPage
 from .storage import StoragePage
 from .topbar import TopBarPage
@@ -49,6 +51,7 @@ PAGES = [
     ("bluetooth", BluetoothPage),
     ("phone", PhonePage),
     ("printers", PrintersPage),
+    ("sharing", SharingPage),
     # Sound and attention
     ("sound", SoundPage),
     ("focus", FocusPage),
@@ -81,6 +84,7 @@ PAGES = [
     ("region", RegionPage),
     ("updates", UpdatesPage),
     ("add-ons", AddonsPage),
+    ("help", HelpPage),
     ("about", AboutPage),
 ]
 GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-time"}
@@ -88,13 +92,13 @@ GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-
 # Each page's tile colour in the sidebar (2.4 look): a white symbol on a
 # rounded square, like a Mac's System Settings.
 TILE_COLOURS = {
-    "wifi": "#0d9488", "bluetooth": "#3b82f6", "phone": "#16a34a", "printers": "#475569",
+    "wifi": "#0d9488", "bluetooth": "#3b82f6", "phone": "#16a34a", "printers": "#475569", "sharing": "#0ea5e9",
     "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
     "security": "#0f766e", "privacy": "#2563eb", "backups": "#0891b2",
     "keyboard": "#64748b", "mouse": "#64748b", "accessibility": "#2563eb", "assistant": "#7c3aed", "prayer-times": "#d97706",
-    "date-time": "#0ea5e9", "region": "#0d9488", "updates": "#64748b", "add-ons": "#ec4899", "about": "#334155",
+    "date-time": "#0ea5e9", "region": "#0d9488", "updates": "#64748b", "add-ons": "#ec4899", "help": "#0d9488", "about": "#334155",
 }
 EXTERNAL_TILE = "#94a3b8"
 
@@ -119,7 +123,6 @@ preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px
 # Pages that live in GNOME Settings, listed so everything is findable from here.
 GNOME_PANELS = [
     ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
-    ("Sharing", "org.gnome.Settings-sharing-symbolic|emblem-shared-symbolic", ("sharing",)),
 ]
 
 
@@ -330,6 +333,11 @@ class KulanSettings(Adw.Application):
             updatelist.self_test()
         except AssertionError as exc:
             failures.append(f"updates: grouping gave {exc}")
+        try:  # Get help: screenshots made small enough to send, and the person's own requests
+            from . import help as get_help
+            get_help.self_test(window)
+        except AssertionError as exc:
+            failures.append(f"help: {exc}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
