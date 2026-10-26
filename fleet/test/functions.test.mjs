@@ -1138,6 +1138,10 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   ok(staff?.password === "correct horse battery" && staff.security === "wpa-psk" && guest && !("password" in guest) && guest.hidden === true,
      "the group's computers get the networks, the password opened only for them", rep.body.networks);
   ok(rep.body.printers.length === 1 && rep.body.printers[0].uri === "ipp://192.168.1.20/ipp/print", "and the printer", rep.body.printers);
+  await report(B, { pushed: { networks: { [staff.id]: "added", "not-an-id": "x" }, printers: { [prId]: "couldn't reach\u0007 the printer".padEnd(300, ".") }, junk: 1 } });
+  const [{ last_report: pushedBack }] = await db`select last_report from fleet.devices where id = ${B.device_id}`;
+  ok(JSON.stringify(pushedBack.pushed) === JSON.stringify({ networks: { [staff.id]: "added" }, printers: { [prId]: ("couldn't reach  the printer".padEnd(300, ".")).slice(0, 120) } }),
+     "how they went comes back with the report, cleaned", pushedBack.pushed);
   rep = await report(A);
   ok(rep.body.networks.length === 0 && rep.body.printers.length === 0, "computers outside the group don't", rep.body);
   await db`update fleet.group_networks set secret = ${"s1:" + btoa("x".repeat(40))} where id = ${netId}`;

@@ -55,3 +55,20 @@ export function cleanPrinter(v: unknown): { name: string; uri: string } | null {
   if (!n || u.length > 300 || !PRINTER_URI.test(u)) return null;
   return { name: n, uri: u };
 }
+
+// How a computer's group Wi-Fi networks and printers went, as it reports it:
+// {networks: {id: what happened}, printers: {id: what happened}}.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export function cleanPushed(v: unknown): { networks: Record<string, string>; printers: Record<string, string> } | undefined {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return undefined;
+  const side = (x: unknown): Record<string, string> => {
+    const out: Record<string, string> = {};
+    if (typeof x !== "object" || x === null || Array.isArray(x)) return out;
+    for (const [id, what] of Object.entries(x).slice(0, 50)) {
+      if (UUID.test(id) && typeof what === "string") out[id] = what.replace(/[\p{Cc}]/gu, " ").slice(0, 120);
+    }
+    return out;
+  };
+  const { networks, printers } = v as Record<string, unknown>;
+  return { networks: side(networks), printers: side(printers) };
+}

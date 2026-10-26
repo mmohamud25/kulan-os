@@ -2,7 +2,7 @@
 //
 //   POST /fleet/v1/enrol          {code, hostname, os, kulan_version} -> {device_id, token, organisation}
 //   POST /fleet/v1/report         Bearer token, {device_id, ...status, apps?, passwords?, people_status?, usb_seen?,
-//                                 sign_ins?, factors?, factors_removed?}
+//                                 sign_ins?, factors?, factors_removed?, pushed?}
 //                                 -> {actions: [{id, type, payload?}], policy: {...}, accounts: [...]}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
@@ -424,6 +424,9 @@ Deno.serve(async (req: Request) => {
       const signIns = cleanSignIns(body.sign_ins);
       if (signIns === undefined) delete body.sign_ins;
       else body.sign_ins = signIns;
+      const pushed = acts.cleanPushed(body.pushed);
+      if (pushed === undefined) delete body.pushed;
+      else body.pushed = pushed;
       const factorsAdded = cleanFactors(body.factors);
       const factorsRemoved = cleanRemovedFactors(body.factors_removed);
       delete body.factors; // into fleet.person_factors only, never into the reports
