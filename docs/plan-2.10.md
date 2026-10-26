@@ -21,6 +21,11 @@ when this list is empty.
   - In libadwaita forms (Kulan Fleet's Add a person), the line under each
     field stops halfway across: a theme glitch.
   - `lsb_release -d` says "Kulan OS" without the version.
+  - Two notifications on the lock screen titled "gnome-settings-daemon":
+    system notifications must carry a name people know. GNOME's own USB
+    protection is on without USBGuard (Kulan Fleet controls USB drives);
+    switch it off. Two media-key shortcuts (hibernate, repeat) fail to bind
+    at every sign-in.
 - Kulan Fleet sign-in emails from kulangroup.com through our own mail
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.
