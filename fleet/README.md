@@ -59,9 +59,18 @@ lock-screen, restart):
   is `docs/fleet-google-workspace.md`. Fleet's own change never waits for
   Google: what's left is kept on the person (`mailbox_todo`) as an alert.
 
+- Remote help (2.9a; `functions/*/help.ts`, `fleet.help_sessions`): an
+  admin asks to see a computer's screen; the person signed in there is
+  asked, and only if they allow it the screen goes straight to the admin's
+  browser (WebRTC; Cloudflare's relay when needed, with credentials per
+  session from the `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_TOKEN`
+  secrets, STUN only without them). Requests wake their computers through a
+  Realtime broadcast topic per computer (`fleet.devices.wake_topic`).
+
 ## Dashboard
 
-`dashboard/` is a static page for GitHub Pages (repository
+`dashboard/` is a static page, published with the website at
+os.kulangroup.com/fleet/ (and before 2.9a for GitHub Pages, repository
 `kulan-fleet-dashboard`). It signs in with Supabase Auth (an emailed link)
 and talks only to the `fleet-admin` function, which allows emails listed in
 `fleet.admins`:

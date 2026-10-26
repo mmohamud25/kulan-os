@@ -133,7 +133,8 @@ SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version 
           "(nothing about what's on them)",
           "Who uses it: each account's username and when it was last used (not what they do)",
           "If you set up two-step sign-in: your security key's public key or your phone code's secret, so it "
-          "works on the organisation's other computers you use"]
+          "works on the organisation's other computers you use",
+          "Your screen, only during remote help you allowed, straight to the admin who asked (never recorded or kept)"]
 APPS_EVERY_S = 24 * 3600
 MAX_APPS = 3000
 TIMEOUT = 30

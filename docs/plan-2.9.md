@@ -37,25 +37,53 @@ Consent first, every time:
 - Every request, allow, decline and end is in the activity log; the screen
   itself is never recorded or kept.
 
-How the picture gets there:
-- The computer: kulan-fleet gets a "remote-help" request at its next
-  report; the person's session (kulan-remote-help) shows the dialog, then
-  shares the screen through GNOME's portal (ScreenCast, and RemoteDesktop
-  for control) into GStreamer's WebRTC (VP8), straight to the admin.
+How the picture gets there (as built):
+- The computer: the request arrives with a report; kulan-fleet finds who is
+  at the computer (an active, unlocked desktop session; otherwise the admin
+  is told "nobody is signed in", "the screen is locked"...), picks the
+  request up with the computer's own key (the server then makes a key for
+  this session only), and starts kulan-remote-help in that person's own
+  systemd with only the session's key, passed in its environment (never on
+  a command line). The helper asks; if allowed it shares the screen through
+  GNOME's portal (ScreenCast, or RemoteDesktop for control) into GStreamer's
+  webrtcbin (VP8, up to 1920 wide, 15 frames a second), the mouse and
+  keyboard coming back over a data channel and done with the portal, only
+  when allowed (checked again on the computer). Lives in kulan-settings
+  (GTK and GStreamer); the checks without a screen in kulan-base
+  (helpsession.py).
 - Signalling (offer, answer, network candidates) goes through Kulan Fleet's
-  functions (fleet.help_sessions); the computer asks every 2 seconds while
-  a session is being set up, so it starts in seconds, not at the next
-  hourly report (the request itself wakes the computer's timer early).
+  functions (fleet.help_sessions, at most 60 candidates a side): the
+  computer makes the offer once allowed, the admin's side answers; both ask
+  every second while connecting.
+- Reaching the computer in seconds: each computer listens on a Realtime
+  broadcast topic of its own (kulan-fleet listen, the kulan-fleet-listen
+  service: one WebSocket, the standard library only). fleet-admin wakes it
+  for remote help and for every other request (actions, group actions); a
+  wake only makes it report now. Without the listener, the next hourly
+  report.
 - Connections go direct when they can; otherwise through Cloudflare's
-  relay, with credentials made by the server for that session only (they
-  expire with it). The relay sees only encrypted traffic (DTLS-SRTP).
-- Admins: the dashboard (any browser, phones included) and the Kulan Fleet
-  app (GStreamer, the same WebRTC). Only admins of that computer's
-  organisation, and the Owner's rule for admins' authenticator app applies.
+  relay, with credentials made by the server for that session only (62
+  minutes). The relay sees only encrypted traffic (DTLS-SRTP).
+- Admins: the dashboard, now also at os.kulangroup.com/fleet/ (any browser,
+  phones included; remotehelp.js); the Kulan Fleet app opens it there at
+  that computer (#help=<computer>). Only the admin who asked follows the
+  session (the person allowed them, by name); one admin at a time on a
+  computer.
 - Needs from Mohamud: a Cloudflare account with a Realtime TURN key (its
   id and API token become Supabase secrets CLOUDFLARE_TURN_KEY_ID and
-  CLOUDFLARE_TURN_TOKEN). Without them, remote help still works where the
-  computers can reach each other directly (the same network).
+  CLOUDFLARE_TURN_TOKEN), and os.kulangroup.com/fleet/ added to Supabase
+  Auth's Redirect URLs. Without the relay, remote help still works where the
+  computers can reach each other directly (the same network, most home
+  routers).
+- Tested: the functions against Postgres (every state, who may do what,
+  expiry, the relay's credentials); end to end with the real functions,
+  Chromium as the admin and webrtcbin with a test picture (the picture, the
+  mouse and keyboard only once allowed, either side ending it, declined);
+  the helper on Debian's own GStreamer in the package test, with its
+  windows; the wake listener against a stand-in Realtime; the two-computer
+  test (woken over TLS through the test server, "nobody is signed in").
+- Later: help at the sign-in screen (nobody signed in), and choosing which
+  screen in the admin's view when there are several.
 
 ## 2.9b Actions: how it works (design)
 - Run a fix: Kulan's ready-made fixes (free up disk space, reset Wi-Fi,

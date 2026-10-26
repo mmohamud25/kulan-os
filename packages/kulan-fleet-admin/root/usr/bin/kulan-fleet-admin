@@ -101,6 +101,8 @@ ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update
 # Google Workspace (2.8e)
 GOOGLE_SCOPE = "https://www.googleapis.com/auth/admin.directory.user"
 GOOGLE_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md"
+# Remote help (2.9a) runs in the web dashboard (any browser, phones too): this app opens it there.
+DASHBOARD = os.environ.get("KULAN_FLEET_DASHBOARD", "").rstrip("/") or "https://os.kulangroup.com/fleet"
 MAILBOX_TODO = {"suspend": "still to suspend", "unsuspend": "still to unsuspend", "delete": "still to delete",
                 "rename": "name still to change"}
 MAILBOX_STATE = {"active": ("working", "good"), "suspended": ("suspended", "warn"), "deleted": ("deleted", "dim")}
@@ -1315,6 +1317,17 @@ class FleetWindow(Adw.ApplicationWindow):
             row.connect("activated", lambda _r: self.install_app_dialog(d.get("hostname") or "this computer",
                                                                          {"op": "action", "device_id": d["id"]}))
             ask.add(row)
+            helping = Adw.PreferencesGroup(title="Help the person using it")
+            page.add(helping)
+            now = [x.get("username") for x in (d.get("sign_ins") or []) if x.get("now")]
+            help_row = Adw.ActionRow(title="Remote help", subtitle_lines=0, activatable=True,
+                                     subtitle="See their screen, and with their permission use the mouse and keyboard. "
+                                     "They're asked first and can stop it any time. Opens in your browser"
+                                     + (f" ({', '.join(now)} signed in now)" if now else " (nobody signed in at its last report)"))
+            help_row.add_prefix(Gtk.Image(icon_name="preferences-desktop-remote-desktop-symbolic"))
+            help_row.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+            help_row.connect("activated", lambda _r: self.open_remote_help(d))
+            helping.add(help_row)
             st = d.get("state") or {}
             lost = Adw.PreferencesGroup(title="If it’s lost or stolen")
             page.add(lost)
@@ -2153,6 +2166,14 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def org_computers(self, org: dict) -> list[dict]:
         return [d for d in (self.data or {}).get("devices", []) if d["organisation_id"] == org["id"] and not d.get("left_at")]
+
+    def open_remote_help(self, d: dict) -> None:
+        """Remote help is in the web dashboard (the screen plays in the browser): opened at this computer."""
+        url = f"{DASHBOARD}/#help={d['id']}"
+        self.last_opened = url  # for the self-test
+        if self.sample_mode():
+            return
+        Gtk.UriLauncher.new(url).launch(self, None, None, None)
 
     def computer_picker(self, org: dict, all_on: bool, chosen: list[str], chosen_groups: list[str] | None = None):
         """All the organisation's computers, or chosen ones and groups' (now and later): (rows to add to a
@@ -3418,6 +3439,9 @@ class FleetApp(Adw.Application):
                     assert win.mailbox_note({}) == "" and MAILBOX_ADDRESS.match("amina.y@kulan.example")
                     assert not MAILBOX_ADDRESS.match("Amina@kulan.example") and not MAILBOX_ADDRESS.match("a@b")
                     assert policy_summary({"two_step": "everyone"}) == "Two-step sign-in for everyone"
+                    # Remote help (2.9a): opened in the web dashboard, at that computer.
+                    win.open_remote_help(win.data["devices"][0])
+                    assert win.last_opened == f"{DASHBOARD}/#help={win.data['devices'][0]['id']}", win.last_opened
                     rows, picked = win.computer_picker(org, False, ["d1"], ["g1"])
                     assert picked() == (False, ["d1"], ["g1"]), picked()
                     # Setup codes: 12 of the 32 clear characters; the hash is one the computers take,

@@ -467,7 +467,10 @@ def main(argv: list[str]) -> int:
     shutil.copy2(WEB / "style.css", out / "style.css")
     for folder in ("fonts", "images"):
         shutil.copytree(WEB / folder, out / folder, dirs_exist_ok=True)
-    (out / "robots.txt").write_text("User-agent: *\nDisallow: /apt/\n")
+    # The Kulan Fleet dashboard (for admins, signed in; 2.9a): os.kulangroup.com/fleet/,
+    # so remote help works from any browser, phones too. Not for search engines.
+    shutil.copytree(ROOT / "fleet" / "dashboard", out / "fleet", dirs_exist_ok=True)
+    (out / "robots.txt").write_text("User-agent: *\nDisallow: /apt/\nDisallow: /fleet/\n")
     print(f"Website: {len(pages)} pages for {NAME} {LABEL} in {out}")
     return 0
 
