@@ -106,7 +106,7 @@ class Keyring:
             self.session = self.call(SERVICE_PATH, SERVICE, "OpenSession",
                                      GLib.Variant("(sv)", ("plain", GLib.Variant("s", ""))), "(vo)")[1]
         except GLib.Error as e:
-            raise KeyringError("The keyring service isn't running, so saved passwords can't be changed now.") from e
+            raise KeyringError("Saved passwords can't be changed now. The keyring service isn't running.") from e
 
     def call(self, path: str, iface: str, method: str, args: GLib.Variant | None, reply: str | None = None):
         out = self.bus.call_sync(SECRETS, path, iface, method, args,
@@ -186,7 +186,7 @@ class Keyring:
         item, prompt = self.call(path, COLLECTION, "CreateItem",
                                  GLib.Variant("(a{sv}(oayays)b)", (props, secret, True)), "(oo)")
         if item == NO_PATH:
-            raise KeyringError(f"Couldn't copy “{label}” (prompt {prompt}).")
+            raise KeyringError(f"Couldn't copy “{label}”.")
         return item
 
     def move_all(self, source: str, target: str) -> int:
@@ -198,7 +198,7 @@ class Keyring:
             label, attributes, value, content_type = self.read_item(item)
             new = self.add_item(target, label, attributes, value, content_type)
             if self.read_item(new)[2] != value:
-                raise KeyringError(f"“{label}” didn't copy correctly; nothing else was changed.")
+                raise KeyringError(f"“{label}” didn't copy correctly. Nothing else was changed.")
             copied += 1
         self.set_default(target)
         return copied
@@ -227,8 +227,8 @@ def stop_asking(password: str, keyring: Keyring | None = None, folder: Path | No
         keyring.change_password(path, password, "")
         changed.append(name)
     if wrong and not changed:
-        raise KeyringError("That password didn't unlock your saved passwords. It's usually the password you "
-                           "chose when an app first asked to set up a keyring, or your sign-in password.")
+        raise KeyringError("That password didn't unlock your saved passwords. Try your sign-in password, or "
+                           "the one you chose when an app first asked.")
     if wrong:
         raise KeyringError(f"Done for {', '.join(changed)}, but that password didn't unlock "
                            f"{', '.join(wrong)}. Try its own password.")

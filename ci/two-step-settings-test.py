@@ -28,7 +28,7 @@ def go(_a):
     status.write_text(json.dumps({getpass.getuser(): {"required": True, "ready": True, "factors": [
         {"id": "00000000-0000-4000-8000-000000000001", "kind": "key", "label": "YubiKey"},
         {"id": "00000000-0000-4000-8000-000000000002", "kind": "code", "label": "Pixel"}]}}))
-    assert page.two_step_row(page.my_two_step()).get_subtitle() == "On: YubiKey, Pixel"
+    assert page.two_step_row(page.my_two_step()).get_subtitle() == "On · YubiKey, Pixel"
     for d in (page.open_two_step(), page.add_two_step_key(), page.add_two_step_code()):
         d.force_close()
     uri = about.AboutPage.otpauth_uri(bytes(range(20)), "amina")

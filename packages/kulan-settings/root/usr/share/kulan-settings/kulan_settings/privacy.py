@@ -32,14 +32,14 @@ DNS_CHOICES = [
     ("off", "Your network’s"),
     ("quad9", "Encrypted (Quad9)"),
     ("adblock", "Encrypted, blocks ads and trackers"),
-    ("family", "Encrypted, family-safe (blocks adult and harmful sites)"),
+    ("family", "Encrypted, blocks adult and harmful sites"),
 ]
 
 CONNECTIONS = [
-    ("Browser blockers", ("Firefox and Chromium download uBlock Origin from their own add-on stores, "
-                          "and keep it up to date")),
-    ("Software updates", ("deb.debian.org, security.debian.org and the Kulan OS update server, to check "
-                          "for and download updates")),
+    ("Browser blockers", ("Firefox and Chromium get uBlock Origin from their add-on stores "
+                          "and keep it updated")),
+    ("Software updates", ("deb.debian.org, security.debian.org and the Kulan OS update server, "
+                          "for updates")),
     ("Clock", "A Debian time server, to keep the clock right"),
     ("Encrypted DNS", "Quad9, Mullvad or Cloudflare for Families, only if you turn it on"),
 ]
@@ -61,7 +61,7 @@ def countme_report() -> dict | None:
 def countme_text(report: dict | None) -> str:
     """The exact report, in words."""
     if not report or not report.get("sends"):
-        return "Nothing: this computer isn't counted (it isn't an installed Kulan OS release)."
+        return "Nothing. Only installed Kulan OS releases are counted."
     sends = report["sends"]
     lines = [f"Kulan OS version: {sends['version']}",
              f"Kind of computer: {ARCH_WORDS.get(sends['arch'], sends['arch'])}",
@@ -129,9 +129,8 @@ class PrivacyPage(Page):
         self.name_row.add_suffix(edit)
         network.add(self.name_row)
         self.dns_row = choice_row("Name lookups (DNS)",
-                                  "Encrypted hides the sites you visit from the network whenever the network "
-                                  "allows it (some hotel and office Wi-Fi doesn't). The ad-blocking choice works "
-                                  "in every app and browser",
+                                  "Encrypted hides the sites you visit from the network, where the network "
+                                  "allows it. Ad blocking works in every app",
                                   DNS_CHOICES, dns_mode, self.set_dns)
         network.add(self.dns_row)
 
@@ -161,7 +160,7 @@ class PrivacyPage(Page):
         history.add(clear)
         self.add_rows(history,
                       switch_row(self.privacy, "report-technical-problems", "Send problem reports",
-                                 "Off in Kulan OS: nothing is sent"))
+                                 "Kulan OS doesn’t send any"))
         metadata = Adw.ActionRow(title="Remove hidden details from files",
                                  subtitle="Photos and documents can carry your location, name and device. "
                                           "Metadata Cleaner removes them before you share",
@@ -178,8 +177,8 @@ class PrivacyPage(Page):
         if Path(COUNTME).exists():
             self.count_row = Adw.SwitchRow(
                 title="Count this computer, anonymously",
-                subtitle="Once a week: the Kulan OS version, PC or Mac, and roughly how long it’s been installed. "
-                         "No ID and nothing about you. Helps Kulan know how many computers to support",
+                subtitle="Once a week, sends the Kulan OS version, PC or Mac, and roughly how long it’s been "
+                         "installed. No ID and nothing about you. Helps Kulan plan support",
                 subtitle_lines=0, active=not COUNTME_OFF.exists())
             what = Gtk.Button(label="What’s sent", valign=Gtk.Align.CENTER, css_classes=["flat"])
             what.connect("clicked", lambda _b: self.show_count())
@@ -188,8 +187,8 @@ class PrivacyPage(Page):
             connections.add(self.count_row)
         connections.add(Adw.ActionRow(title=NOTHING_ELSE[0], subtitle=NOTHING_ELSE[1], subtitle_lines=0))
         self.check_row = Adw.SwitchRow(title="Connectivity check",
-                                       subtitle="Loads a small test page now and then to spot Wi-Fi sign-in pages "
-                                                "(hotels, airports). Off: you open those pages yourself")
+                                       subtitle="Loads a small test page now and then to find Wi-Fi sign-in pages. "
+                                                "When off, open those pages yourself")
         self.check_row.set_visible(False)
         connections.add(self.check_row)
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, NM_NAME, NM_PATH, NM_NAME,
@@ -215,7 +214,7 @@ class PrivacyPage(Page):
 
     def ask_name(self, suggested: str | None = None) -> None:
         """Choose a name; with suggested (Make private), a private one is filled in to confirm or change."""
-        body = ("Letters, numbers and dashes. Avoid your own name: other devices on the network can see it."
+        body = ("Use letters, numbers and dashes. Avoid your own name, as other devices on the network can see it."
                 if suggested is None else
                 f"Other devices on the network will see this computer as “{suggested}” instead of "
                 f"“{current_name()}”. You can change it first.")
@@ -333,4 +332,4 @@ class PrivacyPage(Page):
                                   "remove-old-temp-files", "remove-old-trash-files", "report-technical-problems"])
         reset_keys(self.location, ["enabled"])
         self.window.reload_page(self)
-        self.toast("Privacy reset to Kulan defaults (name and DNS unchanged)")
+        self.toast("Privacy reset to Kulan defaults. Name and DNS are unchanged.")

@@ -116,8 +116,7 @@ class NetworkExtras:
         self.proxy = settings(PROXY)
         self.vpn_group = page.add_group("VPN", "Private connections to your work or a VPN service.")
         self.vpn_rows: list[Gtk.Widget] = []
-        self.hotspot_group = page.add_group("Hotspot", "Share this computer’s internet with your phone or "
-                                                       "another computer over Wi-Fi.")
+        self.hotspot_group = page.add_group("Hotspot", "Share this computer’s internet over Wi-Fi.")
         self.hotspot_switch = Adw.SwitchRow(title="Hotspot")
         self.hotspot_switch.connect("notify::active", self.on_hotspot)
         self.hotspot_details = Adw.ActionRow(title="Network name and password", subtitle_selectable=True,
@@ -169,21 +168,20 @@ class NetworkExtras:
             connection = wifi_connection(ssid, hidden)
             add_password(connection, kind, password.get_text())
             self.activate_new(connection, device, ap_path, ssid)
-        body = "This network uses old WEP security, which others can break: use it only if you must." \
+        body = "This network uses old WEP security, which is easy to break. Use it only if you must." \
             if kind == "wep" else "Enter the network’s password."
         form_dialog(self.page.window, f"Join “{ssid}”", body, [password], "Join", ready, go)
 
     def enterprise_dialog(self, device, ssid: str, ap_path: str | None, hidden: bool) -> None:
-        methods = [("peap", "PEAP (most work and school networks, eduroam)"), ("ttls-pap", "TTLS with PAP"),
+        methods = [("peap", "PEAP (most work and school networks)"), ("ttls-pap", "TTLS with PAP"),
                    ("ttls-mschapv2", "TTLS with MSCHAPv2")]
         method = Adw.ComboRow(title="Sign-in method", model=Gtk.StringList.new([m[1] for m in methods]))
         identity = entry_row("User name (often your email)")
         password = entry_row("Password", password=True)
-        anonymous = entry_row("Anonymous identity (if your IT team gave one)")
+        anonymous = entry_row("Anonymous identity (optional)")
         domain = entry_row("Server domain (for example, radius.example.org)")
         unchecked = Adw.SwitchRow(title="Connect without checking the server",
-                                  subtitle="Not safe: a fake network with the same name could learn your password. "
-                                           "Only if your IT team has no server domain to give")
+                                  subtitle="Unsafe. A fake network with the same name could get your password.")
 
         def go() -> None:
             connection = wifi_connection(ssid, hidden)
@@ -191,9 +189,8 @@ class NetworkExtras:
                            password.get_text(), anonymous.get_text().strip(), domain.get_text().strip())
             self.activate_new(connection, device, ap_path, ssid)
         form_dialog(self.page.window, f"Join “{ssid}”",
-                    "Your work or school’s Wi-Fi sign-in. The server domain (from your IT team or your school’s "
-                    "Wi-Fi instructions) lets the computer check it’s really your network before sending the "
-                    "password.",
+                    "Sign in with your work or school account. The server domain lets the computer check it’s "
+                    "really your network before sending your password.",
                     [method, identity, password, anonymous, domain, unchecked], "Join",
                     lambda: bool(identity.get_text().strip() and password.get_text()
                                  and (domain.get_text().strip() or unchecked.get_active())), go)
@@ -283,7 +280,7 @@ class NetworkExtras:
 
     def import_vpn(self) -> None:
         if shutil.which("nmcli") is None:
-            self.page.toast("NetworkManager’s nmcli isn’t installed")
+            self.page.toast("Adding a VPN needs nmcli, which isn’t installed")
             return
         dialog = Gtk.FileDialog(title="Choose a VPN file")
         files = Gtk.FileFilter(name="VPN files (.conf, .ovpn)")
@@ -311,10 +308,10 @@ class NetworkExtras:
             if out.returncode == 0:
                 self.page.toast("VPN added")
             elif kind == "openvpn" and "plugin" in (out.stderr or "").lower():
-                self.page.toast("OpenVPN needs its NetworkManager plug-in (network-manager-openvpn-gnome)")
+                self.page.toast("OpenVPN needs the network-manager-openvpn-gnome package")
             else:
                 lines = (out.stderr or out.stdout or "").strip().splitlines()
-                self.page.toast(f"Couldn’t add it: {lines[-1] if lines else 'nmcli failed'}")
+                self.page.toast(f"Couldn’t add it: {lines[-1] if lines else 'unknown error'}")
             self.page.queue_refresh()
         dialog.open(self.page.window, None, picked)
 
@@ -337,7 +334,7 @@ class NetworkExtras:
             wireless = connection.get_setting_wireless()
             name = (wireless.get_ssid().get_data() or b"").decode("utf-8", "replace") if wireless else ""
             self.hotspot_details.set_subtitle(f"{name} · password {self.hotspot_password}" if self.hotspot_password
-                                              else f"{name} · turn it off and on again to see a new password")
+                                              else f"{name} · Restart the hotspot to see a new password")
             self.hotspot_details.set_visible(True)
         else:
             self.hotspot_details.set_visible(False)
@@ -376,20 +373,20 @@ class NetworkExtras:
         self.hotspot_password = password
         self.hotspot_details.set_subtitle(f"{name} · password {password}")
         self.hotspot_details.set_visible(True)
-        self.page.toast("Hotspot starting (Wi-Fi disconnects from other networks while it’s on)")
+        self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
 
     # --- proxy -----------------------------------------------------------------------------
     def build_proxy(self) -> None:
         if self.proxy is None or not has_key(self.proxy, "mode"):
             self.proxy_group.set_visible(False)
             return
-        modes = [("none", "Off"), ("auto", "Automatic (a setup address)"), ("manual", "Manual")]
+        modes = [("none", "Off"), ("auto", "Automatic"), ("manual", "Manual")]
         mode = Adw.ComboRow(title="Proxy", model=Gtk.StringList.new([m[1] for m in modes]))
         values = [m[0] for m in modes]
         current = self.proxy.get_string("mode")
         mode.set_selected(values.index(current) if current in values else 0)
         self.proxy_group.add(mode)
-        auto = entry_row("Setup address (PAC URL)", text=self.proxy.get_string("autoconfig-url"))
+        auto = entry_row("Configuration URL", text=self.proxy.get_string("autoconfig-url"))
         auto.set_show_apply_button(True)
         auto.connect("apply", lambda r: self.proxy.set_string("autoconfig-url", r.get_text().strip()))
         self.proxy_group.add(auto)

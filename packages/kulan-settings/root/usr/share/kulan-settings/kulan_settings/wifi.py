@@ -88,7 +88,7 @@ class WifiPage(Page):
 
         self.device_watches: list[tuple] = []
         if NM is None:
-            self.unavailable("Wi-Fi settings need NetworkManager’s libnm (gir1.2-nm-1.0).")
+            self.unavailable("Wi-Fi settings need the gir1.2-nm-1.0 package.")
             return
         self.wifi_group = self.add_group("Wi-Fi")
         self.wifi_switch = Adw.SwitchRow(title="Wi-Fi")
@@ -123,10 +123,10 @@ class WifiPage(Page):
             self.client = NM.Client.new_finish(result)
         except GLib.Error as exc:
             print(f"kulan-settings: NetworkManager: {exc.message}")
-            self.unavailable("NetworkManager, which runs Wi-Fi and wired connections, isn’t running.")
+            self.unavailable("NetworkManager isn’t running.")
             return
         if not self.client.get_nm_running():
-            self.unavailable("NetworkManager, which runs Wi-Fi and wired connections, isn’t running.")
+            self.unavailable("NetworkManager isn’t running.")
             return
         self.extras = NetworkExtras(self)
         self.watch(self.client, "connection-added", lambda *_a: self.queue_refresh())

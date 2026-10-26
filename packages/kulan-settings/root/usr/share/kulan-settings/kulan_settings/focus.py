@@ -27,7 +27,7 @@ class FocusPage(Page):
             on = switch_row(self.kulan, "focus-schedule", "Focus every day")
             start = time_row("Starts", None, lambda: self.kulan.get_double("focus-from"),
                              lambda v: self.kulan.set_double("focus-from", v))
-            end = time_row("Ends", "If it ends earlier than it starts, it ends the next morning",
+            end = time_row("Ends", "Ends the next day if earlier than the start",
                            lambda: self.kulan.get_double("focus-to"),
                            lambda v: self.kulan.set_double("focus-to", v))
             for row in (start, end):

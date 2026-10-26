@@ -26,7 +26,7 @@ SHORTCUTS = [
         ("Ask Kulan (Kulan Assistant)", KULAN_SCHEMA, "ask-shortcut"),
         ("Quick Note", KULAN_SCHEMA, "quick-note-shortcut"),
         ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
-        ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
+        ("Copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
         ("Writing tools (Kulan Assistant)", KULAN_SCHEMA, "writing-tools-shortcut"),
         ("Dictation (Kulan Assistant)", KULAN_SCHEMA, "dictation-shortcut"),
     ]),
@@ -271,7 +271,7 @@ class ShortcutsDialog(Adw.PreferencesDialog):
         for group_title, items in SHORTCUTS:
             group = Adw.PreferencesGroup(title=group_title)
             if group_title == "Kulan":
-                group.set_description("In UTM on a Mac, the Command key is the Super key.")
+                group.set_description("On a Mac in UTM, Command is the Super key.")
             added = 0
             for title, schema, key in items:
                 if "Assistant" in title and not assistant:

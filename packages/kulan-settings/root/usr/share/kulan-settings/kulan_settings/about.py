@@ -147,9 +147,8 @@ def acceleration_text(on: bool | None, name: str) -> str:
         return ""
     if on:
         return f"On ({name})"
-    return (f"Off: everything on the screen is drawn by the processor ({name}), so animations can be slow. "
-            "In a virtual machine, turn on 3D or GPU acceleration in its display settings; on a computer, a "
-            "graphics driver may be missing.")
+    return (f"Off, using {name}. Animations can be slow. In a virtual machine, turn on 3D acceleration "
+            "in its display settings. Otherwise a graphics driver may be missing.")
 
 
 def firmware() -> str:
@@ -257,11 +256,11 @@ class AboutPage(Page):
                 shared.add_row(Adw.ActionRow(title=GLib.markup_escape_text(str(item))))
             shared.add_row(Adw.ActionRow(
                 title="What the organisation can ask this computer to do",
-                subtitle="Report now, install updates, turn compliance mode on, lock the screen, "
-                         "restart or switch off (with 5 minutes' notice), lock it in lost mode if it’s lost"
-                         + (", and erase it" if data.get("allow_erase") else "")
-                         + ". It also adds, changes and removes the accounts it made for its people; "
-                           "other accounts on this computer are never touched",
+                subtitle="Report now, install updates, turn on compliance mode, lock the screen, "
+                         "lock it if it’s lost"
+                         + (", erase it" if data.get("allow_erase") else "")
+                         + ", and restart or shut down with 5 minutes’ notice. It also manages the accounts "
+                           "it created. Other accounts on this computer are never touched",
                 subtitle_lines=0))
             rows = [head, shared]
             policy = self.fleet_policy()
@@ -274,16 +273,16 @@ class AboutPage(Page):
             if work is not None:
                 rows.append(work)
             erase = Adw.SwitchRow(title="Allow erasing this computer if it’s lost or stolen",
-                                  subtitle="Your organisation can then make everything on its disk unreadable from "
-                                           "afar, after a 20-second notice on the screen. Only works when the "
-                                           "disk is encrypted", subtitle_lines=0,
+                                  subtitle="Your organisation can then remotely make the disk unreadable, after "
+                                           "a 20-second notice on the screen. Needs an encrypted "
+                                           "disk", subtitle_lines=0,
                                   active=bool(data.get("allow_erase")))
             erase.connect("notify::active", self.on_allow_erase)
             self.erase_row = erase
             rows.append(erase)
         else:
             join = Adw.ActionRow(title="Join an organisation",
-                                 subtitle="For work or school computers: your IT team gives you a server address "
+                                 subtitle="For work or school computers. Your IT team gives you a server address "
                                           "and a one-time code", activatable=True)
             join.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             join.connect("activated", lambda _r: self.join_org())
@@ -305,7 +304,7 @@ class AboutPage(Page):
         words = {"auto_updates": "Automatic updates on", "firewall": "Firewall on",
                  "require_encryption": "Disk encryption"}
         # (title, status, what to say when it isn't met)
-        items = [(words[k], status.get(k), "Not met. For disk encryption, Kulan OS has to be installed again with "
+        items = [(words[k], status.get(k), "Not met. Kulan OS must be installed again with "
                   "encryption on" if k == "require_encryption" else "Not met yet") for k in words if policy.get(k)]
         if policy.get("screen_lock_minutes"):
             items.append((f"Screen locks after {policy['screen_lock_minutes']} minutes",
@@ -327,7 +326,7 @@ class AboutPage(Page):
         missing = sum(1 for _t, s, _w in items if s != "met")
         row = Adw.ExpanderRow(title="Your organisation’s policy",
                               subtitle="All met" if not missing else
-                              f"{missing} not met: your organisation is told")
+                              f"{missing} not met. Your organisation is told")
         for title, state, why in items:
             item = Adw.ActionRow(title=title, subtitle="Met" if state == "met" else why, subtitle_lines=0)
             item.add_prefix(Gtk.Image(icon_name="object-select-symbolic" if state == "met" else
@@ -357,8 +356,8 @@ class AboutPage(Page):
             return None
         done = wm.connected(mail, Path.home())
         row = Adw.ActionRow(title="Work email", subtitle_lines=0, subtitle=GLib.markup_escape_text(
-            f"{mail['address']} · connected: mail in Geary, and your calendar, contacts and Google Drive" if done else
-            f"{mail['address']} · not connected yet. Connect it and sign in as {mail['address']}"))
+            f"{mail['address']} · Connected to mail, calendar, contacts and Google Drive" if done else
+            f"{mail['address']} · Not connected. Click Connect and sign in as {mail['address']}"))
         row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic" if done else "dialog-information-symbolic"))
         if done:
             command = ["geary"] if Path("/usr/bin/geary").exists() else ["gnome-control-center", "online-accounts"]
@@ -392,9 +391,9 @@ class AboutPage(Page):
 
     def two_step_row(self, mine: dict) -> Adw.ActionRow:
         factors = mine.get("factors") or []
-        subtitle = (f"On: {', '.join(f.get('label') or ('Security key' if f.get('kind') == 'key' else 'Phone code') for f in factors)}"
+        subtitle = (f"On · {', '.join(f.get('label') or ('Security key' if f.get('kind') == 'key' else 'Phone code') for f in factors)}"
                     if factors else "Your organisation asks you to set it up" if mine.get("required") else
-                    "Off: add a security key or a phone code to protect your account")
+                    "Off. Add a security key or phone code to protect your account")
         row = Adw.ActionRow(title="Two-step sign-in", subtitle=GLib.markup_escape_text(subtitle), activatable=True,
                             subtitle_lines=0)
         row.add_prefix(Gtk.Image(icon_name="security-high-symbolic" if factors else "dialog-warning-symbolic"
@@ -411,7 +410,7 @@ class AboutPage(Page):
                                    timeout=300, check=False)
                 ok, msg = r.returncode == 0, (r.stderr.strip().splitlines() or [""])[-1]
                 if r.returncode in (126, 127):
-                    msg = "Not changed: the password wasn't given"
+                    msg = "Not changed. The password wasn't entered."
             except (OSError, subprocess.TimeoutExpired) as e:
                 ok, msg = False, str(e)
             GLib.idle_add(lambda: (done(ok, msg), False)[1])
@@ -420,9 +419,9 @@ class AboutPage(Page):
     def open_two_step(self) -> Adw.AlertDialog:
         mine = self.my_two_step() or {}
         dialog = Adw.AlertDialog(heading="Two-step sign-in",
-                                 body="After your password, a security key you touch or a code from an app on your "
-                                      "phone. It works on all your organisation's computers you use; sudo still "
-                                      "asks only your password." + (" Your organisation asks you to set it up."
+                                 body="After your password, touch a security key or enter a code from your phone. "
+                                      "It works on every organisation computer you use. sudo still asks "
+                                      "only for your password." + (" Your organisation asks you to set it up."
                                                                     if mine.get("required") and not mine.get("factors") else ""))
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         for f in mine.get("factors") or []:
@@ -440,10 +439,10 @@ class AboutPage(Page):
             row.add_suffix(remove)
             box.append(row)
         for title, subtitle, icon, opener in (
-                ("Add a security key", "A USB or NFC key (YubiKey, Google Titan…): touch it when you sign in",
+                ("Add a security key", "A USB or NFC key, such as a YubiKey. Touch it when you sign in",
                  "auth-smartcard-symbolic", self.add_two_step_key),
-                ("Add a phone code", "A 6-digit code from an authenticator app (Google Authenticator, Microsoft "
-                 "Authenticator, Aegis…)", "phone-symbolic", self.add_two_step_code)):
+                ("Add a phone code", "A 6-digit code from an authenticator app, such as Google Authenticator "
+                 "or Aegis", "phone-symbolic", self.add_two_step_code)):
             row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True, subtitle_lines=0)
             row.add_prefix(Gtk.Image(icon_name=icon))
             row.connect("activated", lambda _r, f=opener: (dialog.force_close(), f()))
@@ -483,7 +482,7 @@ class AboutPage(Page):
                         self.window.toast(f"Not added: {err}")
                         return False
                     self.two_step_call(["add", "key", name.get_text().strip() or "Security key"], cred + "\n",
-                                       lambda ok, msg: (self.window.toast("Security key added: touch it when you sign in"
+                                       lambda ok, msg: (self.window.toast("Security key added. Touch it when you sign in."
                                                                           if ok else msg or "Not added"), self.render_org()))
                     return False
                 GLib.idle_add(after)
@@ -503,8 +502,8 @@ class AboutPage(Page):
         user = getpass.getuser()
         uri = self.otpauth_uri(secret, user)
         dialog = Adw.AlertDialog(heading="Add a phone code",
-                                 body="Scan this with an authenticator app on your phone (or type the key below), "
-                                      "then type the 6-digit code it shows.")
+                                 body="Scan this with an authenticator app, or type the key below. "
+                                      "Then enter the 6-digit code it shows.")
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         try:
             png = subprocess.run(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", uri],
@@ -535,8 +534,8 @@ class AboutPage(Page):
             if response != "save":
                 return
             self.two_step_call(["add", "code", name.get_text().strip() or "Phone"], f"{secret.hex()}\n{code.get_text().strip()}\n",
-                               lambda ok, msg: (self.window.toast("Phone code added: type it after your password when "
-                                                                  "you sign in" if ok else msg or "Not added"),
+                               lambda ok, msg: (self.window.toast("Phone code added. Enter it after your password when "
+                                                                  "you sign in." if ok else msg or "Not added"),
                                                 self.render_org()))
         dialog.connect("response", answered)
         dialog.present(self.window)
@@ -554,12 +553,12 @@ class AboutPage(Page):
 
     def join_org(self) -> None:
         dialog = Adw.AlertDialog(heading="Join an organisation",
-                                 body="This computer will report its status (model, updates, security checks) "
+                                 body="This computer will report its model, updates and security checks "
                                       "every hour. Files, browsing and messages are never shared.")
         server = Adw.EntryRow(title="Server address (https://…)")
         code = Adw.PasswordEntryRow(title="One-time code")
         erase = Adw.SwitchRow(title="Allow erasing it if it’s lost or stolen",
-                              subtitle="Only works when the disk is encrypted. You can change this later",
+                              subtitle="Needs an encrypted disk. You can change this later",
                               subtitle_lines=0, active=False)
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         box.append(server)

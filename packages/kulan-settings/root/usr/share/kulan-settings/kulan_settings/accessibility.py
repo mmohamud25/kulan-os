@@ -37,7 +37,7 @@ class AccessibilityPage(Page):
         seeing = self.add_group("Seeing")
         self.add_rows(
             seeing,
-            switch_row(self.apps, "screen-reader-enabled", "Screen reader", "Reads what’s on the screen aloud (Orca)"),
+            switch_row(self.apps, "screen-reader-enabled", "Screen reader", "Reads what’s on the screen aloud"),
             switch_row(self.apps, "screen-magnifier-enabled", "Zoom", "Magnify the area around the pointer"),
             switch_row(self.a11y_interface, "high-contrast", "High contrast"),
         )

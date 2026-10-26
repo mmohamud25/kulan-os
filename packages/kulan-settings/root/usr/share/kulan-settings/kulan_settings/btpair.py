@@ -112,7 +112,7 @@ class Agent:
             self.ask(f"Pair with {name}?", "Check that this code is also showing on the device.", "Pair", label,
                      lambda ok: invocation.return_value(None) if ok else self.reject(invocation))
         elif method == "RequestAuthorization":
-            self.ask(f"Pair with {name}?", "It asked to pair with this computer.", "Pair", None,
+            self.ask(f"Pair with {name}?", "The device wants to pair with this computer.", "Pair", None,
                      lambda ok: invocation.return_value(None) if ok else self.reject(invocation))
         elif method == "AuthorizeService":
             invocation.return_value(None)  # a device we paired using one of its features
@@ -138,7 +138,7 @@ class Agent:
                 else:
                     invocation.return_value(GLib.Variant("(u)", (int(pin) % 1000000,)))
             self.ask(f"Pairing code for {name}",
-                     "For a keyboard: type this code on it and press Enter, then Continue here. For headphones or "
-                     "a speaker: type its own PIN here instead (often 0000).", "Continue", entry, answered)
+                     "On a keyboard, type this code and press Enter. For headphones or a speaker, type "
+                     "its PIN here instead, often 0000.", "Continue", entry, answered)
         else:
             invocation.return_dbus_error("org.bluez.Error.Rejected", "Not supported")

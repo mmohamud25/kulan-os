@@ -84,9 +84,8 @@ class SecurityPage(Page):
 
         self.tpm_group = self.add_group(
             "Start-up",
-            "With TPM unlock, this computer’s security chip opens the encrypted disk, so you type a short PIN "
-            "at start-up instead of the long disk password. The disk password still works whenever the chip "
-            "says no (another computer, Secure Boot turned off).")
+            "The security chip unlocks the encrypted disk, so you type a short PIN at start-up instead of "
+            "the disk password. The disk password still works if the chip refuses.")
         self.tpm_switch = Adw.SwitchRow(title="Unlock with this computer’s security chip", subtitle="Checking…")
         self.tpm_handler = self.tpm_switch.connect("notify::active", self.on_tpm_switch)
         self.tpm_group.add(self.tpm_switch)
@@ -94,8 +93,8 @@ class SecurityPage(Page):
 
         self.compliance_group = self.add_group(
             "Compliance mode",
-            "One security baseline for a work computer, checked against CIS Controls v8 and NIST SP 800-53. "
-            "Turning it on fixes what it can and keeps the screen lock from being turned off.")
+            "A security baseline for work computers, based on CIS Controls v8 and NIST SP 800-53. "
+            "Turning it on fixes what it can and keeps the screen lock on.")
         self.compliance_switch = Adw.SwitchRow(title="Compliance mode", subtitle="Checking…")
         self.compliance_handler = self.compliance_switch.connect("notify::active", self.on_compliance_switch)
         self.compliance_list = Adw.ExpanderRow(title="Controls", subtitle="")
@@ -110,7 +109,7 @@ class SecurityPage(Page):
 
         self.checkup_group = self.add_group(
             "Security checkup",
-            "Looks for weak settings, using the Lynis auditing tool. Takes a minute or two.")
+            "Looks for weak settings. Takes a minute or two.")
         self.checkup_rows: list[Gtk.Widget] = []
         self.checkup_button = Gtk.Button(label="Run checkup", valign=Gtk.Align.CENTER,
                                          css_classes=["suggested-action"])
@@ -119,8 +118,8 @@ class SecurityPage(Page):
 
         passwords = self.add_group("Passwords")
         self.password_row = Adw.ActionRow(title="Password manager",
-                                          subtitle="KeePassXC: an encrypted vault on this computer, with "
-                                                   "autofill in Firefox")
+                                          subtitle="KeePassXC, an encrypted vault with autofill in "
+                                                   "Firefox")
         passwords.add(self.password_row)
         self.password_button: Gtk.Button | None = None
 
@@ -151,30 +150,30 @@ class SecurityPage(Page):
         cards = []
 
         if firewall_on():
-            cards.append(self.card("Firewall", "On: other computers can’t connect to this one", GOOD))
+            cards.append(self.card("Firewall", "Other computers can’t connect to this one", GOOD))
         else:
-            cards.append(self.card("Firewall", "Off: other computers on the network can try to connect", WARN,
+            cards.append(self.card("Firewall", "Off. Other computers on the network can try to connect", WARN,
                                    "Turn on", lambda: self.helper_run(["firewall-on"], "Firewall on")))
 
         if live:
             cards.append(self.card("Disk encryption", "Chosen when you install Kulan OS", INFO))
         elif disk_encrypted():
-            cards.append(self.card("Disk encryption", "On: your files can’t be read if the disk is taken", GOOD))
+            cards.append(self.card("Disk encryption", "Your files can’t be read if the disk is taken", GOOD))
         else:
             cards.append(self.card("Disk encryption",
-                                   "Off: anyone with the disk can read your files. Encryption can only be "
-                                   "chosen when installing", WARN))
+                                   "Off. Anyone with the disk can read your files. It can only be turned "
+                                   "on when installing", WARN))
 
         if auto_updates_on():
-            cards.append(self.card("Automatic updates", "On: security fixes install every day", GOOD))
+            cards.append(self.card("Automatic updates", "Security fixes install every day", GOOD))
         else:
-            cards.append(self.card("Automatic updates", "Off: security fixes wait until you install them", WARN,
+            cards.append(self.card("Automatic updates", "Off. Security fixes wait until you install them", WARN,
                                    "Turn on", lambda: self.helper_run(["auto-on"], "Automatic updates on")))
 
         if live:
             cards.append(self.card("Restore points", "Set up automatically after you install Kulan OS", INFO))
         elif RESTORE_CONFIG.exists():
-            cards.append(self.card("Restore points", "On: daily snapshots of the system", GOOD))
+            cards.append(self.card("Restore points", "The system is saved every day", GOOD))
         else:
             cards.append(self.card("Restore points", "Not set up yet", WARN, "Set up",
                                    lambda: self.window.show_page("updates")))
@@ -182,25 +181,23 @@ class SecurityPage(Page):
         lock_on = self.screensaver is not None and self.screensaver.get_boolean("lock-enabled")
         idle = self.session.get_uint("idle-delay") if self.session is not None else 0
         if lock_on and 0 < idle <= 900:
-            cards.append(self.card("Screen lock", f"On: locks after {plural(idle // 60, 'minute')} away", GOOD))
+            cards.append(self.card("Screen lock", f"Locks after {plural(idle // 60, 'minute')} away", GOOD))
         else:
-            cards.append(self.card("Screen lock", "Your screen doesn’t lock by itself", WARN, "Turn on",
+            cards.append(self.card("Screen lock", "Your screen doesn’t lock when you’re away", WARN, "Turn on",
                                    self.fix_lock))
 
         if self.dejadup is not None and (self.dejadup.get_boolean("periodic")
                                          or self.dejadup.get_string("last-backup")):
-            cards.append(self.card("Backups", "On: your files are backed up", GOOD))
+            cards.append(self.card("Backups", "Your files are backed up", GOOD))
         elif shutil.which("deja-dup"):
-            cards.append(self.card("Backups", "Not set up: restore points cover the system, not your files",
+            cards.append(self.card("Backups", "Not set up. Restore points don’t include your files",
                                    WARN, "Set up", lambda: self.window.show_page("backups")))
 
         boot = secure_boot()
         if boot == "on":
-            cards.append(self.card("Secure Boot", "On: only trusted software can start the computer", GOOD))
+            cards.append(self.card("Secure Boot", "Only trusted software can start the computer", GOOD))
         elif boot == "off":
-            cards.append(self.card("Secure Boot", "Off. Turn it on in the computer’s firmware settings "
-                                                  "(often F2 or Del at power-on); virtual machines usually "
-                                                  "don’t offer it", INFO))
+            cards.append(self.card("Secure Boot", "Off. Turn it on in the computer’s firmware settings", INFO))
         for row in cards:
             self.status_group.add(row)
             self.status_rows.append(row)
@@ -239,14 +236,14 @@ class SecurityPage(Page):
             reasons = data.get("reasons") or []
             self.tpm_switch.set_sensitive(on or (bool(data.get("possible")) and not self.window.helper.busy))
             if on and data.get("pin"):
-                self.tpm_switch.set_subtitle("On, with a PIN: type it at start-up instead of the disk password")
+                self.tpm_switch.set_subtitle("On. Type your PIN at start-up instead of the disk password")
             elif on:
-                self.tpm_switch.set_subtitle("On, without a PIN: protects the disk if it’s taken out, but not this "
-                                             "computer itself. Turn off and on again to add a PIN")
+                self.tpm_switch.set_subtitle("On, without a PIN. Protects the disk if it’s removed, but not the "
+                                             "whole computer. Turn off and on to add a PIN")
             elif reasons:
                 self.tpm_switch.set_subtitle(GLib.markup_escape_text(reasons[0]))
             else:
-                self.tpm_switch.set_subtitle("Off: the disk password is asked at every start")
+                self.tpm_switch.set_subtitle("Off. The disk password is needed at every start")
 
         proc.communicate_utf8_async(None, None, done)
 
@@ -257,13 +254,13 @@ class SecurityPage(Page):
             self.window.helper.run(["tpm-off"], "TPM unlock off", on_done=lambda _ok: self.shown(), stdin="")
             return
         dialog = Adw.AlertDialog(heading="Turn on TPM unlock",
-                                 body="Type the password you enter at start-up now. It’s used once to add the "
-                                      "security chip’s key, and it keeps working whenever the chip says no.")
+                                 body="Enter the disk password you use at start-up. It still works if the chip "
+                                      "refuses.")
         password = Adw.PasswordEntryRow(title="Disk password")
         use_pin = Adw.SwitchRow(title="Ask for a PIN at start-up", active=True,
-                                subtitle="Recommended. Without one, someone who has this computer could get "
-                                         "in with a Debian USB stick")
-        pin = Adw.PasswordEntryRow(title=f"New PIN ({kulan_tpm_pin_min()} or more characters)")
+                                subtitle="Recommended. Without one, someone with this computer could get "
+                                         "in using a USB stick")
+        pin = Adw.PasswordEntryRow(title=f"New PIN, at least {kulan_tpm_pin_min()} characters")
         again = Adw.PasswordEntryRow(title="PIN again")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         for row in (password, use_pin, pin, again):
@@ -281,11 +278,11 @@ class SecurityPage(Page):
 
         def problem() -> str:
             if not password.get_text():
-                return "Type the disk password."
+                return "Enter the disk password."
             if use_pin.get_active():
                 text = pin.get_text()
                 if len(text) < kulan_tpm_pin_min():
-                    return f"The PIN needs {kulan_tpm_pin_min()} or more characters. Digits are fine."
+                    return f"The PIN needs at least {kulan_tpm_pin_min()} characters."
                 if text != text.strip() or not text.isprintable() or len(text) > 64:
                     return "The PIN can’t start or end with a space."
                 if again.get_text() != text:
@@ -298,7 +295,7 @@ class SecurityPage(Page):
             issue = problem()
             dialog.set_response_enabled("on", not issue)
             hint.set_label(issue if (password.get_text() or pin.get_text()) else
-                           "Keep the PIN somewhere safe: forgetting it means typing the disk password instead.")
+                           "Keep the PIN safe. If you forget it, use the disk password.")
 
         for row in (password, pin, again):
             row.connect("changed", update)
@@ -311,7 +308,7 @@ class SecurityPage(Page):
                 with self.tpm_switch.handler_block(self.tpm_handler):
                     self.tpm_switch.set_active(False)
                 return
-            self.tpm_switch.set_subtitle("Adding the key and rebuilding the start-up image (a few minutes)…")
+            self.tpm_switch.set_subtitle("Setting up TPM unlock. This takes a few minutes…")
             if use_pin.get_active():
                 self.window.helper.run(["tpm-on-pin"], "TPM unlock on, with a PIN", on_done=lambda _ok: self.shown(),
                                        stdin=f"{password.get_text()}\n{pin.get_text()}")

@@ -154,7 +154,7 @@ class DateTimePage(Page):
 
     def set_zone(self, zone: str) -> None:
         if zone != self.prop("Timezone"):
-            self.call("SetTimezone", GLib.Variant("(sb)", (zone, True)), f"Time zone: {zone_label(zone)}")
+            self.call("SetTimezone", GLib.Variant("(sb)", (zone, True)), f"Time zone set to {zone_label(zone)}")
 
     def set_time_dialog(self) -> None:
         now = GLib.DateTime.new_now_local()

@@ -90,19 +90,18 @@ class StoragePage(Page):
 
         self.clean = self.add_group("Free up space", "Nothing here removes your documents, photos or apps.")
         self.bin_row = self.action_row("Bin", "Files you deleted", "Empty Bin", self.empty_bin, destructive=True)
-        self.thumbs_row = self.action_row("Picture previews", "Small previews Files makes; made again when "
-                                          "needed", "Clear", self.clear_thumbnails)
-        self.apt_row = self.action_row("Downloaded update files", "Kept after updates install; not needed",
+        self.thumbs_row = self.action_row("Picture previews", "Made again when needed", "Clear", self.clear_thumbnails)
+        self.apt_row = self.action_row("Downloaded update files", "Not needed once updates are installed",
                                        "Remove", lambda: self.helper(["clean-cache"], "Update files removed"))
-        self.old_row = self.action_row("Old system files", "Old Linux kernels and apps nothing needs any more",
+        self.old_row = self.action_row("Old system files", "Old Linux kernels and unused apps",
                                        "Remove", lambda: self.helper(["cleanup"], "Old system files removed"))
         self.logs_row = self.action_row("System logs", "Keep only the last two weeks", "Trim",
                                         lambda: self.helper(["clean-logs"], "System logs trimmed"))
 
         self.restore = self.add_group(
             "Restore points",
-            "Copies of the system Kulan OS takes each day and before updates, so a change that goes wrong "
-            "can be undone. Your own files aren’t in them.")
+            "Taken each day and before updates, so a bad change can be undone. Your own files aren’t "
+            "included.")
         self.restore_row = Adw.ActionRow(title="Space used")
         self.restore_row.size_label = Gtk.Label(css_classes=["dim-label", "numeric"], valign=Gtk.Align.CENTER)
         self.restore_row.button = Gtk.Button(label="Delete All…", valign=Gtk.Align.CENTER,
@@ -154,7 +153,7 @@ class StoragePage(Page):
         row = self.restore_row
         row.remove_css_class("warning")
         if usage is None:
-            row.set_subtitle("Measured once a day; check back later")
+            row.set_subtitle("Measured once a day. Check back later.")
             row.size_label.set_label("…")
             row.button.set_sensitive(False)
             return
@@ -162,7 +161,7 @@ class StoragePage(Page):
         size = int(usage.get("bytes", 0))
         disk = int(usage.get("disk_bytes", 0))
         if not count:
-            row.set_subtitle("None yet: the first is taken within a day")
+            row.set_subtitle("None yet. The first is taken within a day.")
             row.size_label.set_label("Nothing")
             row.button.set_sensitive(False)
             return
@@ -170,7 +169,7 @@ class StoragePage(Page):
         what = f"{count} restore point{'s' if count != 1 else ''}"
         if disk and size > disk * RESTORE_WARN_SHARE:
             row.set_subtitle(f"{what}, using more than {round(RESTORE_WARN_SHARE * 100)}% of the disk. "
-                             "Deleting them frees the space; new ones are taken as usual.")
+                             "Deleting them frees the space. New ones are still taken.")
             row.add_css_class("warning")
         else:
             row.set_subtitle(f"{what}, kept within a quarter of the disk")
@@ -179,7 +178,7 @@ class StoragePage(Page):
     def delete_restore_points(self) -> None:
         dialog = Adw.AlertDialog(
             heading="Delete all restore points?",
-            body="Until new ones are taken (each day, and before updates), changes to the system can’t be undone. "
+            body="System changes can’t be undone until new ones are taken. "
                  "Your own files aren’t affected.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("delete", "Delete All")
@@ -210,7 +209,7 @@ class StoragePage(Page):
     # --- cleaning ---------------------------------------------------------------------
     def empty_bin(self) -> None:
         dialog = Adw.AlertDialog(heading="Empty the bin?",
-                                 body="Everything in the bin is deleted for good.")
+                                 body="Everything in the bin is permanently deleted.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("empty", "Empty Bin")
         dialog.set_response_appearance("empty", Adw.ResponseAppearance.DESTRUCTIVE)

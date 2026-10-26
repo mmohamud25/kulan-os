@@ -86,9 +86,8 @@ class AssistantPage(Page):
 
         self.add_group(
             None,
-            "Writing help, dictation, summaries and search with questions. Kulan Assistant runs entirely on this "
-            "computer: what you select, say, summarise or search for never leaves it, and it works without the "
-            "internet once a model is downloaded.")
+            "Kulan Assistant runs entirely on this computer. What you select, say, summarise or search for "
+            "never leaves it, and it works offline once a model is downloaded.")
         memory = f"This computer has {self.memory:.0f} GB of memory. " if self.memory else ""
         self.groups["writing"] = self.add_group("Writing model", memory + KINDS["writing"][1] + " Models are "
                                                 "downloaded once, for everyone on this computer, from Hugging Face.")
@@ -102,7 +101,7 @@ class AssistantPage(Page):
                        "Select text in any app and press Shift+Super+W to proofread, rewrite, shorten or "
                        "translate it"),
             switch_row(self.settings, "file-summaries", "Summaries in Files",
-                       "“Summarise” when you right-click a PDF, Word, LibreOffice or text document"),
+                       "Right-click a document in Files and choose Summarise"),
             switch_row(self.settings, "live-text-actions", "Translate and explain after Live Text",
                        "Buttons on the Live Text notification for the text it copied"),
             switch_row(self.settings, "question-search", "Search with questions",
@@ -118,10 +117,10 @@ class AssistantPage(Page):
         # The Ask Kulan app's conversations (kept only on this computer, for you).
         if self.settings.props.settings_schema.has_key("keep-conversations"):
             chats = self.add_group("Ask Kulan conversations",
-                                   "The Ask Kulan app keeps your conversations on this computer so you can go back "
-                                   "to them. Only you can read them, and they never leave the computer.")
+                                   "Ask Kulan keeps your conversations on this computer. Only you can read them, "
+                                   "and they never leave it.")
             self.add_rows(chats, switch_row(self.settings, "keep-conversations", "Keep conversations",
-                                            "Off: nothing is saved, and a conversation ends when you close the app"))
+                                            "When off, nothing is saved and conversations end when you close the app"))
             clear = Adw.ActionRow(title="Delete all conversations…", activatable=True,
                                   subtitle="Removes them from this computer")
             clear.add_suffix(Gtk.Image(icon_name="user-trash-symbolic"))
@@ -130,12 +129,12 @@ class AssistantPage(Page):
 
         # Reminders set with Ask Kulan: see what's coming, cancel one.
         self.reminders_group = self.add_group(
-            "Reminders", "Ask Kulan sets them (Shift+Super+Space: “remind me at 5 to call Amina”). They come even "
-                         "after a restart.")
+            "Reminders", "Ask Kulan to remind you, for example “remind me at 5 to call Amina”. Reminders "
+                         "still arrive after a restart.")
         self.reminder_rows: list[Gtk.Widget] = []
 
         if WHISPER.exists() and self.settings.props.settings_schema.has_key("dictation"):
-            dictation = self.add_group("Dictation", "Press Shift+Super+D, speak, then press it again: the words "
+            dictation = self.add_group("Dictation", "Press Shift+Super+D, speak, then press it again. Your words "
                                                     "are typed where the cursor is. Nothing is recorded or kept.")
             self.add_rows(dictation, switch_row(self.settings, "dictation", "Dictation",
                                                 "Shift+Super+D starts and stops it"))
@@ -248,7 +247,7 @@ class AssistantPage(Page):
         for model in all_models:
             title = model.get("title", model["id"])
             if model["id"] == best:
-                title += " (recommended for this computer)"
+                title += " (recommended)"
             row = Adw.ActionRow(title=GLib.markup_escape_text(title),
                                 subtitle=GLib.markup_escape_text(
                                     f"{model.get('description', '')} · {size_text(model.get('size', 0))} · "

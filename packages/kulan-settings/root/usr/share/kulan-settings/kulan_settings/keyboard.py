@@ -23,15 +23,15 @@ CAPS_OPTIONS = {"caps:none": "Does nothing", "caps:escape": "Escape", "ctrl:noca
 # key's current first binding, so changes made in GNOME Settings show here.
 SHORTCUTS = [
     ("Search apps, files and settings", KULAN_SCHEMA, "search-shortcut"),
-    ("Ask Kulan: ask or get something done (Kulan Assistant)", KULAN_SCHEMA, "ask-shortcut"),
+    ("Ask Kulan", KULAN_SCHEMA, "ask-shortcut"),
     ("Screenshot of the whole screen", "org.gnome.shell.keybindings", "screenshot"),
     ("Screenshot of an area or a window", "org.gnome.shell.keybindings", "show-screenshot-ui"),
     ("Record the screen", "org.gnome.shell.keybindings", "show-screen-recording-ui"),
-    ("Live Text: copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
+    ("Copy text from the screen", KULAN_SCHEMA, "live-text-shortcut"),
     ("Clipboard history", KULAN_SCHEMA, "clipboard-history-shortcut"),
     ("Quick Note", KULAN_SCHEMA, "quick-note-shortcut"),
-    ("Writing tools for the selected text (Kulan Assistant)", KULAN_SCHEMA, "writing-tools-shortcut"),
-    ("Dictation: start and stop (Kulan Assistant)", KULAN_SCHEMA, "dictation-shortcut"),
+    ("Writing tools for selected text", KULAN_SCHEMA, "writing-tools-shortcut"),
+    ("Start or stop dictation", KULAN_SCHEMA, "dictation-shortcut"),
     ("Switch typing language", "org.gnome.desktop.wm.keybindings", "switch-input-source"),
 ]
 KULAN_SHORTCUT_KEYS = ["search-shortcut", "search-style", "ask-shortcut", "quick-note-shortcut", "live-text-shortcut", "clipboard-history-shortcut", "writing-tools-shortcut",
@@ -79,7 +79,7 @@ class KeyboardPage(Page):
             self.layouts = LayoutsGroup(self, self.sources)
 
         self.kulan = settings(KULAN_SCHEMA)
-        shortcuts = self.add_group("Shortcuts", "In UTM on a Mac, the Command key is the Super key.")
+        shortcuts = self.add_group("Shortcuts", "On a Mac in UTM, Command is the Super key.")
         for title, schema, key in SHORTCUTS:
             gsettings = self.kulan if schema == KULAN_SCHEMA else settings(schema)
             accel = first_binding(gsettings, key)
@@ -103,9 +103,9 @@ class KeyboardPage(Page):
         clipboard = self.add_group("Clipboard")
         self.add_rows(clipboard,
                       switch_row(self.kulan, "clipboard-history", "Clipboard history",
-                                 "Remembers the last 25 things you copied, in memory only, until you lock the "
-                                 "screen; pick one to paste it. Passwords from KeePassXC are skipped, but passwords copied from a "
-                                 "browser are remembered too"))
+                                 "Remembers the last 25 things you copy, in memory only, until you lock the "
+                                 "screen. Passwords from KeePassXC are skipped, but passwords copied from a "
+                                 "browser are kept"))
 
         more = self.add_group()
         row = Adw.ActionRow(title="Keyboard shortcuts", subtitle="View and change every shortcut, or add your own",

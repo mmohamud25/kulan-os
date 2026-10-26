@@ -302,8 +302,8 @@ class PrintersPage(Page):
                 group.set_description("Only an administrator can add printers.")
                 return
             if not printers:
-                group.set_description("No new printers found. Check the printer is on and on the same network, "
-                                      "or connect it with a USB cable, then try again.")
+                group.set_description("No new printers found. Check the printer is on and connected, "
+                                      "then try again.")
                 return
             group.set_description("")
             for item in printers:
@@ -336,7 +336,7 @@ class PrintersPage(Page):
                 self.toast("Only an administrator can add printers")
             else:
                 # Not a driverless printer: it needs its maker's driver.
-                self.toast("This printer needs its maker’s software: add it in GNOME Settings")
+                self.toast("This printer needs its maker’s software. Add it in GNOME Settings.")
                 self.open_gnome()
 
         run_async(["lpadmin", "-p", name, "-E", "-v", item["uri"], "-m", "everywhere",

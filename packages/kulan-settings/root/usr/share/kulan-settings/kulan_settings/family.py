@@ -41,16 +41,15 @@ class FamilyPage(Page):
         super().__init__(window)
         self.accounts = self.add_group(
             "Children’s accounts",
-            "Give each child their own account without administrator rights (a Standard account), then choose "
-            "which apps they can use and what they can install.")
+            "Give each child a Standard account, then choose which apps they can use and what they can "
+            "install.")
         self.account_rows: list[Gtk.Widget] = []
 
         web = self.add_group(
             "Family-safe web",
-            "Blocks adult and harmful websites in every browser and app on this computer, using Cloudflare "
-            "for Families (encrypted DNS). Children can’t turn it off without an administrator password. "
-            "Tor Browser and VPN apps go around it: don’t allow them in a child’s apps. Also in "
-            "Privacy > DNS.")
+            "Blocks adult and harmful websites in every app, using Cloudflare for Families. Children need an "
+            "administrator password to turn it off. Tor Browser and VPN apps get around it, so don’t "
+            "allow them.")
         self.web_row = Adw.SwitchRow(title="Family-safe web filter",
                                      subtitle="Adult content, malware and phishing sites are blocked")
         self.web_row.set_active(dns_mode() == "family")

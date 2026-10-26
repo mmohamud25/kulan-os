@@ -48,22 +48,20 @@ class PhonePage(Page):
             self.build_install()
             return
 
-        intro = self.add_group(None, "Share files and links, see your phone’s notifications here, and read and "
-                                     "send texts from the computer. Works best with Android; on iPhone, files "
-                                     "and the clipboard.")
+        intro = self.add_group(None, "Share files, see your phone’s notifications and send texts from this "
+                                     "computer. On iPhone, only files and the clipboard work.")
         self.switch = Adw.SwitchRow(title="Phone link",
-                                    subtitle="Lets phones on the same home or office network find this "
-                                             "computer. Only a phone you pair can connect", subtitle_lines=0,
+                                    subtitle="Phones on the same network can find this computer. "
+                                             "Only a paired phone can connect", subtitle_lines=0,
                                     active=self.enabled())
         self.switch.connect("notify::active", self.on_switch)
         intro.add(self.switch)
 
         self.steps = self.add_group("Set up", None)
         for number, text in enumerate((
-                "Install KDE Connect on your phone: Google Play or F-Droid on Android, the App Store on iPhone.",
+                "Install KDE Connect on your phone from its app store.",
                 "Connect the phone to the same Wi-Fi as this computer.",
-                "Open KDE Connect on the phone. It appears under Phones below: choose Pair, then accept on the "
-                "phone."), start=1):
+                "Open KDE Connect on the phone. Under Phones below, click Pair, then accept on the phone."), start=1):
             row = Adw.ActionRow(title=text, title_lines=0)
             row.add_prefix(Gtk.Label(label=str(number), css_classes=["dim-label", "numeric"], width_chars=2))
             self.steps.add(row)
@@ -79,7 +77,7 @@ class PhonePage(Page):
                              subtitle="In Files, right-click it and choose Send to Mobile Device", subtitle_lines=0)
         more.add(tips)
         prefs = Adw.ActionRow(title="More phone settings",
-                              subtitle="What the phone may do: notifications, texts, files, media controls",
+                              subtitle="Choose what the phone can do",
                               activatable=True)
         prefs.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         prefs.connect("activated", lambda _r: self.open_prefs())
@@ -94,13 +92,11 @@ class PhonePage(Page):
         """Not installed yet: say what it does and install the add-on on request
         (it opens KDE Connect's ports to local networks only, like the switch)."""
         self.switch = None
-        group = self.add_group(None, "Share files and links, see your phone’s notifications here, and read and "
-                                     "send texts from the computer. Works best with Android; on iPhone, files "
-                                     "and the clipboard.")
+        group = self.add_group(None, "Share files, see your phone’s notifications and send texts from this "
+                                     "computer. On iPhone, only files and the clipboard work.")
         row = Adw.ActionRow(title="Phone link",
-                            subtitle="Not installed (about 5 MB). Installing turns it on: phones on the same home "
-                                     "or office network can find this computer, and only a phone you pair can "
-                                     "connect", subtitle_lines=0)
+                            subtitle="About 5 MB. Installing turns it on, so phones on the same network can "
+                                     "find this computer. Only a paired phone can connect", subtitle_lines=0)
         self.install_button = Gtk.Button(label="Install", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         self.install_button.update_property([Gtk.AccessibleProperty.LABEL], ["Install Phone link"])
         self.install_button.connect("clicked", lambda _b: self.install())
@@ -124,7 +120,7 @@ class PhonePage(Page):
             dialog = Adw.AlertDialog(heading="Phone link is installed",
                                      body="Log out and back in to finish. Then install KDE Connect on your phone "
                                           "and pair it here.")
-            dialog.add_response("ok", "OK")
+            dialog.add_response("ok", "Close")
             dialog.present(self.window)
             GLib.idle_add(lambda: self.window.reload_page(self) and False)
 
@@ -177,7 +173,7 @@ class PhonePage(Page):
                 self.set_enabled(True)
                 GLib.timeout_add_seconds(3, lambda: (self.connect_devices(), False)[1])
             self.sync_switch()
-        self.window.helper.run(["phone-link-on"], "Phone link on: open KDE Connect on your phone", on_done=done)
+        self.window.helper.run(["phone-link-on"], "Phone link on. Open KDE Connect on your phone.", on_done=done)
 
     def open_prefs(self) -> None:
         if not self.enabled():
@@ -238,7 +234,7 @@ class PhonePage(Page):
         if paired and connected:
             state = "Connected"
         elif paired:
-            state = "Paired, not connected now: open KDE Connect on the phone, on the same Wi-Fi"
+            state = "Paired. To connect, open KDE Connect on the phone, on the same Wi-Fi"
         else:
             state = "Not paired yet"
         row = Adw.ActionRow(title=GLib.markup_escape_text(name), subtitle=state, subtitle_lines=0)

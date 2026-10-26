@@ -49,7 +49,7 @@ WIDGETS = [
     ("notes", "Note", "Your Quick Note (Cmd+Shift+N)"),
     ("clock", "Clock", "The time here and in the cities added in Clocks"),
     ("system", "System", "Processor, memory, disk space and battery"),
-    ("todo", "To-do", "A short task list: tick tasks off on the desktop"),
+    ("todo", "To-do", "A short task list you tick off on the desktop"),
     ("media", "Now Playing", "Play, pause and skip whatever music or video is playing"),
 ]
 WIDGET_INFO = {w: (t, s) for w, t, s in WIDGETS}
@@ -135,8 +135,8 @@ class DesktopPage(Page):
         if has_key(self.kulan, "reopen-apps"):
             session = self.add_group("Restarting")
             self.add_rows(session, switch_row(self.kulan, "reopen-apps", "Reopen apps after a restart",
-                                              "Apps that were open when the computer restarted or shut "
-                                              "down open again when you sign in"))
+                                              "Opens the apps you had open before a restart or "
+                                              "shut down"))
 
         motion = self.add_group("Motion")
         motion.add(choice_row("Animations", "Kulan’s default is a little quicker than GNOME’s",
@@ -165,7 +165,7 @@ class DesktopPage(Page):
                                  "Move the pointer to the top-left corner to see all windows"),
                       switch_row(self.mutter, "center-new-windows", "Open new windows in the centre"),
                       switch_row(self.mutter, "dynamic-workspaces", "Add workspaces as needed",
-                                 "Off: a fixed number of workspaces"))
+                                 "When off, the number of workspaces is fixed"))
         if has_key(self.wm, "num-workspaces") and has_key(self.mutter, "dynamic-workspaces"):
             count = Adw.SpinRow.new_with_range(1, 12, 1)
             count.set_title("Number of workspaces")

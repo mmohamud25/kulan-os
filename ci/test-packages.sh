@@ -476,7 +476,7 @@ def helper(text):
     return p
 on, name = about.acceleration(helper("llvmpipe (LLVM 19.1.7, 256 bits)"))
 assert on is False and name.startswith("llvmpipe"), (on, name)
-assert about.acceleration_text(on, name).startswith("Off: everything on the screen is drawn by the processor")
+assert about.acceleration_text(on, name).startswith("Off, using llvmpipe")
 on, name = about.acceleration(helper("Mesa Intel(R) UHD Graphics 620 (KBL GT2)"))
 assert on is True and about.acceleration_text(on, name) == "On (Mesa Intel(R) UHD Graphics 620 (KBL GT2))"
 assert about.acceleration(helper("virgl (Apple M5)"))[0] is True, "a virtual machine with 3D on"
@@ -1008,7 +1008,7 @@ Path("/var/lib/kulan/fleet-policy.json").write_text(json.dumps({
     "status": {"firewall": "met", "usb": "met", "app:install:debian:gimp": "met",
                "app:block:debian:steam": "kept: removing it would also remove 2 other package(s)"}}))
 row = about.AboutPage.fleet_policy()
-assert row is not None and row.get_subtitle() == "1 not met: your organisation is told", row.get_subtitle()
+assert row is not None and row.get_subtitle() == "1 not met. Your organisation is told", row.get_subtitle()
 Path("/var/lib/kulan/fleet-policy.json").unlink()
 print("policy rows built")
 PYUI

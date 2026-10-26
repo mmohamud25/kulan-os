@@ -156,7 +156,7 @@ class RegionPage(Page):
     def on_language(self, row: Adw.ComboRow, _pspec) -> None:
         name = self.locales[row.get_selected()]
         if self.me is None:
-            self.toast("Your language can’t be changed right now (AccountsService isn’t running)")
+            self.toast("Your language can’t be changed right now")
             return
 
         def done(error: str | None, _r) -> None:
@@ -197,7 +197,7 @@ class RegionPage(Page):
         if not names:
             self.toast("Every language is already added")
             return
-        dialog = Adw.AlertDialog(heading="Add a language", body="Choose one; it takes a moment to add.")
+        dialog = Adw.AlertDialog(heading="Add a language", body="Adding a language takes a moment.")
         row = Adw.ComboRow(title="Language", model=Gtk.StringList.new([locale_label(n) for n in names]),
                            enable_search=True, expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)

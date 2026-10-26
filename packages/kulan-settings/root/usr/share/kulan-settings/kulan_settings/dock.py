@@ -28,7 +28,7 @@ class DockPage(Page):
         super().__init__(window)
         self.dock = settings(DOCK_SCHEMA)
         if self.dock is None:
-            group = self.add_group(description="The dock (Dash to Dock) isn’t installed.")
+            group = self.add_group(description="The dock isn’t installed.")
             group.add(Adw.ActionRow(title="Install gnome-shell-extension-dashtodock to use the dock"))
             return
 

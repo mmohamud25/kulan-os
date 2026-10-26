@@ -43,7 +43,7 @@ class AppsPage(Page):
             switch_row(media, "automount-open", "Open a window for new drives",
                        "Show the files when you plug in a USB stick or memory card"),
             switch_row(media, "autorun-never", "Never start software from a drive",
-                       "Safer: a USB stick can’t start a program by itself"),
+                       "Safer. A drive can’t start a program when plugged in."),
         )
         store = Adw.ActionRow(title="Install and remove apps", subtitle="In Software", activatable=True)
         store.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))

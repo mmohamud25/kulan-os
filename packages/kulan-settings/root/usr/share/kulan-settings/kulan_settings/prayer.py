@@ -84,11 +84,11 @@ class PrayerPage(Page):
         super().__init__(window)
         self.settings = settings(KULAN_SCHEMA)
         if not has_key(self.settings, "prayer-times"):
-            self.add_group(None, "Prayer times need a newer Kulan Shell; update Kulan OS and sign in again.")
+            self.add_group(None, "Prayer times need a newer version of Kulan OS. Update, then sign in again.")
             return
-        top = self.add_group(None, "The next prayer in the top bar, today’s times in its menu, and a gentle "
-                                   "notification at each prayer time. Worked out on this computer from the city "
-                                   "you choose: nothing is looked up online.")
+        top = self.add_group(None, "Shows the next prayer in the top bar and notifies you at each prayer time. "
+                                   "Times are worked out on this computer from your city, not looked up "
+                                   "online.")
         self.add_rows(top, switch_row(self.settings, "prayer-times", "Prayer times"))
 
         place = self.add_group("City")
@@ -128,7 +128,7 @@ class PrayerPage(Page):
             self.city_row.set_subtitle(GLib.markup_escape_text(
                 f"{city} ({abs(lat):.2f}° {'N' if lat >= 0 else 'S'}, {abs(lon):.2f}° {'E' if lon >= 0 else 'W'})"))
         else:
-            self.city_row.set_subtitle("No city yet: search for yours below")
+            self.city_row.set_subtitle("No city yet. Search for yours below.")
 
     def on_changed(self, _entry: Adw.EntryRow) -> None:
         # Search once typing pauses, not on every key.

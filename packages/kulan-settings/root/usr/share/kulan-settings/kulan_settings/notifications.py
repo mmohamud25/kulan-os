@@ -47,7 +47,7 @@ class NotificationsPage(Page):
         self.add_rows(
             general,
             switch_row(self.notifications, "show-banners", "Do Not Disturb",
-                       "No pop-ups or sounds; notifications wait in the list", invert=True),
+                       "No pop-ups or sounds. Notifications wait in the list.", invert=True),
             switch_row(self.notifications, "show-in-lock-screen", "Notifications on the lock screen"),
         )
         focus = Adw.ActionRow(title="Focus schedule", subtitle="Do Not Disturb at set times every day",

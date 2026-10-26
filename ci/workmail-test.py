@@ -131,7 +131,7 @@ with tempfile.TemporaryDirectory() as tmp:
         (public / me).write_text(json.dumps(G("me@acme.test")))
         row = page.work_email_row()
         check("Settings: not connected yet, with a Connect button",
-              row is not None and "not connected yet" in row.get_subtitle() and "me@acme.test" in row.get_subtitle(),
+              row is not None and "Not connected" in row.get_subtitle() and "me@acme.test" in row.get_subtitle(),
               row and row.get_subtitle())
         (public / me).unlink()
         check("Settings: no row without a work mailbox", page.work_email_row() is None)

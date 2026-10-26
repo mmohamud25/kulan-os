@@ -8,12 +8,12 @@
   <description>
     <p>One place for every Kulan OS option, from how the desktop looks to updates, restore points and optional add-ons.</p>
     <ul>
-      <li>Appearance: light, dark or automatic, accent colour, wallpaper and window buttons</li>
-      <li>Dock: always visible, show on hover or hide when covered, size and position</li>
+      <li>Light, dark or automatic appearance, accent colour, wallpaper and window buttons</li>
+      <li>A dock that stays visible, shows on hover or hides when covered</li>
       <li>Top bar, animations, app folders, Night Light, text size and keyboard</li>
-      <li>Login items: choose which apps open when you sign in</li>
-      <li>Software Update: install updates, see what is new, restore points</li>
-      <li>Add-ons: the Developer Kit and office and media apps in one click</li>
+      <li>Choose which apps open when you sign in</li>
+      <li>Updates, release notes and restore points in Software Update</li>
+      <li>Add the Developer Kit, office apps and media apps in one click</li>
     </ul>
   </description>
   <launchable type="desktop-id">org.kulan.Settings.desktop</launchable>

@@ -143,7 +143,7 @@ class AppearancePage(Page):
         self.kulan = settings(KULAN_SCHEMA)
 
         style = self.add_group("Style")
-        style.add(choice_row("Appearance", "Automatic follows the sunset: dark at night, light by day",
+        style.add(choice_row("Appearance", "Automatic switches to dark at sunset",
                              [("light", "Light"), ("dark", "Dark"), ("auto", "Automatic")],
                              self.get_style, self.set_style))
         if has_key(self.interface, "accent-color"):

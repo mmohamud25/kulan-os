@@ -10,17 +10,15 @@ Breaks: kulan-update-center (<< 2.2~)
 Replaces: kulan-update-center (<< 2.2~)
 Homepage: @HOME_URL@
 Description: @NAME@ Settings
- One place for @NAME@ options: appearance (light, dark or automatic, accent
- colour, wallpaper, window buttons), the dock, the top bar, animations and
- app folders, Night Light and text size, keyboard, login items, add-ons and
- About @NAME@.
+ One place for @NAME@ options: appearance, wallpaper, the dock, the top
+ bar, displays, keyboard, login items, add-ons and About @NAME@.
  .
- Software Update (formerly Update Center) is part of it: available
+ It includes Software Update, which replaces Update Center: available
  updates, what's new, update history, automatic updates and restore points.
- Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays
- (resolution, scale, rotation) are built in. Pages that belong to GNOME
- Settings (users, printers, sharing) are listed too and open there.
+ Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays are
+ built in too. Pages that belong to GNOME Settings, such as online accounts
+ and sharing, open there.
  .
- For computers in an organisation (Kulan Fleet), it also has remote help:
- an admin may see, and if allowed control, the screen, only after the
- person at the computer says yes.
+ On computers in an organisation (Kulan Fleet), it also offers remote help.
+ An admin can see the screen, and control it if allowed, only after the
+ person at the computer agrees.

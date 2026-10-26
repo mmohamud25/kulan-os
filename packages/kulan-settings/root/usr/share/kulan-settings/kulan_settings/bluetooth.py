@@ -66,8 +66,7 @@ class BluetoothPage(Page):
 
         self.devices = self.add_group("My devices")
         self.nearby = self.add_group("Nearby devices",
-                                     "Put the device in pairing mode (often by holding its Bluetooth or power "
-                                     "button), then click it here.")
+                                     "Put the device in pairing mode, then click it here.")
         self.searching = Adw.Spinner() if hasattr(Adw, "Spinner") else Gtk.Spinner(spinning=True)
         self.searching.set_valign(Gtk.Align.CENTER)
         self.look_again = Gtk.Button(label="Look again", valign=Gtk.Align.CENTER, css_classes=["flat"])

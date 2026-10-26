@@ -39,7 +39,7 @@ def main() -> int:
     keyring.marker().unlink(missing_ok=True)
     if moved:
         notify("Saved passwords moved", f"{moved} saved password{'s' if moved != 1 else ''} now unlock with your "
-               "sign-in password, so you won't be asked for them after signing in.")
+               "sign-in password.")
     return 0
 
 

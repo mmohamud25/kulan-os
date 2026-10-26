@@ -59,7 +59,7 @@ class PermissionsDialog(Adw.PreferencesDialog):
         if (self.proxy is None or self.proxy.get_name_owner() is None) and not self.wake():
             group = Adw.PreferencesGroup()
             group.add(Adw.ActionRow(title="Permissions aren’t available",
-                                    subtitle="The desktop portal (xdg-desktop-portal) isn’t running"))
+                                    subtitle="The permissions service isn’t running"))
             page.add(group)
             return
         for table, ident, title, what in KINDS:

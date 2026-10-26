@@ -112,12 +112,12 @@ class DisplayPage(Page):
     def several_group(self, state) -> Adw.PreferencesGroup:
         """Join, mirror or use one screen; which is the main one; where the others are."""
         group = Adw.PreferencesGroup(title="Several screens",
-                                     description="After a change, GNOME asks you to keep it, and puts the old "
-                                                 "settings back by itself if you don’t answer.")
+                                     description="After a change, you’re asked to keep it. If you don’t "
+                                                 "answer, the old settings come back.")
         how, primary, sides = screens.arrangement(state)
         names = {m["connector"]: m["name"] + (" (built-in)" if m["builtin"] else "") for m in state.monitors}
-        uses = [("join", None, "Join: one desktop across the screens"),
-                ("mirror", None, "Mirror: the same picture on each")]
+        uses = [("join", None, "Join as one desktop"),
+                ("mirror", None, "Mirror")]
         uses += [("single", c, f"Only {names[c]}") for c in names]
         use_row = Adw.ComboRow(title="Use the screens", model=Gtk.StringList.new([u[2] for u in uses]))
         current = next((i for i, (h, c, _l) in enumerate(uses) if h == how and (c is None or c == primary)), 0)

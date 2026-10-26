@@ -78,15 +78,14 @@ def lighter_status() -> dict | None:
 
 def lighter_text(status: dict) -> str:
     memory = f"{status.get('memory_kib', 0) / 1024 / 1024:.1f} GB"
-    what = ("Fewer effects; file search and the assistant use less memory; more compressed memory. "
-            "For computers with 4 GB of memory.")
+    what = "Fewer effects and less memory use, for computers with 4 GB of memory."
     if status.get("choice") == "auto":
-        now = (f"On by itself: this computer has {memory} of memory." if status.get("on") else
-               f"Off: this computer has {memory} of memory, plenty for the full effects.")
+        now = (f"On, because this computer has {memory} of memory." if status.get("on") else
+               f"Off. This computer has {memory} of memory, enough for full effects.")
     else:
         now = "On." if status.get("on") else "Off."
     if status.get("at_boot") is not None and status.get("on") != status.get("at_boot"):
-        now += " Effects change now; file search and compressed memory after a restart."
+        now += " Some changes need a restart."
     return f"{what} {now}"
 
 
@@ -157,9 +156,9 @@ class BatteryPage(Page):
 
         saving_rows = [row for row in (
             switch_row(self.power, "power-saver-profile-on-low-battery", "Power saver when the battery is low",
-                       "Switches to Power saver by itself, and back when charging"),
+                       "Switches back when you plug in"),
             switch_row(self.power, "ambient-enabled", "Automatic brightness",
-                       "Follows the light around you, on computers with a light sensor"),
+                       "Uses the computer’s light sensor"),
         ) if row is not None]
         if saving_rows:  # no heading with nothing under it
             self.add_rows(self.add_group("Saving power"), *saving_rows)
@@ -280,7 +279,7 @@ class BatteryPage(Page):
         if button is not None and not button.get_active():
             button.set_active(True)
         degraded = self.prop(self.profiles_proxy, "PerformanceDegraded", "")
-        self.mode_group.set_description("Performance is limited right now: the computer is too warm"
+        self.mode_group.set_description("Performance is limited because the computer is too warm"
                                         if degraded == "high-operating-temperature" else
                                         "Performance is limited right now" if degraded else "")
 

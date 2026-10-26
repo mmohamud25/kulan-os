@@ -20,11 +20,11 @@ class TopBarPage(Page):
         kulan = self.add_group("Kulan")
         self.add_rows(kulan,
                       switch_row(self.kulan, "kulan-menu", "Kulan menu",
-                                 "The logo at the top left: About, Settings, Lock, Restart, Shut Down"),
+                                 "The logo menu at the top left"),
                       switch_row(self.kulan, "update-indicator", "Update icon",
                                  "Shown while updates are waiting or installing"),
                       switch_row(self.kulan, "ask-button", "Ask Kulan button",
-                                 "Opens Ask Kulan (also Shift+Super+Space), when Kulan Assistant is installed"))
+                                 "Opens Ask Kulan, also Shift+Super+Space. Needs Kulan Assistant."))
 
         clock = self.add_group("Clock")
         self.add_rows(clock,

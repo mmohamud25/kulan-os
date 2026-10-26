@@ -150,7 +150,7 @@ def call(proxy: Gio.DBusProxy, method: str, args: GLib.Variant | None,
         except GLib.Error as exc:
             message = exc.message
             if "dismissed" in message.lower() or "not authorized" in message.lower():
-                message = "Not changed: an administrator’s password is needed"
+                message = "Not changed. An administrator’s password is needed."
             done(message, None)
     proxy.call(method, args, Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, 120000, None, finish)
 
@@ -162,7 +162,7 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
                              body="They can sign in with this name and password.")
     box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
     full = Adw.EntryRow(title="Full name")
-    user = Adw.EntryRow(title="User name (for signing in)")
+    user = Adw.EntryRow(title="User name")
     password = Adw.PasswordEntryRow(title="Password")
     again = Adw.PasswordEntryRow(title="Password again")
     admin = Adw.SwitchRow(title="Administrator", subtitle="Can install apps and change the whole computer")
@@ -204,7 +204,7 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
             return
         crypted = hash_password(password.get_text())
         if crypted is None:
-            toast("Couldn’t prepare the password (openssl is missing)")
+            toast("Couldn’t set the password because openssl is missing")
             return
         kind = ADMINISTRATOR if admin.get_active() and not standard_only else STANDARD
 
@@ -241,7 +241,7 @@ class UsersPage(Page):
         if not self.accounts.available:
             group = self.add_group()
             group.add(Adw.ActionRow(title="Accounts can’t be changed right now",
-                                    subtitle="The accounts service (AccountsService) isn’t running"))
+                                    subtitle="The accounts service isn’t running"))
             return
         self.me = self.accounts.me()
         self.mine = self.add_group("Your account")
@@ -308,8 +308,8 @@ class UsersPage(Page):
         self.add(self.mine, password)
 
         auto = Adw.SwitchRow(title="Sign in automatically",
-                             subtitle="No password at start-up (the screen lock still asks for it), so saved "
-                                      "passwords ask to be unlocked after you sign in",
+                             subtitle="Skips the password at start-up, not on the lock screen. Saved "
+                                      "passwords then ask to be unlocked",
                              active=bool(prop(me, "AutomaticLogin", False)))
         auto.connect("notify::active", lambda r, _p: self.set_flag(me, "SetAutomaticLogin", r.get_active()))
         self.add(self.mine, auto)
@@ -317,8 +317,8 @@ class UsersPage(Page):
             # Nothing is typed at start-up, so the keyring with saved
             # passwords stays locked and the first app to need one asks.
             ask = Adw.ActionRow(title="Saved passwords ask to be unlocked",
-                                subtitle="With automatic sign-in, apps that use saved passwords (Wi-Fi, browsers, "
-                                         "online accounts) ask for the keyring’s password after you sign in")
+                                subtitle="With automatic sign-in, apps ask for the keyring password after you "
+                                         "sign in")
             ask.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
             fix = Gtk.Button(label="Fix…", valign=Gtk.Align.CENTER)
             fix.connect("clicked", lambda _b: self.keyring_dialog(me))
@@ -407,11 +407,11 @@ class UsersPage(Page):
     def keyring_dialog(self, me: Gio.DBusProxy) -> None:
         dialog = Adw.AlertDialog(
             heading="Stop the password request after signing in?",
-            body="Your saved passwords are kept locked. Normally the password you sign in with unlocks them; "
-                 "with automatic sign-in nothing is typed, so they ask for their own password.\n\n"
-                 "Turning off automatic sign-in fixes this and keeps them protected (recommended). Or keep "
-                 "automatic sign-in and remove the keyring’s password: then they are stored without their own "
-                 "lock, protected only by disk encryption while the computer is off.")
+            body="Saved passwords are unlocked by the password you sign in with. With automatic sign-in "
+                 "nothing is typed, so they ask for their own password.\n\n"
+                 "Turning off automatic sign-in fixes this and is safest. Or keep it and remove the keyring "
+                 "password. Saved passwords are then protected only by disk encryption while the computer "
+                 "is off.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("keep", "Keep automatic sign-in…")
         dialog.add_response("off", "Turn off automatic sign-in")
@@ -444,8 +444,8 @@ class UsersPage(Page):
                 if moved is None:
                     keyring.schedule_merge()
                     self.tell("Automatic sign-in is off",
-                              "When you next sign in, your saved passwords move to the keyring your sign-in "
-                              "password unlocks. You may be asked for their old password one last time.")
+                              "Next time you sign in, your saved passwords move to the keyring your sign-in "
+                              "password unlocks. You may be asked for their old password once more.")
                     message = ""
             if message:
                 self.toast(message)
@@ -454,15 +454,15 @@ class UsersPage(Page):
 
     def tell(self, heading: str, body: str) -> None:
         dialog = Adw.AlertDialog(heading=heading, body=body)
-        dialog.add_response("ok", "OK")
+        dialog.add_response("ok", "Close")
         dialog.present(self.window)
 
     def remove_keyring_password_dialog(self) -> None:
         dialog = Adw.AlertDialog(
             heading="Remove the keyring’s password",
-            body="Type the password your saved passwords are locked with: usually the one you chose when an app "
-                 "first asked, or your sign-in password. They’ll then open without asking, for anyone who can "
-                 "use this account.")
+            body="Enter the password your saved passwords are locked with. It’s usually your sign-in password "
+                 "or one you chose when an app first asked. They’ll then open without asking for anyone who "
+                 "can use this account.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         current = Adw.PasswordEntryRow(title="Keyring password")
         box.append(current)

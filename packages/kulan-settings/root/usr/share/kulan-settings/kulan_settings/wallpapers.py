@@ -115,5 +115,5 @@ class WallpaperDialog(Adw.Dialog):
         options = item["options"] if item["options"] in ("none", "wallpaper", "centered", "scaled", "stretched",
                                                          "zoom", "spanned") else "zoom"
         self.background.set_string("picture-options", options)
-        self.toast(f"Wallpaper: {item['name']}")
+        self.toast(f"{item['name']} wallpaper on")
         self.close()

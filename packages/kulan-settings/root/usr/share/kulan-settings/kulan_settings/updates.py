@@ -582,15 +582,15 @@ class UpdatesPage(Page):
         undo.set_visible(when is not None and self.restore_on)
         if when is not None:
             undo.set_subtitle(
-                f"Back to how things were before the update of {when.strftime('%-d %b, %H:%M')}. "
-                "Your own files aren’t touched. Kulan OS restarts to finish.")
+                f"Go back to before the update of {when.strftime('%-d %b, %H:%M')}. "
+                "Your files aren’t touched. Kulan OS restarts to finish.")
         paused = self.paused()
         pause.set_visible(paused)
         if paused:
             until = self.status.get("paused_until") or 0
             pause.set_subtitle(
-                f"After undoing an update, until {datetime.fromtimestamp(until).strftime('%-d %b, %H:%M')}, "
-                "so the same updates don’t install again straight away")
+                f"Until {datetime.fromtimestamp(until).strftime('%-d %b, %H:%M')}, "
+                "so the undone updates don’t install again")
 
     def updates_since(self, when: datetime) -> bool:
         """Whether updates were installed after that restore point's update
@@ -603,13 +603,13 @@ class UpdatesPage(Page):
         when = self.last_update_point()
         if when is None:
             return
-        later = (" Updates installed since then, security fixes too, are undone as well; they install again "
-                 "in three days, or when you turn automatic updates back on.") if self.updates_since(when) else ""
+        later = (" Updates installed since then, including security fixes, are undone too. They install "
+                 "again in three days, or when you turn automatic updates back on.") if self.updates_since(when) else ""
         dialog = Adw.AlertDialog(
             heading="Undo the last update?",
-            body=f"Kulan OS goes back to how it was before the update of {when.strftime('%-d %B at %H:%M')} and "
-                 f"restarts.{later} Save your work first. Your documents, photos and other files aren’t touched, "
-                 "and a restore point of how things are now is made first, so this can be undone too.")
+            body=f"Kulan OS goes back to before the update of {when.strftime('%-d %B at %H:%M')} and "
+                 f"restarts.{later} Save your work first. Your files aren’t touched, and a restore point "
+                 "is made first so you can undo this.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("undo", "Undo and Restart")
         dialog.set_response_appearance("undo", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -652,7 +652,7 @@ class UpdatesPage(Page):
         self.status_icon.set_css_classes([])
         self.status_icon.set_from_icon_name("view-refresh-symbolic")
         self.status_title.set_label(label)
-        self.status_subtitle.set_label("You can keep working while this runs.")
+        self.status_subtitle.set_label("You can keep working.")
         for widget in (self.action_button, self.details_button, self.check_button):
             widget.set_visible(False)
 

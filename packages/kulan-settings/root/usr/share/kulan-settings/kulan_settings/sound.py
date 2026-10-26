@@ -152,7 +152,7 @@ class SoundPage(Page):
         self.status = Adw.StatusPage(icon_name="audio-speakers-symbolic", title="Sound isn’t ready",
                                      description="The sound service isn’t running yet.")
         if load_gvc() is None:
-            self.set_ready(False, "This needs GNOME Shell’s volume library.")
+            self.set_ready(False, "Sound settings need GNOME Shell.")
             return
         self.set_ready(False, None)
         self.control = Gvc.MixerControl(name="Kulan Settings")
@@ -199,7 +199,7 @@ class SoundPage(Page):
             for stream in self.control.get_sink_inputs():
                 self.app_added(stream.get_id())
         elif state == Gvc.MixerControlState.FAILED:
-            self.set_ready(False, "Couldn’t reach the sound service (PipeWire).")
+            self.set_ready(False, "Couldn’t reach the sound service.")
         elif state in (Gvc.MixerControlState.CLOSED, Gvc.MixerControlState.CONNECTING):
             self.set_ready(False, "Connecting to the sound service…")
 

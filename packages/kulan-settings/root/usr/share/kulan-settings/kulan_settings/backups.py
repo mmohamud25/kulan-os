@@ -85,8 +85,8 @@ class BackupsPage(Page):
                                     subtitle="Software Update takes one before every update"))
             return
 
-        status = self.add_group(None, "Copies of your files on another disk, so a broken or lost computer "
-                                      "doesn’t take them with it. The system itself is covered by restore points.")
+        status = self.add_group(None, "Copies of your files on another disk, safe if this computer is lost "
+                                      "or broken. Restore points cover the system.")
         self.last_row = Adw.ActionRow(title="Last backup")
         self.last_row.add_css_class("property")
         self.now_button = Gtk.Button(label="Back Up Now", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
@@ -95,15 +95,14 @@ class BackupsPage(Page):
         status.add(self.last_row)
 
         where = self.add_group("Where")
-        self.where_row = Adw.ComboRow(title="Back up to", subtitle="A USB drive or another disk. Keep it "
-                                      "somewhere other than the computer", subtitle_lines=0)
+        self.where_row = Adw.ComboRow(title="Back up to", subtitle="A USB drive or another disk, kept away "
+                                      "from the computer", subtitle_lines=0)
         where.add(self.where_row)
         self.fill_places()
         self.watch(Gio.VolumeMonitor.get(), "volume-added", lambda *_a: self.fill_places())
         self.watch(Gio.VolumeMonitor.get(), "volume-removed", lambda *_a: self.fill_places())
-        where.add(Adw.ActionRow(title="Encrypted", subtitle="The first backup asks for a password that "
-                                "protects the copies. Keep it safe: without it, nobody can restore them, "
-                                "including you", subtitle_lines=0))
+        where.add(Adw.ActionRow(title="Encrypted", subtitle="The first backup asks for a password. Keep it "
+                                "safe. Without it, nobody can restore your files, not even you", subtitle_lines=0))
 
         schedule = self.add_group("Automatically")
         if has_key(self.deja, "periodic"):
@@ -228,8 +227,8 @@ class BackupsPage(Page):
                 self.fill_places()
                 return
             if on_system_disk(path):
-                self.toast("Choose a folder on another disk: a backup on this computer’s own disk doesn’t "
-                           "protect it")
+                self.toast("Choose a folder on another disk. A backup on this computer’s own disk doesn’t "
+                           "protect it.")
                 self.fill_places()
                 return
             self.local.set_string("folder", path)
