@@ -57,21 +57,24 @@ lock-screen, restart):
   domain-wide delegation for `admin.directory.user`; mailboxes are made,
   suspended, renamed and deleted with People. The guide for organisations
   is `docs/fleet-google-workspace.md`. Fleet's own change never waits for
-  Google: what's left is kept on the person (`mailbox_todo`) as an alert.
+  Google. What's left is kept on the person (`mailbox_todo`) as an alert.
 
-- Remote help (2.9a; `functions/*/help.ts`, `fleet.help_sessions`): an
-  admin asks to see a computer's screen; the person signed in there is
-  asked, and only if they allow it the screen goes straight to the admin's
-  browser (WebRTC; Cloudflare's relay when needed, with credentials per
-  session from the `CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_TOKEN`
-  secrets, STUN only without them). Requests wake their computers through a
-  Realtime broadcast topic per computer (`fleet.devices.wake_topic`).
+## Remote help (Kulan OS 2.9a)
+
+- `functions/*/help.ts` and `fleet.help_sessions`: an admin asks to see a
+  computer's screen and the person signed in there is asked. Only if they
+  allow it does the screen go to the admin's browser, over WebRTC.
+- When a direct connection isn't possible, Cloudflare's relay is used, with
+  credentials made per session from the `CLOUDFLARE_TURN_KEY_ID` and
+  `CLOUDFLARE_TURN_TOKEN` secrets. Without them, only STUN is used.
+- Requests wake their computers through a Realtime broadcast topic per
+  computer (`fleet.devices.wake_topic`).
 
 ## Dashboard
 
 `dashboard/` is a static page, published with the website at
-os.kulangroup.com/fleet/ (and before 2.9a for GitHub Pages, repository
-`kulan-fleet-dashboard`). It signs in with Supabase Auth (an emailed link)
+os.kulangroup.com/fleet/. Before 2.9a it was published on GitHub Pages from the
+`kulan-fleet-dashboard` repository. It signs in with Supabase Auth (an emailed link)
 and talks only to the `fleet-admin` function, which allows emails listed in
 `fleet.admins`:
 

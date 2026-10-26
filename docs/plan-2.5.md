@@ -1,7 +1,7 @@
 # Kulan OS 2.5 plan
 
-Agreed with Mohamud, October 2026. Nothing here reaches main or the update
-channel until he says "release it". 2.4.1 (minimal Software Update, website)
+Agreed October 2026. Nothing here reaches main or the update
+channel until the maintainer says "release it". 2.4.1 (minimal Software Update, website)
 ships first.
 
 ## Public launch
@@ -11,7 +11,7 @@ ships first.
 - ISOs on GitHub Releases (no login, no expiry); download buttons always
   point at the newest version. Real screenshots from CI (site-screenshots).
 
-## Fleet v2 (for Mohamud's own computers first)
+## Fleet v2 (for the maintainer's own computers first)
 - Policies: screen lock, firewall, automatic updates, compliance mode.
 - Apps and inventory: what's installed; install or remove from Fleet.
 - Lock and wipe for lost or stolen computers.
@@ -25,7 +25,7 @@ ships first.
 - Right-click entries in Files and Kulan's apps: Summarise, Rewrite, Ask
   Kulan about this.
 - Runs on the computer: no internet, no cost. No web search or browsing
-  (Mohamud: wait on that).
+  (on hold).
 
 ## Assistant actions (each shows a plan, Do it, Undo)
 - Files: tidy Downloads into folders, rename photos by date, find
@@ -77,7 +77,7 @@ ships first.
 - The assistant's name: Kulan Assistant, or something like Caawiye.
 
 ## Status (23 October 2026)
-Decided with Mohamud (23 Oct): 2.5 is "Ask Kulan, and everything underneath made
+Decided 23 October: 2.5 is "Ask Kulan, and everything underneath made
 solid". Fleet v2 and the rest of the assistant actions move to 2.6.
 
 Done on kulan-os-2.5 (tested in CI, waiting for "release it"):

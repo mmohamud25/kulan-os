@@ -1,9 +1,9 @@
 # Kulan OS 2.8 plan
 
-2.8 is Kulan Fleet, all of it (agreed with Mohamud, 24 October 2026): the
+2.8 is Kulan Fleet, all of it (agreed 24 October 2026): the
 roadmap in docs/fleet-roadmap.md, released in steps 2.8a, 2.8b, ... until it
 is done, instead of one Fleet stage per version number. Each step is tested
-fully and reaches main and the update channel only when he says "release
+fully and reaches main and the update channel only when the maintainer says "release
 it". Other work stays in docs/plan-2.9.md.
 
 ## The steps
@@ -37,9 +37,9 @@ that joined an organisation (with the person seeing what's shared) are
 affected; leaving removes every rule.
 
 ## 2.8a People in Kulan Fleet (agreed 24 October 2026)
-Mohamud's employees use Kulan OS laptops with accounts managed in Kulan
+Kulan Group's employees use Kulan OS laptops with accounts managed in Kulan
 Fleet: an Entra ID and Intune of Kulan's own, for Kulan OS. Email stays on
-Google Workspace (Business Starter); his own mail server comes later.
+Google Workspace (Business Starter); Kulan's own mail server comes later.
 - People in Kulan Fleet: name, username, role (employee or admin) and which
   computers (all of the organisation's, or chosen ones).
 - First sign-in: their name is on the sign-in screen of every computer they
@@ -126,7 +126,7 @@ changes, every change in the activity log.
   functions on a test computer for trying it on VMs.
 - Still to see by eye: the sign-in screen with a setup code, on a VM or
   the test laptop (a used ThinkPad T490).
-- At release, with Mohamud's go-ahead: apply the migration, deploy fleet
+- At release, once approved: apply the migration, deploy fleet
   and fleet-admin, then release the packages (old computers ignore the
   new reply fields).
 

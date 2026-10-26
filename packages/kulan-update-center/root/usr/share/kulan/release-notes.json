@@ -4,11 +4,11 @@
     "label": "2.9a",
     "title": "Remote help with Kulan Fleet",
     "items": [
-      "An organisation's admins can see the screen of someone who needs help, from the Kulan Fleet app or the web dashboard (any browser, phones too), and with their permission use the mouse and keyboard",
-      "The person at the computer is asked first, every time, and sees who is asking. Nothing is shared unless they press Allow; the mouse and keyboard only if they tick that too",
-      "While it runs, a window says who can see the screen, with Stop sharing. It ends by itself after an hour, or when the admin closes it; nobody signed in, or no answer in 2 minutes, means no session",
-      "The screen goes straight to the admin (encrypted), through Kulan Fleet's relay only when the two can't reach each other; it's never recorded or kept. Every request, yes, no and end is in the activity log",
-      "Requests from Kulan Fleet now reach computers in seconds instead of at their next hourly report"
+      "Remote help: an organisation's admins can see the screen of someone who needs help, from the Kulan Fleet app or the web dashboard in any browser, including on a phone. With permission, they can also use the mouse and keyboard",
+      "Asked every time: the person at the computer sees who is asking. Nothing is shared until they press Allow, and the mouse and keyboard only if they also allow that",
+      "Always visible: while a session runs, a window shows who can see the screen, with Stop sharing. It ends after an hour or when the admin closes it. If nobody is signed in, or nobody answers within 2 minutes, no session starts",
+      "Private: the screen goes directly to the admin, encrypted, and is never recorded or kept. If the two can't connect directly, it passes through Kulan Fleet's relay. Every request, answer and ending is in the activity log",
+      "Faster requests: requests from Kulan Fleet now reach computers in seconds, not at their next hourly report"
     ]
   },
   {

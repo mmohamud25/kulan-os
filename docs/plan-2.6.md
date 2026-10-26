@@ -1,7 +1,7 @@
 # Kulan OS 2.6 plan
 
-Started with Mohamud, 23 October 2026. 2.5 shipped the same day. Nothing here
-reaches main or the update channel until he says "release it".
+Started 23 October 2026. 2.5 shipped the same day. Nothing here
+reaches main or the update channel until the maintainer says "release it".
 
 ## Counting downloads and installs, privately (agreed)
 Kulan OS promises it doesn't track people; counting stays within that.
@@ -21,7 +21,7 @@ Not done: anything tied to a person or a computer, app-by-app usage,
 cameras or faces. A privacy policy page on os.kulangroup.com covers 2 and 3.
 
 ## Moved from 2.5
-- Fleet v2 for Mohamud's own computers: policies (updates, firewall,
+- Fleet v2 for the maintainer's own computers: policies (updates, firewall,
   encryption, screen lock), apps and hardware inventory, lock and wipe,
   alerts and an action log.
 - More Ask Kulan actions: photos by date, duplicates and large files,
@@ -40,11 +40,11 @@ cameras or faces. A privacy policy page on os.kulangroup.com covers 2 and 3.
   restore.
 - Downloads on Cloudflare R2 (download.kulangroup.com) before the PC ISO
   nears GitHub's 2 GiB limit; GitHub Releases stays as a mirror. Needs a
-  Cloudflare account from Mohamud.
+  Cloudflare account.
 - Small: clipboard history pastes for you; Quick Note and To-do say when
   saving fails, with undo; "Make private" confirms the new name.
 
-## Chosen with Mohamud (23 October 2026)
+## Chosen (23 October 2026)
 - Phone link: files, notifications and texts with an Android phone (KDE
   Connect protocol, through GSConnect), set up from Kulan Settings ›
   Phone; iPhone gets file sharing only.
@@ -59,7 +59,7 @@ cameras or faces. A privacy policy page on os.kulangroup.com covers 2 and 3.
   place, with Kulan's own picks, installs and updates through the
   existing update services (no new ways in).
 
-## Not doing until Mohamud says so
+## Not doing yet
 - Somali; web answers for Ask Kulan.
 
 ## Status (23 October 2026, on branch kulan-os-2.6)
@@ -71,7 +71,7 @@ top-bar, microphone and read-the-screen buttons. Version is 2.6, with
 release notes. Phone link stays an add-on (not in the image, so it isn't on
 for everyone); the Phone page installs it. Kulan Fleet (the admin app) is
 listed in Kulan Settings › Add-ons.
-Moved to 2.7 with Mohamud (docs/plan-2.7.md): Kulan Store, the native
+Moved to 2.7 (docs/plan-2.7.md): Kulan Store, the native
 Sharing page (GNOME Settings' Sharing stays linked), signed start-up files,
 the signing key, NVIDIA/Broadcom, the sleep, dual-boot and restore tests,
 and downloads on Cloudflare R2.
@@ -83,7 +83,7 @@ points (no Flathub apps, assistant models, Docker data or apt cache); short
 app names in the grid; Update History groups one update; Ask Kulan's instant
 answers (time, date, battery, free space) without a model; saved passwords
 after automatic sign-in (explained in setup, fixed in Settings › Users).
-Version 2.6.1 with release notes. Released only when Mohamud says so.
+Version 2.6.1 with release notes. Released only when the maintainer says so.
 
 ## Order (proposed)
 1. Upgrade test 2.5 → 2.6 (protects everyone already on 2.5).

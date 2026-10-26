@@ -1,9 +1,9 @@
 # Kulan OS 2.7 plan
 
-Agreed with Mohamud, 24 October 2026: 2.7 is the three things from the 2.6.1
+Agreed 24 October 2026: 2.7 is the three things from the 2.6.1
 handover plus two small items. Everything else that was listed here moved to
 2.8 (docs/plan-2.8.md) so 2.7 ships sooner. Nothing here reaches main or the
-update channel until he says "release it".
+update channel until the maintainer says "release it".
 
 ## In 2.7
 1. **The Ask Kulan app.** Its own window with a conversation (history kept
@@ -34,16 +34,16 @@ small items → version, release notes, build and test.
 
 ## Status (24 October 2026, on branch kulan-os-2.7)
 Done, each with tests: the Ask Kulan app (replaces "Do it for me"); the Store
-(GNOME Software, named "Store" by Mohamud, with Kulan's picks as Editor's
+(GNOME Software, named "Store", with Kulan's picks as Editor's
 Choice and Kulan Fleet listed and installed from Kulan's channel; CI
 installs it through GNOME Software and PackageKit); plain names (Terminal,
 Disk Usage, Firewall; Software Update uses them); the erase notice; the
 counting week; the 3D acceleration line. Version 2.7 with release notes.
 
-To do at release (with Mohamud's go-ahead): deploy the countme function
+To do at release (once approved): deploy the countme function
 (fleet/supabase/functions/countme, now with week.ts) to Supabase. Either
 order is safe: the server takes the old three fields, and 2.7 computers fall
 back to them on a 400.
 
-## Not doing until Mohamud says so
+## Not doing yet
 - Somali; web answers for Ask Kulan.

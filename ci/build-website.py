@@ -124,25 +124,25 @@ def note_items(items: list[str]) -> str:
 def home(notes: list[dict]) -> str:
     latest = notes[0]
     features = [
-        ("shield", "Secure by default", "Signed updates, a firewall, full-disk encryption and compliance mode, "
+        ("shield", "Secure by default", "Signed updates, a firewall, full-disk encryption and a compliance mode "
                                         "checked against CIS and NIST."),
-        ("sparkle", "Kulan Assistant", "Private and on your computer. Writing tools for any app, and “Do it for "
-                                       "me” to change settings in plain words."),
+        ("sparkle", "Kulan Assistant", "Private, and it runs on your computer. Writing tools in any app, and "
+                                       "Ask Kulan to change settings in plain words."),
         ("widgets", "Widgets and a clean desktop", "Weather, calendar, clock, to-do list, now playing and system "
                                                    "status, arranged the way you like."),
         ("settings", "One simple Settings app", "Wi-Fi, screens, sound, accounts, privacy and family controls, all "
                                                 "in one place."),
-        ("screen", "Kulan Fleet", "Look after several computers from one place: health, updates and compliance."),
-        ("refresh", "Updates that look after themselves", "New versions arrive through Software Update, with a "
-                                                          "restore point taken first."),
+        ("screen", "Kulan Fleet", "Manage an organisation’s computers and people from one place, with remote help."),
+        ("refresh", "Updates you can undo", "New versions arrive through Software Update, with a restore point "
+                                            "taken first."),
     ]
     cards = "\n".join(f'<div class="card">{icon(i)}<h3>{e(t)}</h3><p>{e(d)}</p></div>' for i, t, d in features)
     body = f"""
 <section class="wrap hero">
 <div>
 <a class="pill" href="/whats-new/#v{e(latest['version'])}">New in {e(latest.get('label') or latest['version'])}: {e(latest.get('title', ''))} →</a>
-<h1>A calm, secure desktop that just works.</h1>
-<p class="lead">{e(NAME)} is a free desktop built on Debian {e(C.get('KULAN_DEBIAN_VERSION', '13'))}. Signed updates, disk encryption, a private built-in assistant and a simple installer, ready the moment you turn it on.</p>
+<h1>A calm, secure desktop.</h1>
+<p class="lead">{e(NAME)} is a free operating system built on Debian {e(C.get('KULAN_DEBIAN_VERSION', '13'))}. It comes with signed updates, disk encryption, a private assistant and a simple installer.</p>
 <div class="actions"><a class="btn btn-primary" href="/download/">{ICONS['download']}Download {e(NAME)} {e(LABEL)}</a><a class="btn btn-ghost" href="/install/">How to install</a></div>
 <p class="muted">Free · PC and ARM versions · No account needed</p>
 </div>
@@ -156,7 +156,7 @@ def home(notes: list[dict]) -> str:
 </section>
 <section class="wrap">
 <div class="cta">
-<div><h2>Try it without changing anything</h2><p class="lead">{e(NAME)} runs straight from a USB stick. Look around first, then install in about ten minutes, next to Windows if you like.</p></div>
+<div><h2>Try it without changing anything</h2><p class="lead">{e(NAME)} runs from a USB stick, so you can look around first. Installing takes about ten minutes, and it can sit next to Windows.</p></div>
 <div class="actions"><a class="btn btn-primary" href="/download/">Download</a><a class="btn btn-ghost" href="/install/">Read the install guide</a></div>
 </div>
 </section>"""
@@ -167,18 +167,18 @@ def home(notes: list[dict]) -> str:
 def download() -> str:
     body = f"""
 <section class="wrap stack">
-<div class="head" style="margin-bottom:12px"><h1>Download {e(NAME)} {e(LABEL)}</h1><p class="lead">Free, with no account needed. Pick the version for your computer. Most Windows laptops and desktops need the PC version.</p></div>
-<p class="note" id="dl-wait" hidden>The newest download is being prepared. Please check back in a little while.</p>
+<div class="head" style="margin-bottom:12px"><h1>Download {e(NAME)} {e(LABEL)}</h1><p class="lead">Free, with no account needed. Most Windows laptops and desktops need the PC version.</p></div>
+<p class="note" id="dl-wait" hidden>The newest download isn’t ready yet. Check back soon.</p>
 <div class="grid-2">
 <div class="card dl main">
 <div class="row"><h2>PC</h2><span class="tag teal">Most computers</span></div>
-<p>Intel and AMD computers: Windows laptops and desktops, and older Intel Macs. Works with Secure Boot.</p>
+<p>For Intel and AMD computers, including Windows laptops and desktops and older Intel Macs. Works with Secure Boot.</p>
 <a class="btn btn-primary" data-asset="kulan-os-amd64.iso" href="{DOWNLOAD}/kulan-os-amd64.iso">{ICONS['download']}Download for PC</a>
 <p class="muted">kulan-os-amd64.iso · <span data-size="kulan-os-amd64.iso">about 2 GB</span></p>
 </div>
 <div class="card dl">
 <div class="row"><h2>ARM</h2><span class="tag amber">Apple Silicon Macs</span></div>
-<p>Run it on an M1 to M5 Mac in the free UTM app, or on ARM computers.</p>
+<p>For M1 to M5 Macs using the free UTM app, and other ARM computers.</p>
 <a class="btn btn-ghost" data-asset="kulan-os-arm64.iso" href="{DOWNLOAD}/kulan-os-arm64.iso">{ICONS['download']}Download for ARM</a>
 <p class="muted">kulan-os-arm64.iso · <span data-size="kulan-os-arm64.iso">about 1.6 GB</span></p>
 </div>
@@ -204,7 +204,7 @@ def download() -> str:
 <p>Downloaded? The install guide takes you from USB stick to desktop.</p>
 <a class="btn btn-ghost" href="/install/">Open the install guide →</a>
 </div>
-<p class="muted">Every version and its notes: <a href="/whats-new/">What’s new</a> · All downloads: <a href="{RELEASES}">releases</a></p>
+<p class="muted"><a href="/whats-new/">Release notes for every version</a> · <a href="{RELEASES}">All downloads</a></p>
 </section>"""
     script = f"""<script>
 (function () {{
@@ -256,19 +256,19 @@ def install() -> str:
 <h2>On a PC</h2>
 <div class="note">
 <h3>Will this delete Windows?</h3>
-<p>Only if you choose to. Trying {e(NAME)} from the USB stick changes nothing on your computer. When you install, you pick <strong>Erase disk</strong> ({e(NAME)} only) or <strong>Install next to Windows</strong> (keep both, and choose one each time you start).</p>
+<p>Only if you choose to. Trying {e(NAME)} from the USB stick changes nothing on your computer. When you install, choose <strong>Erase disk</strong> to have only {e(NAME)}, or <strong>Install next to Windows</strong> to keep both and pick one each time you start.</p>
 <p>To keep Windows, do this in Windows first:</p>
 <ol>
 <li><strong>Back up</strong> your important files.</li>
 <li><strong>Make room:</strong> right-click Start, open Disk Management, right-click the C: drive and choose Shrink Volume. Shrink by at least 20 GB (40 GB or more is better) and leave the new space unallocated.</li>
-<li><strong>Using BitLocker?</strong> Write down your recovery key first, from account.microsoft.com/devices/recoverykey.</li>
-<li><strong>Turn off Fast Startup:</strong> Control Panel › Power Options › Choose what the power buttons do.</li>
+<li><strong>Using BitLocker?</strong> Write down your recovery key first. You’ll find it at account.microsoft.com/devices/recoverykey.</li>
+<li><strong>Turn off Fast Startup</strong> in Control Panel › Power Options › Choose what the power buttons do.</li>
 </ol>
 </div>
 <div class="step"><div>
 <div class="step-title"><span class="num">1</span><h3>Make a USB stick</h3></div>
-<p><a href="/download/">Download {e(NAME)} for PC</a>, then open the free app balenaEtcher (Windows, Mac or Linux). Choose Flash from file and pick the .iso, choose your USB stick, then click Flash. Everything on the stick is erased.</p>
-<p class="muted">Rufus works too on Windows: pick the .iso and choose “DD image” mode when it asks.</p>
+<p><a href="/download/">Download {e(NAME)} for PC</a>, then open balenaEtcher, a free app for Windows, Mac and Linux. Choose Flash from file, pick the .iso, choose your USB stick and click Flash. Everything on the stick is erased.</p>
+<p class="muted">On Windows, Rufus works too. Choose “DD image” mode when it asks.</p>
 </div><figure>{flow}</figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">2</span><h3>Start from the USB stick</h3></div>
@@ -276,24 +276,24 @@ def install() -> str:
 </div><figure><div class="keys">{keys}</div></figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">3</span><h3>Try {e(NAME)}</h3></div>
-<p>{e(NAME)} opens straight away from the stick. Connect to Wi-Fi, open some apps and check your screen, sound and touchpad work. Nothing on your computer changes until you install.</p>
+<p>{e(NAME)} starts from the stick. Connect to Wi-Fi, open a few apps, and check that your screen, sound and touchpad work. Nothing on your computer changes until you install.</p>
 </div><figure><img src="/images/live-desktop.jpg" width="1200" height="675" alt="The {e(NAME)} live desktop, with Install {e(NAME)} first in the dock" loading="lazy"></figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">4</span><h3>Install with Kulan Installer</h3></div>
 <p>Click Install {e(NAME)}, the first icon in the dock, and follow four short steps:</p>
 <ol>
 <li><strong>Keyboard:</strong> pick your layout and try it.</li>
-<li><strong>Where to install:</strong> Erase disk deletes everything on it; Install next to Windows uses the space you made and keeps Windows and your files. Tick encryption to protect your files with a password.</li>
+<li><strong>Where to install:</strong> Erase disk deletes everything on the disk. Install next to Windows uses the space you made and keeps Windows and your files. Tick encryption to protect your files with a password.</li>
 <li><strong>Time zone:</strong> usually filled in for you.</li>
 <li><strong>Your account:</strong> your name, a username and a password.</li>
 </ol>
-<p>The summary says exactly what will change, and nothing happens until you click Install. It takes about ten minutes and doesn’t need the internet. Restart, remove the stick, and sign in.</p>
+<p>A summary shows what will change, and nothing happens until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, restart, remove the stick and sign in.</p>
 </div><figure><img src="/images/installer-disk.jpg" width="840" height="665" alt="Kulan Installer’s Where to install step, offering to install next to Windows" loading="lazy"></figure></div>
 <p class="muted" style="font-size:15px">Want to choose partitions yourself? Open Advanced install from the app grid instead.</p>
 </section>
 <section class="band" id="mac">
 <div class="wrap">
-<div class="head"><h2>On a Mac with UTM</h2><p class="lead">Apple Silicon Macs (M1 to M5) run {e(NAME)} in a window with the free UTM app. Your Mac isn’t changed.</p></div>
+<div class="head"><h2>On a Mac with UTM</h2><p class="lead">On an Apple Silicon Mac, {e(NAME)} runs in a window using the free UTM app. Your Mac isn’t changed.</p></div>
 <div class="grid">
 <div class="card"><span class="small-num">1</span><p><a href="/download/">Download {e(NAME)} for ARM</a> and install UTM from mac.getutm.app or the App Store.</p></div>
 <div class="card"><span class="small-num">2</span><p>In UTM choose Create a New Virtual Machine, then Virtualize, then Linux, and pick the .iso as the boot image.</p></div>
@@ -326,7 +326,7 @@ def whats_new(notes: list[dict]) -> str:
 </article>""")
     body = f"""
 <section class="wrap narrow stack">
-<div class="head" style="margin-bottom:12px"><h1>What’s new</h1><p class="lead">Every version of {e(NAME)}. Installed computers get these through Software Update; there’s no need to reinstall.</p></div>
+<div class="head" style="margin-bottom:12px"><h1>What’s new</h1><p class="lead">Every version of {e(NAME)}. Installed computers get each one through Software Update, without reinstalling.</p></div>
 {''.join(parts)}
 </section>"""
     return page("/whats-new/", "What’s new", f"Every version of {NAME} and what changed in it.", body)
@@ -337,8 +337,8 @@ def help_page() -> str:
         ("/install/", "Getting started", "Installing, your first sign-in and the Welcome tour."),
         ("#faq", "Wi-Fi and internet", "Connecting, work and school Wi-Fi, VPNs and hotspots."),
         ("#faq", "Updates and restore points", "Software Update, automatic updates and undoing an update."),
-        ("#security", "Security and encryption", "Disk encryption, compliance mode, the firewall."),
-        ("#faq", "Kulan Assistant", "Writing tools, dictation and “Do it for me”."),
+        ("#security", "Security and encryption", "Disk encryption, compliance mode and the firewall."),
+        ("#faq", "Kulan Assistant", "Writing tools, dictation and Ask Kulan."),
         ("#faq", "Your files and backups", "Backing up, getting files back, moving from Windows."),
     ]
     cards = "".join(f'<a class="card topic" href="{h}"><span>{e(t)}</span><span>{e(d)}</span></a>'
@@ -352,15 +352,16 @@ def help_page() -> str:
                                 "has every step."),
         ("How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic Updates there. A "
                                   "restore point is taken first, so you can undo an update if anything goes wrong."),
-        ("How do I connect to work or school Wi-Fi?", "Kulan Settings › Wi-Fi and network handles sign-in networks "
-                                                      "like eduroam, hidden networks, VPNs and a hotspot."),
-        ("I forgot my disk encryption password", "Nobody can recover it, including us; that’s what keeps your "
-                                                 "files safe. If you can’t remember it, the disk has to be erased "
-                                                 "and Kulan OS installed again."),
+        ("How do I connect to work or school Wi-Fi?", "Open Kulan Settings › Wi-Fi and network. It handles networks "
+                                                      "that need a sign-in, like eduroam, as well as hidden "
+                                                      "networks, VPNs and hotspots."),
+        ("I forgot my disk encryption password", "It can’t be recovered, not even by us. That’s what keeps your "
+                                                 "files safe. Without it, the disk has to be erased and Kulan OS "
+                                                 "installed again."),
         ("Does Kulan Assistant send my text anywhere?", "No. It runs on your computer. Select text and press "
                                                         "Cmd+Shift+W for writing tools, or Cmd+Shift+D to dictate."),
-        ("How do I back up my files?", "Open Backups (Déjà Dup) from the app grid and choose an external drive or "
-                                       "network folder. It can back up automatically every day."),
+        ("How do I back up my files?", "Open Backups from the app grid and choose an external drive or network "
+                                       "folder. It can back up automatically every day."),
         ("My computer won’t start from the USB stick", "Try another USB port, make the stick again with "
                                                        "balenaEtcher, and check the boot-menu key for your computer "
                                                        "in the <a href=\"/install/\">install guide</a>."),
@@ -376,8 +377,8 @@ def help_page() -> str:
 <section class="band" id="faq"><div class="wrap narrow"><div class="head"><h2>Common questions</h2></div><div class="faq">{items}</div><p class="muted" id="no-match" hidden style="margin-top:12px">No question matches that. Try other words, or email us.</p></div></section>
 <section class="wrap"><div class="grid">
 <div class="outline stack" id="security"><h3>Security</h3><p class="muted" style="font-size:15px">Every update is signed with Kulan’s key (<a href="/apt/kulan-archive-keyring.gpg">download the key</a>). Found a security problem? Tell us privately at <a href="mailto:{SECURITY}">{SECURITY}</a>.</p></div>
-<div class="outline stack" id="privacy"><h3>Privacy</h3><p class="muted" style="font-size:15px">No ads, no tracking and no account. {e(NAME)} goes online for updates from os.kulangroup.com and for the things you use, like the weather widget and Firefox. Once a week it’s counted anonymously, and you can switch that off. Kulan Assistant runs on your computer, and nothing you type in it leaves it. <a href="/privacy/">Read the privacy policy</a>.</p></div>
-<div class="outline stack" id="contact"><h3>Still stuck?</h3><p class="muted" style="font-size:15px">Email <a href="mailto:{SUPPORT}">{SUPPORT}</a> with your {e(NAME)} version (Kulan Settings › About) and what happened.</p></div>
+<div class="outline stack" id="privacy"><h3>Privacy</h3><p class="muted" style="font-size:15px">No ads, no tracking and no account. {e(NAME)} goes online for updates from os.kulangroup.com and for the things you use, like the weather widget and Firefox. Once a week it sends an anonymous count, which you can switch off. Kulan Assistant runs on your computer, so nothing you type in it leaves it. <a href="/privacy/">Read the privacy policy</a>.</p></div>
+<div class="outline stack" id="contact"><h3>Still stuck?</h3><p class="muted" style="font-size:15px">Email <a href="mailto:{SUPPORT}">{SUPPORT}</a>. Tell us what happened and which {e(NAME)} version you have, shown in Kulan Settings › About.</p></div>
 </div></section>"""
     script = """<script>
 (function () {
@@ -415,7 +416,7 @@ another, or to a computer or a person. Computers started from the USB stick (the
 <p>The count is received by our server provider, Supabase. Like any web server, it sees the internet address a
 request comes from while answering it; {e(NAME)}’s counting service doesn’t store addresses or the time of the
 request, only the weekly totals.</p>
-<p>It’s on unless you switch it off: in the Setup Assistant when you first start, or any time in
+<p>It’s on unless you switch it off, in the Setup Assistant when you first start or at any time in
 <strong>Kulan Settings › Privacy › Count this computer, anonymously</strong>, where <strong>What’s sent</strong> shows
 the exact report. The code that sends it is <a href="https://github.com/{REPO}/blob/main/packages/kulan-update-center/root/usr/lib/kulan/countme">open
 for anyone to read</a>, and so is <a href="https://github.com/{REPO}/blob/main/fleet/supabase/functions/countme/index.ts">the
@@ -425,10 +426,11 @@ os.kulangroup.com, to check for and download updates; Flathub for app updates.</
 <li><strong>The clock</strong>: a Debian time server.</li>
 <li><strong>Encrypted DNS</strong>: Quad9, Mullvad or Cloudflare for Families, only if you turn it on.</li>
 <li><strong>Organisations</strong>: if your computer is added to an organisation (Kulan Settings › About ›
-Organisation), it reports its status to that organisation, and the organisation can see it. Leaving stops it.</li>
+Organisation), it reports its status to that organisation, and the organisation can see it. Its admins can also ask to see
+your screen to help you, and nothing is shared unless you allow it. Leaving the organisation stops all of this.</li>
 <li><strong>Apps</strong>: apps you use, like Firefox or the weather, connect to their own services under their
 own policies.</li></ul>
-<p>Kulan Assistant runs entirely on your computer. Dictation and Live Text too. Nothing you say, type or show
+<p>Kulan Assistant, Dictation and Live Text run entirely on your computer. Nothing you say, type or show
 them leaves it.</p>"""),
         ("This website and downloads", f"""<p>This website has no cookies, ads or tracking scripts. It’s hosted on
 GitHub Pages, and the downloads come from GitHub, which counts how many times each file is downloaded; GitHub’s

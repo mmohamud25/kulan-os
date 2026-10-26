@@ -1,9 +1,9 @@
 # Kulan OS 2.9 plan
 
-2.9's headline, chosen with Mohamud on 26 October 2026 when 2.8 (all of
+2.9's headline, chosen on 26 October 2026 when 2.8 (all of
 Kulan Fleet) was done: **Remote help and actions**. Released in steps
 2.9a, 2.9b, 2.9c like 2.8 (packages 2.9.1, 2.9.2...). Nothing here reaches
-main or the update channel until he says "release it".
+main or the update channel until the maintainer says "release it".
 
 Agreed 26 October 2026: the relay is Cloudflare's (WebRTC, Cloudflare
 Realtime TURN: the first 1,000 GB a month free, then $0.05/GB; the same
@@ -69,7 +69,7 @@ How the picture gets there (as built):
   that computer (#help=<computer>). Only the admin who asked follows the
   session (the person allowed them, by name); one admin at a time on a
   computer.
-- Needs from Mohamud: a Cloudflare account with a Realtime TURN key (its
+- Needed before release: a Cloudflare account with a Realtime TURN key (its
   id and API token become Supabase secrets CLOUDFLARE_TURN_KEY_ID and
   CLOUDFLARE_TURN_TOKEN), and os.kulangroup.com/fleet/ added to Supabase
   Auth's Redirect URLs. Without the relay, remote help still works where the
@@ -107,7 +107,7 @@ How the picture gets there (as built):
   sharing and media sharing switches, natively, replacing the link to
   GNOME Settings.
 
-## Not in 2.9's headline (moved to 2.10 or later unless Mohamud says)
+## Not in 2.9's headline (moved to 2.10 or later unless decided otherwise)
 ## Moved from 2.8 (first moved from 2.6, then 2.7)
 - (The native Sharing page is now 2.9c.)
 - Security: signed, measured start-up files (unified kernel images) so
@@ -117,9 +117,9 @@ How the picture gets there (as built):
 - Tests: sleep and wake; install next to Windows; a real restore-point
   restore.
 - Downloads on Cloudflare R2 before the PC ISO nears GitHub's 2 GiB limit
-  (needs a Cloudflare account from Mohamud).
+  (needs a Cloudflare account).
 
-## Ideas Mohamud liked (23 October 2026)
+## Ideas to consider (23 October 2026)
 User friendly:
 - Reset Kulan OS, keeping your files (like Pop!_OS recovery / Powerwash).
 - Move from Windows or Mac: bookmarks and saved passwords, Wi-Fi networks,

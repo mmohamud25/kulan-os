@@ -1,7 +1,7 @@
 # Kulan OS 3.0 plan (draft)
 
-Decided with Mohamud, 23 October 2026. Nothing here reaches main or the
-update channel until he says "release it".
+Decided 23 October 2026. Nothing here reaches main or the
+update channel until the maintainer says "release it".
 
 ## Kulan Editions (the headline)
 One Kulan OS, four editions chosen in Kulan Installer and the Setup

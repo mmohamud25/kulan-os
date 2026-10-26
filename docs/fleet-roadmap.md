@@ -1,6 +1,6 @@
 # Kulan Fleet roadmap
 
-Agreed with Mohamud, 24 October 2026. The name stays Kulan Fleet. One
+Agreed 24 October 2026. The name stays Kulan Fleet. One
 headline per release; each stage works on its own.
 
 ## Sections of the app
@@ -22,7 +22,7 @@ Today: most of Computers, Policies, Apps (seeing), Activity and a basic
 Security and compliance. People doesn't exist yet.
 
 ## Stages
-All of Fleet is 2.8, released in steps (Mohamud, 24 October 2026); the
+All of Fleet is 2.8, released in steps (24 October 2026); the
 details are in docs/plan-2.8.md.
 - 2.8a People: accounts, setup codes, roles with the Owner, disable
   everywhere; Shut down and Lost mode.
