@@ -334,6 +334,8 @@ class AboutPage(Page):
                 state = status.get(key)
                 items.append((f"{app['id']} {verb}", state,
                               (state[:1].upper() + state[1:]) if isinstance(state, str) and state else "Not met yet"))
+        if not items:  # only what isn't shown here, scripts say
+            return None
         missing = sum(1 for _t, s, _w in items if s != "met")
         row = Adw.ExpanderRow(title="Your organisation’s policy",
                               subtitle="All met" if not missing else
