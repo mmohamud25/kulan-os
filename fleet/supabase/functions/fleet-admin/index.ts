@@ -1728,15 +1728,21 @@ Deno.serve(async (req: Request) => {
         const [a] = id ? await sql`select a.output, a.exit_code, a.status, a.type, d.organisation_id from fleet.actions a
                                    join fleet.devices d on d.id = a.device_id where a.id = ${id}` : [];
         if (!a || !canOrg(a.organisation_id)) return reply(404, { error: "no such request" });
+        if (a.type === "run-script" && me.aal !== "aal2") {  // a script's output may hold what it was run to find
+          return reply(403, { error: "seeing a script's output needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
         return reply(200, { output: a.output ?? null, exit_code: a.exit_code, status: a.status, type: a.type });
       }
       case "scripts": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
         const [o] = await sql`select allow_scripts from fleet.organisations where id = ${org}`;
-        const scripts = await sql`select id, name, description, body, sha256, created_at, created_by, updated_at, updated_by
+        // What a script says (it may hold a key or a password) only after the authenticator app's code.
+        const scripts = await sql`select id, name, description, ${me.aal === "aal2" ? sql`body` : sql`null`} as body, sha256,
+                                         created_at, created_by, updated_at, updated_by
                                   from fleet.scripts where organisation_id = ${org} order by lower(name)`;
-        return reply(200, { allowed: o?.allow_scripts === true, scripts, is_owner: await isOwner(org) });
+        return reply(200, { allowed: o?.allow_scripts === true, scripts, is_owner: await isOwner(org),
+                            bodies: me.aal === "aal2" });
       }
       case "set-scripts-allowed": {
         const org = uuid(body.organisation_id);
@@ -1795,6 +1801,9 @@ Deno.serve(async (req: Request) => {
         const id = uuid(body.script_id);
         const [sc] = id ? await sql`select organisation_id, name from fleet.scripts where id = ${id}` : [];
         if (!sc || !canOrg(sc.organisation_id)) return reply(404, { error: "no such script" });
+        if (me.aal !== "aal2") {
+          return reply(403, { error: "removing a script needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
         await sql`delete from fleet.scripts where id = ${id}`;
         await audit(sc.organisation_id, null, `removed script ${sc.name}`.slice(0, 80));
         return reply(200, {});

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import uuid
 from pathlib import Path
 
@@ -35,6 +36,12 @@ def clean_networks(raw) -> list[dict]:
         if not isinstance(ssid, str) or not 1 <= len(ssid.encode()) <= 32 or any(ord(c) < 32 for c in ssid) or ssid in seen:
             continue
         security, password = n.get("security"), n.get("password")
+        if n.get("unavailable") is True and security in ("open", "wpa-psk"):
+            # The server couldn't open its password just now: keep what this computer has.
+            seen.add(ssid)
+            out.append({"id": n["id"], "ssid": ssid, "security": security, "password": None, "hidden": n.get("hidden") is True,
+                        "unavailable": True})
+            continue
         if security == "open":
             password = None
         elif security != "wpa-psk" or not isinstance(password, str) or not (
@@ -76,6 +83,9 @@ def apply_networks(raw, run, folder: Path | None = None) -> dict[str, str]:
         return {nid: "NetworkManager isn't installed" for nid in wanted}
     for nid, n in wanted.items():
         path = folder / f"{PREFIX}{nid}.nmconnection"
+        if n.get("unavailable"):
+            status[nid] = "added" if path.exists() else "waiting for the server"
+            continue
         text = keyfile(n)
         try:
             same = path.read_text() == text
@@ -128,13 +138,30 @@ def _load(path: Path) -> dict:
         return {}
 
 
+RETRY_S = 3600  # a printer that couldn't be reached is tried again an hour later, not at every report
+
+
+def _save(path: Path, data: dict) -> None:
+    if not data:
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".kulan-new")
+    tmp.write_text(json.dumps(data, indent=2) + "\n")
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+
+
 def apply_printers(raw, run, state: Path | None = None) -> dict[str, str]:
     state = state or PRINTERS
+    tried_path = state.with_name(state.stem + "-tried.json")
     made = _load(state)  # {printer id: {"queue", "uri", "name"}}
+    tried = _load(tried_path)  # {printer id: when it last couldn't be added}
     wanted = {p["id"]: p for p in clean_printers(raw)}
     status = {}
     if wanted and run(["lpadmin", "-h"], timeout=10).returncode == 127:
         return {pid: "printing isn't installed" for pid in wanted}
+    now = time.time()
     for pid, p in wanted.items():
         queue = queue_name(p)
         old = made.get(pid)
@@ -142,29 +169,36 @@ def apply_printers(raw, run, state: Path | None = None) -> dict[str, str]:
                 run(["lpstat", "-p", queue], timeout=10).returncode == 0:
             status[pid] = "added"
             continue
-        if old and old.get("queue") != queue:
-            run(["lpadmin", "-x", old["queue"]], timeout=30)
+        if isinstance(tried.get(pid), (int, float)) and now - tried[pid] < RETRY_S:
+            status[pid] = "couldn't reach the printer; trying again within the hour"
+            continue
+        if old and old.get("queue") != queue and _remove_queue(run, old["queue"]):
+            made.pop(pid, None)
         r = run(["lpadmin", "-p", queue, "-E", "-v", p["uri"], "-m", "everywhere", "-D", p["name"],
-                 "-L", "Added by your organisation"], timeout=90)
+                 "-L", "Added by your organisation"], timeout=30)
         if r.returncode == 0:
             made[pid] = {"queue": queue, "uri": p["uri"], "name": p["name"]}
+            tried.pop(pid, None)
             status[pid] = "added"
         else:
-            status[pid] = "couldn't reach the printer; tried again at the next report"
+            tried[pid] = now
+            status[pid] = "couldn't reach the printer; trying again within the hour"
     for pid in [k for k in made if k not in wanted]:
-        run(["lpadmin", "-x", made[pid]["queue"]], timeout=30)
-        del made[pid]
-    if made or state.exists():
-        state.parent.mkdir(parents=True, exist_ok=True)
-        tmp = state.with_name(state.name + ".kulan-new")
-        tmp.write_text(json.dumps(made, indent=2) + "\n")
-        os.chmod(tmp, 0o644)
-        os.replace(tmp, state)
+        if _remove_queue(run, made[pid]["queue"]):
+            del made[pid]  # kept, and tried again next time, if CUPS couldn't remove it now
+    for pid in [k for k in tried if k not in wanted]:
+        del tried[pid]
+    _save(state, made)
+    _save(tried_path, tried)
     return status
+
+
+def _remove_queue(run, queue: str) -> bool:
+    """Whether the queue is gone (removed now, or not there)."""
+    return run(["lpadmin", "-x", queue], timeout=30).returncode == 0 or run(["lpstat", "-p", queue], timeout=10).returncode != 0
 
 
 def remove_all(run, folder: Path | None = None, state: Path | None = None) -> None:
     """Leaving the organisation: its networks and printers go; people's own stay."""
     apply_networks([], run, folder)
-    apply_printers([], run, state)
-    (state or PRINTERS).unlink(missing_ok=True)
+    apply_printers([], run, state)  # the state file stays only for queues CUPS couldn't remove yet

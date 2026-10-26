@@ -1429,6 +1429,7 @@ async function askJob(kind, where, body) {
   }
   // run-script
   if (!(await codeFirst())) return;
+  if (scripts.some((x) => x.body === null)) await loadScripts();  // listed before the code: without what they say
   if (!scriptsAllowed) { $("app-msg").textContent = "The Owner hasn't allowed scripts for this organisation."; return; }
   if (!scripts.length) { $("app-msg").textContent = "No scripts yet. Add one under Scripts first."; return; }
   const pick = el("select", {}, ...scripts.map((x) => el("option", { value: x.id }, x.name)));
@@ -1491,6 +1492,11 @@ async function loadScripts() {
 
 async function editScript(x) {
   if (!(await codeFirst())) return;
+  if (x && x.body === null) {
+    await loadScripts();
+    x = scripts.find((y) => y.id === x.id);
+    if (!x || x.body === null) return;
+  }
   const name = el("input", { maxlength: "80", value: x?.name || "", placeholder: "Clear the print queue" });
   const about = el("input", { maxlength: "300", value: x?.description || "", placeholder: "What it does, for other admins" });
   const text = el("textarea", { rows: "14", spellcheck: "false", placeholder: "#!/bin/bash\nset -e\n…" });
@@ -1565,7 +1571,7 @@ function openGroupNetwork(g) {
     el("h4", {}, "Wi-Fi networks"), el("ul", { class: "alerts" }, ...(nets.length ? nets : [el("li", { class: "small" }, "None yet")])),
     field("Network name", ssid), field("Security", security), field("Password", password),
     el("label", { class: "row" }, hidden, " It's hidden (doesn't show its name)"),
-    el("p", { class: "note" }, "The password is kept encrypted and only sent to the group's computers. Nobody can see it here again."),
+    el("p", { class: "note" }, "The password is kept encrypted and sent only to the group's computers. It isn't shown in Kulan Fleet again. People using those computers may be able to see it, as with any shared Wi-Fi password."),
     el("button", { type: "button", onclick: () => {
       if (!ssid.value) { err.textContent = "Enter the network's name."; return; }
       add({ op: "add-network", group_id: g.id, ssid: ssid.value, security: security.value,

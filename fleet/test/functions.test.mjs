@@ -1061,7 +1061,10 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "hello", body: "echo again" }, "aal2");
   ok(r.status === 409, "names are unique", r);
   r = await admin(HELPER, { op: "scripts", organisation_id: org });
-  ok(r.body.allowed === true && r.body.scripts.length === 1 && r.body.scripts[0].body === "echo hi\n", "listed, line endings made plain", r.body);
+  ok(r.body.allowed === true && r.body.scripts.length === 1 && r.body.scripts[0].body === null && r.body.bodies === false,
+     "listed without the code: names only, not what they say", r.body);
+  r = await admin(HELPER, { op: "scripts", organisation_id: org }, "aal2");
+  ok(r.body.scripts[0].body === "echo hi\n" && r.body.bodies === true, "with the code: what they say, line endings made plain", r.body);
   r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } });
   ok(r.status === 403 && r.body.two_step, "running a script needs the code", r);
   r = await admin(HELPER, { op: "action", device_id: C.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
@@ -1083,6 +1086,21 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await computer(B, `/v1/scripts/${runId}`);
   ok(r.status === 404, "changed after it was asked for: not given out", r);
   await computer(B, `/v1/actions/${runId}`, { status: "failed", detail: "the script changed", exit_code: -1 });
+  r = await admin(HELPER, { op: "action-output", action_id: runId });
+  ok(r.status === 403 && r.body.two_step, "a script's output needs the code", r);
+  r = await admin(HELPER, { op: "action-output", action_id: runId }, "aal2");
+  ok(r.status === 200 && r.body.exit_code === -1, "with the code, it's shown", r);
+  r = await call("fleet", "/v1/scripts/not-a-uuid-at-all-not-a-uuid-at-all-xx", { device_id: B.device_id }, B.token);
+  ok(r.status === 404, "a request id that isn't one: not found, not a server error", r);
+  // A script sent but never answered expires after a day, and can't be fetched any more.
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  const stale = r.body.id;
+  await report(B);
+  await db`update fleet.actions set sent_at = now() - interval '25 hours' where id = ${stale}`;
+  await report(B);
+  ok((await db`select status from fleet.actions where id = ${stale}`)[0].status === "expired", "sent a day ago, never answered: expired");
+  r = await computer(B, `/v1/scripts/${stale}`);
+  ok(r.status === 404, "and its script can't be fetched", r);
   // Turning scripts off cancels any still waiting, and they can't be fetched.
   r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
   const waiting = r.body.id;
@@ -1097,6 +1115,8 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
                       "stopped scripts on the computers"]) ok(sl.includes(want), `in the activity log: ${want}`, sl);
   ok(!JSON.stringify(r.body.entries).includes("echo"), "the script's text isn't in the log");
   r = await admin(HELPER, { op: "remove-script", script_id: scriptId });
+  ok(r.status === 403 && r.body.two_step, "removing a script needs the code", r);
+  r = await admin(HELPER, { op: "remove-script", script_id: scriptId }, "aal2");
   ok(r.status === 200, "a script removed", r);
 
   // A message to a person: the computers they're signed in on now.
@@ -1146,7 +1166,9 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   ok(rep.body.networks.length === 0 && rep.body.printers.length === 0, "computers outside the group don't", rep.body);
   await db`update fleet.group_networks set secret = ${"s1:" + btoa("x".repeat(40))} where id = ${netId}`;
   rep = await report(B);
-  ok(!rep.body.networks.some((n) => n.ssid === "Acme Staff"), "a password that can't be opened isn't sent at all", rep.body.networks);
+  const sealed = rep.body.networks.find((n) => n.ssid === "Acme Staff");
+  ok(sealed?.unavailable === true && !("password" in sealed),
+     "a password that can't be opened: listed without it, so computers keep the network", rep.body.networks);
   r = await admin(HELPER, { op: "remove-network", network_id: netId });
   ok(r.status === 200, "a network removed", r);
   r = await admin(HELPER, { op: "remove-printer", printer_id: prId });

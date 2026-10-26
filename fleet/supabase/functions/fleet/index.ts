@@ -506,6 +506,11 @@ Deno.serve(async (req: Request) => {
                   kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version),
                   wake_topic = coalesce(wake_topic, ${newWakeTopic()})
                 where id = ${dev.id} returning wake_topic`;
+      // A fix or script handed to the computer but never answered (it was switched off mid-run, say)
+      // expires after a day: its script can't be fetched any more.
+      await sql`update fleet.actions set status = 'expired', finished_at = now()
+                where device_id = ${dev.id} and status = 'sent' and type in ('run-fix', 'run-script')
+                  and sent_at < now() - interval '1 day'`;
       // An erase still waiting after 30 days expires instead (the computer was found, say).
       await sql`update fleet.actions set status = 'expired', finished_at = now()
                 where device_id = ${dev.id} and status = 'pending' and type = 'erase'
@@ -532,7 +537,9 @@ Deno.serve(async (req: Request) => {
       for (const n of nets) {
         const password = n.secret ? await secrets.open(n.secret, "wifi", `wifi:${n.group_id}:${n.id}`) : null;
         if (n.secret && !password) {
+          // Still listed, without the password: the computer keeps the network it has rather than dropping it.
           console.error("fleet: a Wi-Fi password can't be opened: is FLEET_FACTOR_KEY set, and unchanged?");
+          networks.push({ id: n.id, ssid: n.ssid, security: n.security, hidden: n.hidden, unavailable: true });
           continue;
         }
         networks.push({ id: n.id, ssid: n.ssid, security: n.security, hidden: n.hidden, ...(password ? { password } : {}) });
@@ -590,7 +597,7 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const done = path.match(/^\/v1\/actions\/([0-9a-f-]{36})$/);
+    const done = path.match(/^\/v1\/actions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
     if (done) {
       const status = body.status === "done" ? "done" : "failed";
       // A fix's or script's output and exit code (the first 64 KB).
@@ -611,7 +618,7 @@ Deno.serve(async (req: Request) => {
       return reply(200, {});
     }
 
-    const script = path.match(/^\/v1\/scripts\/([0-9a-f-]{36})$/);
+    const script = path.match(/^\/v1\/scripts\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
     if (script) {
       // Only the script of a request out to this computer now, still as it was asked for, while the Owner allows scripts.
       const [row] = await sql`select s.body, s.sha256 from fleet.actions a

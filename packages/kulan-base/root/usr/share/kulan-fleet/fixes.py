@@ -26,7 +26,7 @@ FIXES = {
     "check-disk": "Check the disk",
 }
 OUTPUT_MAX = 65536
-FIX_TIMEOUT_S = 600
+FIX_TIMEOUT_S = 1800  # a whole fix, however many steps
 SCRIPT_TIMEOUT_S = 600
 UPDATE_RUN = Path("/usr/lib/kulan/update-run")
 SCRIPT_DIR = Path("/run/kulan/fleet-scripts")
@@ -43,13 +43,21 @@ def _free_kb(path: str = "/") -> int:
 
 
 def _steps(run, steps: list[tuple[str, list[str], int]]) -> tuple[bool, list[str]]:
-    """Runs each (label, command, timeout); the log lines and whether every step worked."""
+    """Runs each (label, command, timeout), within FIX_TIMEOUT_S for them all; the log
+    lines and whether every step worked."""
     log, ok = [], True
+    deadline = time.monotonic() + FIX_TIMEOUT_S
     for label, argv, timeout in steps:
-        if not shutil.which(argv[0]) and not Path(argv[0]).exists():
-            log.append(f"== {label}: skipped ({argv[0]} isn't installed)")
+        left = int(deadline - time.monotonic())
+        if left < 5:
+            log.append(f"== {label}: not done (the fix ran out of time)")
+            ok = False
             continue
-        r = run(argv, timeout=timeout)
+        command = argv[2] if argv[:2] == ["env", "DEBIAN_FRONTEND=noninteractive"] else argv[0]
+        if not shutil.which(command) and not Path(command).exists():
+            log.append(f"== {label}: skipped ({command} isn't installed)")
+            continue
+        r = run(argv, timeout=min(timeout, left))
         log.append(f"== {label}: {'done' if r.returncode == 0 else f'failed ({r.returncode})'}")
         out = (r.stdout + r.stderr).strip()
         if out:
@@ -86,7 +94,9 @@ def run_fix(name: str, run) -> tuple[bool, str, str, int]:
         return ok, "Wi-Fi reset" if ok else "Wi-Fi couldn't be reset", clip("\n".join(log)), 0 if ok else 1
     if name == "repair-updates":
         env_steps = [("Finish interrupted installs", ["dpkg", "--configure", "-a"], 900),
-                     ("Fix missing pieces", ["apt-get", "-y", "-o", "DPkg::Lock::Timeout=120", "-f", "install"], 900),
+                     ("Fix missing pieces", ["apt-get", "-y", "-o", "DPkg::Lock::Timeout=120",
+                                             "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
+                                             "-f", "install"], 900),
                      ("Refresh the update lists", ["apt-get", "-o", "DPkg::Lock::Timeout=120", "update"], 300)]
         ok, log = _steps(lambda argv, timeout=60: run(["env", "DEBIAN_FRONTEND=noninteractive"] + argv, timeout=timeout),
                          env_steps)
@@ -130,16 +140,18 @@ def run_script(body: str, sha256: str, allowed: bool) -> tuple[bool, str, str, i
         return False, "the script isn't the one that was asked for", "", 2
     SCRIPT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd, path = tempfile.mkstemp(prefix="script-", suffix=".sh", dir=SCRIPT_DIR)
+    unit = None
     try:
-        with os.fdopen(fd, "w") as fh:
-            fh.write(body)
+        with os.fdopen(fd, "wb") as fh:  # exactly the bytes that were checked
+            fh.write(body.encode())
         env = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root",
                "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "KULAN_FLEET_SCRIPT": "1"}
         argv = ["/bin/bash", path]
         if Path("/run/systemd/system").is_dir() and shutil.which("systemd-run"):
             # Its own unit: everything it starts is stopped with it, and it can't outlive the time limit.
+            unit = f"kulan-fleet-script-{os.path.basename(path)[7:-3]}"
             argv = ["systemd-run", "--quiet", "--wait", "--pipe", "--collect", "--service-type=exec",
-                    f"--unit=kulan-fleet-script-{os.path.basename(path)[7:-3]}",
+                    f"--unit={unit}",
                     "-p", f"RuntimeMaxSec={SCRIPT_TIMEOUT_S}"] + [f"--setenv={k}={v}" for k, v in env.items()] + argv
         p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              env=env, cwd="/", start_new_session=True)
@@ -153,9 +165,15 @@ def run_script(body: str, sha256: str, allowed: bool) -> tuple[bool, str, str, i
         reader = threading.Thread(target=drain, daemon=True)
         reader.start()
         timed_out = False
+        started = time.monotonic()
         try:
             code = p.wait(timeout=SCRIPT_TIMEOUT_S + 30)
+            # In its own unit, systemd stops it at the limit: it ended with an error, not 124.
+            if unit and code != 0 and time.monotonic() - started >= SCRIPT_TIMEOUT_S - 2:
+                code, timed_out = 124, True
         except subprocess.TimeoutExpired:
+            if unit:
+                subprocess.run(["systemctl", "stop", unit], capture_output=True, timeout=60, check=False)
             os.killpg(p.pid, 9)  # the script and everything it started
             p.wait()
             code, timed_out = 124, True

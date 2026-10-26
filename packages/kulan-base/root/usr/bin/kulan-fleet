@@ -8,6 +8,8 @@
   kulan-fleet leave                    stop reporting and leave the organisation (root)
   kulan-fleet listen                   report as soon as the organisation asks (root; used by
                                        kulan-fleet-listen.service)
+  kulan-fleet run-job ACTION_ID        run a fix or script the last report started (root; in a
+                                       unit of its own, so reports never wait for it)
 
 A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
@@ -74,6 +76,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import pwd
 import shutil
 import socket
@@ -124,6 +127,8 @@ ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen",
 # Where to listen for "report now" (wake.py): root only, like the key.
 WAKE = Path("/var/lib/kulan/fleet-wake.json")
 PUSHED = Path("/var/lib/kulan/fleet-pushed.json")  # how the group's Wi-Fi and printers went
+JOBS = Path("/run/kulan/fleet-jobs")  # fixes and scripts handed to their own unit (root only)
+ACTION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 LISTENER = "kulan-fleet-listen.service"
 # Lost mode: /etc/nologin stops every sign-in but root's (pam_nologin, in
 # GDM's and the console's sign-in), and stays across restarts; the sign-in
@@ -592,7 +597,10 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
             return False, "a message needs a title"
         org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
         clean = lambda t, n: "".join(c if c.isprintable() or c == "\n" else " " for c in t)[:n].strip()  # noqa: E731
-        notify_users(f"{clean(title, 80)} ({clean(org, 60)})", clean(body if isinstance(body, str) else "", 500))
+        # The body is shown as markup: what the admin typed is shown as typed, never as links or tags.
+        text = clean(body if isinstance(body, str) else "", 500).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if not notify_users(f"{clean(title, 80)} ({clean(org, 60)})", text):
+            return False, "nobody was signed in to see it"
         return True, "shown"
     return False, "not an action Kulan OS allows"
 
@@ -601,6 +609,8 @@ def run_job(kind: str, payload, action_id: str, config: dict) -> tuple[bool, str
     """A fix or a script: (ok, short result, {output, exit_code}). The person
     at the computer is told what their organisation ran."""
     org = config.get("organisation") or "Your organisation"
+    if kind not in ("run-fix", "run-script"):
+        return False, "not an action Kulan OS allows", {}
     if kind == "run-fix":
         fix = payload.get("fix") if isinstance(payload, dict) else None
         if fix not in fixes.FIXES:
@@ -773,10 +783,52 @@ def warn_users(title: str, body: str) -> None:
     notify_users(title, body)
 
 
-def notify_users(title: str, body: str) -> None:
-    """A notification on each signed-in desktop."""
+def start_job(kind: str, payload, action_id: str) -> bool:
+    """A fix or script in a unit of its own (kulan-fleet run-job), which posts its own
+    result: the report, and requests after it such as remote help or lost mode, never
+    wait for it, and stopping the unit stops everything it started. False where
+    there's no systemd (it then runs in the report)."""
+    if not ACTION_ID.match(action_id) or not Path("/run/systemd/system").is_dir() or not shutil.which("systemd-run"):
+        return False
+    JOBS.mkdir(mode=0o700, parents=True, exist_ok=True)
+    job = JOBS / f"{action_id}.json"
+    write_json(job, {"kind": kind, "payload": payload}, 0o600)
+    started = run(["systemd-run", "--quiet", "--collect", "--no-block", f"--unit=kulan-fleet-job-{action_id}",
+                   "-p", f"RuntimeMaxSec={fixes.FIX_TIMEOUT_S + 600}", "-p", "Nice=10",
+                   "/usr/bin/kulan-fleet", "run-job", action_id], timeout=30)
+    if started.returncode != 0:
+        job.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def run_job_now(action_id: str) -> int:
+    """kulan-fleet run-job: the fix or script start_job handed over, then its result."""
+    if not ACTION_ID.match(action_id):
+        return 64
+    path = JOBS / f"{action_id}.json"
+    job = read_json(path, None)
+    path.unlink(missing_ok=True)
+    config = read_json(CONFIG, {})
+    if not isinstance(job, dict) or not all(config.get(k) for k in ("server", "device_id", "token")):
+        return 1
+    kind = str(job.get("kind", ""))
+    ok, detail, extra = run_job(kind, job.get("payload"), action_id, config)
+    try:
+        post(config["server"], f"/v1/actions/{action_id}",
+             {"device_id": config["device_id"], "status": "done" if ok else "failed", "detail": detail, **extra},
+             config["token"])
+    except RuntimeError as e:
+        say(f"{kind}: couldn't send the result ({e})")
+    say(f"{kind}: {'done' if ok else 'failed'} ({detail})")
+    return 0
+
+
+def notify_users(title: str, body: str) -> int:
+    """A notification on each signed-in desktop; how many were shown."""
+    shown = 0
     if not NOTICE.exists():
-        return
+        return 0
     for bus in sorted(Path("/run/user").glob("*/bus")):
         uid = bus.parent.name
         if not uid.isdigit() or int(uid) < 1000:
@@ -785,8 +837,9 @@ def notify_users(title: str, body: str) -> None:
             user = pwd.getpwuid(int(uid)).pw_name
         except KeyError:
             continue
-        run(["runuser", "-u", user, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
-             f"XDG_RUNTIME_DIR={bus.parent}", str(NOTICE), "notify", title, body], timeout=20)
+        shown += run(["runuser", "-u", user, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
+                      f"XDG_RUNTIME_DIR={bus.parent}", str(NOTICE), "notify", title, body], timeout=20).returncode == 0
+    return shown
 
 
 def erase_with_notice(action_id: str, resumed: bool = False) -> tuple[bool, str]:
@@ -981,6 +1034,9 @@ def report() -> int:
             elif kind == "erase":
                 ok, detail = erase_with_notice(action_id)
             elif kind in ("run-fix", "run-script"):
+                if start_job(kind, action.get("payload"), action_id):
+                    say(f"{kind}: started (it sends its own result)")
+                    continue
                 ok, detail, extra = run_job(kind, action.get("payload"), action_id, config)
             else:
                 ok, detail = do_action(kind, action.get("payload"))
@@ -1138,8 +1194,10 @@ def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         return status("--json" in argv[2:])
-    if command in ("join", "report", "allow-erase", "leave", "listen"):
+    if command in ("join", "report", "allow-erase", "leave", "listen", "run-job"):
         need_root()
+    if command == "run-job" and len(argv) == 3:
+        return run_job_now(argv[2])
     if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]):
         return locked(join)(argv[2], allow_erase=len(argv) == 4)
     if command == "allow-erase" and argv[2:] in (["on"], ["off"]):

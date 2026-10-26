@@ -251,8 +251,9 @@ adm "{\"op\":\"action\",\"device_id\":\"${DEV_B}\",\"type\":\"message\",\"payloa
 report laptop-b
 fixed() { adm "{\"op\":\"action-output\",\"action_id\":\"${FIX}\"}" | jq -e '.status == "done" and .exit_code == 0 and (.output | contains("== Space"))' >/dev/null; }
 expect "laptop-b: Check the disk ran, its output and exit code back on the server" fixed
-shown() { adm '{"op":"overview"}' | jq -e '[.actions[] | select(.type == "message" and .status == "done")] | length == 1' >/dev/null; }
-expect "laptop-b: the message was shown" shown
+# Nobody is signed in on these containers: the admin is told the message wasn't seen, not that it was.
+unseen() { adm '{"op":"overview"}' | jq -e '[.actions[] | select(.type == "message" and .status == "failed" and .detail == "nobody was signed in to see it")] | length == 1' >/dev/null; }
+expect "laptop-b: nobody signed in, so the message is reported as not seen" unseen
 # NetworkManager and CUPS aren't in these containers: laptop-a gets NetworkManager's folder, so the
 # network is written there; the printer can only be reported as not possible.
 on laptop-a 'mkdir -p /etc/NetworkManager/system-connections'

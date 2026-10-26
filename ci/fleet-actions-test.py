@@ -95,6 +95,15 @@ run = Run({"df": R(0, ""), "journalctl -k": R(0, "Oct 26 kernel: blk_update_requ
            "lsblk": R(0, "")})
 ok, detail, out, code = fixes.run_fix("check-disk", run)
 check("check-disk: errors found are shown", ok and code == 1 and "problems found" in detail and "I/O error" in out, (detail, out))
+fixes.FIX_TIMEOUT_S, saved = 3, fixes.FIX_TIMEOUT_S
+run = Run()
+ok, detail, out, code = fixes.run_fix("repair-updates", run)
+fixes.FIX_TIMEOUT_S = saved
+check("a fix has one time limit for all its steps", not ok and "ran out of time" in out and run.calls == [], (out, run.calls))
+run = Run()
+fixes.run_fix("repair-updates", run)
+check("repair-updates keeps changed config files as they are, never asking",
+      "Dpkg::Options::=--force-confold" in run.calls[1], run.calls[1])
 check("a long output is cut to 64 KB", len(fixes.clip("é" * 70000).encode()) <= 65536)
 
 # --- the organisation's scripts -------------------------------------------------------------
@@ -113,6 +122,9 @@ try:
           "code 3" in detail, (ok, detail, out, code))
     check("its file is gone afterwards", not any(fixes.SCRIPT_DIR.iterdir()), list(fixes.SCRIPT_DIR.iterdir()))
     check("only root can read where scripts are put", oct(fixes.SCRIPT_DIR.stat().st_mode & 0o777) == "0o700")
+    uni = "printf '%s' 'Wi-Fi ☕ café'\n"
+    ok, detail, out, code = fixes.run_script(uni, sha(uni), allowed=True)
+    check("a script with any characters runs exactly as checked", ok and out == "Wi-Fi ☕ café", (detail, out))
     loud = "head -c 300000 /dev/zero | tr '\\0' 'x'; echo; echo done\n"
     ok, detail, out, code = fixes.run_script(loud, sha(loud), allowed=True)
     check("a chatty script: the first 64 KB kept", ok and len(out.encode()) <= 65536 and out.startswith("x"), (len(out), detail))
@@ -174,6 +186,12 @@ run = Run()
 pushed.apply_networks(nets, run, folder)
 check("nothing changed: NetworkManager not bothered", run.calls == [], run.calls)
 check("no password on any command line", not any("word" in " ".join(c) for c in run.calls))
+nets_off = [dict(nets[0], password=None, unavailable=True)] + nets[1:]
+before = f1.read_text()
+run = Run()
+status = pushed.apply_networks(nets_off, run, folder)
+check("the server couldn't open a password: the network kept as it is, not removed", status[N1] == "added" and
+      f1.read_text() == before and run.calls == [], (status, run.calls))
 check("without NetworkManager: said so", pushed.apply_networks(nets, Run(), tmp / "none") == {
     N1: "NetworkManager isn't installed", N2: "NetworkManager isn't installed"})
 
@@ -194,8 +212,17 @@ check("printers added; one not reachable yet", status[P1] == "added" and status[
 check("what Kulan Fleet made is remembered", set(json.loads(state.read_text())) == {P1})
 run = Run({"lpstat -p Front_desk_aaaa": R(0)})
 status = pushed.apply_printers(prs, run, state)
-check("the next report: the made one left alone, the other tried again", status[P2] == "added" and
-      not any(c[:3] == ["lpadmin", "-p", "Front_desk_aaaa"] for c in run.calls), run.calls)
+check("the next report: the made one left alone, the other not tried again within the hour",
+      status[P2].endswith("within the hour") and not any(c[:2] == ["lpadmin", "-p"] for c in run.calls), run.calls)
+tried = tmp / "fleet-printers-tried.json"
+tried.write_text(json.dumps({P2: time.time() - 4000}))
+run = Run({"lpstat -p Front_desk_aaaa": R(0)})
+status = pushed.apply_printers(prs, run, state)
+check("an hour later: tried again, and added", status[P2] == "added" and not tried.exists(), (status, run.calls))
+run = Run({"lpadmin -x": R(1, "", "lpadmin: Unable to connect"), "lpstat -p": R(0)})
+pushed.apply_printers([prs[1]], run, state)
+check("no longer listed, but CUPS couldn't remove it yet: still remembered, to remove next time",
+      set(json.loads(state.read_text())) == {P1, P2}, run.calls)
 run = Run({"lpstat -p": R(0)})
 pushed.apply_printers([prs[1]], run, state)
 check("no longer listed: removed", ["lpadmin", "-x", "Front_desk_aaaa"] in run.calls and set(json.loads(state.read_text())) == {P2},
@@ -212,7 +239,8 @@ spec = importlib.util.spec_from_loader("kulan_fleet", loader)
 kf_mod = importlib.util.module_from_spec(spec)
 loader.exec_module(kf_mod)
 told, posts = [], []
-kf_mod.notify_users = lambda title, body: told.append((title, body))
+screens = [1]
+kf_mod.notify_users = lambda title, body: told.append((title, body)) or screens[0]
 policy = {"policy": {}}
 kf_mod.read_json = lambda path, default: policy if path == kf_mod.POLICY_PUBLIC else (
     {"organisation": "Acme", "server": "https://fleet.test", "device_id": "d1", "token": "t"} if path == kf_mod.CONFIG else default)
@@ -241,6 +269,21 @@ ok, detail = kf_mod.do_action("message", {"title": "Restart tonight\x07", "body"
 check("a message shown on the screens, with who sent it", ok and told == [("Restart tonight (Acme)", "Save your work.\nThanks")], told)
 ok, detail = kf_mod.do_action("message", {"body": "no title"})
 check("a message needs a title", not ok)
+told.clear()
+ok, detail = kf_mod.do_action("message", {"title": "Hi", "body": "<a href='x'>click</a> & more"})
+check("a message is shown as typed, never as links or tags", told == [("Hi (Acme)", "&lt;a href='x'&gt;click&lt;/a&gt; &amp; more")], told)
+screens[0] = 0
+ok, detail = kf_mod.do_action("message", {"title": "Hi", "body": ""})
+check("nobody signed in to see a message: not reported as shown", not ok and "nobody" in detail, detail)
+ok, detail, extra = kf_mod.run_job("refresh", {}, "act-4", config)
+check("run_job runs only fixes and scripts", not ok, detail)
+Path.is_dir = lambda self: False if str(self) == "/run/systemd/system" else real_isdir(self)
+try:
+    check("without systemd, a fix runs in the report", not kf_mod.start_job("run-fix", {"fix": "check-disk"},
+                                                                             "11111111-1111-4111-8111-111111111111"))
+finally:
+    Path.is_dir = real_isdir
+check("a job is only ever started for a real request id", not kf_mod.start_job("run-fix", {}, "../../etc/x"))
 check("all three are actions this computer takes", {"run-fix", "run-script", "message"} <= set(kf_mod.ALLOWED_ACTIONS))
 check("the policy keeps scripts only when it says true",
       kf_mod.clean_policy({"scripts": True}).get("scripts") is True and "scripts" not in kf_mod.clean_policy({"scripts": "yes"}))

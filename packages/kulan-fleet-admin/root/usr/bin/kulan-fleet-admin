@@ -2526,7 +2526,14 @@ class FleetWindow(Adw.ApplicationWindow):
         return dialog
 
     def script_dialog(self, org: dict, script: dict | None) -> None:
-        self.code_first(lambda: self.script_editor(org, script))
+        def ready() -> None:
+            if script is None or script.get("body") is not None:
+                self.script_editor(org, script)
+                return
+            # Listed before the code was given: fetched again, now with what it says.
+            self.load_scripts(org, lambda out, error: self.toast(error) if error else self.script_editor(
+                org, next((x for x in (out or {}).get("scripts") or [] if x["id"] == script["id"]), script)))
+        self.code_first(ready)
 
     def script_editor(self, org: dict, script: dict | None) -> Adw.Dialog:
         dialog = Adw.Dialog(title=script["name"] if script else "Add a script", content_width=640, content_height=620)
@@ -2550,7 +2557,7 @@ class FleetWindow(Adw.ApplicationWindow):
                              wrap=True, xalign=0, css_classes=["dim-label"]))
         text = Gtk.TextView(monospace=True, top_margin=10, bottom_margin=10, left_margin=12, right_margin=12)
         text.update_property([Gtk.AccessibleProperty.LABEL], ["Script"])
-        text.get_buffer().set_text((script or {}).get("body", ""))
+        text.get_buffer().set_text((script or {}).get("body") or "")
         box.append(Gtk.Frame(child=Gtk.ScrolledWindow(child=text, vexpand=True)))
         note = Gtk.Label(wrap=True, xalign=0, css_classes=["error"])
         box.append(note)
@@ -2648,8 +2655,9 @@ class FleetWindow(Adw.ApplicationWindow):
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         outer.append(box)
         outer.append(note)
-        outer.append(Gtk.Label(label="The password is kept encrypted and only sent to the group's computers. Nobody can "
-                               "see it here again.", wrap=True, xalign=0, css_classes=["dim-label"]))
+        outer.append(Gtk.Label(label="The password is kept encrypted and sent only to the group's computers. It isn't "
+                               "shown in Kulan Fleet again. People using those computers may be able to see it, as with "
+                               "any shared Wi-Fi password.", wrap=True, xalign=0, css_classes=["dim-label"]))
         dialog.set_extra_child(outer)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("add", "Add")
