@@ -44,6 +44,23 @@ when this list is empty.
   Groups, Policy, Scripts, Activity, Settings), list and detail views,
   search, and the same words and icons on the web and in the app.
 
+## 1c. Installing it should be easy
+Today a new laptop takes a download, Etcher, the boot key, a long installer
+and a join code afterwards. Agreed (26 Oct 2026) to cut it to: make the USB
+stick, press the boot key, click Install.
+- Kulan USB Maker, a small app for Mac and Windows: pick the stick, click
+  Make. It downloads Kulan OS, checks it and writes the stick. (A web page
+  can't write to a USB stick, so it has to be an app.)
+- Sticks made for an organisation: "Make an installer" in Kulan Fleet gives
+  a join code the USB Maker puts on the stick, and every computer installed
+  from it joins Fleet by itself on its first start.
+- An installer that asks almost nothing: the whole disk, encryption on,
+  language and time zone guessed, one Install button. The account is made
+  in the welcome app after the restart.
+- The boot key: the USB Maker asks the laptop's brand and shows its key.
+- Later (3.0 era): laptops sold with Kulan OS on them, installing over a
+  business's network.
+
 ## 2. Security
 - An independent review of each part: the base system, Kulan Fleet (server,
   computers, dashboard), Ask Kulan, the installer, the update channel.
