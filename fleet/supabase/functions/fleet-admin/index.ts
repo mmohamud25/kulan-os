@@ -95,8 +95,9 @@
 // first, every time. The setting-up messages pass through here, the screen
 // goes straight between them (WebRTC, Cloudflare's relay when it must).
 //   POST {op: "help-start", device_id, control}            -> {session_id, ice, relay}
-//   POST {op: "help-signal", session_id, offer?, candidates?, since?}
-//        -> {state, control, detail, answer, candidates (the computer's, from since), count}
+//   POST {op: "help-signal", session_id, answer?, candidates?, since?}
+//        -> {state, control, detail, offer, candidates (the computer's, from since), count}
+//        (the computer makes the offer once the person allows it; the admin's side answers)
 //        (only the admin who started it; asked about every second while it runs)
 //   POST {op: "help-end", session_id}
 // Requests ("action", "group-action", "help-start") wake the computers they're
@@ -1602,11 +1603,11 @@ Deno.serve(async (req: Request) => {
           if (done.length) await audit(s.organisation_id, s.device_id, "ended remote help", { session: sid });
           return reply(200, { state: "ended" });
         }
-        if (active && body.offer !== undefined) {
-          const offer = help.cleanDescription(body.offer, "offer");
-          if (!offer) return reply(400, { error: "that isn't an offer" });
-          if (s.state !== "allowed" || s.offer) return reply(409, { error: "not now", state: s.state });
-          await sql`update fleet.help_sessions set offer = ${json(offer)}, updated_at = now() where id = ${sid} and offer is null`;
+        if (active && body.answer !== undefined) {
+          const answer = help.cleanDescription(body.answer, "answer");
+          if (!answer) return reply(400, { error: "that isn't an answer" });
+          if (!s.offer || s.answer) return reply(409, { error: "not now", state: s.state });
+          await sql`update fleet.help_sessions set answer = ${json(answer)}, updated_at = now() where id = ${sid} and answer is null`;
         }
         const candidates = active ? help.cleanCandidates(body.candidates) : [];
         if (candidates.length) {
@@ -1616,7 +1617,7 @@ Deno.serve(async (req: Request) => {
         const since = Number.isInteger(body.since) && body.since >= 0 ? body.since : 0;
         const theirs = Array.isArray(s.device_candidates) ? s.device_candidates : [];
         return reply(200, { state: s.state, control: s.control, detail: s.detail, who: s.answered_by,
-                            answer: s.answer ?? null, candidates: theirs.slice(since), count: theirs.length });
+                            offer: s.offer ?? null, candidates: theirs.slice(since), count: theirs.length });
       }
       case "cancel-action": {
         const id = uuid(body.action_id);

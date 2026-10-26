@@ -39,8 +39,8 @@ create table if not exists fleet.help_sessions (
   answered_by text check (answered_by is null or char_length(answered_by) <= 32),
   detail text check (detail is null or char_length(detail) <= 300),
   ice jsonb not null default '[]'::jsonb,           -- the relay's addresses and this session's credentials
-  offer jsonb,                                      -- the admin's side: {type, sdp}
-  answer jsonb,                                     -- the computer's side
+  offer jsonb,                                      -- the computer's side: {type, sdp}
+  answer jsonb,                                     -- the admin's side
   admin_candidates jsonb not null default '[]'::jsonb,
   device_candidates jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),

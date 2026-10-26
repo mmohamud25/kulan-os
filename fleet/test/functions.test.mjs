@@ -1060,30 +1060,36 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   ok(r.status === 401, "the computer's own key isn't the session's", r);
   r = await helper({ op: "answer", allow: true, control: true }, "wrong");
   ok(r.status === 401, "a wrong session key", r);
-  r = await admin(HELPER, { op: "help-signal", session_id: s1, offer: { type: "offer", sdp: "v=0 fake" } });
-  ok(r.status === 409 && r.body.state === "asking", "no offer before they allow it", r);
+  r = await helper({ op: "signal", offer: { type: "offer", sdp: "v=0 fake" } });
+  ok(r.status === 400, "no offer before they allow it", r);
 
   // They allow it, with control.
   r = await helper({ op: "answer", allow: true, control: true });
   ok(r.status === 200 && r.body.state === "allowed" && r.body.control === true, "allowed, with control", r.body);
   r = await helper({ op: "answer", allow: false });
   ok(r.status === 409, "answered once", r);
-  r = await admin(HELPER, { op: "help-signal", session_id: s1, offer: { type: "answer", sdp: "v=0" } });
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, answer: { type: "answer", sdp: "v=0 early" } });
+  ok(r.status === 409, "no answer before the computer's offer", r);
+  r = await helper({ op: "signal", offer: { type: "answer", sdp: "v=0" } });
   ok(r.status === 400, "an offer must be an offer", r);
-  r = await admin(HELPER, { op: "help-signal", session_id: s1, offer: { type: "offer", sdp: "v=0 the-offer" },
-                            candidates: [{ candidate: "candidate:1 1 udp 1 10.0.0.2 5000 typ host", sdpMid: "0", sdpMLineIndex: 0 },
-                                         { candidate: "<script>", sdpMid: "0" }, "junk"] });
-  ok(r.status === 200 && r.body.state === "allowed" && r.body.control === true && r.body.who === "mo", "the admin's offer", r.body);
-  r = await helper({ op: "signal" });
-  ok(r.body.offer?.sdp === "v=0 the-offer" && r.body.candidates.length === 1 && r.body.count === 1 &&
-     r.body.candidates[0].candidate.startsWith("candidate:1"), "the computer gets the offer and the good candidate only", r.body);
-  r = await helper({ op: "signal", since: 1, answer: { type: "answer", sdp: "v=0 the-answer" },
-                     candidates: [{ candidate: "candidate:2 1 udp 1 10.0.0.3 6000 typ host", sdpMid: "0", sdpMLineIndex: 0 }] });
-  ok(r.body.candidates.length === 0, "since: only new ones", r.body);
-  r = await helper({ op: "signal", answer: { type: "answer", sdp: "v=0 again" } });
-  ok(r.status === 400, "one answer", r);
-  r = await admin(HELPER, { op: "help-signal", session_id: s1, since: 0 });
-  ok(r.body.answer?.sdp === "v=0 the-answer" && r.body.candidates.length === 1, "the admin gets the answer and candidate", r.body);
+  r = await helper({ op: "signal", offer: { type: "offer", sdp: "v=0 the-offer" },
+                     candidates: [{ candidate: "candidate:1 1 udp 1 10.0.0.2 5000 typ host", sdpMid: "0", sdpMLineIndex: 0 },
+                                  { candidate: "<script>", sdpMid: "0" }, "junk"] });
+  ok(r.status === 200 && r.body.state === "allowed" && r.body.control === true && r.body.answer === null, "the computer's offer", r.body);
+  r = await helper({ op: "signal", offer: { type: "offer", sdp: "v=0 again" } });
+  ok(r.status === 400, "one offer", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1 });
+  ok(r.body.offer?.sdp === "v=0 the-offer" && r.body.candidates.length === 1 && r.body.count === 1 && r.body.who === "mo" &&
+     r.body.candidates[0].candidate.startsWith("candidate:1"), "the admin gets the offer and the good candidate only", r.body);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, since: 1, answer: { type: "offer", sdp: "v=0" } });
+  ok(r.status === 400, "an answer must be an answer", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, since: 1, answer: { type: "answer", sdp: "v=0 the-answer" },
+                            candidates: [{ candidate: "candidate:2 1 udp 1 10.0.0.3 6000 typ host", sdpMid: "0", sdpMLineIndex: 0 }] });
+  ok(r.status === 200 && r.body.candidates.length === 0, "since: only new ones", r.body);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, answer: { type: "answer", sdp: "v=0 again" } });
+  ok(r.status === 409, "one answer", r);
+  r = await helper({ op: "signal", since: 0 });
+  ok(r.body.answer?.sdp === "v=0 the-answer" && r.body.candidates.length === 1, "the computer gets the answer and candidate", r.body);
   const many = Array.from({ length: 30 }, (_, i) => ({ candidate: `candidate:${i} 1 udp 1 10.0.0.9 ${7000 + i} typ host`, sdpMid: "0" }));
   await helper({ op: "signal", candidates: many });
   await helper({ op: "signal", candidates: many });
@@ -1096,7 +1102,7 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await admin(HELPER, { op: "help-signal", session_id: s1 });
   ok(r.body.state === "ended" && r.body.detail === "Stopped by them[31m", "the admin sees it ended, and why (cleaned)", r.body);
   r = await helper({ op: "signal" });
-  ok(r.body.state === "ended" && !("offer" in r.body), "after the end: nothing more", r.body);
+  ok(r.body.state === "ended" && !("answer" in r.body), "after the end: nothing more", r.body);
 
   // Cloudflare's relay: credentials per session, port 53 and anything odd left out.
   env.CLOUDFLARE_TURN_KEY_ID = "key-1";

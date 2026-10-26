@@ -40,7 +40,8 @@
 //   {op: "unavailable", device_id, detail}  nobody is signed in, or it can't be done here
 // and the rest is the helper's in that person's session, with the session's own key:
 //   {op: "answer", allow, control}          the person allowed (and, if asked, control) or declined
-//   {op: "signal", answer?, candidates?, since?}  -> {state, control, offer, candidates (the admin's, from since)}
+//   {op: "signal", offer?, candidates?, since?}   -> {state, control, answer, candidates (the admin's, from since)}
+//                                           (the computer makes the offer once allowed; the admin answers)
 //   {op: "connected"} | {op: "end", detail?} | {op: "failed", detail?}
 // The screen itself goes straight to the admin (WebRTC), never through here.
 //
@@ -305,10 +306,10 @@ async function helpRoute(req: Request, id: string, body: Record<string, unknown>
   }
   if (op === "signal") {
     if (ended) return reply(200, { state: s.state, detail: s.detail });
-    if (body.answer !== undefined) {
-      const answer = help.cleanDescription(body.answer, "answer");
-      if (!answer || !s.offer || s.answer) return reply(400, { error: "not an answer that fits now" });
-      await sql`update fleet.help_sessions set answer = ${json(answer)}, updated_at = now() where id = ${id} and answer is null`;
+    if (body.offer !== undefined) {
+      const offer = help.cleanDescription(body.offer, "offer");
+      if (!offer || s.state !== "allowed" || s.offer) return reply(400, { error: "not an offer that fits now" });
+      await sql`update fleet.help_sessions set offer = ${json(offer)}, updated_at = now() where id = ${id} and offer is null`;
     }
     const candidates = help.cleanCandidates(body.candidates);
     if (candidates.length) {
@@ -317,7 +318,7 @@ async function helpRoute(req: Request, id: string, body: Record<string, unknown>
     }
     const since = Number.isInteger(body.since) && (body.since as number) >= 0 ? body.since as number : 0;
     const theirs = Array.isArray(s.admin_candidates) ? s.admin_candidates : [];
-    return reply(200, { state: s.state, control: s.control, offer: s.offer ?? null,
+    return reply(200, { state: s.state, control: s.control, answer: s.answer ?? null,
                         candidates: theirs.slice(since), count: theirs.length });
   }
   if (op === "connected") {
