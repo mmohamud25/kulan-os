@@ -8,6 +8,8 @@
 //        6-digit code is printed here instead of emailed
 //   https://<this computer>:8443/kulan-fleet-test-ca.crt   this server's test
 //        certificate authority, for the test computers to trust
+//   wss://<this computer>:8443/realtime/v1/websocket       stand-in Supabase
+//        Realtime (2.9a): computers listen for "report now" here
 //
 // Started by run.sh (see README.md), with SUPABASE_DB_URL pointing at the
 // local test database and SUPABASE_URL at this server.
@@ -248,6 +250,50 @@ async function google(req: Request, path: string): Promise<Response> {
   return json(400, { error: { message: "bad request" } });
 }
 
+// --- stand-in Supabase Realtime (2.9a): broadcast topics, as computers use them ------------
+// Phoenix channels over WebSocket: phx_join and heartbeat answered; the
+// functions' broadcasts (REST, with the service key) go to whoever joined.
+const listeners = new Map<WebSocket, Set<string>>();
+function realtime(req: Request, path: string): Response {
+  if (path === "/realtime/v1/websocket") {
+    if (req.headers.get("upgrade")?.toLowerCase() !== "websocket") return json(400, { error: "WebSocket only" });
+    const { socket, response } = Deno.upgradeWebSocket(req);
+    listeners.set(socket, new Set());
+    socket.onmessage = (ev) => {
+      let msg: Record<string, any>;
+      try { msg = JSON.parse(String(ev.data)); } catch { return; }
+      const ok = (topic: string) => socket.send(JSON.stringify({ topic, event: "phx_reply", ref: msg.ref ?? null,
+                                                                 payload: { status: "ok", response: {} } }));
+      if (msg.event === "phx_join" && typeof msg.topic === "string" && msg.topic.startsWith("realtime:")) {
+        listeners.get(socket)?.add(msg.topic);
+        ok(msg.topic);
+      } else if (msg.event === "heartbeat") {
+        ok("phoenix");
+      }
+    };
+    socket.onclose = () => listeners.delete(socket);
+    return response;
+  }
+  return json(404, { error: "not found" });
+}
+async function broadcast(req: Request): Promise<Response> {
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (req.headers.get("authorization") !== `Bearer ${key}`) return json(401, { error: "service key needed" });
+  const body = await req.json().catch(() => ({}));
+  let sent = 0;
+  for (const m of Array.isArray(body?.messages) ? body.messages : []) {
+    const topic = `realtime:${m?.topic}`;
+    for (const [socket, topics] of listeners) {
+      if (topics.has(topic) && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ topic, event: "broadcast", ref: null, payload: { event: m.event, payload: m.payload ?? {} } }));
+        sent++;
+      }
+    }
+  }
+  console.log(`  wake: ${sent} computer${sent === 1 ? "" : "s"} listening`);
+  return new Response(null, { status: 202 });
+}
+
 // --- the server ---------------------------------------------------------------------------
 const ca = await Deno.readTextFile(`${DIR}/ca.crt`);
 realServe({
@@ -267,6 +313,10 @@ realServe({
     res = await handlers["fleet"](req);
   } else if (path.startsWith("/auth/v1/")) {
     res = await auth(req, path);
+  } else if (path === "/realtime/v1/api/broadcast") {
+    res = await broadcast(req);
+  } else if (path.startsWith("/realtime/v1/")) {
+    return realtime(req, path);
   } else if (path.startsWith("/google/") && Deno.env.get("FLEET_GOOGLE_API")) {
     res = await google(req, path);
   } else {

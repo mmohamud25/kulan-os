@@ -187,6 +187,24 @@ report laptop-a
 expect "laptop-a: enabled again, offered again" on laptop-a 'grep -q amina@kulan.example /var/lib/kulan/fleet-mail/amina'
 adm "{\"op\":\"set-policy\",\"organisation_id\":\"${ORG}\",\"policy\":{}}" >/dev/null
 
+step "Report now, and remote help (2.9a)"
+expect "laptop-a: knows where to listen for \"report now\" (root only)" on laptop-a \
+	'python3 -c "import json; d = json.load(open(\"/var/lib/kulan/fleet-wake.json\")); assert d[\"topic\"].startswith(\"wake-\") and d[\"url\"].startswith(\"wss://\"), d" && test "$(stat -c %a /var/lib/kulan/fleet-wake.json)" = 600'
+# No systemd in these containers: the listener runs by hand, and says when it's asked to report.
+# (The helper itself comes with kulan-settings, not installed here: a stand-in file is enough to get as far as "who is there?".)
+on laptop-a 'nohup kulan-fleet listen > /tmp/listen.log 2>&1 & touch /usr/lib/kulan/kulan-remote-help'
+DEV_A="$(adm '{"op":"overview"}' | jq -r '.devices[] | select(.hostname == "laptop-a") | .id')"
+sleep 3
+SID="$(adm "{\"op\":\"help-start\",\"device_id\":\"${DEV_A}\",\"control\":true}" | jq -r .session_id)"
+woken() { on laptop-a 'grep -q "Asked to report" /tmp/listen.log'; }
+for _ in $(seq 20); do woken && break; sleep 1; done
+expect "laptop-a: woken at once by the request (Realtime, over TLS)" woken
+grep -q "wake: 1 computer listening" "${LOG}" && pass "server: the wake went to laptop-a" || fail "server: the wake went to laptop-a"
+report laptop-a
+nobody() { adm "{\"op\":\"help-signal\",\"session_id\":\"${SID}\"}" | jq -e '.state == "failed" and .detail == "nobody is signed in on the computer"' >/dev/null; }
+expect "laptop-a: nobody signed in, so no remote help, and the admin is told why" nobody
+on laptop-a 'pkill -f "kulan-fleet listen"' || true
+
 step "Who uses which computer (2.8c)"
 sign_ins_sent() { adm '{"op":"overview"}' | jq -e '[.devices[] | select(.hostname == "laptop-a") | .sign_ins | type] == ["array"]' >/dev/null; }
 expect "server: laptop-a reports who uses it (here, in a container, nobody)" sign_ins_sent

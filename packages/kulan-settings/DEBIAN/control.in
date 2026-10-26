@@ -4,7 +4,7 @@ Architecture: all
 Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: gnome
 Priority: optional
-Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), gir1.2-nm-1.0, qrencode
+Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), gir1.2-nm-1.0, qrencode, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, gir1.2-gst-plugins-bad-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire, xdg-desktop-portal
 Recommends: gnome-control-center, gnome-shell, libegl1, libgles2, upower, bluez, power-profiles-daemon, accountsservice, locales, openssl, cups, cups-client, kulan-desktop-settings (= @VERSION@)
 Breaks: kulan-update-center (<< 2.2~)
 Replaces: kulan-update-center (<< 2.2~)
@@ -20,3 +20,7 @@ Description: @NAME@ Settings
  Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays
  (resolution, scale, rotation) are built in. Pages that belong to GNOME
  Settings (users, printers, sharing) are listed too and open there.
+ .
+ For computers in an organisation (Kulan Fleet), it also has remote help:
+ an admin may see, and if allowed control, the screen, only after the
+ person at the computer says yes.

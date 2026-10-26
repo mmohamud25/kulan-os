@@ -23,6 +23,14 @@ case "$1" in
 			deb-systemd-invoke restart kulan-oom-notice.service >/dev/null 2>&1 || true
 		fi
 
+		# Kulan Fleet (2.9a): a computer that has joined listens for "report
+		# now" (the listener is enabled at its next report); after an update a
+		# running listener restarts with the new code.
+		if [ -d /run/systemd/system ]; then
+			systemctl --system daemon-reload >/dev/null 2>&1 || true
+			deb-systemd-invoke try-restart kulan-fleet-listen.service >/dev/null 2>&1 || true
+		fi
+
 		# Kernel hardening (no loading another kernel) everywhere, and fast
 		# restart in ARM VMs, where a normal restart freezes (UTM on Apple
 		# silicon). The generator takes effect from the next start.
