@@ -303,9 +303,9 @@ class HelpPage(Page):
         def finished(p: Gio.Subprocess, result: Gio.AsyncResult) -> None:
             self.sending = False
             try:
-                _ok, out, err = p.communicate_utf8_finish(result)
+                _ok, _out, err = p.communicate_utf8_finish(result)
             except GLib.Error as exc:
-                out, err = "", exc.message
+                err = exc.message
             if self.torn_down:
                 return
             self.spinner.set_visible(False)
