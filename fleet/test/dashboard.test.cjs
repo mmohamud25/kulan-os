@@ -268,6 +268,7 @@ function reply(b) {
   await page.click("#devices >> button:has-text('Send')");
   await page.waitForSelector("#dlg-title:has-text('Run a script on laptop-a')");
   if (!(await page.textContent("#dlg pre")).includes("cancel -a")) throw "the script isn't shown before it's run";
+  if (process.env.SHOTS) { await page.screenshot({ path: `${process.env.SHOTS}/run-script.png` }); await page.locator("#scripts").screenshot({ path: `${process.env.SHOTS}/scripts.png` }); }
   await page.click("#dlg-actions >> text=Run");
   await page.waitForTimeout(300);
   if (JSON.stringify(last("action")) !== JSON.stringify({ op: "action", device_id: "d1", type: "run-script", payload: { script_id: "s1" } })) throw "run-script " + JSON.stringify(last("action"));
@@ -283,6 +284,7 @@ function reply(b) {
   await page.click("#dlg >> button:has-text('Add printer')");
   await page.waitForSelector("#dlg li >> text=Front desk");
   if (!(await page.textContent("#dlg")).includes("laptop-a: couldn't reach the printer")) throw "a printer's problem isn't shown";
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/wifi.png`, fullPage: true });
   await page.click("#dlg-actions >> text=Close");
   await page.click("#people >> text=Manage…");
   await page.click("#dlg-actions >> text=Send a message…");
