@@ -70,6 +70,23 @@ lock-screen, restart):
 - Requests wake their computers through a Realtime broadcast topic per
   computer (`fleet.devices.wake_topic`).
 
+## Actions (Kulan OS 2.9b)
+
+- Fixes (`run-fix`): Kulan's own, listed in `functions/*/actions.ts` and in
+  the computers' `fixes.py`. Scripts (`run-script`, `fleet.scripts`): an
+  organisation's own bash scripts, only while its Owner allows them
+  (`organisations.allow_scripts`), and changed or run only by admins who gave
+  their authenticator app's code. A request carries the script's SHA-256; the
+  computer fetches the script for that request (`/v1/scripts/{action id}`)
+  and runs it only if it still matches. Output (the first 64 KB) and the exit
+  code are kept on the action for 90 days (`fleet.prune_action_outputs()`).
+- Messages (`message`, and `message-person` for every computer a person is
+  signed in on).
+- Group Wi-Fi networks and printers (`fleet.group_networks`,
+  `fleet.group_printers`): passwords are sealed with `FLEET_FACTOR_KEY`,
+  bound to the group, and opened only into the reply to that group's
+  computers. Computers report how each went (`pushed` in their report).
+
 ## Dashboard
 
 `dashboard/` is a static page, published with the website at

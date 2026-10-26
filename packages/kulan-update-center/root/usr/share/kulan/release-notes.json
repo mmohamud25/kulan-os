@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.9.2",
+    "label": "2.9b",
+    "title": "Fixes, scripts and messages with Kulan Fleet",
+    "items": [
+      "Fixes: an organisation's admins can free up disk space, reset Wi-Fi, repair updates, restart printing or check the disk on one computer or a whole group, and see what each fix printed",
+      "Your organisation's own scripts: only once its Owner allows them, and only by admins who give their authenticator app's code. A computer runs a script only if it's exactly the one that was asked for, stops it after 10 minutes, and tells whoever is using it",
+      "Messages: a notification on the screen of a person, a computer or a group, with the organisation's name",
+      "Wi-Fi networks and printers for a group: its computers connect and get the printers at their next report, and lose them when they leave the group. Networks and printers people added themselves stay",
+      "Kulan Fleet sign-in says plainly when a link has expired or was already used, and usernames turn lower case as you type"
+    ]
+  },
+  {
     "version": "2.9.1",
     "label": "2.9a",
     "title": "Remote help with Kulan Fleet",
