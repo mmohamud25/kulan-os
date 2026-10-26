@@ -28,9 +28,13 @@ when this list is empty.
 ## 1b. A new design for Kulan Fleet
 - The web dashboard and the Fleet app get one shared design, so they read as
   one product. Today the dashboard is one long page of look-alike cards.
-- First, three different design directions of the main screens (the list of
-  computers, one computer, people, groups and policy). Mohamud picks one, or
-  a mix, before anything is built.
+- Direction chosen (26 Oct 2026): A, "Console". Light, a sidebar of
+  sections and the organisation switcher; a fleet health bar; tables with
+  tabs for what needs attention; a computer's details beside the list, and a
+  full page per computer (what needs attention with a button each, the
+  compliance checks, recent requests, about, who uses it, lost or stolen).
+  Kulan's teal, navy and amber; Manrope headings, Inter text. The mockups
+  are on the "Kulan Fleet redesign" design canvas.
 - Then both are rebuilt in it: navigation by section (Computers, People,
   Groups, Policy, Scripts, Activity, Settings), list and detail views,
   search, and the same words and icons on the web and in the app.
