@@ -103,11 +103,29 @@
 // Requests ("action", "group-action", "help-start") wake the computers they're
 // for (a Realtime broadcast), so they arrive in seconds, not at the next report.
 //
+// Actions (2.9b, actions.ts): "action" and "group-action" also take
+//   run-fix {fix}            one of Kulan's ready-made fixes (FIXES)
+//   message {title, body}    a notice on the screens of whoever uses the computer
+//   run-script {script_id}   one of the organisation's scripts, once the Owner allows
+//                            them, and only for an admin who typed their authenticator code
+//   POST {op: "message-person", person_id, title, body}     -> {count} (the computers they're signed in on)
+//   POST {op: "action-output", action_id}                  -> {output, exit_code}
+//   POST {op: "scripts", organisation_id}                  -> {allowed, scripts}
+//   POST {op: "set-scripts-allowed", organisation_id, allowed}   (the Owner, with the code)
+//   POST {op: "add-script" | "edit-script", ..., name, description?, body}   (with the code)
+//   POST {op: "remove-script", script_id}
+//   POST {op: "add-network", group_id, ssid, security, password?, hidden?}  (the password is kept sealed)
+//   POST {op: "remove-network", network_id}
+//   POST {op: "add-printer", group_id, name, uri} | {op: "remove-printer", printer_id}
+//   "groups" lists each group's networks (never a password) and printers.
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 import * as google from "./google.ts";
+import * as acts from "./actions.ts";
 import * as help from "./help.ts";
 import { cleanPolicy, mergePolicies } from "./policy.ts";
+import * as secrets from "./secrets.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
 // Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
@@ -116,9 +134,10 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ALLOWED_ORIGINS = (Deno.env.get("FLEET_DASHBOARD_ORIGINS") ?? "https://os.kulangroup.com,https://mmohamud25.github.io")
   .split(",").map((o) => o.trim()).filter(Boolean);
 const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
-                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app"]);
+                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app", "run-fix", "run-script", "message"]);
 // What may be asked of a whole group at once (never erase or lost mode).
-const GROUP_ACTIONS = new Set(["refresh", "install-updates", "install-app", "lock-screen", "restart", "shutdown"]);
+const GROUP_ACTIONS = new Set(["refresh", "install-updates", "install-app", "lock-screen", "restart", "shutdown",
+                               "run-fix", "run-script", "message"]);
 const HEX4 = /^[0-9a-f]{4}$/;
 const SERIAL = /^[A-Za-z0-9._-]{4,64}$/;
 const STALE_DAYS = 3;
@@ -656,14 +675,45 @@ Deno.serve(async (req: Request) => {
       return { status: 200, body: { mailbox: address, mailbox_password: password, ...(err ? { mailbox_error: err } : {}) } };
     };
 
+    // What an action carries, checked: an app, a fix, a message or a script.
+    // Returns the payload (null for none), or a reply saying why not.
+    const payloadFor = async (org: string, type: string, raw: unknown): Promise<Record<string, unknown> | null | Response> => {
+      if (type === "install-app") {
+        const app = cleanApp(raw);
+        return app ?? reply(400, { error: "choose a Debian package or Flathub app id" });
+      }
+      if (type === "run-fix") {
+        const fix = (raw as Record<string, unknown> | null)?.fix;
+        return typeof fix === "string" && Object.hasOwn(acts.FIXES, fix) ? { fix } : reply(400, { error: "choose one of Kulan's fixes" });
+      }
+      if (type === "message") {
+        const m = acts.cleanMessage(raw);
+        return m ?? reply(400, { error: "a message needs a title" });
+      }
+      if (type === "run-script") {
+        const [o] = await sql`select allow_scripts from fleet.organisations where id = ${org}`;
+        if (!o?.allow_scripts) return reply(403, { error: "the Owner hasn't allowed scripts for this organisation" });
+        if (me.aal !== "aal2") {
+          return reply(403, { error: "running a script needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
+        const sid = uuid((raw as Record<string, unknown> | null)?.script_id);
+        const [sc] = sid ? await sql`select id, name, sha256 from fleet.scripts where id = ${sid} and organisation_id = ${org}` : [];
+        return sc ? { script_id: sc.id, sha256: sc.sha256, name: sc.name } : reply(404, { error: "no such script" });
+      }
+      return null;
+    };
+    const describe = (type: string, payload: Record<string, unknown> | null) =>
+      type === "run-fix" ? { fix: payload?.fix } : type === "run-script" ? { script: payload?.name, sha256: payload?.sha256 }
+        : type === "message" ? { title: payload?.title } : payload;
+
     switch (body.op) {
       case "overview": {
         const mailDomain = sql`(select m.domain from fleet.mail_connections m where m.organisation_id = o.id) as mail_domain`;
         const organisations = global
-          ? await sql`select id, name, created_at, policy, owner_email, admin_two_step, (${global} or owner_email = ${email}) as is_owner,
+          ? await sql`select id, name, created_at, policy, owner_email, admin_two_step, allow_scripts, (${global} or owner_email = ${email}) as is_owner,
                              ${mailDomain}
                       from fleet.organisations o order by name`
-          : await sql`select id, name, created_at, policy, owner_email, admin_two_step, owner_email = ${email} as is_owner,
+          : await sql`select id, name, created_at, policy, owner_email, admin_two_step, allow_scripts, owner_email = ${email} as is_owner,
                              ${mailDomain}
                       from fleet.organisations o where id = any(${orgs}::uuid[]) order by name`;
         const ids = organisations.map((o) => o.id);
@@ -678,7 +728,10 @@ Deno.serve(async (req: Request) => {
                  jsonb_array_length(coalesce(apps, '[]'::jsonb)) as app_count
           from fleet.devices where organisation_id = any(${ids}::uuid[]) order by left_at nulls first, hostname`;
         const actions = await sql`
-          select a.id, a.device_id, a.type, a.status, a.detail, a.created_at, a.finished_at, a.requested_by
+          select a.id, a.device_id, a.type, a.status, a.detail, a.created_at, a.finished_at, a.requested_by,
+                 a.exit_code, a.output is not null as has_output,
+                 case a.type when 'run-fix' then a.payload->>'fix' when 'run-script' then a.payload->>'name'
+                             when 'message' then a.payload->>'title' end as what
           from fleet.actions a join fleet.devices d on d.id = a.device_id
           where d.organisation_id = any(${ids}::uuid[]) order by a.created_at desc limit 50`;
         const policies = Object.fromEntries(organisations.map((o) => [o.id, o.policy ?? {}]));
@@ -1106,14 +1159,11 @@ Deno.serve(async (req: Request) => {
           if (!d.state?.erase_allowed) return reply(400, { error: "the person using that computer hasn't allowed remote erase" });
           if (!d.state?.encrypted) return reply(400, { error: "only encrypted computers can be erased remotely" });
         }
-        let payload: Record<string, unknown> | null = null;
-        if (body.type === "install-app") {
-          payload = cleanApp(body.payload);
-          if (!payload) return reply(400, { error: "choose a Debian package or Flathub app id" });
-        }
+        const payload = await payloadFor(org, body.type, body.payload);
+        if (payload instanceof Response) return payload;
         const [row] = await sql`insert into fleet.actions (device_id, type, requested_by, payload)
                                 values (${id}, ${body.type}, ${email}, ${payload === null ? null : json(payload)}) returning id`;
-        await audit(org, id, `asked: ${body.type}`, payload);
+        await audit(org, id, `asked: ${body.type}`, describe(body.type, payload));
         await wakeDevices([id as string]);
         return reply(200, { id: row.id });
       }
@@ -1126,7 +1176,11 @@ Deno.serve(async (req: Request) => {
                  coalesce((select array_agg(gd.device_id) from fleet.group_devices gd join fleet.devices d on d.id = gd.device_id
                            where gd.group_id = g.id and d.left_at is null), '{}') as devices,
                  coalesce((select array_agg(gp.person_id) from fleet.group_people gp join fleet.people p on p.id = gp.person_id
-                           where gp.group_id = g.id and p.removed_at is null), '{}') as people
+                           where gp.group_id = g.id and p.removed_at is null), '{}') as people,
+                 coalesce((select jsonb_agg(jsonb_build_object('id', n.id, 'ssid', n.ssid, 'security', n.security, 'hidden', n.hidden)
+                                            order by n.ssid) from fleet.group_networks n where n.group_id = g.id), '[]') as networks,
+                 coalesce((select jsonb_agg(jsonb_build_object('id', pr.id, 'name', pr.name, 'uri', pr.uri) order by lower(pr.name))
+                           from fleet.group_printers pr where pr.group_id = g.id), '[]') as printers
           from fleet.groups g where g.organisation_id = ${org} order by lower(g.name)`;
         return reply(200, { groups });
       }
@@ -1245,18 +1299,16 @@ Deno.serve(async (req: Request) => {
         const g = await group(uuid(body.group_id));
         if (!g) return reply(404, { error: "no such group" });
         if (!GROUP_ACTIONS.has(body.type)) return reply(400, { error: "that can't be asked of a whole group" });
-        let payload: Record<string, unknown> | null = null;
-        if (body.type === "install-app") {
-          payload = cleanApp(body.payload);
-          if (!payload) return reply(400, { error: "choose a Debian package or Flathub app id" });
-        }
+        const payload = await payloadFor(g.organisation_id, body.type, body.payload);
+        if (payload instanceof Response) return payload;
         const rows = await sql`
           insert into fleet.actions (device_id, type, requested_by, payload)
           select gd.device_id, ${body.type}, ${email}, ${payload === null ? null : json(payload)}
           from fleet.group_devices gd join fleet.devices d on d.id = gd.device_id
           where gd.group_id = ${g.id} and d.left_at is null
           returning id, device_id`;
-        await audit(g.organisation_id, null, `asked group ${g.name}: ${body.type}`.slice(0, 80), { computers: rows.length, ...(payload ?? {}) });
+        await audit(g.organisation_id, null, `asked group ${g.name}: ${body.type}`.slice(0, 80),
+                    { computers: rows.length, ...(describe(body.type, payload) ?? {}) });
         await wakeDevices(rows.map((r) => r.device_id));
         return reply(200, { count: rows.length });
       }
@@ -1651,6 +1703,153 @@ Deno.serve(async (req: Request) => {
         const theirs = Array.isArray(s.device_candidates) ? s.device_candidates : [];
         return reply(200, { state: s.state, control: s.control, detail: s.detail, who: s.answered_by,
                             offer: s.offer ?? null, candidates: theirs.slice(since), count: theirs.length });
+      }
+      // --- Actions (2.9b) --------------------------------------------------------------------
+      case "message-person": {
+        const p = await person(uuid(body.person_id));
+        if (!p) return reply(404, { error: "no such person" });
+        const msg = acts.cleanMessage(body);
+        if (!msg) return reply(400, { error: "a message needs a title" });
+        // The computers they're signed in on now (their last reports say so).
+        const rows = await sql`
+          insert into fleet.actions (device_id, type, requested_by, payload)
+          select d.id, 'message', ${email}, ${json(msg)} from fleet.devices d
+          where d.organisation_id = ${p.organisation_id} and d.left_at is null
+            and exists (select 1 from jsonb_array_elements(coalesce(d.last_report->'sign_ins', '[]'::jsonb)) s
+                        where s->>'username' = ${p.username} and (s->>'now')::boolean)
+          returning device_id`;
+        if (!rows.length) return reply(400, { error: `${p.username} isn't signed in on any computer now` });
+        await audit(p.organisation_id, null, `sent ${p.username} a message`.slice(0, 80), { title: msg.title, computers: rows.length });
+        await wakeDevices(rows.map((r) => r.device_id));
+        return reply(200, { count: rows.length });
+      }
+      case "action-output": {
+        const id = uuid(body.action_id);
+        const [a] = id ? await sql`select a.output, a.exit_code, a.status, a.type, d.organisation_id from fleet.actions a
+                                   join fleet.devices d on d.id = a.device_id where a.id = ${id}` : [];
+        if (!a || !canOrg(a.organisation_id)) return reply(404, { error: "no such request" });
+        return reply(200, { output: a.output ?? null, exit_code: a.exit_code, status: a.status, type: a.type });
+      }
+      case "scripts": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const [o] = await sql`select allow_scripts from fleet.organisations where id = ${org}`;
+        const scripts = await sql`select id, name, description, body, sha256, created_at, created_by, updated_at, updated_by
+                                  from fleet.scripts where organisation_id = ${org} order by lower(name)`;
+        return reply(200, { allowed: o?.allow_scripts === true, scripts, is_owner: await isOwner(org) });
+      }
+      case "set-scripts-allowed": {
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner allows scripts" });
+        if (typeof body.allowed !== "boolean") return reply(400, { error: "allowed is true or false" });
+        if (body.allowed && me.aal !== "aal2") {
+          return reply(403, { error: "allowing scripts needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
+        await sql`update fleet.organisations set allow_scripts = ${body.allowed} where id = ${org}`;
+        if (!body.allowed) {  // scripts still waiting don't run
+          await sql`update fleet.actions a set status = 'cancelled', finished_at = now()
+                    from fleet.devices d where d.id = a.device_id and d.organisation_id = ${org}
+                      and a.type = 'run-script' and a.status = 'pending'`;
+        }
+        await audit(org, null, body.allowed ? "allowed scripts on the computers" : "stopped scripts on the computers");
+        return reply(200, {});
+      }
+      case "add-script":
+      case "edit-script": {
+        const existing = body.op === "edit-script"
+          ? (uuid(body.script_id) ? (await sql`select id, organisation_id, name from fleet.scripts where id = ${uuid(body.script_id)}`)[0] : null)
+          : null;
+        if (body.op === "edit-script" && (!existing || !canOrg(existing.organisation_id))) return reply(404, { error: "no such script" });
+        const org = existing ? existing.organisation_id : uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        const [o] = await sql`select allow_scripts from fleet.organisations where id = ${org}`;
+        if (!o?.allow_scripts) return reply(403, { error: "the Owner hasn't allowed scripts for this organisation" });
+        if (me.aal !== "aal2") {
+          return reply(403, { error: "changing scripts needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
+        const name = typeof body.name === "string" ? body.name.replace(/[\p{Cc}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 80) : "";
+        if (!name) return reply(400, { error: "a script needs a name" });
+        const description = typeof body.description === "string" ? body.description.replace(/[\p{Cc}]/gu, " ").trim().slice(0, 300) : "";
+        const script = acts.cleanScript(body.body);
+        if (!script) return reply(400, { error: "a script is text, up to 64 KB" });
+        const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script))),
+                                  (b) => b.toString(16).padStart(2, "0")).join("");
+        try {
+          if (existing) {
+            await sql`update fleet.scripts set name = ${name}, description = ${description}, body = ${script}, sha256 = ${digest},
+                        updated_at = now(), updated_by = ${email} where id = ${existing.id}`;
+            await audit(org, null, `changed script ${name}`.slice(0, 80), { sha256: digest });
+            return reply(200, { id: existing.id, sha256: digest });
+          }
+          const [row] = await sql`insert into fleet.scripts (organisation_id, name, description, body, sha256, created_by, updated_by)
+                                  values (${org}, ${name}, ${description}, ${script}, ${digest}, ${email}, ${email}) returning id`;
+          await audit(org, null, `added script ${name}`.slice(0, 80), { sha256: digest });
+          return reply(200, { id: row.id, sha256: digest });
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "there's already a script with that name" });
+          throw e;
+        }
+      }
+      case "remove-script": {
+        const id = uuid(body.script_id);
+        const [sc] = id ? await sql`select organisation_id, name from fleet.scripts where id = ${id}` : [];
+        if (!sc || !canOrg(sc.organisation_id)) return reply(404, { error: "no such script" });
+        await sql`delete from fleet.scripts where id = ${id}`;
+        await audit(sc.organisation_id, null, `removed script ${sc.name}`.slice(0, 80));
+        return reply(200, {});
+      }
+      case "add-network": {
+        const g = await group(uuid(body.group_id));
+        if (!g) return reply(404, { error: "no such group" });
+        const n = acts.cleanNetwork(body);
+        if (!n) return reply(400, { error: "check the network name and password (8 to 63 characters)" });
+        const id = crypto.randomUUID();
+        let sealed: string | null = null;
+        if (n.password !== null) {
+          sealed = await secrets.seal(n.password, "wifi", `wifi:${g.id}:${id}`);
+          if (!sealed) return reply(500, { error: "the server's encryption key is missing. Contact Kulan" });
+        }
+        try {
+          await sql`insert into fleet.group_networks (id, group_id, ssid, security, secret, hidden, created_by)
+                    values (${id}, ${g.id}, ${n.ssid}, ${n.security}, ${sealed}, ${n.hidden}, ${email})`;
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "the group already has that network" });
+          throw e;
+        }
+        await audit(g.organisation_id, null, `added Wi-Fi ${n.ssid} to group ${g.name}`.slice(0, 80), { security: n.security });
+        await wakeDevices((await sql`select device_id from fleet.group_devices where group_id = ${g.id}`).map((r) => r.device_id));
+        return reply(200, { id });
+      }
+      case "remove-network":
+      case "remove-printer": {
+        const id = uuid(body.op === "remove-network" ? body.network_id : body.printer_id);
+        const table = body.op === "remove-network" ? sql`fleet.group_networks` : sql`fleet.group_printers`;
+        const label = body.op === "remove-network" ? sql`x.ssid` : sql`x.name`;
+        const [x] = id ? await sql`select x.group_id, ${label} as label, g.name as group_name, g.organisation_id
+                                   from ${table} x join fleet.groups g on g.id = x.group_id where x.id = ${id}` : [];
+        if (!x || !canOrg(x.organisation_id)) return reply(404, { error: body.op === "remove-network" ? "no such network" : "no such printer" });
+        await sql`delete from ${table} where id = ${id}`;
+        await audit(x.organisation_id, null,
+                    `removed ${body.op === "remove-network" ? "Wi-Fi" : "printer"} ${x.label} from group ${x.group_name}`.slice(0, 80));
+        await wakeDevices((await sql`select device_id from fleet.group_devices where group_id = ${x.group_id}`).map((r) => r.device_id));
+        return reply(200, {});
+      }
+      case "add-printer": {
+        const g = await group(uuid(body.group_id));
+        if (!g) return reply(404, { error: "no such group" });
+        const pr = acts.cleanPrinter(body);
+        if (!pr) return reply(400, { error: "check the printer's name and address (for example ipp://192.168.1.20/ipp/print)" });
+        try {
+          const [row] = await sql`insert into fleet.group_printers (group_id, name, uri, created_by)
+                                  values (${g.id}, ${pr.name}, ${pr.uri}, ${email}) returning id`;
+          await audit(g.organisation_id, null, `added printer ${pr.name} to group ${g.name}`.slice(0, 80), { uri: pr.uri });
+          await wakeDevices((await sql`select device_id from fleet.group_devices where group_id = ${g.id}`).map((r) => r.device_id));
+          return reply(200, { id: row.id });
+        } catch (e) {
+          if ((e as { code?: string }).code === "23505") return reply(409, { error: "the group already has a printer with that name" });
+          throw e;
+        }
       }
       case "cancel-action": {
         const id = uuid(body.action_id);

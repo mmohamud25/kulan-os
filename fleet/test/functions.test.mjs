@@ -178,6 +178,8 @@ for (const name of ["fleet", "fleet-admin"]) {
   fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "policy.ts"), path.join(run, "policy.ts"));
   // help.ts too (2.9a): the same in both, like policy.ts.
   fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "help.ts"), path.join(run, "help.ts"));
+  // actions.ts and secrets.ts (2.9b): the same in both too.
+  for (const f of ["actions.ts", "secrets.ts"]) fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, f), path.join(run, f));
   if (name === "fleet-admin") {
     fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "google.ts"), path.join(run, "google.ts"));
   }
@@ -1003,6 +1005,156 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
                     `${HELPER}: gave amina a new setup code`, `${HELPER}: removed amina`, `${OWNER}: added admin ${HELPER}`,
                     `${NEWOWNER}: became the Owner with the recovery code`]) {
   ok(whats.includes(want), `in the activity log: ${want}`, whats);
+}
+
+// --- actions: fixes, messages, scripts, Wi-Fi and printers (2.9b) ------------------------------
+{
+  const moId = (await db`select id from fleet.people where username = 'mo' and organisation_id = ${org}`)[0].id;
+  // A fix, a message; nothing else is a fix.
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-fix", payload: { fix: "free-space" } });
+  ok(r.status === 200, "a fix asked of a computer", r);
+  const fixId = r.body.id;
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-fix", payload: { fix: "rm -rf /" } });
+  ok(r.status === 400, "only Kulan's own fixes", r);
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "message",
+                            payload: { title: "Restart\ttonight\u0000", body: "Updates are waiting.\nThanks!\u0007" } });
+  ok(r.status === 200, "a message", r);
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "message", payload: { body: "no title" } });
+  ok(r.status === 400, "a message needs a title", r);
+  let rep = await report(B);
+  const fixReq = rep.body.actions.find((a) => a.type === "run-fix"), msgReq = rep.body.actions.find((a) => a.type === "message");
+  ok(fixReq?.payload.fix === "free-space" && msgReq?.payload.title === "Restart tonight" &&
+     msgReq.payload.body === "Updates are waiting.\nThanks!", "the computer gets them, cleaned", rep.body.actions);
+  ok(rep.body.policy.scripts === undefined, "scripts not allowed: the policy doesn't say they are", rep.body.policy);
+  await computer(B, `/v1/actions/${fixId}`, { status: "done", detail: "freed 512 MB", output: "x".repeat(70000) + "\u0000", exit_code: 0 });
+  r = await admin(HELPER, { op: "action-output", action_id: fixId });
+  ok(r.status === 200 && r.body.output.length === 65536 && r.body.exit_code === 0 && !r.body.output.includes("\u0000"),
+     "a fix's output is kept, at most 64 KB", { len: r.body.output?.length, code: r.body.exit_code });
+  await computer(B, `/v1/actions/${msgReq.id}`, { status: "done", detail: "shown", output: "nope", exit_code: 3 });
+  r = await admin(HELPER, { op: "action-output", action_id: msgReq.id });
+  ok(r.body.output === null && r.body.exit_code === null, "only fixes and scripts keep an output", r.body);
+  await db`insert into fleet.admins (email, organisation_id) values ('other.admin@x.test', ${other}) on conflict do nothing`;
+  r = await admin("other.admin@x.test", { op: "action-output", action_id: fixId });
+  ok(r.status === 403 || r.status === 404, "another organisation's admin sees no output", r);
+  r = await admin(HELPER, { op: "overview" });
+  const listed = r.body.actions.find((a) => a.id === fixId);
+  ok(listed?.what === "free-space" && listed.has_output === true && listed.exit_code === 0, "the overview lists it with its output", listed);
+
+  // Scripts: only once the Owner allows them, and only with the authenticator code.
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", body: "echo hi" });
+  ok(r.status === 403 && r.body.error.includes("Owner"), "no scripts until the Owner allows them", r);
+  r = await admin(HELPER, { op: "set-scripts-allowed", organisation_id: org, allowed: true }, "aal2");
+  ok(r.status === 403, "only the Owner allows scripts", r);
+  r = await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: true });
+  ok(r.status === 403 && r.body.two_step, "the Owner needs the authenticator code to allow them", r);
+  r = await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: true }, "aal2");
+  ok(r.status === 200, "the Owner allows scripts", r);
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", body: "echo hi" });
+  ok(r.status === 403 && r.body.two_step, "writing a script needs the code", r);
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", body: "a\u0000b" }, "aal2");
+  ok(r.status === 400, "a script is text", r);
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", body: "x".repeat(65537) }, "aal2");
+  ok(r.status === 400, "64 KB at most", r);
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", description: "Says hi", body: "echo hi\r\n" }, "aal2");
+  ok(r.status === 200 && /^[0-9a-f]{64}$/.test(r.body.sha256), "a script added", r);
+  const scriptId = r.body.id, sha1 = r.body.sha256;
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "hello", body: "echo again" }, "aal2");
+  ok(r.status === 409, "names are unique", r);
+  r = await admin(HELPER, { op: "scripts", organisation_id: org });
+  ok(r.body.allowed === true && r.body.scripts.length === 1 && r.body.scripts[0].body === "echo hi\n", "listed, line endings made plain", r.body);
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } });
+  ok(r.status === 403 && r.body.two_step, "running a script needs the code", r);
+  r = await admin(HELPER, { op: "action", device_id: C.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  ok(r.status === 404, "not on another organisation's computer", r);
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  ok(r.status === 200, "a script asked of a computer", r);
+  const runId = r.body.id;
+  rep = await report(B);
+  const runReq = rep.body.actions.find((a) => a.type === "run-script");
+  ok(runReq?.payload.sha256 === sha1 && runReq.payload.name === "Hello" && rep.body.policy.scripts === true,
+     "the request carries the script's hash; the policy says scripts are allowed", { runReq, policy: rep.body.policy });
+  r = await computer(B, `/v1/scripts/${runId}`);
+  ok(r.status === 200 && r.body.body === "echo hi\n" && r.body.sha256 === sha1, "the computer fetches the script it was asked to run", r);
+  r = await computer(A, `/v1/scripts/${runId}`);
+  ok(r.status === 404 || r.status === 401, "another computer can't", r);
+  r = await call("fleet", `/v1/scripts/${runId}`, { device_id: B.device_id });
+  ok(r.status === 401, "nor anyone without the computer's key", r);
+  await admin(HELPER, { op: "edit-script", script_id: scriptId, name: "Hello", body: "echo changed" }, "aal2");
+  r = await computer(B, `/v1/scripts/${runId}`);
+  ok(r.status === 404, "changed after it was asked for: not given out", r);
+  await computer(B, `/v1/actions/${runId}`, { status: "failed", detail: "the script changed", exit_code: -1 });
+  // Turning scripts off cancels any still waiting, and they can't be fetched.
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  const waiting = r.body.id;
+  await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: false });
+  ok((await db`select status from fleet.actions where id = ${waiting}`)[0].status === "cancelled", "scripts off: waiting ones cancelled");
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  ok(r.status === 403, "and no new ones", r);
+  ok(!("scripts" in (await report(B)).body.policy), "the computers are told scripts are off");
+  r = await admin(HELPER, { op: "log", organisation_id: org, what: "script" });
+  const sl = r.body.entries.map((e) => e.what);
+  for (const want of ["allowed scripts on the computers", "added script Hello", "changed script Hello", "asked: run-script",
+                      "stopped scripts on the computers"]) ok(sl.includes(want), `in the activity log: ${want}`, sl);
+  ok(!JSON.stringify(r.body.entries).includes("echo"), "the script's text isn't in the log");
+  r = await admin(HELPER, { op: "remove-script", script_id: scriptId });
+  ok(r.status === 200, "a script removed", r);
+
+  // A message to a person: the computers they're signed in on now.
+  r = await admin(HELPER, { op: "message-person", person_id: moId, title: "Hi" });
+  ok(r.status === 400 && r.body.error.includes("isn't signed in"), "not signed in anywhere: said so", r);
+  await report(B, { sign_ins: [{ username: "mo", last: 1790000000, now: true }] });
+  r = await admin(HELPER, { op: "message-person", person_id: moId, title: "Hi", body: "Lunch?" });
+  ok(r.status === 200 && r.body.count === 1, "sent to the computer they're on", r);
+  rep = await report(B);
+  ok(rep.body.actions.some((a) => a.type === "message" && a.payload.title === "Hi"), "it arrives", rep.body.actions);
+
+  // Wi-Fi networks and printers for a group.
+  r = await admin(HELPER, { op: "add-group", organisation_id: org, name: "Office" });
+  const office = r.body.id;
+  await admin(HELPER, { op: "edit-group", group_id: office, devices: [B.device_id] });
+  r = await admin(HELPER, { op: "add-network", group_id: office, ssid: "Acme Staff", security: "wpa-psk", password: "short" });
+  ok(r.status === 400, "a WPA password is 8 to 63 characters", r);
+  r = await admin(HELPER, { op: "add-network", group_id: office, ssid: "x".repeat(33), security: "open" });
+  ok(r.status === 400, "a network name is 32 bytes at most", r);
+  r = await admin(HELPER, { op: "add-network", group_id: office, ssid: "Acme Staff", security: "wpa-psk", password: "correct horse battery" });
+  ok(r.status === 200, "a Wi-Fi network added", r);
+  const netId = r.body.id;
+  r = await admin(HELPER, { op: "add-network", group_id: office, ssid: "Acme Guest", security: "open", hidden: true });
+  ok(r.status === 200, "an open one too", r);
+  r = await admin(HELPER, { op: "add-network", group_id: office, ssid: "Acme Staff", security: "open" });
+  ok(r.status === 409, "one of each name per group", r);
+  const stored = (await db`select secret from fleet.group_networks where id = ${netId}`)[0].secret;
+  ok(stored.startsWith("s1:") && !stored.includes("horse"), "the password is kept sealed", stored.slice(0, 8));
+  r = await admin(HELPER, { op: "groups", organisation_id: org });
+  const og = r.body.groups.find((g) => g.id === office);
+  ok(og.networks.length === 2 && !JSON.stringify(og).includes("horse") && !("secret" in og.networks[0]), "admins never see the password", og.networks);
+  r = await admin(HELPER, { op: "add-printer", group_id: office, name: "Front desk", uri: "file:///etc/passwd" });
+  ok(r.status === 400, "printers are network printers (IPP)", r);
+  r = await admin(HELPER, { op: "add-printer", group_id: office, name: "Front desk", uri: "ipp://192.168.1.20/ipp/print" });
+  ok(r.status === 200, "a printer added", r);
+  const prId = r.body.id;
+  rep = await report(B);
+  const staff = rep.body.networks.find((n) => n.ssid === "Acme Staff"), guest = rep.body.networks.find((n) => n.ssid === "Acme Guest");
+  ok(staff?.password === "correct horse battery" && staff.security === "wpa-psk" && guest && !("password" in guest) && guest.hidden === true,
+     "the group's computers get the networks, the password opened only for them", rep.body.networks);
+  ok(rep.body.printers.length === 1 && rep.body.printers[0].uri === "ipp://192.168.1.20/ipp/print", "and the printer", rep.body.printers);
+  rep = await report(A);
+  ok(rep.body.networks.length === 0 && rep.body.printers.length === 0, "computers outside the group don't", rep.body);
+  await db`update fleet.group_networks set secret = ${"s1:" + btoa("x".repeat(40))} where id = ${netId}`;
+  rep = await report(B);
+  ok(!rep.body.networks.some((n) => n.ssid === "Acme Staff"), "a password that can't be opened isn't sent at all", rep.body.networks);
+  r = await admin(HELPER, { op: "remove-network", network_id: netId });
+  ok(r.status === 200, "a network removed", r);
+  r = await admin(HELPER, { op: "remove-printer", printer_id: prId });
+  ok(r.status === 200 && (await report(B)).body.printers.length === 0, "a printer removed; the computers drop it", r);
+  r = await admin(HELPER, { op: "group-action", group_id: office, type: "run-fix", payload: { fix: "reset-wifi" } });
+  ok(r.status === 200 && r.body.count === 1, "a fix for a whole group", r);
+  r = await admin(HELPER, { op: "log", organisation_id: org, what: "group Office" });
+  const gl = r.body.entries.map((e) => e.what);
+  for (const want of ["added Wi-Fi Acme Staff to group Office", "added printer Front desk to group Office",
+                      "removed Wi-Fi Acme Staff from group Office", "asked group Office: run-fix"]) ok(gl.includes(want), `in the activity log: ${want}`, gl);
+  ok(!JSON.stringify((await db`select detail from fleet.audit`).map((x) => x.detail)).includes("horse"), "no Wi-Fi password in the log");
+  await report(B);
 }
 
 const BOSS2 = "support@kulan.test";

@@ -45,20 +45,33 @@
 //   {op: "connected"} | {op: "end", detail?} | {op: "failed", detail?}
 // The screen itself goes straight to the admin (WebRTC), never through here.
 //
+// Actions (2.9b, actions.ts): run-fix {fix}, message {title, body} and
+// run-script {script_id, sha256, name}. A script's text is fetched with
+//   POST /fleet/v1/scripts/{action id}   Bearer token, {device_id} -> {body, sha256}
+// only while that request is out to this computer, and only if the script
+// still has the SHA-256 the request was made with. A fix's or script's output
+// (64 KB) and exit code come back with the result. Each reply's policy says
+// whether the organisation allows scripts ("scripts": true), and lists the
+// Wi-Fi networks ("networks", passwords opened only for this) and printers
+// ("printers") its groups give it.
+//
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
 // Data lives in the private "fleet" schema, reached over a direct Postgres
 // connection, never through the public Data API.
 import postgres from "npm:postgres@3.4.5";
 import { mergePolicies } from "./policy.ts";
+import * as acts from "./actions.ts";
 import * as help from "./help.ts";
+import * as secrets from "./secrets.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
 // Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
 const json = (v: unknown) => sql.json(v as Parameters<typeof sql.json>[0]);
 const MAX_BODY = 512 * 1024; // a report with a full app list
 const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
-                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app", "remote-help"]);
+                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app", "remote-help",
+                         "run-fix", "run-script", "message"]);
 const MAX_USB_SEEN = 20;
 const MAX_APPS = 3000;
 const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -502,11 +515,28 @@ Deno.serve(async (req: Request) => {
                                   returning id, type, payload, created_at)
                                 select id, type, payload from sent order by created_at`;
       // This computer's policy: the organisation's and its groups', the stricter rule winning.
-      const [org] = await sql`select policy from fleet.organisations where id = ${dev.organisation_id}`;
+      const [org] = await sql`select policy, allow_scripts from fleet.organisations where id = ${dev.organisation_id}`;
       const groups = await sql`select g.policy from fleet.groups g join fleet.group_devices gd on gd.group_id = g.id
                                where gd.device_id = ${dev.id}`;
       const { policy } = mergePolicies([org?.policy ?? {}, ...groups.map((g) => g.policy)]);
       const sent: Record<string, unknown> = { ...policy };
+      if (org?.allow_scripts) sent.scripts = true;
+      // Wi-Fi networks and printers from this computer's groups (passwords opened only to send them here).
+      const nets = await sql`select distinct on (n.ssid) n.id, n.group_id, n.ssid, n.security, n.secret, n.hidden
+                             from fleet.group_networks n join fleet.group_devices gd on gd.group_id = n.group_id
+                             where gd.device_id = ${dev.id} order by n.ssid, n.created_at`;
+      const networks = [];
+      for (const n of nets) {
+        const password = n.secret ? await secrets.open(n.secret, "wifi", `wifi:${n.group_id}:${n.id}`) : null;
+        if (n.secret && !password) {
+          console.error("fleet: a Wi-Fi password can't be opened: is FLEET_FACTOR_KEY set, and unchanged?");
+          continue;
+        }
+        networks.push({ id: n.id, ssid: n.ssid, security: n.security, hidden: n.hidden, ...(password ? { password } : {}) });
+      }
+      const printers = await sql`select distinct on (lower(p.name)) p.id, p.name, p.uri
+                                 from fleet.group_printers p join fleet.group_devices gd on gd.group_id = p.group_id
+                                 where gd.device_id = ${dev.id} order by lower(p.name), p.created_at`;
       if (policy.usb === "approved") {
         sent.usb_drives = await sql`select vendor_id, product_id, serial from fleet.approved_drives
                                     where organisation_id = ${dev.organisation_id} order by created_at limit 500`;
@@ -552,14 +582,23 @@ Deno.serve(async (req: Request) => {
         accounts: people.map((p) => account(p, { required: requiredFor(p), factors: factorsOf[p.id] ?? [],
                                                  ...(unopened.has(p.id) ? { codes_unavailable: true } : {}) }, provider)),
         wake: wakeInfo(wake_topic),
+        networks,
+        printers: printers.map((p) => ({ id: p.id, name: p.name, uri: p.uri })),
       });
     }
 
     const done = path.match(/^\/v1\/actions\/([0-9a-f-]{36})$/);
     if (done) {
       const status = body.status === "done" ? "done" : "failed";
-      const [a] = await sql`update fleet.actions set status = ${status}, detail = ${text(body.detail, 300)}, finished_at = now()
+      // A fix's or script's output and exit code (the first 64 KB).
+      const output = typeof body.output === "string" ? new TextDecoder().decode(new TextEncoder().encode(body.output).slice(0, acts.OUTPUT_MAX))
+        .replace(/\uFFFD$/, "").replaceAll("\0", "") : null;
+      const exitCode = Number.isInteger(body.exit_code) ? Math.max(-1000, Math.min(1000, body.exit_code as number)) : null;
+      const [a] = await sql`update fleet.actions set status = ${status}, detail = ${text(body.detail, 300)}, finished_at = now(),
+                                   output = case when type in ('run-fix', 'run-script') then ${output} end,
+                                   exit_code = case when type in ('run-fix', 'run-script') then ${exitCode}::int end
                             where id = ${done[1]} and device_id = ${dev.id} and status = 'sent' returning type, payload`;
+      if (Math.random() < 0.01) await sql`select fleet.prune_action_outputs()`;
       // A computer that couldn't take a remote help request (an older Kulan OS, say): the session ends with why.
       if (a?.type === "remote-help" && status === "failed" && typeof a.payload?.session_id === "string") {
         await sql`update fleet.help_sessions set state = 'failed', ended_at = now(), updated_at = now(),
@@ -567,6 +606,19 @@ Deno.serve(async (req: Request) => {
                   where id = ${a.payload.session_id} and device_id = ${dev.id} and state = 'requested'`;
       }
       return reply(200, {});
+    }
+
+    const script = path.match(/^\/v1\/scripts\/([0-9a-f-]{36})$/);
+    if (script) {
+      // Only the script of a request out to this computer now, still as it was asked for, while the Owner allows scripts.
+      const [row] = await sql`select s.body, s.sha256 from fleet.actions a
+                              join fleet.scripts s on s.id = (a.payload->>'script_id')::uuid
+                              join fleet.organisations o on o.id = s.organisation_id
+                              where a.id = ${script[1]} and a.device_id = ${dev.id} and a.type = 'run-script' and a.status = 'sent'
+                                and s.organisation_id = ${dev.organisation_id} and o.allow_scripts
+                                and s.sha256 = a.payload->>'sha256'`;
+      if (!row) return reply(404, { error: "no such script, or it changed after it was asked for" });
+      return reply(200, { body: row.body, sha256: row.sha256 });
     }
 
     if (path === "/v1/leave") {
