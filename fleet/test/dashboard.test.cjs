@@ -35,6 +35,10 @@ function reply(b) {
     case "action": return {};
     case "approve-drive": state.approved.push({ id: "u1", name: b.name, vendor_id: b.vendor_id, product_id: b.product_id, serial: b.serial }); return {};
     case "edit-person": return {};
+    case "help-start": return { session_id: "22222222-2222-4222-8222-222222222222", ice: [{ urls: ["stun:stun.cloudflare.com:3478"] }], relay: false, woke: true, signed_in: true };
+    case "help-signal": state.helpPolls = (state.helpPolls || 0) + 1;
+      return state.helpPolls < 2 ? { state: "asking", who: "amina", control: false, candidates: [], count: 0 }
+                                 : { state: "declined", detail: "they said no", control: false, candidates: [], count: 0 };
     case "weekly-report": return { week: "2026-10-26", made_at: "2026-10-26T09:00:00Z",
       summary: { computers: { total: 1, reported_this_week: 1, up_to_date: 0, security_waiting: [{ hostname: "laptop-a", count: 2 }],
                               restart_needed: ["laptop-a"], counts: { restart_needed: 120 }, encrypted: 1, not_encrypted: [], firewall_off: [], compliance_passing: 1,
@@ -213,6 +217,21 @@ function reply(b) {
   await page.waitForTimeout(300);
   const rp = state.calls.filter((c) => c.op === "remove-person").pop();
   if (rp?.mailbox !== "delete" || rp.confirm !== "amina") throw "remove-person mailbox " + JSON.stringify(rp);
+  // 2.9a: remote help asked from a computer's row; the person says no.
+  await page.selectOption("#devices select", "remote-help");
+  await page.click("#devices >> button:has-text('Send')");
+  await page.waitForSelector("#dlg-title:has-text('Remote help on laptop-a')");
+  if (!(await page.textContent("#dlg")).includes("asked first and sees your email")) throw "remote help: consent not explained";
+  await page.check("#dlg input[type=checkbox]");
+  await page.click("#dlg-actions >> text=Ask to see the screen");
+  await page.waitForSelector("#help-dialog[open]");
+  const hs = state.calls.find((c) => c.op === "help-start");
+  if (JSON.stringify(hs) !== JSON.stringify({ op: "help-start", device_id: "d1", control: true })) throw "help-start " + JSON.stringify(hs);
+  await page.waitForSelector("#help-status:has-text('Asking amina on laptop-a')", { timeout: 5000 });
+  await page.waitForSelector("#help-status:has-text('They said no. (they said no)')", { timeout: 5000 });
+  if ((await page.textContent("#help-end")) !== "Close") throw "remote help: no Close after it ended";
+  await page.click("#help-end");
+  if (await page.locator("#help-dialog[open]").count()) throw "remote help: viewer didn't close";
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);

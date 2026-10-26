@@ -87,6 +87,17 @@ h4 { margin: 14px 0 6px; }
   body:not(.printing) #print-area { display: none; }
 }
 #print-area { display: none; }
+/* Remote help (2.9a): the person's screen, as big as it fits. */
+dialog.help { max-width: none; width: 100vw; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: #000; color: #fff; }
+dialog.help[open] { display: flex; flex-direction: column; }
+.help-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 8px 12px; background: #0a2240; }
+.help-bar b { font: 800 15px Manrope, Inter, sans-serif; }
+.help-bar .help-status { color: #cbd5e1; font-size: 13px; flex: 1 1 200px; }
+.help-bar label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.help-bar button { background: #15253a; color: #fff; }
+.help-bar button.danger { background: #b91c1c; color: #fff; }
+#help-video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; outline: none; touch-action: none; }
+#help-video.control { cursor: crosshair; }
 </style>
 </head>
 <body>
@@ -278,6 +289,17 @@ h4 { margin: 14px 0 6px; }
   <div class="dlg-actions" id="dlg-actions"></div>
 </dialog>
 
+<dialog id="help-dialog" class="help" aria-label="Remote help">
+  <div class="help-bar">
+    <b id="help-title">Remote help</b>
+    <span class="help-status" id="help-status" role="status"></span>
+    <label id="help-control-wrap" class="hidden"><input type="checkbox" id="help-control" checked> Use their mouse and keyboard</label>
+    <button type="button" id="help-full">Full screen</button>
+    <button type="button" id="help-end" class="danger">End</button>
+  </div>
+  <video id="help-video" autoplay muted playsinline tabindex="0" aria-label="Their screen"></video>
+</dialog>
+
 <dialog id="report-dialog">
   <div class="row"><h3 id="report-title" style="margin: 0; font: 800 18px Manrope, Inter, sans-serif"></h3><button id="report-close" style="margin-left: auto">Close</button></div>
   <div id="report-body"></div>
@@ -287,6 +309,7 @@ h4 { margin: 14px 0 6px; }
 <script src="supabase-js-2.49.4.js"></script>
 <script type="module">
 import { sha512crypt, newSalt, setupCode } from "./sha512crypt.js";
+import { RemoteHelp } from "./remotehelp.js";
 const { createClient } = window.supabase;
 
 const SUPABASE_URL = "https://xegnwqxpegznsufulclx.supabase.co";
@@ -297,7 +320,7 @@ const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates
                  ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
                  ["restart", "Restart (5 min notice)"], ["shutdown", "Switch off (5 min notice)"]];
 const LABEL = { ...Object.fromEntries(ACTIONS), erase: "Erase", "lost-mode-on": "Turn on lost mode",
-                "lost-mode-off": "Release from lost mode", "install-app": "Install an app" };
+                "lost-mode-off": "Release from lost mode", "install-app": "Install an app", "remote-help": "Remote help" };
 const GROUP_ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"], ["lock-screen", "Lock the screen"],
                        ["restart", "Restart (5 min notice)"], ["shutdown", "Switch off (5 min notice)"],
                        ["install-app", "Install an app…"]];
@@ -350,9 +373,11 @@ function ago(iso) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+let lastToken = null;  // for ending remote help as the page closes
 async function api(body) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Please sign in again");
+  lastToken = session.access_token;
   const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(body) });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -452,6 +477,7 @@ async function load() {
   render();
   await loadGroups();  // before people: their dialogs offer the groups
   await loadPeople();
+  helpFromLink();
 }
 
 async function loadPeople() {
@@ -1249,10 +1275,12 @@ function render() {
     pick.append(d.state?.lost_mode ? el("option", { value: "lost-mode-off" }, "Release from lost mode")
                                    : el("option", { value: "lost-mode-on" }, "Turn on lost mode…"));
     pick.append(el("option", { value: "install-app" }, "Install an app…"));
+    pick.append(el("option", { value: "remote-help" }, "Remote help…"));
     if (d.state?.erase_allowed && d.state?.encrypted) pick.append(el("option", { value: "erase" }, "Erase (if lost or stolen)…"));
     const go = el("button", { onclick: async () => {
       if (!pick.value) return;
       if (pick.value === "install-app") { askInstallApp(d.hostname || "this computer", { op: "action", device_id: d.id }); return; }
+      if (pick.value === "remote-help") { askRemoteHelp(d); return; }
       if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Whoever is using it gets 5 minutes' notice.`)) return;
       if (pick.value === "shutdown" && !confirm(`Switch off ${d.hostname}? Whoever is using it gets 5 minutes' notice. It reports again when someone switches it on.`)) return;
       if (pick.value === "lost-mode-on" && !confirm(`Turn on lost mode on ${d.hostname}? At its next report nobody can sign in any more, and whoever is using it is signed out 20 seconds after a notice (unsaved work is lost). The sign-in screen says it's lost and to return it to your organisation. Release it here when it's found.`)) return;
@@ -1289,6 +1317,82 @@ function render() {
             catch (e) { $("app-msg").textContent = e.message; }
           } }, "Cancel") : "")));
   $("actions").replaceChildren(...(acts.length ? acts : [el("tr", {}, el("td", { colspan: "4", class: "empty" }, "Nothing asked yet."))]));
+}
+
+// --- Remote help (2.9a) ----------------------------------------------------------------------
+let help = null;
+function askRemoteHelp(d) {
+  const here = (d.sign_ins || []).filter((x) => x.now).map((x) => x.username);
+  const control = el("input", { type: "checkbox" });
+  const err = errorLine();
+  const start = el("button", { type: "button", class: "primary", onclick: async () => {
+    start.disabled = true;
+    try { $("dlg").close(); await openHelp(d, control.checked); }
+    catch (e) { err.textContent = e.message; start.disabled = false; }
+  } }, "Ask to see the screen");
+  dialog(`Remote help on ${d.hostname || "this computer"}`, [
+    el("p", {}, here.length ? `${here.join(", ")} ${here.length === 1 ? "is" : "are"} signed in there. ` : "Nobody was signed in at its last report. ",
+      "The person at the computer is asked first and sees your email. Nothing is shared unless they press Allow; they can stop it any time, and it ends by itself after an hour."),
+    el("label", { class: "row" }, control, " Ask to use their mouse and keyboard too (they decide)"),
+    el("p", { class: "note" }, "The screen comes straight from the computer (or through Kulan Fleet's relay); it isn't recorded or kept. Every request is in the activity log."),
+    err], [closeButton(), start]);
+}
+async function openHelp(d, control) {
+  if (help) await help.end();
+  $("help-title").textContent = `Remote help · ${d.hostname || "computer"}`;
+  $("help-status").textContent = "Asking…";
+  $("help-control-wrap").classList.add("hidden");
+  $("help-video").classList.remove("control");
+  $("help-end").textContent = "End";
+  $("help-dialog").showModal();
+  const mine = help = new RemoteHelp({ api, deviceId: d.id, hostname: d.hostname, control, video: $("help-video"),
+    onStatus: (t) => { if (help === mine) $("help-status").textContent = t; },
+    onControl: (on) => {
+      if (help !== mine) return;
+      $("help-control-wrap").classList.toggle("hidden", !on);
+      $("help-video").classList.toggle("control", on && $("help-control").checked);
+    },
+    onEnd: (t) => {
+      if (help !== mine) return;
+      help = null;
+      $("help-status").textContent = t;
+      $("help-control-wrap").classList.add("hidden");
+      $("help-end").textContent = "Close";
+      load();
+    } });
+  try { await mine.start(); }
+  catch (e) { help = null; $("help-dialog").close(); throw e; }
+}
+$("help-end").addEventListener("click", async () => { if (help) await help.end(); else $("help-dialog").close(); });
+$("help-dialog").addEventListener("cancel", async (ev) => {  // Esc: ends it
+  ev.preventDefault();
+  if (help) await help.end(); else $("help-dialog").close();
+});
+$("help-control").addEventListener("change", () => {
+  help?.setUseControl($("help-control").checked);
+  $("help-video").classList.toggle("control", $("help-control").checked);
+});
+$("help-full").addEventListener("click", () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else $("help-dialog").requestFullscreen?.().catch(() => {});
+});
+// Leaving the page ends it (the computer stops sharing at once, not after a timeout).
+addEventListener("pagehide", () => {
+  if (!help?.sid || !lastToken) return;
+  fetch(API, { method: "POST", keepalive: true, headers: { "Content-Type": "application/json", Authorization: `Bearer ${lastToken}` },
+               body: JSON.stringify({ op: "help-end", session_id: help.sid }) });
+});
+// The Kulan Fleet app opens this page at #help=<computer> to start remote help there.
+const helpLink = /^#help=([0-9a-f-]{36})$/.exec(location.hash);
+if (helpLink) { sessionStorage.setItem("kulan-help", helpLink[1]); history.replaceState(null, "", location.pathname); }
+function helpFromLink() {
+  const id = sessionStorage.getItem("kulan-help");
+  if (!id || !data) return;
+  sessionStorage.removeItem("kulan-help");
+  const d = data.devices.find((x) => x.id === id && !x.left_at);
+  if (!d) { $("app-msg").textContent = "That computer isn't one of yours (or it has left)."; return; }
+  if ($("org").value !== d.organisation_id) { $("org").value = d.organisation_id; render(); }
+  askRemoteHelp(d);
 }
 
 async function openReport(d) {
