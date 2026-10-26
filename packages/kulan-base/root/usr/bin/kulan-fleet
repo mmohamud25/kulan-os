@@ -6,6 +6,8 @@
   kulan-fleet report                   send this computer's status now (root; hourly by timer)
   kulan-fleet allow-erase on|off       let the organisation erase this computer if it's lost (root)
   kulan-fleet leave                    stop reporting and forget the organisation (root)
+  kulan-fleet listen                   report at once when the organisation asks (root; the
+                                       kulan-fleet-listen service)
 
 A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
@@ -27,6 +29,10 @@ The server can only answer with these actions, nothing else:
                    so the organisation can find it and release it
   lost-mode-off    release it from lost mode
   install-app      install one app now (a Debian package or a Flathub app)
+  remote-help      ask the person using the computer whether an admin may see
+                   (and, if they also allow it, control) their screen; nothing
+                   is shared unless they press Allow, and they can stop it any
+                   time (kulan-remote-help, in their session)
   erase            make the disk unreadable and switch off: only when this
                    computer's user allowed it (allow-erase on) and the disk is
                    encrypted (its keys are destroyed; nothing can be recovered)
@@ -52,6 +58,11 @@ The protocol (JSON over HTTPS, version 1):
                            -> {actions: [{id, type, payload?}], policy, accounts}
   POST {server}/v1/actions/{id}   {device_id, status: done|failed, detail}
   POST {server}/v1/leave   {device_id}
+  POST {server}/v1/help/{session}  {op: claim | unavailable, device_id, ...} (remote help)
+
+Each report's reply also says where to listen for "report now" (wake:
+{topic, url, key}, Supabase Realtime, wake.py): an admin's request then
+arrives in seconds rather than at the next hourly report.
 """
 from __future__ import annotations
 
@@ -75,7 +86,9 @@ sys.path.insert(0, "/usr/share/kulan-fleet")
 import fleetpolicy  # noqa: E402
 import people  # noqa: E402
 import signins  # noqa: E402
+import helpsession  # noqa: E402
 import twostep  # noqa: E402
+import wake  # noqa: E402
 import workmail  # noqa: E402
 from pathlib import Path
 
@@ -99,7 +112,10 @@ OLD_POLICY_FILES = (Path("/etc/dconf/db/local.d/40-kulan-fleet"), Path("/etc/dco
 COMPLIANCE_DCONF = Path("/etc/dconf/db/local.d/50-kulan-compliance")
 DCONF_DB = Path("/etc/dconf/db/local")
 ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart", "shutdown",
-                   "lost-mode-on", "lost-mode-off", "install-app", "erase")
+                   "lost-mode-on", "lost-mode-off", "install-app", "erase", "remote-help")
+# Where to listen for "report now" (wake.py): root only, like the key.
+WAKE = Path("/var/lib/kulan/fleet-wake.json")
+LISTENER = "kulan-fleet-listen.service"
 # Lost mode: /etc/nologin stops every sign-in but root's (pam_nologin, in
 # GDM's and the console's sign-in), and stays across restarts; the sign-in
 # screen shows why. Only a nologin file starting with LOST_MARK is ours.
@@ -553,7 +569,64 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
         return lost_mode_on()
     if kind == "lost-mode-off":
         return lost_mode_off()
+    if kind == "remote-help":
+        return remote_help(payload)
     return False, "not an action Kulan OS allows"
+
+
+def remote_help(payload) -> tuple[bool, str]:
+    """An admin asks to see the screen: find who is at the computer, pick
+    the request up, and start the helper in their session, which asks them.
+    Nothing is shared from here; this only starts the question."""
+    config = read_json(CONFIG, {})
+    sid = payload.get("session_id") if isinstance(payload, dict) else None
+    if not isinstance(sid, str) or not helpsession.UUID.match(sid) or not config:
+        return False, "not a remote help request"
+    path = f"/v1/help/{sid}"
+    base = {"device_id": config["device_id"]}
+
+    def unavailable(why: str) -> tuple[bool, str]:
+        try:
+            post(config["server"], path, {**base, "op": "unavailable", "detail": why}, config["token"])
+        except RuntimeError:
+            pass
+        return False, why
+
+    if not Path(helpsession.AGENT).exists():
+        return unavailable("remote help isn't installed on this computer")
+    session, why = helpsession.pick_session(helpsession.sessions_now(run))
+    if not session:
+        return unavailable(why)
+    user = session["Name"]
+    try:
+        claimed = post(config["server"], path, {**base, "op": "claim", "user": user}, config["token"])
+    except RuntimeError as e:
+        return False, f"couldn't pick it up: {e}"
+    start = helpsession.clean_start({**claimed, "server": config["server"], "session_id": sid})
+    if not start:
+        return False, "the server's answer wasn't right"
+    # In the person's own session (their systemd), with this session's key
+    # only. The key goes in the environment, which only they can read (never
+    # on a command line, which everyone can).
+    runtime = f"/run/user/{int(session['User'])}"
+    env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C.UTF-8", "XDG_RUNTIME_DIR": runtime,
+           "DBUS_SESSION_BUS_ADDRESS": f"unix:path={runtime}/bus",
+           "KULAN_REMOTE_HELP": json.dumps(start, separators=(",", ":"))}
+    try:
+        r = subprocess.run(["runuser", "-u", user, "--", "systemd-run", "--user", "--quiet", "--collect", "--no-block",
+                            f"--unit=kulan-remote-help-{sid[:8]}", "--description=Remote help (Kulan Fleet)",
+                            "-p", f"RuntimeMaxSec={helpsession.MAX_S + 300}", "--setenv=KULAN_REMOTE_HELP",
+                            helpsession.AGENT], capture_output=True, text=True, timeout=30, env=env, check=False)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        r = subprocess.CompletedProcess([], 127, "", str(e))
+    if r.returncode != 0:
+        try:
+            helpsession.call(config["server"], sid, start["token"], {"op": "failed",
+                                                                     "detail": "remote help couldn't start on the computer"})
+        except helpsession.ServerError:
+            pass
+        return False, "couldn't start remote help in their session: " + r.stderr.strip()[-160:]
+    return True, f"asked {user}"
 
 
 def gvariant_string(text: str) -> str:
@@ -804,6 +877,7 @@ def report() -> int:
             say(f"Report not sent: {e}")
             return 1
         publish(config, last_report=int(time.time()))
+        keep_wake(reply.get("wake"), server)
         if apps_due:
             APPS_SENT.parent.mkdir(parents=True, exist_ok=True)
             APPS_SENT.touch()
@@ -861,6 +935,58 @@ def report() -> int:
     return 0
 
 
+def keep_wake(raw, server: str) -> None:
+    """Where to listen for "report now", from the reply; the listener started if it isn't running."""
+    info = wake.clean_info(raw, server)
+    if not info:
+        return
+    if read_json(WAKE, None) != info:
+        write_json(WAKE, info, 0o600)
+    if run(["systemctl", "is-active", "--quiet", LISTENER], timeout=10).returncode != 0:
+        run(["systemctl", "enable", "--now", "--no-block", LISTENER], timeout=30)
+
+
+def listen() -> int:
+    """Keeps the connection to the computer's wake topic; each wake starts a
+    report (the kulan-fleet service, so one at a time and with its sandbox).
+    Never stops by itself: a dropped connection is made again, waiting longer
+    each time it fails (up to 5 minutes)."""
+    need_root()
+    backoff = 5
+    state = {"last": 0.0}
+
+    def on_wake() -> None:
+        now = time.monotonic()
+        if now - state["last"] < 3:  # several requests at once: one report
+            return
+        state["last"] = now
+        # A report already running may have asked for its actions before this
+        # one was made: wait for it, then report again.
+        while run(["systemctl", "is-active", "--quiet", "kulan-fleet.service"], timeout=10).returncode == 0:
+            time.sleep(2)
+        run(["systemctl", "start", "--no-block", "kulan-fleet.service"], timeout=30)
+        say("Asked to report: reporting now")
+
+    while True:
+        if not CONFIG.exists():
+            say("This computer hasn't joined an organisation: not listening")
+            return 0
+        info = read_json(WAKE, None)
+        if not info:
+            time.sleep(60)  # the first report says where to listen
+            continue
+        started = time.monotonic()
+        try:
+            wake.listen(info, on_wake, still_current=lambda: read_json(WAKE, None) == info and CONFIG.exists())
+            backoff = 5
+        except (wake.Closed, OSError, ValueError) as e:
+            if time.monotonic() - started > 300:
+                backoff = 5
+            say(f"Listening stopped ({e}); again in {backoff} seconds")
+            time.sleep(backoff)
+            backoff = min(300, backoff * 2)
+
+
 def allow_erase(value: str) -> int:
     need_root()
     config = read_json(CONFIG, None)
@@ -885,6 +1011,8 @@ def leave() -> int:
             say(f"The server wasn't told ({e}); this computer stops reporting anyway")
     run(["systemctl", "disable", "--now", "kulan-fleet.timer"])
     CONFIG.unlink(missing_ok=True)
+    run(["systemctl", "disable", "--now", "--no-block", LISTENER])
+    WAKE.unlink(missing_ok=True)
     remove_policy()  # automatic updates and the firewall stay as they are
     signins.forget()
     twostep.remove_all(run)  # people sign in with their password alone again
@@ -929,7 +1057,7 @@ def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         return status("--json" in argv[2:])
-    if command in ("join", "report", "allow-erase", "leave"):
+    if command in ("join", "report", "allow-erase", "leave", "listen"):
         need_root()
     if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]):
         return locked(join)(argv[2], allow_erase=len(argv) == 4)
@@ -939,6 +1067,8 @@ def main(argv: list[str]) -> int:
         return locked(report)()
     if command == "leave":
         return locked(leave)()
+    if command == "listen":
+        return listen()
     print(__doc__.split("\n\n")[1], file=sys.stderr)
     return 64
 

@@ -1,0 +1,642 @@
+#!/usr/bin/python3 -I
+"""Remote help (Kulan Fleet 2.9a), in the person's own session.
+
+Started by kulan-fleet when an admin of the organisation asks to see this
+screen (KULAN_REMOTE_HELP: the session, its own key, who asks). It asks the
+person first: nothing is shared unless they press Allow, and the admin uses
+the mouse and keyboard only if they also tick that (and only if the admin
+asked). GNOME then asks which screen to share (its own portal dialog). While
+it runs a window says who can see the screen, with Stop; it ends by itself
+after an hour, or when the admin ends it.
+
+The screen goes from GNOME's portal (ScreenCast, and RemoteDesktop for
+control) through GStreamer's WebRTC (VP8) straight to the admin's browser or
+app, relayed by Cloudflare when they can't reach each other directly; only
+the setting-up messages pass through Kulan Fleet's server. Nothing is
+recorded or kept.
+
+  KULAN_REMOTE_HELP_TEST=allow|allow-control|decline   for tests: no window
+  and a test picture instead of the screen; what the admin's mouse and
+  keyboard would do is printed instead of done.
+"""
+import json
+import os
+import queue
+import secrets
+import sys
+import threading
+import time
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, "/usr/share/kulan-fleet")
+import helpsession  # noqa: E402
+
+import gi  # noqa: E402
+
+gi.require_version("Gst", "1.0")
+gi.require_version("GstWebRTC", "1.0")
+gi.require_version("GstSdp", "1.0")
+from gi.repository import Gio, GLib, Gst, GstSdp, GstWebRTC  # noqa: E402
+
+TEST = os.environ.get("KULAN_REMOTE_HELP_TEST", "")
+if not TEST:
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gtk  # noqa: E402
+
+PORTAL = "org.freedesktop.portal.Desktop"
+PORTAL_PATH = "/org/freedesktop/portal/desktop"
+MAX_WIDTH = 1920
+FPS = 15
+
+
+def log(*args) -> None:
+    print("kulan-remote-help:", *args, file=sys.stderr, flush=True)
+
+
+# --- the server, from a thread of its own (never in the way of the window) ----------------------
+class Server:
+    def __init__(self, info: dict):
+        self.info = info
+        self.jobs: queue.Queue = queue.Queue()
+        threading.Thread(target=self._work, daemon=True).start()
+
+    def _work(self) -> None:
+        while True:
+            body, done = self.jobs.get()
+            try:
+                result, error = helpsession.call(self.info["server"], self.info["session_id"], self.info["token"], body), None
+            except helpsession.ServerError as e:
+                result, error = None, e
+            if done:
+                GLib.idle_add(done, result, error)
+
+    def send(self, body: dict, done=None) -> None:
+        """In order, one at a time; done(result, error) back on the main loop."""
+        self.jobs.put((body, done))
+
+
+# --- GNOME's portal: the screen, and the admin's mouse and keyboard ---------------------------
+class Portal:
+    """ScreenCast (view only) or RemoteDesktop with ScreenCast (control)."""
+
+    def __init__(self, control: bool, on_ready, on_closed):
+        self.control, self.on_ready, self.on_closed = control, on_ready, on_closed
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.sender = self.bus.get_unique_name()[1:].replace(".", "_")
+        self.session = None
+        self.stream = None
+        self.size = (0, 0)
+        self.subs = []
+
+    def _request(self, iface: str, method: str, args: list, options: dict, then) -> None:
+        token = "kulan" + secrets.token_hex(6)
+        path = f"/org/freedesktop/portal/desktop/request/{self.sender}/{token}"
+
+        def response(_c, _s, _p, _i, _n, params):
+            self.bus.signal_unsubscribe(sub)
+            code, results = params.unpack()
+            if code != 0:
+                self.on_closed("sharing the screen was cancelled" if code == 1 else "the screen couldn't be shared")
+                return
+            then(results)
+
+        sub = self.bus.signal_subscribe(PORTAL, "org.freedesktop.portal.Request", "Response", path, None,
+                                        Gio.DBusSignalFlags.NO_MATCH_RULE, response)
+        options = {**options, "handle_token": GLib.Variant("s", token)}
+        sig = "(" + "".join(a[0] for a in args) + "a{sv})"
+        try:
+            self.bus.call_sync(PORTAL, PORTAL_PATH, f"org.freedesktop.portal.{iface}", method,
+                               GLib.Variant(sig, tuple(a[1] for a in args) + (options,)), None,
+                               Gio.DBusCallFlags.NONE, 30000, None)
+        except GLib.Error as e:
+            self.bus.signal_unsubscribe(sub)
+            log("portal:", e.message)
+            self.on_closed("this computer can't share its screen (no screen sharing portal)")
+
+    def start(self) -> None:
+        iface = "RemoteDesktop" if self.control else "ScreenCast"
+        self._request(iface, "CreateSession", [], {"session_handle_token": GLib.Variant("s", "kulan" + secrets.token_hex(6))},
+                      self._created)
+
+    def _created(self, results) -> None:
+        self.session = results["session_handle"]
+        self.subs.append(self.bus.signal_subscribe(PORTAL, "org.freedesktop.portal.Session", "Closed", self.session, None,
+                                                   Gio.DBusSignalFlags.NONE,
+                                                   lambda *_: self.on_closed("sharing the screen was stopped")))
+        if self.control:
+            self._request("RemoteDesktop", "SelectDevices", [("o", self.session)], {"types": GLib.Variant("u", 3)},
+                          lambda _r: self._select_sources())
+        else:
+            self._select_sources()
+
+    def _select_sources(self) -> None:
+        options = {"types": GLib.Variant("u", 1), "multiple": GLib.Variant("b", False)}
+        try:
+            modes = self.bus.call_sync(PORTAL, PORTAL_PATH, "org.freedesktop.DBus.Properties", "Get",
+                                       GLib.Variant("(ss)", ("org.freedesktop.portal.ScreenCast", "AvailableCursorModes")),
+                                       None, Gio.DBusCallFlags.NONE, 5000, None).unpack()[0]
+            if modes & 2:
+                options["cursor_mode"] = GLib.Variant("u", 2)  # the pointer drawn in the picture
+        except GLib.Error:
+            pass
+        self._request("ScreenCast", "SelectSources", [("o", self.session)], options, lambda _r: self._start())
+
+    def _start(self) -> None:
+        iface = "RemoteDesktop" if self.control else "ScreenCast"
+        self._request(iface, "Start", [("o", self.session), ("s", "")], {}, self._started)
+
+    def _started(self, results) -> None:
+        streams = results.get("streams") or []
+        if not streams:
+            self.on_closed("no screen was chosen")
+            return
+        node, props = streams[0]
+        self.stream = node
+        self.size = tuple(props.get("size", (0, 0)))
+        try:
+            reply, fds = self.bus.call_with_unix_fd_list_sync(
+                PORTAL, PORTAL_PATH, "org.freedesktop.portal.ScreenCast", "OpenPipeWireRemote",
+                GLib.Variant("(oa{sv})", (self.session, {})), GLib.VariantType("(h)"), Gio.DBusCallFlags.NONE, 10000,
+                None, None)
+            fd = fds.get(reply.unpack()[0])
+        except GLib.Error as e:
+            log("portal:", e.message)
+            self.on_closed("the screen couldn't be shared")
+            return
+        self.on_ready(fd, node, self.size)
+
+    def notify(self, method: str, sig: str, *args) -> None:
+        if not (self.control and self.session):
+            return
+        self.bus.call(PORTAL, PORTAL_PATH, "org.freedesktop.portal.RemoteDesktop", method,
+                      GLib.Variant(f"(oa{{sv}}{sig})", (self.session, {}) + args), None, Gio.DBusCallFlags.NONE, 5000,
+                      None, None, None)
+
+    def close(self) -> None:
+        for sub in self.subs:
+            self.bus.signal_unsubscribe(sub)
+        self.subs = []
+        if self.session:
+            try:
+                self.bus.call_sync(PORTAL, self.session, "org.freedesktop.portal.Session", "Close", None, None,
+                                   Gio.DBusCallFlags.NONE, 5000, None)
+            except GLib.Error:
+                pass
+            self.session = None
+
+
+class TestSource:
+    """For tests: a moving test picture, and input printed."""
+
+    def __init__(self, control, on_ready, on_closed):
+        self.control, self.on_ready = control, on_ready
+        self.size = (1280, 720)
+        self.stream = 0
+
+    def start(self) -> None:
+        GLib.idle_add(self.on_ready, None, None, self.size)
+
+    def notify(self, method, sig, *args) -> None:
+        if self.control:
+            print("input", method, *[round(a, 1) if isinstance(a, float) else a for a in args], flush=True)
+
+    def close(self) -> None:
+        pass
+
+
+# --- one remote help session -----------------------------------------------------------------
+class Help:
+    def __init__(self, info: dict, ui, quit_cb):
+        self.info, self.ui, self.quit_cb = info, ui, quit_cb
+        self.server = Server(info)
+        self.state = "asking"
+        self.control = False
+        self.source = None
+        self.pipe = None
+        self.webrtc = None
+        self.channel = None
+        self.offered = False
+        self.answered = False
+        self.since = 0
+        self.outgoing: list[dict] = []
+        self.pressed: set[tuple] = set()
+        self.polling = False
+        self.broken = False
+        self.over = False
+
+    def begin(self) -> None:
+        self.asking_timer = GLib.timeout_add_seconds(helpsession.ASK_S, self._no_answer)
+        self.ui.ask(self.info["admin"], self.info["organisation"], self.info["control_asked"], self.answer)
+
+    def _no_answer(self) -> bool:
+        if self.state == "asking":
+            self.finish("end", "nobody answered on the computer")
+        return False
+
+    def answer(self, allow: bool, control: bool) -> None:
+        if self.state != "asking":
+            return
+        GLib.source_remove(self.asking_timer)
+        self.state = "answering"
+        self.server.send({"op": "answer", "allow": allow, "control": control},
+                         lambda r, e: self._answered(r, e, allow))
+
+    def _answered(self, result, error, allow) -> bool:
+        if error or not result:
+            self.ui.done(f"Remote help couldn't start ({error})" if error else "Remote help couldn't start")
+            self.finish(None, None)
+            return False
+        if not allow:
+            self.finish(None, None)
+            return False
+        self.state = "allowed"
+        self.control = result.get("control") is True
+        self.ui.watching(self.info["admin"], self.control, "Choose the screen to share…", self.stop)
+        self.limit_timer = GLib.timeout_add_seconds(helpsession.MAX_S, self._hour)
+        cls = TestSource if TEST else Portal
+        self.source = cls(self.control, self._ready, lambda why: self.finish("end", why))
+        self.source.start()
+        return False
+
+    def _hour(self) -> bool:
+        self.finish("end", "an hour is the most a session lasts")
+        return False
+
+    def stop(self) -> None:
+        self.finish("end", "they stopped it")
+
+    # The picture, into WebRTC.
+    def _ready(self, fd, node, size) -> bool:
+        if self.over:
+            return False
+        w, h = size if size and size[0] > 0 else (0, 0)
+        scale = ""
+        if w > MAX_WIDTH:
+            scale = f"! videoscale ! video/x-raw,width={MAX_WIDTH},height={int(h * MAX_WIDTH / w) // 2 * 2} "
+        src = f"videotestsrc is-live=true pattern=ball ! video/x-raw,width={w},height={h}" if fd is None else \
+            f"pipewiresrc fd={fd} path={node} do-timestamp=true keepalive-time=1000 always-copy=true"
+        desc = (f"{src} ! videorate drop-only=true max-rate={FPS} ! videoconvert {scale}"
+                "! queue max-size-buffers=2 leaky=downstream "
+                "! vp8enc deadline=1 cpu-used=8 end-usage=cbr target-bitrate=2500000 keyframe-max-dist=60 "
+                "error-resilient=default threads=4 "
+                "! rtpvp8pay picture-id-mode=15-bit ! application/x-rtp,media=video,encoding-name=VP8,payload=96 "
+                "! webrtcbin name=webrtc bundle-policy=max-bundle latency=100")
+        try:
+            self.pipe = Gst.parse_launch(desc)
+        except GLib.Error as e:
+            log("pipeline:", e.message)
+            self.finish("failed", "remote help couldn't start on the computer")
+            return False
+        self.webrtc = self.pipe.get_by_name("webrtc")
+        stun, turns = helpsession.gst_ice(self.info["ice"])
+        if stun:
+            self.webrtc.set_property("stun-server", stun)
+        for turn in turns:
+            self.webrtc.emit("add-turn-server", turn)
+        # Only send: the screen goes one way.
+        self.webrtc.connect("on-negotiation-needed", self._negotiate)
+        self.webrtc.connect("on-ice-candidate", self._candidate)
+        self.webrtc.connect("notify::ice-connection-state", self._ice_state)
+        bus = self.pipe.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message::error", self._error)
+        # Set up before it plays, so the offer has both: the screen (sent only)
+        # and the channel for the admin's mouse and keyboard.
+        self.pipe.set_state(Gst.State.READY)
+        transceiver = self.webrtc.emit("get-transceiver", 0)
+        if transceiver:
+            transceiver.set_property("direction", GstWebRTC.WebRTCRTPTransceiverDirection.SENDONLY)
+        opts = Gst.Structure.new_from_string("application/data-channel,ordered=true")
+        self.channel = self.webrtc.emit("create-data-channel", "input", opts)
+        if self.channel:
+            self.channel.connect("on-message-string", self._input)
+        self.pipe.set_state(Gst.State.PLAYING)
+        self.ui.status("Connecting…")
+        return False
+
+    def _negotiate(self, element) -> None:
+        if self.offered:
+            return
+        self.offered = True
+        element.emit("create-offer", None, Gst.Promise.new_with_change_func(self._offer_made, element))
+
+    def _offer_made(self, promise, element) -> None:
+        reply = promise.get_reply()
+        offer = reply.get_value("offer") if reply else None
+        if not offer:
+            GLib.idle_add(self.finish, "failed", "remote help couldn't start on the computer")
+            return
+        element.emit("set-local-description", offer, Gst.Promise.new())
+        sdp = offer.sdp.as_text()
+        GLib.idle_add(self._queue, {"offer": {"type": "offer", "sdp": sdp}})
+
+    def _candidate(self, _element, mline, candidate) -> None:
+        GLib.idle_add(self._queue, {"candidate": {"candidate": candidate, "sdpMLineIndex": mline, "sdpMid": None}})
+
+    def _queue(self, item) -> bool:
+        self.outgoing.append(item)
+        if not self.polling:
+            self.polling = True
+            self._poll()
+        return False
+
+    # Every second while connecting (every 3 once connected, to notice the admin ending it).
+    def _poll(self) -> bool:
+        if self.over:
+            return False
+        body = {"op": "signal", "since": self.since}
+        for item in self.outgoing:
+            if "offer" in item:
+                body["offer"] = item["offer"]
+            else:
+                body.setdefault("candidates", []).append(item["candidate"])
+        sent, self.outgoing = self.outgoing, []
+        self.server.send(body, lambda r, e: self._polled(r, e, sent))
+        return False
+
+    def _polled(self, result, error, sent) -> bool:
+        if self.over:
+            return False
+        if error:
+            self.outgoing = sent + self.outgoing  # tried again next time
+            log("server:", error)
+        elif result:
+            state = result.get("state")
+            if state not in ("allowed", "connected"):
+                self.finish(None, None, result.get("detail") or "the admin ended it")
+                return False
+            answer = result.get("answer")
+            if isinstance(answer, dict) and not self.answered and isinstance(answer.get("sdp"), str):
+                self.answered = True
+                ok, sdp = GstSdp.SDPMessage.new_from_text(answer["sdp"])
+                if ok != GstSdp.SDPResult.OK:
+                    self.finish("failed", "the admin's side didn't answer properly")
+                    return False
+                desc = GstWebRTC.WebRTCSessionDescription.new(GstWebRTC.WebRTCSDPType.ANSWER, sdp)
+                self.webrtc.emit("set-remote-description", desc, Gst.Promise.new())
+            candidates = result.get("candidates") if isinstance(result.get("candidates"), list) else []
+            if self.answered:
+                for c in candidates:
+                    if isinstance(c, dict) and isinstance(c.get("candidate"), str) and c["candidate"]:
+                        mline = c.get("sdpMLineIndex") if isinstance(c.get("sdpMLineIndex"), int) else 0
+                        self.webrtc.emit("add-ice-candidate", mline, c["candidate"])
+                self.since += len(candidates)
+        GLib.timeout_add(3000 if self.state == "connected" else 1000, self._poll)
+        return False
+
+    def _ice_state(self, element, _pspec) -> None:
+        state = element.get_property("ice-connection-state")
+        GLib.idle_add(self._ice_changed, state)
+
+    def _ice_changed(self, state) -> bool:
+        if self.over:
+            return False
+        S = GstWebRTC.WebRTCICEConnectionState
+        if state in (S.CONNECTED, S.COMPLETED) and self.state != "connected":
+            self.state = "connected"
+            self.server.send({"op": "connected"})
+            self.ui.status("Connected")
+        elif state == S.FAILED:
+            self.finish("failed", "it couldn't connect (the computers can't reach each other)")
+        elif state == S.DISCONNECTED and self.state == "connected":
+            self.ui.status("Reconnecting…")
+        return False
+
+    def _error(self, _bus, message) -> None:
+        err, debug = message.parse_error()
+        log("pipeline:", err.message, debug or "")
+        if self.over or self.broken:
+            return
+        # The admin closing their side breaks the connection too: ask the
+        # server first, so it isn't called a failure when it was the end.
+        self.broken = True
+        self.server.send({"op": "signal", "since": self.since}, self._after_error)
+
+    def _after_error(self, result, _error, again=True) -> bool:
+        if result and result.get("state") not in ("allowed", "connected"):
+            self.finish(None, None, result.get("detail") or "the admin ended it")
+        elif again:  # the admin's end may be on its way: once more, shortly
+            GLib.timeout_add(2000, lambda: self.server.send({"op": "signal", "since": self.since},
+                                                            lambda r, e: self._after_error(r, e, False)) and False)
+        else:
+            self.finish("failed", "sharing the screen stopped working")
+        return False
+
+    # The admin's mouse and keyboard: only when the person allowed it.
+    def _input(self, _channel, text) -> None:
+        GLib.idle_add(self._do_input, text)
+
+    def _do_input(self, text) -> bool:
+        if not (self.control and self.state == "connected" and self.source):
+            return False
+        w, h = self.source.size
+        event = helpsession.input_event(text, int(w), int(h))
+        if not event:
+            return False
+        kind = event[0]
+        if kind == "motion":
+            self.source.notify("NotifyPointerMotionAbsolute", "udd", self.source.stream or 0, event[1], event[2])
+        elif kind == "button":
+            self._press(("button", event[1]), event[2])
+            self.source.notify("NotifyPointerButton", "iu", event[1], 1 if event[2] else 0)
+        elif kind == "axis":
+            if event[1]:
+                self.source.notify("NotifyPointerAxisDiscrete", "ui", 1, event[1])
+            if event[2]:
+                self.source.notify("NotifyPointerAxisDiscrete", "ui", 0, event[2])
+        elif kind == "key":
+            self._press(("key", event[1]), event[2])
+            self.source.notify("NotifyKeyboardKeycode", "iu", event[1], 1 if event[2] else 0)
+        return False
+
+    def _press(self, what, down) -> None:
+        (self.pressed.add if down else self.pressed.discard)(what)
+
+    def _release_all(self) -> None:
+        for kind, code in list(self.pressed):
+            if self.source:
+                self.source.notify("NotifyPointerButton" if kind == "button" else "NotifyKeyboardKeycode", "iu", code, 0)
+        self.pressed.clear()
+
+    def finish(self, op, detail, said=None) -> bool:
+        """Ends it: tells the server (op "end" or "failed", or None when the
+        server already knows), stops sharing, and closes."""
+        if self.over:
+            return False
+        self.over = True
+        self._release_all()
+        if self.pipe:
+            self.pipe.set_state(Gst.State.NULL)
+            self.pipe = None
+        if self.source:
+            self.source.close()
+        shown = said or detail
+        if op:
+            self.server.send({"op": op, "detail": detail}, lambda _r, _e: self.quit_cb())
+        else:
+            GLib.timeout_add(500, self.quit_cb)
+        self.ui.done(f"Remote help ended: {shown}" if shown and self.state in ("allowed", "connected") else None)
+        return False
+
+
+# --- the windows ---------------------------------------------------------------------------
+class Window:
+    """The question, then while it runs who can see the screen, with Stop."""
+
+    def __init__(self, app):
+        self.app = app
+        self.win = None
+        self.on_ask = None
+        self.on_stop = None
+        self.status_label = None
+
+    def _window(self, child) -> None:
+        if not self.win:
+            self.win = Adw.ApplicationWindow(application=self.app, title="Remote help", default_width=440,
+                                             resizable=False)
+            self.win.connect("close-request", self._closing)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar(show_title=False))
+        view.set_content(child)
+        self.win.set_content(view)
+        self.win.present()
+
+    def _closing(self, _win) -> bool:
+        if self.on_ask:
+            self.on_ask(False, False)
+            self.on_ask = None
+        elif self.on_stop:
+            self.on_stop()
+        return False
+
+    def ask(self, admin, org, control_asked, answered) -> None:
+        self.on_ask = None
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_start=24, margin_end=24,
+                      margin_bottom=24)
+        box.append(Gtk.Image(icon_name="preferences-desktop-remote-desktop-symbolic", pixel_size=64))
+        title = Gtk.Label(label="Someone wants to see your screen", wrap=True, justify=Gtk.Justification.CENTER)
+        title.add_css_class("title-2")
+        box.append(title)
+        text = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER, max_width_chars=48)
+        text.set_text(f"{admin}, from {org}, is asking to see your screen to help you. "
+                      "They'll see everything on it while it's shared.")
+        box.append(text)
+        check = None
+        if control_asked:
+            check = Gtk.CheckButton(label="Let them use my mouse and keyboard too")
+            box.append(check)
+        note = Gtk.Label(label="You can stop it at any time. It ends by itself after an hour.", wrap=True,
+                         justify=Gtk.Justification.CENTER)
+        note.add_css_class("dim-label")
+        box.append(note)
+        buttons = Gtk.Box(spacing=12, halign=Gtk.Align.CENTER, homogeneous=True, margin_top=6)
+        no = Gtk.Button(label="Don't allow")
+        yes = Gtk.Button(label="Allow")
+        yes.add_css_class("suggested-action")
+        buttons.append(no)
+        buttons.append(yes)
+        box.append(buttons)
+        left = Gtk.Label()
+        left.add_css_class("caption")
+        left.add_css_class("dim-label")
+        box.append(left)
+        deadline = time.monotonic() + helpsession.ASK_S
+
+        def tick() -> bool:
+            s = max(0, int(deadline - time.monotonic()))
+            left.set_text(f"This closes in {s // 60}:{s % 60:02d} if you don't answer")
+            return self.on_ask is not None and s > 0
+
+        def pick(allow: bool) -> None:
+            cb, self.on_ask = self.on_ask, None
+            if cb:
+                cb(allow, bool(allow and check and check.get_active()))
+
+        no.connect("clicked", lambda _b: pick(False))
+        yes.connect("clicked", lambda _b: pick(True))
+        self._window(box)
+        self.on_ask = answered
+        tick()
+        GLib.timeout_add_seconds(1, tick)
+        no.grab_focus()  # an accidental Enter never allows it
+
+    def watching(self, admin, control, status, on_stop) -> None:
+        self.on_stop = on_stop
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_start=24, margin_end=24,
+                      margin_bottom=24)
+        title = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER)
+        title.set_text(f"{admin} can see your screen" + (" and use your mouse and keyboard" if control else ""))
+        title.add_css_class("title-3")
+        box.append(title)
+        self.status_label = Gtk.Label(label=status)
+        self.status_label.add_css_class("dim-label")
+        box.append(self.status_label)
+        stop = Gtk.Button(label="Stop sharing", halign=Gtk.Align.CENTER)
+        stop.add_css_class("destructive-action")
+        stop.add_css_class("pill")
+        stop.connect("clicked", lambda _b: on_stop())
+        box.append(stop)
+        self._window(box)
+
+    def status(self, text) -> None:
+        if self.status_label:
+            self.status_label.set_text(text)
+
+    def done(self, text) -> None:
+        self.on_stop = None
+        if text:
+            n = Gio.Notification.new("Remote help")
+            n.set_body(text)
+            self.app.send_notification("remote-help", n)
+        if self.win:
+            self.win.set_visible(False)
+
+
+class TestUI:
+    def __init__(self, answer):
+        self.answer = answer
+
+    def ask(self, admin, org, control_asked, answered) -> None:
+        print("asked", admin, org, "control" if control_asked else "view", flush=True)
+        GLib.timeout_add(200, lambda: answered(self.answer != "decline", self.answer == "allow-control") and False)
+
+    def watching(self, admin, control, status, on_stop) -> None:
+        print("watching", admin, "control" if control else "view", flush=True)
+        if os.environ.get("KULAN_REMOTE_HELP_TEST_STOP_AFTER"):
+            GLib.timeout_add_seconds(int(os.environ["KULAN_REMOTE_HELP_TEST_STOP_AFTER"]), lambda: on_stop() and False)
+
+    def status(self, text) -> None:
+        print("status", text, flush=True)
+
+    def done(self, text) -> None:
+        print("done", text or "", flush=True)
+
+
+def main() -> int:
+    info = helpsession.clean_start(os.environ.pop("KULAN_REMOTE_HELP", ""))
+    if not info:
+        log("not started by kulan-fleet (KULAN_REMOTE_HELP missing or wrong)")
+        return 64
+    Gst.init(None)
+    if TEST:
+        loop = GLib.MainLoop()
+        Help(info, TestUI(TEST), loop.quit).begin()
+        loop.run()
+        return 0
+    app = Adw.Application(application_id="org.kulan.RemoteHelp", flags=Gio.ApplicationFlags.NON_UNIQUE)
+    holder = {}
+
+    def activate(a):
+        if "help" in holder:
+            return
+        a.hold()
+        holder["help"] = Help(info, Window(a), lambda: a.release() or a.quit())
+        holder["help"].begin()
+
+    app.connect("activate", activate)
+    return app.run([])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,31 @@
+[Unit]
+Description=Report at once when this computer's organisation asks (Kulan fleet)
+ConditionPathExists=/etc/kulan/fleet.json
+After=network-online.target
+Wants=network-online.target
+
+# Started by the first report after joining (and by an update to 2.9a for a
+# computer that had joined before); stopped and disabled by "kulan-fleet leave".
+[Service]
+ExecStart=/usr/bin/kulan-fleet listen
+Restart=always
+RestartSec=30
+Nice=10
+# It only keeps one connection open and starts the kulan-fleet service.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadOnlyPaths=/
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectClock=yes
+MemoryMax=64M
+
+[Install]
+WantedBy=multi-user.target
