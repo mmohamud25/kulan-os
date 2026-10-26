@@ -119,7 +119,7 @@ try:
     check("the offer: the data channel for the mouse and keyboard", "m=application" in sdp and "webrtc-datachannel" in sdp, sdp[-600:])
     real = [c["candidate"] for c in stand.candidates if c["candidate"]]
     check("network candidates sent", real and all(c.startswith("candidate:") for c in real), stand.candidates)
-    check("told the person it ended", "done Remote help ended: the admin ended it" in out, out[-300:])
+    check("told the person it ended", "done The admin ended remote help." in out, out[-300:])
     check("nothing failed", not any(c.get("op") == "failed" for c in stand.calls), [c.get("op") for c in stand.calls])
 
     # 2. Declined.

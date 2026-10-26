@@ -487,6 +487,17 @@ class Help:
                 self.source.notify("NotifyPointerButton" if kind == "button" else "NotifyKeyboardKeycode", "iu", code, 0)
         self.pressed.clear()
 
+    @staticmethod
+    def _ending(why) -> str | None:
+        """What the person is told when it ends (nothing when they stopped it themselves)."""
+        if not why or why == "they stopped it":
+            return None
+        return {"the admin ended it": "The admin ended remote help.",
+                "an hour is the most a session lasts": "Remote help ended after an hour.",
+                "their access was removed": "Remote help ended.",
+                "sharing the screen was stopped": "Screen sharing stopped.",
+                }.get(why, f"Remote help ended. {why[0].upper()}{why[1:]}.")
+
     def finish(self, op, detail, said=None) -> bool:
         """Ends it: tells the server (op "end" or "failed", or None when the
         server already knows), stops sharing, and closes."""
@@ -504,7 +515,7 @@ class Help:
             self.server.send({"op": op, "detail": detail}, lambda _r, _e: self.quit_cb())
         else:
             GLib.timeout_add(500, self.quit_cb)
-        self.ui.done(f"Remote help ended: {shown}" if shown and self.state in ("allowed", "connected") else None)
+        self.ui.done(self._ending(shown) if self.state in ("allowed", "connected") else None)
         return False
 
 

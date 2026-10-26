@@ -209,7 +209,7 @@ try {
   // The admin ends it: the helper stops by itself.
   await page.evaluate(() => window.help.end());
   await until("the helper ends when the admin does", () => agent.exited === 0, 15000);
-  ok(agent.text.includes("done Remote help ended: the admin ended it"), "the person is told the admin ended it", agent.text.slice(-400));
+  ok(agent.text.includes("done The admin ended remote help."), "the person is told the admin ended it", agent.text.slice(-400));
   const [st] = await db`select state, detail from fleet.help_sessions where id = ${sid}`;
   ok(st.state === "ended" && st.detail === "the admin ended it", "ended on the server", st);
 
