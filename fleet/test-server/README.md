@@ -10,8 +10,8 @@ code is printed in the server's terminal instead of being emailed.
 
 ## On the server computer (test computer 1)
 ```
-curl -fsSL https://github.com/mmohamud25/kulan-os/archive/refs/heads/kulan-os-2.8.tar.gz | tar xz -C ~
-cd ~/kulan-os-kulan-os-2.8/fleet/test-server
+curl -fsSL https://github.com/mmohamud25/kulan-os/archive/refs/heads/kulan-os-2.9.tar.gz | tar xz -C ~
+cd ~/kulan-os-kulan-os-2.9/fleet/test-server
 sudo ./setup.sh you@example.com
 sudo ./run.sh
 ```
@@ -45,4 +45,4 @@ Organisation › Leave. Then, on each computer other than the server:
 `sudo rm /usr/local/share/ca-certificates/kulan-fleet-test.crt && sudo update-ca-certificates --fresh`.
 On the server computer, run `sudo ./teardown.sh`. It removes the database,
 Deno, the certificates, the firewall rule, and PostgreSQL if setup installed
-it. Then run `rm -rf ~/kulan-os-kulan-os-2.8`.
+it. Then run `rm -rf ~/kulan-os-kulan-os-2.9`.
