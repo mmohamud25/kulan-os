@@ -40,6 +40,7 @@ jobs:
           for f in fleet fleet-admin countme; do deno check "fleet/supabase/functions/$f/index.ts"; done
           deno check fleet/test-server/serve.ts
           cmp fleet/supabase/functions/fleet/policy.ts fleet/supabase/functions/fleet-admin/policy.ts
+          cmp fleet/supabase/functions/fleet/help.ts fleet/supabase/functions/fleet-admin/help.ts
           bash -n fleet/test-server/setup.sh && bash -n fleet/test-server/run.sh && bash -n fleet/test-server/teardown.sh
       - name: Weekly count
         working-directory: fleet/supabase/functions/countme

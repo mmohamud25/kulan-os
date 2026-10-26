@@ -6,6 +6,7 @@
 //                                 -> {actions: [{id, type, payload?}], policy: {...}, accounts: [...]}
 //   POST /fleet/v1/actions/{id}   Bearer token, {device_id, status: done|failed, detail}
 //   POST /fleet/v1/leave          Bearer token, {device_id}
+//   POST /fleet/v1/help/{id}      remote help (2.9a), below
 //
 // People (Kulan OS 2.8): each reply lists the organisation's accounts allowed
 // on that computer, with their password hashes (one-way; never a password),
@@ -31,19 +32,32 @@
 // connect it (GNOME Online Accounts for "google"); computers with such
 // people on them get Geary, the mail app, as a required app (unless blocked).
 //
+// Remote help (2.9a, help.ts): each report reply gives the computer its wake
+// topic ("wake": {topic, url, key}, Supabase Realtime), where fleet-admin says
+// "report now", so a request arrives in seconds. A remote-help request
+// {session_id} is then picked up by the computer (kulan-fleet, its own key):
+//   {op: "claim", device_id, user}          -> {token, admin, control_asked, ice, organisation}
+//   {op: "unavailable", device_id, detail}  nobody is signed in, or it can't be done here
+// and the rest is the helper's in that person's session, with the session's own key:
+//   {op: "answer", allow, control}          the person allowed (and, if asked, control) or declined
+//   {op: "signal", answer?, candidates?, since?}  -> {state, control, offer, candidates (the admin's, from since)}
+//   {op: "connected"} | {op: "end", detail?} | {op: "failed", detail?}
+// The screen itself goes straight to the admin (WebRTC), never through here.
+//
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
 // Data lives in the private "fleet" schema, reached over a direct Postgres
 // connection, never through the public Data API.
 import postgres from "npm:postgres@3.4.5";
 import { mergePolicies } from "./policy.ts";
+import * as help from "./help.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
 // Any JSON-able value as jsonb (postgres.js's types want its own JSON type).
 const json = (v: unknown) => sql.json(v as Parameters<typeof sql.json>[0]);
 const MAX_BODY = 512 * 1024; // a report with a full app list
 const ACTIONS = new Set(["refresh", "install-updates", "compliance-on", "lock-screen", "restart", "erase",
-                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app"]);
+                         "shutdown", "lost-mode-on", "lost-mode-off", "install-app", "remote-help"]);
 const MAX_USB_SEEN = 20;
 const MAX_APPS = 3000;
 const USERNAME = /^[a-z][a-z0-9_-]{0,31}$/;
@@ -219,6 +233,110 @@ function text(value: unknown, max: number): string | null {
   return typeof value === "string" ? value.slice(0, max) : null;
 }
 
+// What a computer or its person says about a session: plain words, short.
+export function cleanDetail(value: unknown): string | null {
+  return typeof value === "string" ? value.replace(/[^\p{L}\p{N}\p{P}\p{Zs}]/gu, "").trim().slice(0, 200) || null : null;
+}
+
+function publishableKey(): string {
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_PUBLISHABLE_KEYS") ?? "{}");
+    if (keys.default) return keys.default;
+  } catch { /* fall back */ }
+  return Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+}
+
+// Where a computer listens for "report now" (Supabase Realtime broadcast).
+export function wakeInfo(topic: string): { topic: string; url: string; key: string } {
+  const base = (Deno.env.get("SUPABASE_URL") ?? "").replace(/^http/, "ws");
+  return { topic, url: `${base}/realtime/v1/websocket`, key: publishableKey() };
+}
+
+function newWakeTopic(): string {
+  return "wake-" + Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Remote help, the computer's side (see the top of this file).
+async function helpRoute(req: Request, id: string, body: Record<string, unknown>): Promise<Response> {
+  await sql`select fleet.expire_help_sessions()`;
+  const op = body.op;
+  if (op === "claim" || op === "unavailable") {
+    const dev = await device(req, body);
+    if (!dev) return reply(401, { error: "unknown computer or key" });
+    const [s] = await sql`select s.id, s.state, s.requested_by, s.control_asked, s.ice, s.organisation_id, o.name
+                          from fleet.help_sessions s join fleet.organisations o on o.id = s.organisation_id
+                          where s.id = ${id} and s.device_id = ${dev.id}`;
+    if (!s) return reply(404, { error: "no such session" });
+    if (s.state !== "requested") return reply(409, { error: `that session is ${s.state}`, state: s.state });
+    if (op === "unavailable") {
+      const detail = cleanDetail(body.detail) ?? "it can't be done on this computer now";
+      await sql`update fleet.help_sessions set state = 'failed', detail = ${detail}, ended_at = now(), updated_at = now()
+                where id = ${id} and state = 'requested'`;
+      return reply(200, {});
+    }
+    const user = typeof body.user === "string" && /^[a-z][a-z0-9_-]{0,31}$/.test(body.user) ? body.user : null;
+    if (!user) return reply(400, { error: "who is signed in?" });
+    const token = help.sessionToken();
+    const claimed = await sql`update fleet.help_sessions set state = 'asking', token_hash = ${await sha256(token)},
+                                     answered_by = ${user}, updated_at = now()
+                              where id = ${id} and state = 'requested' returning id`;
+    if (!claimed.length) return reply(409, { error: "that session has changed" });
+    return reply(200, { token, admin: s.requested_by, control_asked: s.control_asked, ice: s.ice, organisation: s.name });
+  }
+
+  // The helper in the person's session: the session's own key, only for this session.
+  const auth = req.headers.get("Authorization") ?? "";
+  if (!auth.startsWith("Bearer ")) return reply(401, { error: "no key" });
+  const [s] = await sql`select * from fleet.help_sessions where id = ${id} and token_hash = ${await sha256(auth.slice(7).trim())}`;
+  if (!s) return reply(401, { error: "unknown session or key" });
+  const log = (what: string, detail: Record<string, unknown> = {}) =>
+    sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+        values (${s.organisation_id}, ${s.device_id}, ${s.answered_by}, ${what}, ${json({ session: s.id, admin: s.requested_by, ...detail })})`;
+  const ended = !help.ACTIVE.includes(s.state);
+  if (op === "answer") {
+    if (s.state !== "asking") return reply(409, { error: `that session is ${s.state}`, state: s.state });
+    const allow = body.allow === true;
+    const control = allow && s.control_asked && body.control === true;
+    await sql`update fleet.help_sessions set state = ${allow ? "allowed" : "declined"}, control = ${control},
+                     detail = ${allow ? null : "they said no"}, updated_at = now(), ended_at = ${allow ? null : sql`now()`}
+              where id = ${id} and state = 'asking'`;
+    await log(allow ? (control ? "allowed remote help, with control" : "allowed remote help (view only)") : "declined remote help");
+    return reply(200, { state: allow ? "allowed" : "declined", control });
+  }
+  if (op === "signal") {
+    if (ended) return reply(200, { state: s.state, detail: s.detail });
+    if (body.answer !== undefined) {
+      const answer = help.cleanDescription(body.answer, "answer");
+      if (!answer || !s.offer || s.answer) return reply(400, { error: "not an answer that fits now" });
+      await sql`update fleet.help_sessions set answer = ${json(answer)}, updated_at = now() where id = ${id} and answer is null`;
+    }
+    const candidates = help.cleanCandidates(body.candidates);
+    if (candidates.length) {
+      await sql`update fleet.help_sessions set device_candidates = device_candidates || ${json(candidates)}
+                where id = ${id} and jsonb_array_length(device_candidates) + ${candidates.length} <= ${help.MAX_CANDIDATES}`;
+    }
+    const since = Number.isInteger(body.since) && (body.since as number) >= 0 ? body.since as number : 0;
+    const theirs = Array.isArray(s.admin_candidates) ? s.admin_candidates : [];
+    return reply(200, { state: s.state, control: s.control, offer: s.offer ?? null,
+                        candidates: theirs.slice(since), count: theirs.length });
+  }
+  if (op === "connected") {
+    if (s.state !== "allowed") return reply(409, { error: `that session is ${s.state}`, state: s.state });
+    await sql`update fleet.help_sessions set state = 'connected', updated_at = now() where id = ${id} and state = 'allowed'`;
+    return reply(200, { state: "connected" });
+  }
+  if (op === "end" || op === "failed") {
+    if (ended) return reply(200, { state: s.state });
+    const detail = cleanDetail(body.detail) ?? (op === "end" ? "they stopped it" : "it couldn't connect");
+    const done = await sql`update fleet.help_sessions set state = ${op === "end" ? "ended" : "failed"}, detail = ${detail},
+                                  ended_at = now(), updated_at = now()
+                           where id = ${id} and state = any(${help.ACTIVE}::text[]) returning id`;
+    if (done.length && op === "end" && s.state !== "asking") await log("ended remote help", { detail });
+    return reply(200, { state: op === "end" ? "ended" : "failed" });
+  }
+  return reply(400, { error: "unknown op" });
+}
+
 async function device(req: Request, body: Record<string, unknown>) {
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return null;
@@ -246,6 +364,9 @@ Deno.serve(async (req: Request) => {
   const path = new URL(req.url).pathname.replace(/^.*\/fleet(?=\/v1\/)/, "");
 
   try {
+    const helpPath = path.match(/^\/v1\/help\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/);
+    if (helpPath) return await helpRoute(req, helpPath[1], body);
+
     if (path === "/v1/enrol") {
       const code = text(body.code, 64)?.trim().toUpperCase();
       if (!code) return reply(400, { error: "code missing" });
@@ -358,11 +479,12 @@ Deno.serve(async (req: Request) => {
       if (apps) await sql`update fleet.devices set apps = ${json(apps)}, apps_at = now() where id = ${dev.id}`;
       await sql`insert into fleet.reports (device_id, report) values (${dev.id}, ${json(body)})`;
       if (Math.random() < 0.01) await sql`select fleet.prune_reports(), fleet.prune_people()`;
-      await sql`update fleet.devices set last_seen = now(), last_report = ${json(body)},
+      const [{ wake_topic }] = await sql`update fleet.devices set last_seen = now(), last_report = ${json(body)},
                   hostname = coalesce(${text(body.hostname, 120)}, hostname),
                   os = coalesce(${text(body.os, 120)}, os),
-                  kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version)
-                where id = ${dev.id}`;
+                  kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version),
+                  wake_topic = coalesce(wake_topic, ${newWakeTopic()})
+                where id = ${dev.id} returning wake_topic`;
       // An erase still waiting after 30 days expires instead (the computer was found, say).
       await sql`update fleet.actions set status = 'expired', finished_at = now()
                 where device_id = ${dev.id} and status = 'pending' and type = 'erase'
@@ -424,19 +546,29 @@ Deno.serve(async (req: Request) => {
         policy: sent,
         accounts: people.map((p) => account(p, { required: requiredFor(p), factors: factorsOf[p.id] ?? [],
                                                  ...(unopened.has(p.id) ? { codes_unavailable: true } : {}) }, provider)),
+        wake: wakeInfo(wake_topic),
       });
     }
 
     const done = path.match(/^\/v1\/actions\/([0-9a-f-]{36})$/);
     if (done) {
       const status = body.status === "done" ? "done" : "failed";
-      await sql`update fleet.actions set status = ${status}, detail = ${text(body.detail, 300)}, finished_at = now()
-                where id = ${done[1]} and device_id = ${dev.id} and status = 'sent'`;
+      const [a] = await sql`update fleet.actions set status = ${status}, detail = ${text(body.detail, 300)}, finished_at = now()
+                            where id = ${done[1]} and device_id = ${dev.id} and status = 'sent' returning type, payload`;
+      // A computer that couldn't take a remote help request (an older Kulan OS, say): the session ends with why.
+      if (a?.type === "remote-help" && status === "failed" && typeof a.payload?.session_id === "string") {
+        await sql`update fleet.help_sessions set state = 'failed', ended_at = now(), updated_at = now(),
+                         detail = ${cleanDetail(body.detail) ?? "the computer couldn't start it"}
+                  where id = ${a.payload.session_id} and device_id = ${dev.id} and state = 'requested'`;
+      }
       return reply(200, {});
     }
 
     if (path === "/v1/leave") {
-      await sql`update fleet.devices set left_at = now(), token_hash = null where id = ${dev.id}`;
+      await sql`update fleet.devices set left_at = now(), token_hash = null, wake_topic = null where id = ${dev.id}`;
+      await sql`update fleet.help_sessions set state = 'ended', detail = 'the computer left the organisation',
+                       ended_at = now(), updated_at = now()
+                where device_id = ${dev.id} and state = any(${help.ACTIVE}::text[])`;
       return reply(200, {});
     }
     return reply(404, { error: "unknown path" });

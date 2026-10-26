@@ -46,8 +46,7 @@ for (const f of fs.readdirSync(migrations).filter((f) => f >= "20261024" && f.en
 const handlers = {};
 let serving = "";
 globalThis.Deno = {
-  env: { get: (k) => ({ SUPABASE_DB_URL: DB, SUPABASE_URL: "http://auth.test", SUPABASE_ANON_KEY: "anon",
-                        SUPABASE_SERVICE_ROLE_KEY: "service", FLEET_FACTOR_KEY: btoa("k".repeat(32)) })[k] },
+  env: { get: (k) => env[k] },
   serve: (h) => { handlers[serving] = h; },
 };
 const realFetch = globalThis.fetch;
@@ -57,6 +56,10 @@ const authFactors = {};
 const b64url = (o) => btoa(JSON.stringify(o)).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 const tokenFor = (email, aal = "aal1") => `${b64url({ alg: "none" })}.${b64url({ email, aal })}.sig`;
 const authCalls = [];
+const wakes = [];
+const cf = { down: false, calls: [] };
+const env = { SUPABASE_DB_URL: DB, SUPABASE_URL: "http://auth.test", SUPABASE_ANON_KEY: "anon",
+              SUPABASE_SERVICE_ROLE_KEY: "service", FLEET_FACTOR_KEY: btoa("k".repeat(32)) };
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === "http://auth.test/auth/v1/user") {
@@ -81,6 +84,22 @@ globalThis.fetch = async (url, init) => {
     return new Response(JSON.stringify(authFactors[email] ?? []), { status: 200 });
   }
   if (u.startsWith("https://oauth2.googleapis.com/") || u.startsWith("https://admin.googleapis.com/")) return fakeGoogle(u, init);
+  // Stand-in Supabase Realtime (the wake broadcasts) and Cloudflare's relay credentials (2.9a).
+  if (u === "http://auth.test/realtime/v1/api/broadcast") {
+    if (new Headers(init?.headers).get("Authorization") !== "Bearer service") return new Response("{}", { status: 401 });
+    wakes.push(...JSON.parse(init.body).messages.map((m) => `${m.event} ${m.topic}`));
+    return new Response(null, { status: 202 });
+  }
+  const turn = u.match(/^https:\/\/rtc\.live\.cloudflare\.com\/v1\/turn\/keys\/([^/]+)\/credentials\/generate-ice-servers$/);
+  if (turn) {
+    if (cf.down) throw new TypeError("fetch failed");
+    cf.calls.push({ key: turn[1], auth: new Headers(init?.headers).get("Authorization"), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ iceServers: [
+      { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.cloudflare.com:53"] },
+      { urls: ["turn:turn.cloudflare.com:3478?transport=udp", "turn:turn.cloudflare.com:53?transport=udp",
+               "turns:turn.cloudflare.com:5349?transport=tcp", "javascript:alert(1)"],
+        username: "u-" + cf.calls.length, credential: "c-" + cf.calls.length }] }), { status: 201 });
+  }
   return realFetch(url, init);
 };
 
@@ -157,6 +176,8 @@ for (const name of ["fleet", "fleet-admin"]) {
   fs.writeFileSync(file, src);
   // policy.ts: the same file in both functions (checked in CI); either copy will do here.
   fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "policy.ts"), path.join(run, "policy.ts"));
+  // help.ts too (2.9a): the same in both, like policy.ts.
+  fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "help.ts"), path.join(run, "help.ts"));
   if (name === "fleet-admin") {
     fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "google.ts"), path.join(run, "google.ts"));
   }
@@ -982,6 +1003,188 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
                     `${HELPER}: gave amina a new setup code`, `${HELPER}: removed amina`, `${OWNER}: added admin ${HELPER}`,
                     `${NEWOWNER}: became the Owner with the recovery code`]) {
   ok(whats.includes(want), `in the activity log: ${want}`, whats);
+}
+
+// --- remote help (2.9a) ------------------------------------------------------------------------
+{
+  // Every report gives the computer where to listen for "report now".
+  r = await report(A);
+  const wakeA = r.body.wake;
+  ok(/^wake-[0-9a-f]{48}$/.test(wakeA?.topic) && wakeA.url === "ws://auth.test/realtime/v1/websocket" && wakeA.key === "anon",
+     "a report gives the wake topic", r.body.wake);
+  ok((await report(A)).body.wake.topic === wakeA.topic, "the same topic every time");
+  ok((await report(B)).body.wake.topic !== wakeA.topic, "each computer its own");
+  // An action wakes its computer.
+  wakes.length = 0;
+  r = await admin(HELPER, { op: "action", device_id: A.device_id, type: "refresh" });
+  ok(r.status === 200 && wakes.join() === `wake ${wakeA.topic}`, "an action wakes the computer", wakes);
+  await report(A);
+
+  // Older computers can't.
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 400 && r.body.error.includes("2.9a"), "a computer before 2.9a: install its updates first", r);
+  await report(A, { kulan_version: "2.9.1 (build 130)" });
+  r = await admin(HELPER, { op: "help-start", device_id: C.device_id });
+  ok(r.status === 404, "another organisation's computer: no", r);
+
+  // Without Cloudflare's key: STUN only.
+  wakes.length = 0;
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id, control: true });
+  ok(r.status === 200 && r.body.relay === false && JSON.stringify(r.body.ice) === '[{"urls":["stun:stun.cloudflare.com:3478"]}]' &&
+     r.body.woke === true && wakes.join() === `wake ${wakeA.topic}` && cf.calls.length === 0, "help-start: STUN only, computer woken", r.body);
+  const s1 = r.body.session_id;
+  r = await admin(NEWOWNER, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 409 && r.body.error.includes(HELPER), "one admin at a time on a computer", r);
+  r = await admin(NEWOWNER, { op: "help-signal", session_id: s1 });
+  ok(r.status === 404, "only the admin who asked follows the session", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1 });
+  ok(r.body.state === "requested", "waiting for the computer", r.body);
+
+  // The computer gets the request with its next report, and picks it up.
+  r = await report(A);
+  const req1 = r.body.actions.find((a) => a.type === "remote-help");
+  ok(req1 && req1.payload.session_id === s1 && Object.keys(req1.payload).length === 1, "the request: the session only, no key", req1);
+  r = await call("fleet", `/v1/help/${s1}`, { op: "claim", device_id: B.device_id, user: "amina" }, B.token);
+  ok(r.status === 404, "another computer can't pick it up", r);
+  r = await call("fleet", `/v1/help/${s1}`, { op: "claim", device_id: A.device_id, user: "Amina!" }, A.token);
+  ok(r.status === 400, "a username that isn't one", r);
+  r = await call("fleet", `/v1/help/${s1}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  ok(r.status === 200 && r.body.admin === HELPER && r.body.control_asked === true && r.body.organisation === "Acme" &&
+     typeof r.body.token === "string" && r.body.token.length >= 40 && Array.isArray(r.body.ice), "claimed: who asks, and a key for this session", r.body);
+  const st = r.body.token;
+  ok((await db`select token_hash from fleet.help_sessions where id = ${s1}`)[0].token_hash !== st, "only the session key's hash is kept");
+  r = await call("fleet", `/v1/help/${s1}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  ok(r.status === 409, "picked up once", r);
+  const helper = (body, token = st, id = s1) => call("fleet", `/v1/help/${id}`, body, token);
+  r = await helper({ op: "signal" }, A.token);
+  ok(r.status === 401, "the computer's own key isn't the session's", r);
+  r = await helper({ op: "answer", allow: true, control: true }, "wrong");
+  ok(r.status === 401, "a wrong session key", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, offer: { type: "offer", sdp: "v=0 fake" } });
+  ok(r.status === 409 && r.body.state === "asking", "no offer before they allow it", r);
+
+  // They allow it, with control.
+  r = await helper({ op: "answer", allow: true, control: true });
+  ok(r.status === 200 && r.body.state === "allowed" && r.body.control === true, "allowed, with control", r.body);
+  r = await helper({ op: "answer", allow: false });
+  ok(r.status === 409, "answered once", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, offer: { type: "answer", sdp: "v=0" } });
+  ok(r.status === 400, "an offer must be an offer", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, offer: { type: "offer", sdp: "v=0 the-offer" },
+                            candidates: [{ candidate: "candidate:1 1 udp 1 10.0.0.2 5000 typ host", sdpMid: "0", sdpMLineIndex: 0 },
+                                         { candidate: "<script>", sdpMid: "0" }, "junk"] });
+  ok(r.status === 200 && r.body.state === "allowed" && r.body.control === true && r.body.who === "mo", "the admin's offer", r.body);
+  r = await helper({ op: "signal" });
+  ok(r.body.offer?.sdp === "v=0 the-offer" && r.body.candidates.length === 1 && r.body.count === 1 &&
+     r.body.candidates[0].candidate.startsWith("candidate:1"), "the computer gets the offer and the good candidate only", r.body);
+  r = await helper({ op: "signal", since: 1, answer: { type: "answer", sdp: "v=0 the-answer" },
+                     candidates: [{ candidate: "candidate:2 1 udp 1 10.0.0.3 6000 typ host", sdpMid: "0", sdpMLineIndex: 0 }] });
+  ok(r.body.candidates.length === 0, "since: only new ones", r.body);
+  r = await helper({ op: "signal", answer: { type: "answer", sdp: "v=0 again" } });
+  ok(r.status === 400, "one answer", r);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1, since: 0 });
+  ok(r.body.answer?.sdp === "v=0 the-answer" && r.body.candidates.length === 1, "the admin gets the answer and candidate", r.body);
+  const many = Array.from({ length: 30 }, (_, i) => ({ candidate: `candidate:${i} 1 udp 1 10.0.0.9 ${7000 + i} typ host`, sdpMid: "0" }));
+  await helper({ op: "signal", candidates: many });
+  await helper({ op: "signal", candidates: many });
+  ok((await db`select jsonb_array_length(device_candidates) as n from fleet.help_sessions where id = ${s1}`)[0].n === 31,
+     "60 candidates at most: the batch that would go over isn't taken");
+  r = await helper({ op: "connected" });
+  ok(r.body.state === "connected", "connected", r.body);
+  r = await helper({ op: "end", detail: "Stopped by them\u0000\u001b[31m" });
+  ok(r.body.state === "ended", "they stop it", r.body);
+  r = await admin(HELPER, { op: "help-signal", session_id: s1 });
+  ok(r.body.state === "ended" && r.body.detail === "Stopped by them[31m", "the admin sees it ended, and why (cleaned)", r.body);
+  r = await helper({ op: "signal" });
+  ok(r.body.state === "ended" && !("offer" in r.body), "after the end: nothing more", r.body);
+
+  // Cloudflare's relay: credentials per session, port 53 and anything odd left out.
+  env.CLOUDFLARE_TURN_KEY_ID = "key-1";
+  env.CLOUDFLARE_TURN_TOKEN = "cf-token";
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s2 = r.body.session_id;
+  const urls = r.body.ice.flatMap((x) => x.urls);
+  ok(r.body.relay === true && cf.calls.length === 1 && cf.calls[0].key === "key-1" && cf.calls[0].auth === "Bearer cf-token" &&
+     cf.calls[0].body.ttl === 3720 && !urls.some((u) => /:53\b/.test(u) || u.startsWith("javascript")) &&
+     urls.includes("turns:turn.cloudflare.com:5349?transport=tcp") && r.body.ice.some((x) => x.username === "u-1" && x.credential === "c-1"),
+     "the relay's credentials", r.body.ice);
+  // The person says no.
+  await report(A);
+  r = await call("fleet", `/v1/help/${s2}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  ok(r.body.control_asked === false && r.body.ice.some((x) => x.username === "u-1"), "view only was asked; the computer gets the relay too", r.body);
+  r = await helper({ op: "answer", allow: true, control: true }, r.body.token, s2);
+  ok(r.body.control === false, "control can't be allowed when it wasn't asked", r.body);
+  await admin(HELPER, { op: "help-end", session_id: s2 });
+  r = await admin(HELPER, { op: "help-signal", session_id: s2 });
+  ok(r.body.state === "ended" && r.body.detail === "the admin ended it", "the admin ends it", r.body);
+  cf.down = true;
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 200 && r.body.relay === false, "Cloudflare unreachable: STUN only, still works", r.body);
+  cf.down = false;
+  const s3 = r.body.session_id;
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s4 = r.body.session_id;
+  ok(r.status === 200 && (await db`select state, detail from fleet.help_sessions where id = ${s3}`)[0].detail === "started again" &&
+     (await db`select status from fleet.actions where payload->>'session_id' = ${s3}`)[0].status === "cancelled",
+     "the same admin starting again ends the old one", r);
+  await report(A);
+  r = await call("fleet", `/v1/help/${s4}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  r = await helper({ op: "answer", allow: false }, r.body.token, s4);
+  r = await admin(HELPER, { op: "help-signal", session_id: s4 });
+  ok(r.body.state === "declined" && r.body.detail === "they said no", "declined", r.body);
+
+  // Nobody signed in; an older computer that fails the request; time running out.
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s5 = r.body.session_id;
+  await report(A);
+  await call("fleet", `/v1/help/${s5}`, { op: "unavailable", device_id: A.device_id, detail: "nobody is signed in" }, A.token);
+  ok((await admin(HELPER, { op: "help-signal", session_id: s5 })).body.detail === "nobody is signed in", "nobody signed in");
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s6 = r.body.session_id;
+  const act6 = (await report(A)).body.actions.find((a) => a.type === "remote-help");
+  await computer(A, `/v1/actions/${act6.id}`, { status: "failed", detail: "unknown action remote-help" });
+  ok((await admin(HELPER, { op: "help-signal", session_id: s6 })).body.state === "failed", "a computer that fails the request: failed");
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s7 = r.body.session_id;
+  await db`update fleet.help_sessions set created_at = now() - interval '11 minutes' where id = ${s7}`;
+  r = await admin(HELPER, { op: "help-signal", session_id: s7 });
+  ok(r.body.state === "expired" && r.body.detail.includes("off or offline"), "never picked up: expired", r.body);
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s8 = r.body.session_id;
+  await report(A);
+  r = await call("fleet", `/v1/help/${s8}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  const t8 = r.body.token;
+  await db`update fleet.help_sessions set updated_at = now() - interval '3 minutes' where id = ${s8}`;
+  r = await helper({ op: "answer", allow: true }, t8, s8);
+  ok(r.status === 409 && r.body.state === "expired", "not answered in 2 minutes: too late", r);
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s9 = r.body.session_id;
+  await report(A);
+  r = await call("fleet", `/v1/help/${s9}`, { op: "claim", device_id: A.device_id, user: "mo" }, A.token);
+  const t9 = r.body.token;
+  await helper({ op: "answer", allow: true }, t9, s9);
+  await db`update fleet.help_sessions set created_at = now() - interval '62 minutes' where id = ${s9}`;
+  r = await helper({ op: "signal" }, t9, s9);
+  ok(r.body.state === "ended" && r.body.detail.includes("an hour"), "an hour at most", r.body);
+  // A computer that leaves ends its session.
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  const s10 = r.body.session_id;
+  await computer(A, "/v1/leave");
+  ok((await db`select state, detail from fleet.help_sessions where id = ${s10}`)[0].detail === "the computer left the organisation" &&
+     (await db`select wake_topic from fleet.devices where id = ${A.device_id}`)[0].wake_topic === null,
+     "a computer that leaves: its session ends, its wake topic goes");
+  r = await admin(HELPER, { op: "help-start", device_id: A.device_id });
+  ok(r.status === 400, "nothing on a computer that left", r);
+
+  r = await admin(HELPER, { op: "log", organisation_id: org, what: "remote help" });
+  const hl = r.body.entries.map((e) => `${e.email}: ${e.what}`);
+  for (const want of ["mo: allowed remote help, with control", "mo: ended remote help", "mo: declined remote help",
+                      `${HELPER}: ended remote help`]) ok(hl.includes(want), `in the activity log: ${want}`, hl);
+  r = await admin(HELPER, { op: "log", organisation_id: org, what: "the screen" });
+  ok(r.body.entries.some((e) => e.what === "asked to see and control the screen") &&
+     r.body.entries.some((e) => e.what === "asked to see the screen"), "asking is logged", r.body.entries.map((e) => e.what));
+  ok(!JSON.stringify((await db`select detail from fleet.audit`).map((x) => x.detail)).includes("v=0"), "nothing of the connection in the log");
+  env.CLOUDFLARE_TURN_KEY_ID = env.CLOUDFLARE_TURN_TOKEN = undefined;
 }
 
 await db.end();

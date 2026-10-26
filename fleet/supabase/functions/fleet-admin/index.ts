@@ -90,9 +90,22 @@
 //   reached, the person's mailbox_todo says what's left (an alert) and "retry" does it.
 //   A mailbox that is a Google admin account is changed only by the Owner.
 //
+// Remote help (2.9a, help.ts): an admin sees, and if the person allows,
+// controls, the screen of someone signed in on a computer; they're asked
+// first, every time. The setting-up messages pass through here, the screen
+// goes straight between them (WebRTC, Cloudflare's relay when it must).
+//   POST {op: "help-start", device_id, control}            -> {session_id, ice, relay}
+//   POST {op: "help-signal", session_id, offer?, candidates?, since?}
+//        -> {state, control, detail, answer, candidates (the computer's, from since), count}
+//        (only the admin who started it; asked about every second while it runs)
+//   POST {op: "help-end", session_id}
+// Requests ("action", "group-action", "help-start") wake the computers they're
+// for (a Realtime broadcast), so they arrive in seconds, not at the next report.
+//
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 import * as google from "./google.ts";
+import * as help from "./help.ts";
 import { cleanPolicy, mergePolicies } from "./policy.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 3, prepare: false });
@@ -118,6 +131,17 @@ const MAX_PEOPLE = 5000;
 const REVIEW_DAYS = 90;
 const DAY_MS = 86400_000;
 const LIST_MAX = 50; // names listed per line of the weekly report
+const HELP_SINCE = [2, 9, 1]; // the first Kulan OS that can take remote help (2.9a)
+
+// Whether a computer's Kulan OS (its kulan_version, "2.9.1 (build 130)") is
+// at least this one; true when it can't be told (a test build, say).
+export function versionAtLeast(version: unknown, want: number[]): boolean {
+  const m = typeof version === "string" ? version.match(/^(\d+)\.(\d+)(?:\.(\d+))?/) : null;
+  if (!m) return true;
+  const have = [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
+  for (let i = 0; i < 3; i++) if (have[i] !== want[i]) return have[i] > want[i];
+  return true;
+}
 
 // A full name as the computers will show it: no characters /etc/passwd uses.
 export function cleanName(v: unknown): string | null {
@@ -403,6 +427,13 @@ Deno.serve(async (req: Request) => {
       if (!id) return null;
       const rows = await sql`select organisation_id from fleet.devices where id = ${id}`;
       return rows.length && canOrg(rows[0].organisation_id) ? rows[0].organisation_id : null;
+    };
+    // "Report now" to these computers (best effort: otherwise their next report).
+    const wakeDevices = async (ids: string[]) => {
+      if (!ids.length) return 0;
+      const rows = await sql`select wake_topic from fleet.devices where id = any(${ids}::uuid[]) and left_at is null
+                             and wake_topic is not null`;
+      return await help.wake(rows.map((r) => r.wake_topic));
     };
     const isOwner = async (org: string) => {
       if (global) return true;
@@ -1067,6 +1098,7 @@ Deno.serve(async (req: Request) => {
         const [row] = await sql`insert into fleet.actions (device_id, type, requested_by, payload)
                                 values (${id}, ${body.type}, ${email}, ${payload === null ? null : json(payload)}) returning id`;
         await audit(org, id, `asked: ${body.type}`, payload);
+        await wakeDevices([id as string]);
         return reply(200, { id: row.id });
       }
       // --- Groups --------------------------------------------------------------------------
@@ -1207,8 +1239,9 @@ Deno.serve(async (req: Request) => {
           select gd.device_id, ${body.type}, ${email}, ${payload === null ? null : json(payload)}
           from fleet.group_devices gd join fleet.devices d on d.id = gd.device_id
           where gd.group_id = ${g.id} and d.left_at is null
-          returning id`;
+          returning id, device_id`;
         await audit(g.organisation_id, null, `asked group ${g.name}: ${body.type}`.slice(0, 80), { computers: rows.length, ...(payload ?? {}) });
+        await wakeDevices(rows.map((r) => r.device_id));
         return reply(200, { count: rows.length });
       }
       // --- Security and activity (2.8c) ---------------------------------------------------
@@ -1511,6 +1544,79 @@ Deno.serve(async (req: Request) => {
           return reply(e instanceof google.GoogleError && e.status === 409 ? 409 : 502, { error: why(e) });
         }
         return reply(400, { error: "the action is create, link, unlink, new-password, retry or forget" });
+      }
+      // --- Remote help (2.9a) ------------------------------------------------------------
+      case "help-start": {
+        const id = uuid(body.device_id);
+        const org = await deviceOrg(id);
+        if (!org) return reply(404, { error: "no such computer" });
+        const [d] = await sql`select hostname, left_at, kulan_version, last_report->'sign_ins' as sign_ins
+                              from fleet.devices where id = ${id}`;
+        if (d.left_at) return reply(400, { error: "that computer has left the organisation" });
+        if (!versionAtLeast(d.kulan_version, HELP_SINCE)) {
+          return reply(400, { error: "that computer needs Kulan OS 2.9a or newer for remote help: install its updates first" });
+        }
+        await sql`select fleet.expire_help_sessions()`;
+        const busy = await sql`select id, requested_by from fleet.help_sessions
+                               where device_id = ${id} and state = any(${help.ACTIVE}::text[])`;
+        if (busy.some((b) => b.requested_by !== email)) {
+          return reply(409, { error: `${busy.find((b) => b.requested_by !== email)!.requested_by} is helping on that computer now` });
+        }
+        // Started again by the same admin (a closed tab, say): the old one ends.
+        for (const b of busy) {
+          await sql`update fleet.help_sessions set state = 'ended', detail = 'started again', ended_at = now(), updated_at = now()
+                    where id = ${b.id} and state = any(${help.ACTIVE}::text[])`;
+          await sql`update fleet.actions set status = 'cancelled', finished_at = now()
+                    where device_id = ${id} and type = 'remote-help' and status = 'pending' and payload->>'session_id' = ${b.id}`;
+        }
+        const control = body.control === true;
+        const ice = await help.iceServers();
+        const session = await sql.begin(async (tx) => {
+          const [s] = await tx`insert into fleet.help_sessions (organisation_id, device_id, requested_by, control_asked, ice)
+                               values (${org}, ${id}, ${email}, ${control}, ${json(ice)}) returning id`;
+          await tx`insert into fleet.actions (device_id, type, requested_by, payload)
+                   values (${id}, 'remote-help', ${email}, ${json({ session_id: s.id })})`;
+          return s;
+        });
+        await audit(org, id, control ? "asked to see and control the screen" : "asked to see the screen", { session: session.id });
+        if (Math.random() < 0.05) await sql`select fleet.prune_help_sessions()`;
+        const woke = await wakeDevices([id as string]);
+        const signedInNow = Array.isArray(d.sign_ins) && d.sign_ins.some((x: Record<string, unknown>) => x?.now === true);
+        return reply(200, { session_id: session.id, ice, relay: ice.some((x) => x.urls.some((u) => u.startsWith("turn"))),
+                            woke: woke > 0, signed_in: signedInNow, hostname: d.hostname });
+      }
+      case "help-signal":
+      case "help-end": {
+        const sid = uuid(body.session_id);
+        await sql`select fleet.expire_help_sessions()`;
+        const [s] = sid ? await sql`select * from fleet.help_sessions where id = ${sid}` : [];
+        // Only the admin who asked: the person allowed them, by name.
+        if (!s || !canOrg(s.organisation_id) || s.requested_by !== email) return reply(404, { error: "no such session" });
+        const active = help.ACTIVE.includes(s.state);
+        if (body.op === "help-end") {
+          if (!active) return reply(200, { state: s.state });
+          const done = await sql`update fleet.help_sessions set state = 'ended', detail = 'the admin ended it', ended_at = now(),
+                                        updated_at = now() where id = ${sid} and state = any(${help.ACTIVE}::text[]) returning id`;
+          await sql`update fleet.actions set status = 'cancelled', finished_at = now()
+                    where device_id = ${s.device_id} and type = 'remote-help' and status = 'pending' and payload->>'session_id' = ${sid}`;
+          if (done.length) await audit(s.organisation_id, s.device_id, "ended remote help", { session: sid });
+          return reply(200, { state: "ended" });
+        }
+        if (active && body.offer !== undefined) {
+          const offer = help.cleanDescription(body.offer, "offer");
+          if (!offer) return reply(400, { error: "that isn't an offer" });
+          if (s.state !== "allowed" || s.offer) return reply(409, { error: "not now", state: s.state });
+          await sql`update fleet.help_sessions set offer = ${json(offer)}, updated_at = now() where id = ${sid} and offer is null`;
+        }
+        const candidates = active ? help.cleanCandidates(body.candidates) : [];
+        if (candidates.length) {
+          await sql`update fleet.help_sessions set admin_candidates = admin_candidates || ${json(candidates)}
+                    where id = ${sid} and jsonb_array_length(admin_candidates) + ${candidates.length} <= ${help.MAX_CANDIDATES}`;
+        }
+        const since = Number.isInteger(body.since) && body.since >= 0 ? body.since : 0;
+        const theirs = Array.isArray(s.device_candidates) ? s.device_candidates : [];
+        return reply(200, { state: s.state, control: s.control, detail: s.detail, who: s.answered_by,
+                            answer: s.answer ?? null, candidates: theirs.slice(since), count: theirs.length });
       }
       case "cancel-action": {
         const id = uuid(body.action_id);
