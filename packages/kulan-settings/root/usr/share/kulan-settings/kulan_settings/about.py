@@ -259,8 +259,11 @@ class AboutPage(Page):
                 subtitle="Report now, install updates, turn on compliance mode, lock the screen, "
                          "lock it if it’s lost"
                          + (", erase it" if data.get("allow_erase") else "")
-                         + ", and restart or shut down with 5 minutes’ notice. It also manages the accounts "
-                           "it created. Other accounts on this computer are never touched",
+                         + ", and restart or shut down with 5 minutes’ notice. It can run Kulan’s fixes"
+                         + (" and its own scripts" if self.scripts_allowed() else "")
+                         + ", show you messages, add Wi-Fi networks and printers, and ask to see your screen, "
+                           "which only happens if you allow it. It manages the accounts it created. Other "
+                           "accounts on this computer are never touched",
                 subtitle_lines=0))
             rows = [head, shared]
             policy = self.fleet_policy()
@@ -290,6 +293,14 @@ class AboutPage(Page):
         for row in rows:
             self.org_group.add(row)
             self.org_rows.append(row)
+
+    @staticmethod
+    def scripts_allowed() -> bool:
+        """Whether the organisation's Owner allows its own scripts on this computer."""
+        try:
+            return json.loads(Path("/var/lib/kulan/fleet-policy.json").read_text()).get("policy", {}).get("scripts") is True
+        except (OSError, ValueError, AttributeError):
+            return False
 
     @staticmethod
     def fleet_policy() -> Adw.ExpanderRow | None:

@@ -29,6 +29,11 @@ The server can only answer with these actions, nothing else:
                    so the organisation can find it and release it
   lost-mode-off    release it from lost mode
   install-app      install one app now (a Debian package or a Flathub app)
+  run-fix          run one of Kulan's fixes (free up disk space, reset Wi-Fi, repair
+                   updates, restart printing, check the disk); fixes.py
+  run-script       run one of the organisation's scripts, only if its Owner allows
+                   them (the "scripts" policy) and the script is unchanged
+  message          show a notice on the screens of whoever is signed in
   remote-help      ask the person using the computer whether an admin may see
                    (and, if they also allow it, control) their screen; nothing
                    is shared unless they press Allow, and they can stop it any
@@ -85,7 +90,9 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, "/usr/share/kulan-fleet")
 import fleetpolicy  # noqa: E402
 import people  # noqa: E402
+import pushed  # noqa: E402
 import signins  # noqa: E402
+import fixes  # noqa: E402
 import helpsession  # noqa: E402
 import twostep  # noqa: E402
 import wake  # noqa: E402
@@ -112,9 +119,11 @@ OLD_POLICY_FILES = (Path("/etc/dconf/db/local.d/40-kulan-fleet"), Path("/etc/dco
 COMPLIANCE_DCONF = Path("/etc/dconf/db/local.d/50-kulan-compliance")
 DCONF_DB = Path("/etc/dconf/db/local")
 ALLOWED_ACTIONS = ("refresh", "install-updates", "compliance-on", "lock-screen", "restart", "shutdown",
-                   "lost-mode-on", "lost-mode-off", "install-app", "erase", "remote-help")
+                   "lost-mode-on", "lost-mode-off", "install-app", "erase", "remote-help",
+                   "run-fix", "run-script", "message")
 # Where to listen for "report now" (wake.py): root only, like the key.
 WAKE = Path("/var/lib/kulan/fleet-wake.json")
+PUSHED = Path("/var/lib/kulan/fleet-pushed.json")  # how the group's Wi-Fi and printers went
 LISTENER = "kulan-fleet-listen.service"
 # Lost mode: /etc/nologin stops every sign-in but root's (pam_nologin, in
 # GDM's and the console's sign-in), and stays across restarts; the sign-in
@@ -134,7 +143,9 @@ SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version 
           "Each account's username and when it was last used. Not what anyone does",
           "If you set up two-step sign-in, your security key's public key or your phone code's secret, so it "
           "works on your organisation's other computers",
-          "Your screen, only during remote help you allow, sent straight to the admin. Never recorded or kept"]
+          "Your screen, only during remote help you allow, sent straight to the admin. Never recorded or kept",
+          "What a fix or script your organisation runs here prints (first 64 KB), and whether it worked",
+          "Whether the Wi-Fi networks and printers your organisation adds here were added"]
 APPS_EVERY_S = 24 * 3600
 MAX_APPS = 3000
 TIMEOUT = 30
@@ -453,6 +464,8 @@ def clean_policy(raw) -> dict:
         apps_list = fleetpolicy.clean_apps(raw.get(key))
         if apps_list:
             policy[key] = apps_list
+    if raw.get("scripts") is True:  # the Owner allows the organisation's own scripts here
+        policy["scripts"] = True
     return policy
 
 
@@ -572,7 +585,47 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
         return lost_mode_off()
     if kind == "remote-help":
         return remote_help(payload)
+    if kind == "message":
+        title = payload.get("title") if isinstance(payload, dict) else None
+        body = payload.get("body") if isinstance(payload, dict) else ""
+        if not isinstance(title, str) or not title.strip():
+            return False, "a message needs a title"
+        org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
+        clean = lambda t, n: "".join(c if c.isprintable() or c == "\n" else " " for c in t)[:n].strip()  # noqa: E731
+        notify_users(f"{clean(title, 80)} ({clean(org, 60)})", clean(body if isinstance(body, str) else "", 500))
+        return True, "shown"
     return False, "not an action Kulan OS allows"
+
+
+def run_job(kind: str, payload, action_id: str, config: dict) -> tuple[bool, str, dict]:
+    """A fix or a script: (ok, short result, {output, exit_code}). The person
+    at the computer is told what their organisation ran."""
+    org = config.get("organisation") or "Your organisation"
+    if kind == "run-fix":
+        fix = payload.get("fix") if isinstance(payload, dict) else None
+        if fix not in fixes.FIXES:
+            return False, "not one of Kulan's fixes", {}
+        notify_users(f"{org} is running a fix", fixes.FIXES[fix])
+        ok, detail, output, code = fixes.run_fix(fix, run)
+        return ok, detail, {"output": output, "exit_code": code}
+    sha = payload.get("sha256") if isinstance(payload, dict) else None
+    name = payload.get("name") if isinstance(payload, dict) else None
+    allowed = read_json(POLICY_PUBLIC, {}).get("policy", {}).get("scripts") is True
+    if not allowed:
+        return False, "this organisation doesn't allow scripts", {}
+    if not isinstance(sha, str) or not isinstance(name, str):
+        return False, "not a script request", {}
+    try:
+        got = post(config["server"], f"/v1/scripts/{urllib.parse.quote(action_id, safe='')}",
+                   {"device_id": config["device_id"]}, config["token"])
+    except RuntimeError as e:
+        return False, f"couldn't get the script: {e}", {}
+    body = got.get("body")
+    if not isinstance(body, str):
+        return False, "couldn't get the script", {}
+    notify_users(f"{org} is running a script", "".join(c for c in name if c.isprintable())[:80])
+    ok, detail, output, code = fixes.run_script(body, sha, allowed)
+    return ok, detail, {"output": output, "exit_code": code}
 
 
 def remote_help(payload) -> tuple[bool, str]:
@@ -717,6 +770,11 @@ def warn_users(title: str, body: str) -> None:
     """Tell everyone using the computer: a notification on each signed-in
     desktop, and a message in every terminal."""
     run(["wall", f"{title}. {body}"], timeout=10)
+    notify_users(title, body)
+
+
+def notify_users(title: str, body: str) -> None:
+    """A notification on each signed-in desktop."""
     if not NOTICE.exists():
         return
     for bus in sorted(Path("/run/user").glob("*/bus")):
@@ -866,6 +924,9 @@ def report() -> int:
             body["factors"] = factors_added
         if factors_removed:
             body["factors_removed"] = factors_removed
+        pushed_status = read_json(PUSHED, None)
+        if pushed_status:
+            body["pushed"] = pushed_status
         # Who uses this computer: usernames and when each was last used, nothing more.
         body["sign_ins"] = signins.collect(run)
         # USB drives seen, only while a policy controls them (so an admin can approve one).
@@ -903,16 +964,24 @@ def report() -> int:
             status = apply_policy(reply.get("policy"))
             if status:
                 say("Policy: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in status.items()))
+        # Wi-Fi networks and printers from the computer's groups (2.9b); how it went goes with the next report.
+        if "networks" in reply or "printers" in reply:
+            done = {"networks": pushed.apply_networks(reply.get("networks"), run),
+                    "printers": pushed.apply_printers(reply.get("printers"), run)}
+            write_json(PUSHED, done, 0o644)
         again = False
         actions = reply.get("actions")
         for action in (actions if isinstance(actions, list) else [])[:10]:
             if not isinstance(action, dict):
                 continue
+            extra = {}
             kind, action_id = str(action.get("type", "")), str(action.get("id", ""))
             if kind not in ALLOWED_ACTIONS:
                 ok, detail = False, "not an action Kulan OS allows"
             elif kind == "erase":
                 ok, detail = erase_with_notice(action_id)
+            elif kind in ("run-fix", "run-script"):
+                ok, detail, extra = run_job(kind, action.get("payload"), action_id, config)
             else:
                 ok, detail = do_action(kind, action.get("payload"))
             # Report again straight away after refresh, and after lost mode on
@@ -922,7 +991,7 @@ def report() -> int:
             if action_id:
                 try:
                     post(server, f"/v1/actions/{urllib.parse.quote(action_id, safe='')}",
-                         {"device_id": device_id, "status": "done" if ok else "failed", "detail": detail}, token)
+                         {"device_id": device_id, "status": "done" if ok else "failed", "detail": detail, **extra}, token)
                 except RuntimeError:
                     pass
             say(f"{kind}: {'done' if ok else 'failed'} ({detail})")
@@ -1027,6 +1096,8 @@ def leave() -> int:
     signins.forget()
     twostep.remove_all(run)  # people sign in with their password alone again
     workmail.remove_all()  # no work email offered (people's own Online Accounts stay theirs)
+    pushed.remove_all(run)  # the organisation's Wi-Fi networks and printers go; people's own stay
+    PUSHED.unlink(missing_ok=True)
     APPS_SENT.unlink(missing_ok=True)
     ERASE_PENDING.unlink(missing_ok=True)  # an organisation it left can't erase it
     lost_mode_off()  # nor keep it locked as lost

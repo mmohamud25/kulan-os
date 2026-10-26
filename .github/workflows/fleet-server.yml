@@ -72,6 +72,7 @@ jobs:
           node --experimental-strip-types remotehelp.e2e.mjs
           python3 -I -B ../../ci/remotehelp-test.py
           python3 -I -B ../../ci/remotehelp-helper-test.py
+          python3 -I -B ../../ci/fleet-actions-test.py
 
   dashboard:
     name: Web dashboard in a browser
