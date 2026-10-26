@@ -159,7 +159,8 @@ try:  # GLib itself, where it's installed (the CI image): the real reader
     from gi.repository import GLib
     for pw in [" pass\\word=[x] ", "a b\tc#;", "  two  "]:
         g = GLib.KeyFile()
-        g.load_from_data(pushed.keyfile(dict(nets[0], password=pw)), -1, GLib.KeyFileFlags.NONE)
+        text = pushed.keyfile(dict(nets[0], password=pw))
+        g.load_from_data(text, len(text.encode()), GLib.KeyFileFlags.NONE)
         check(f"GLib reads the password back exactly: {pw!r}", g.get_string("wifi-security", "psk") == pw)
         check("GLib reads the name back", bytes(g.get_integer_list("wifi", "ssid")) == b"Acme Staff")
 except ImportError:
