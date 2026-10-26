@@ -724,7 +724,7 @@ Deno.serve(async (req: Request) => {
                  last_report->'compliance'->'total' as compliance_total,
                  last_report->'compliance'->'mode' as compliance_mode,
                  last_report->'hardware' as hardware, last_report->'state' as state,
-                 last_report->'policy_status' as policy_status, last_report->'sign_ins' as sign_ins, apps_at,
+                 last_report->'policy_status' as policy_status, last_report->'sign_ins' as sign_ins, last_report->'pushed' as pushed, apps_at,
                  jsonb_array_length(coalesce(apps, '[]'::jsonb)) as app_count
           from fleet.devices where organisation_id = any(${ids}::uuid[]) order by left_at nulls first, hostname`;
         const actions = await sql`

@@ -34,8 +34,9 @@ button, select, input { font: inherit; color: inherit; }
 button { border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 600; cursor: pointer; background: var(--chip); }
 button.primary { background: var(--teal); color: var(--teal-ink); }
 button:disabled { opacity: .5; cursor: default; }
-input, select { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; }
-input:focus, select:focus, button:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
+input, select, textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; }
+textarea { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; color: inherit; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
 .stat b { display: block; font: 800 28px Manrope, Inter, sans-serif; }
@@ -220,6 +221,16 @@ dialog.help[open] { display: flex; flex-direction: column; }
     </div>
 
     <div class="card">
+      <div class="row" style="margin-bottom: 8px">
+        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Scripts</h3>
+        <button id="add-script" class="hidden" style="margin-left: auto">Add a script…</button>
+      </div>
+      <p class="sub" id="scripts-sub"></p>
+      <label class="row hidden" id="scripts-allow-row" style="margin-bottom: 8px"><input type="checkbox" id="scripts-allow"> Allow scripts on this organisation's computers</label>
+      <ul id="scripts" class="alerts"></ul>
+    </div>
+
+    <div class="card">
       <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">USB drives</h3>
       <p class="sub">Approved drives work where a policy allows approved drives only. Drives plugged into computers with a USB policy appear here for approval.</p>
       <ul id="drives" class="alerts"></ul>
@@ -320,10 +331,22 @@ const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates
                  ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
                  ["restart", "Restart"], ["shutdown", "Switch off"]];
 const LABEL = { ...Object.fromEntries(ACTIONS), erase: "Erase", "lost-mode-on": "Turn on lost mode",
-                "lost-mode-off": "Release from lost mode", "install-app": "Install an app", "remote-help": "Remote help" };
+                "lost-mode-off": "Release from lost mode", "install-app": "Install an app", "remote-help": "Remote help",
+                "run-fix": "Run a fix", "run-script": "Run a script", message: "Message" };
 const GROUP_ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"], ["lock-screen", "Lock the screen"],
                        ["restart", "Restart"], ["shutdown", "Switch off"],
-                       ["install-app", "Install an app…"]];
+                       ["install-app", "Install an app…"], ["run-fix", "Run a fix…"], ["run-script", "Run a script…"],
+                       ["message", "Send a message…"]];
+// Kulan's fixes (2.9b), the same list as the computers' fixes.py.
+const FIXES = [
+  ["free-space", "Free up disk space", "Removes downloaded update files, old system files and logs older than two weeks."],
+  ["reset-wifi", "Reset Wi-Fi", "Turns Wi-Fi off and on and restarts the network service. The computer is offline for a few seconds."],
+  ["repair-updates", "Repair updates", "Finishes interrupted installs, fixes missing pieces and refreshes the update lists."],
+  ["restart-printing", "Restart printing", "Restarts the printing service and turns stopped printers back on."],
+  ["check-disk", "Check the disk", "Looks for disk errors and checks the disk's health. It changes nothing."]];
+const FIX_NAME = Object.fromEntries(FIXES.map(([v, t]) => [v, t]));
+const JOBS = new Set(["run-fix", "run-script", "message"]);
+let scripts = [], scriptsAllowed = false;
 const SCREEN_LOCK = [[0, "Not set"], [2, "After 2 minutes"], [5, "After 5 minutes"], [10, "After 10 minutes"],
                      [15, "After 15 minutes"], [30, "After 30 minutes"]];
 const USB = [["", "Any USB drive works"], ["approved", "Approved drives only"], ["block", "Blocked"]];
@@ -443,6 +466,21 @@ async function setUpAuthenticator(required) {
       if (e) throw new Error(e.message);
     });
 }
+// Before something that needs the code (scripts): asked first, so nothing typed is lost.
+async function codeFirst() {
+  const level = async () => {
+    const { data: aal, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (error) throw error;
+    return aal;
+  };
+  let now;
+  try { now = await level(); } catch { return true; }  // can't tell here: the server asks for it if it's needed
+  if (now?.currentLevel === "aal2") return true;
+  twoStepOpen = true;
+  try { await (now?.nextLevel === "aal2" ? askAuthenticatorCode() : setUpAuthenticator(false)); }
+  finally { twoStepOpen = false; }
+  try { return (await level())?.currentLevel === "aal2"; } catch { return true; }
+}
 async function myAuthenticator() {
   const { data: f } = await supabase.auth.mfa.listFactors();
   const verified = (f?.totp || []).filter((x) => x.status === "verified");
@@ -478,6 +516,7 @@ async function load() {
   render();
   await loadGroups();  // before people: their dialogs offer the groups
   await loadPeople();
+  await loadScripts();
   helpFromLink();
 }
 
@@ -843,7 +882,8 @@ function renderGroups() {
     el("td", {}, el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openGroup(g); } }, g.name)),
     el("td", {}, String((g.devices || []).filter((i) => live.has(i)).length)),
     el("td", { class: "small" }, policySummary(g.policy || {})),
-    el("td", {}, el("button", { onclick: () => openGroup(g) }, "Manage…"))));
+    el("td", {}, el("div", { class: "row" }, el("button", { onclick: () => openGroup(g) }, "Manage…"),
+                    el("button", { onclick: () => openGroupNetwork(g) }, "Wi-Fi and printers…")))));
   $("groups").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "4", class: "empty" },
     "No groups yet. Add one, for example Office or Finance."))]));
   $("add-group").disabled = !$("org").value;
@@ -859,10 +899,11 @@ function openGroup(g) {
   });
   const err = errorLine();
   const pick = el("select", { "aria-label": `Ask ${g.name}'s computers to` }, el("option", { value: "" }, "Choose…"),
-    ...GROUP_ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
+    ...GROUP_ACTIONS.filter(([v]) => v !== "run-script" || orgNow()?.allow_scripts).map(([v, t]) => el("option", { value: v }, t)));
   const send = el("button", { type: "button", onclick: async () => {
     if (!pick.value) return;
     if (pick.value === "install-app") { askInstallApp(`${g.name}'s computers`, { op: "group-action", group_id: g.id }); return; }
+    if (JOBS.has(pick.value)) { askJob(pick.value, `${g.name}'s computers`, { op: "group-action", group_id: g.id }); return; }
     if ((pick.value === "restart" || pick.value === "shutdown") &&
         !confirm(`${LABEL[pick.value]} every computer in ${g.name}? Anyone using them gets 5 minutes' notice.`)) return;
     try {
@@ -1068,6 +1109,10 @@ function openPerson(p) {
   if (!manages) toggle.disabled = true;
   const remove = el("button", { type: "button", class: "danger", onclick: () => removePerson(p) }, "Remove…");
   if (!manages) remove.disabled = true;
+  const signedInNow = (p.signed_in || []).some((x) => x.now);
+  const message = el("button", { type: "button", onclick: () => askJob("message", p.full_name || p.username, { op: "message-person", person_id: p.id }) },
+                     "Send a message…");
+  if (!signedInNow) { message.disabled = true; message.title = "They aren't signed in on any computer now"; }
   dialog(p.full_name || p.username, [
     el("p", { class: "note" }, `${p.username} · ${ROLE[p.role]} · `, signInTag(p), ` · added ${ago(p.created_at)} by ${p.created_by || "–"}`),
     el("h4", {}, "On these computers"), el("ul", { class: "alerts" }, ...(on.length ? on : [el("li", { class: "small" }, "No computers yet")])),
@@ -1085,7 +1130,7 @@ function openPerson(p) {
     field(isOwner ? "Role" : "Role (only the Owner can change it)", role),
     el("h4", {}, "Computers they can use"), ...picker.nodes,
     manages ? "" : el("p", { class: "note" }, "Only the Owner can change an admin's or the Owner's sign-in."), err],
-    [newCode, toggle, remove, closeButton("Close"), save]);
+    [message, newCode, toggle, remove, closeButton("Close"), save]);
 }
 
 function removePerson(p) {
@@ -1277,11 +1322,15 @@ function render() {
                                    : el("option", { value: "lost-mode-on" }, "Turn on lost mode…"));
     pick.append(el("option", { value: "install-app" }, "Install an app…"));
     pick.append(el("option", { value: "remote-help" }, "Remote help…"));
+    pick.append(el("option", { value: "run-fix" }, "Run a fix…"));
+    if (orgNow()?.allow_scripts) pick.append(el("option", { value: "run-script" }, "Run a script…"));
+    pick.append(el("option", { value: "message" }, "Send a message…"));
     if (d.state?.erase_allowed && d.state?.encrypted) pick.append(el("option", { value: "erase" }, "Erase…"));
     const go = el("button", { onclick: async () => {
       if (!pick.value) return;
       if (pick.value === "install-app") { askInstallApp(d.hostname || "this computer", { op: "action", device_id: d.id }); return; }
       if (pick.value === "remote-help") { askRemoteHelp(d); return; }
+      if (JOBS.has(pick.value)) { askJob(pick.value, d.hostname || "this computer", { op: "action", device_id: d.id }); return; }
       if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Anyone using it gets 5 minutes' notice.`)) return;
       if (pick.value === "shutdown" && !confirm(`Switch off ${d.hostname}? Anyone using it gets 5 minutes' notice. It reports again when it's switched on.`)) return;
       if (pick.value === "lost-mode-on" && !confirm(`Turn on lost mode on ${d.hostname}? At its next report, nobody can sign in. Anyone using it is signed out after a 20-second warning, and unsaved work is lost. The sign-in screen asks for it to be returned to your organisation.`)) return;
@@ -1308,16 +1357,210 @@ function render() {
   const names = Object.fromEntries(data.devices.map((d) => [d.id, d.hostname]));
   const ids = new Set(devices.map((d) => d.id));
   const acts = data.actions.filter((a) => ids.has(a.device_id)).map((a) =>
-    el("tr", {}, el("td", {}, ago(a.created_at)), el("td", {}, names[a.device_id] || ""), el("td", {}, LABEL[a.type] || a.type),
+    el("tr", {}, el("td", {}, ago(a.created_at)), el("td", {}, names[a.device_id] || ""),
+       el("td", {}, LABEL[a.type] || a.type, a.what ? el("span", { class: "small" }, ` · ${a.type === "run-fix" ? FIX_NAME[a.what] || a.what : a.what}`) : ""),
        el("td", {}, el("span", { class: `tag ${a.status === "done" ? "good" : a.status === "failed" ? "bad" : "dim"}` },
                      { pending: "waiting for the computer", sent: "sent", done: "done", failed: "failed",
                        cancelled: "cancelled", expired: "expired" }[a.status] || a.status),
           a.detail ? el("span", { class: "small" }, ` ${a.detail}`) : "",
+          a.has_output ? el("button", { style: "margin-left: 8px", onclick: () => showOutput(a, names[a.device_id]) }, "Output") : "",
           a.status === "pending" ? el("button", { style: "margin-left: 8px", onclick: async () => {
             try { await api({ op: "cancel-action", action_id: a.id }); await load(); }
             catch (e) { $("app-msg").textContent = e.message; }
           } }, "Cancel") : "")));
   $("actions").replaceChildren(...(acts.length ? acts : [el("tr", {}, el("td", { colspan: "4", class: "empty" }, "Nothing asked yet."))]));
+}
+
+// --- Fixes, scripts and messages (2.9b) -----------------------------------------------------
+// body: {op: "action", device_id}, {op: "group-action", group_id} or {op: "message-person", person_id}.
+async function askJob(kind, where, body) {
+  const err = errorLine();
+  const go = el("button", { type: "button", class: "primary" }, kind === "message" ? "Send" : "Run");
+  const send = async (payload, said) => {
+    go.disabled = true;
+    try {
+      const out = await api(body.op === "message-person" ? { ...body, ...payload } : { ...body, type: kind, payload });
+      $("dlg").close();
+      const n = out.count;
+      $("app-msg").textContent = `${said}${n === undefined ? "" : ` (${n} computer${n === 1 ? "" : "s"})`}. ` +
+        (kind === "message" ? "It appears at their next report." : "The result appears under Recent requests.");
+      await load();
+    } catch (e) { err.textContent = e.message; go.disabled = false; }
+  };
+  if (kind === "run-fix") {
+    const pick = el("select", {}, ...FIXES.map(([v, t]) => el("option", { value: v }, t)));
+    const about = el("p", { class: "note" });
+    const describe = () => { about.textContent = FIXES.find(([v]) => v === pick.value)[2]; };
+    pick.addEventListener("change", describe);
+    describe();
+    go.addEventListener("click", () => send({ fix: pick.value }, `${FIX_NAME[pick.value]} will run on ${where}`));
+    dialog(`Run a fix on ${where}`, [
+      el("p", {}, "It runs at the next report. Whoever is using the computer sees which fix is running."),
+      field("Fix", pick), about, err], [closeButton(), go]);
+    return;
+  }
+  if (kind === "message") {
+    const title = el("input", { maxlength: "80", placeholder: "Restart tonight" });
+    const text = el("textarea", { rows: "4", maxlength: "500", placeholder: "Please save your work before 6 pm.", style: "font-family: inherit" });
+    go.addEventListener("click", () => {
+      if (!title.value.trim()) { err.textContent = "Give the message a title."; return; }
+      send({ title: title.value.trim(), body: text.value.trim() }, `The message will show on ${where}`);
+    });
+    dialog(`Send a message to ${where}`, [
+      el("p", { class: "note" }, "It shows as a notification on the screen of whoever is signed in, with your organisation's name."),
+      field("Title", title), field("Message", text), err], [closeButton(), go]);
+    title.focus();
+    return;
+  }
+  // run-script
+  if (!(await codeFirst())) return;
+  if (!scriptsAllowed) { $("app-msg").textContent = "The Owner hasn't allowed scripts for this organisation."; return; }
+  if (!scripts.length) { $("app-msg").textContent = "No scripts yet. Add one under Scripts first."; return; }
+  const pick = el("select", {}, ...scripts.map((x) => el("option", { value: x.id }, x.name)));
+  const about = el("p", { class: "note" });
+  const shown = el("pre", { style: "max-height: 30vh" });
+  const describe = () => {
+    const x = scripts.find((y) => y.id === pick.value);
+    about.textContent = `${x.description ? `${x.description} · ` : ""}changed ${ago(x.updated_at)} by ${x.updated_by}`;
+    shown.textContent = x.body;
+  };
+  pick.addEventListener("change", describe);
+  describe();
+  go.addEventListener("click", () => send({ script_id: pick.value }, `${scripts.find((y) => y.id === pick.value).name} will run on ${where}`));
+  dialog(`Run a script on ${where}`, [
+    el("p", {}, "It runs as root at the next report, for up to 10 minutes. The computer checks that it's this exact script before running it, and whoever is using it sees the script's name."),
+    field("Script", pick), about, shown, err], [closeButton(), go]);
+}
+
+async function showOutput(a, hostname) {
+  try {
+    const out = await api({ op: "action-output", action_id: a.id });
+    const what = a.type === "run-fix" ? FIX_NAME[a.what] || a.what : a.what;
+    const name = `${(hostname || "computer").replace(/[^A-Za-z0-9._-]+/g, "-")}-${a.created_at.slice(0, 10)}.txt`;
+    dialog(`${what || LABEL[a.type]} on ${hostname || "a computer"}`, [
+      el("p", { class: "note" }, `${ago(a.created_at)} · asked by ${a.requested_by}${out.exit_code === null ? "" : ` · exit code ${out.exit_code}`}`),
+      el("pre", {}, out.output ?? "No output kept. Output is kept for 90 days.")],
+      [el("button", { type: "button", onclick: () => download(name, out.output ?? "", "text/plain") }, "Download"), closeButton("Close")]);
+  } catch (e) { $("app-msg").textContent = e.message; }
+}
+
+async function loadScripts() {
+  const org = $("org").value;
+  scripts = [];
+  scriptsAllowed = false;
+  let owner = false;
+  if (org) {
+    try {
+      const out = await api({ op: "scripts", organisation_id: org });
+      scripts = out.scripts || [];
+      scriptsAllowed = out.allowed;
+      owner = out.is_owner;
+    } catch (e) { $("app-msg").textContent = e.message; }
+  }
+  $("scripts-sub").textContent = scriptsAllowed
+    ? "Your organisation's own scripts, run as root on the computers you choose, with their output shown here. Adding, changing and running them needs your authenticator app's code."
+    : `Off. Only the Owner can allow your organisation's own scripts on its computers. Kulan's fixes work either way.${owner ? "" : " Ask the Owner if you need them."}`;
+  $("scripts-allow-row").classList.toggle("hidden", !owner);
+  $("scripts-allow").checked = scriptsAllowed;
+  $("add-script").classList.toggle("hidden", !scriptsAllowed);
+  $("scripts").replaceChildren(...(scriptsAllowed ? (scripts.length ? scripts.map((x) => el("li", {},
+    el("b", {}, x.name), x.description ? ` · ${x.description}` : "",
+    el("span", { class: "small" }, ` · changed ${ago(x.updated_at)} by ${x.updated_by} `),
+    el("button", { onclick: () => editScript(x) }, "Edit…"), " ",
+    el("button", { class: "danger", onclick: async () => {
+      if (!confirm(`Remove the script ${x.name}? Requests already sent still run if they haven't yet.`)) return;
+      try { await api({ op: "remove-script", script_id: x.id }); await loadScripts(); } catch (e) { $("app-msg").textContent = e.message; }
+    } }, "Remove…")))
+    : [el("li", { class: "small" }, "No scripts yet.")]) : []));
+}
+
+async function editScript(x) {
+  if (!(await codeFirst())) return;
+  const name = el("input", { maxlength: "80", value: x?.name || "", placeholder: "Clear the print queue" });
+  const about = el("input", { maxlength: "300", value: x?.description || "", placeholder: "What it does, for other admins" });
+  const text = el("textarea", { rows: "14", spellcheck: "false", placeholder: "#!/bin/bash\nset -e\n…" });
+  text.value = x?.body || "";
+  const err = errorLine();
+  dialog(x ? `Edit ${x.name}` : "Add a script", [
+    el("p", { class: "note" }, "Bash, run as root with a 10-minute limit. Only the first 64 KB of what it prints is kept."),
+    field("Name", name), field("What it does", about), field("Script", text), err],
+    [closeButton(), el("button", { type: "button", class: "primary", onclick: async () => {
+      if (!name.value.trim() || !text.value.trim()) { err.textContent = "A script needs a name and some commands."; return; }
+      try {
+        await api({ op: x ? "edit-script" : "add-script", ...(x ? { script_id: x.id } : { organisation_id: $("org").value }),
+                    name: name.value.trim(), description: about.value.trim(), body: text.value });
+        $("dlg").close();
+        await loadScripts();
+      } catch (e) { err.textContent = e.message; }
+    } }, "Save")]);
+  name.focus();
+}
+$("add-script").addEventListener("click", () => editScript(null));
+$("scripts-allow").addEventListener("change", async () => {
+  const want = $("scripts-allow").checked;
+  if (want && !confirm("Allow scripts? Admins who sign in with their authenticator app can then run any command as root on this organisation's computers. Every script and every run is in the activity log.")) {
+    $("scripts-allow").checked = false;
+    return;
+  }
+  if (want && !(await codeFirst())) { $("scripts-allow").checked = false; return; }
+  try { await api({ op: "set-scripts-allowed", organisation_id: $("org").value, allowed: want }); await load(); }
+  catch (e) { $("scripts-allow").checked = !want; $("app-msg").textContent = e.message; }
+});
+
+// How a group's Wi-Fi network or printer went on its computers (their reports say so).
+function pushedLine(kind, id, g) {
+  const ds = orgDevices().filter((d) => (g.devices || []).includes(d.id));
+  if (!ds.length) return "no computers in the group yet";
+  let added = 0, waiting = 0;
+  const problems = [];
+  for (const d of ds) {
+    const st = d.pushed?.[kind]?.[id];
+    if (st === "added") added++;
+    else if (!st) waiting++;
+    else problems.push(`${d.hostname || "(no name)"}: ${st}`);
+  }
+  return [`added on ${added} of ${ds.length}`, waiting ? `${waiting} waiting for their next report` : "", ...problems].filter(Boolean).join(" · ");
+}
+
+function openGroupNetwork(g) {
+  const err = errorLine();
+  const remove = (op, key, id, label) => el("button", { class: "danger", onclick: async () => {
+    if (!confirm(`Remove ${label}? It's taken off the group's computers at their next report.`)) return;
+    try { await api({ op, [key]: id }); await loadGroups(); openGroupNetwork(groups.find((x) => x.id === g.id)); }
+    catch (e) { err.textContent = e.message; }
+  } }, "Remove…");
+  const nets = (g.networks || []).map((n) => el("li", {}, el("b", {}, n.ssid),
+    ` · ${n.security === "open" ? "open" : "password"}${n.hidden ? " · hidden" : ""} `,
+    el("span", { class: "small" }, pushedLine("networks", n.id, g)), " ", remove("remove-network", "network_id", n.id, n.ssid)));
+  const printers = (g.printers || []).map((p) => el("li", {}, el("b", {}, p.name), el("span", { class: "small" }, ` · ${p.uri} · ${pushedLine("printers", p.id, g)} `),
+    remove("remove-printer", "printer_id", p.id, p.name)));
+  const ssid = el("input", { maxlength: "32", placeholder: "Office Wi-Fi", autocomplete: "off" });
+  const security = el("select", {}, el("option", { value: "wpa-psk" }, "Password (WPA2 or WPA3 personal)"), el("option", { value: "open" }, "Open, no password"));
+  const password = el("input", { type: "password", maxlength: "64", autocomplete: "new-password" });
+  const hidden = el("input", { type: "checkbox" });
+  security.addEventListener("change", () => { password.disabled = security.value === "open"; });
+  const pname = el("input", { maxlength: "60", placeholder: "Front desk" });
+  const uri = el("input", { maxlength: "300", placeholder: "ipp://192.168.1.20/ipp/print", autocomplete: "off", spellcheck: "false" });
+  const add = async (body) => {
+    try { await api(body); await loadGroups(); openGroupNetwork(groups.find((x) => x.id === g.id)); }
+    catch (e) { err.textContent = e.message; }
+  };
+  dialog(`${g.name}: Wi-Fi and printers`, [
+    el("p", { class: "note" }, "The group's computers connect to these networks and get these printers at their next report. Taking one away here takes it off them too. Networks and printers people add themselves stay."),
+    el("h4", {}, "Wi-Fi networks"), el("ul", { class: "alerts" }, ...(nets.length ? nets : [el("li", { class: "small" }, "None yet")])),
+    field("Network name", ssid), field("Security", security), field("Password", password),
+    el("label", { class: "row" }, hidden, " It's hidden (doesn't show its name)"),
+    el("p", { class: "note" }, "The password is kept encrypted and only sent to the group's computers. Nobody can see it here again."),
+    el("button", { type: "button", onclick: () => {
+      if (!ssid.value) { err.textContent = "Enter the network's name."; return; }
+      add({ op: "add-network", group_id: g.id, ssid: ssid.value, security: security.value,
+            ...(security.value === "open" ? {} : { password: password.value }), hidden: hidden.checked });
+    } }, "Add network"),
+    el("h4", {}, "Printers"), el("ul", { class: "alerts" }, ...(printers.length ? printers : [el("li", { class: "small" }, "None yet")])),
+    field("Name people see", pname), field("Printer address", uri),
+    el("p", { class: "note" }, "Most office printers made since 2015 work without a driver. Their address is usually ipp://, the printer's IP address, then /ipp/print."),
+    el("button", { type: "button", onclick: () => add({ op: "add-printer", group_id: g.id, name: pname.value.trim(), uri: uri.value.trim() }) }, "Add printer"),
+    err], [closeButton("Close")]);
 }
 
 // --- Remote help (2.9a) ----------------------------------------------------------------------
@@ -1479,7 +1722,7 @@ function resetLog() {
   $("log-more").classList.add("hidden");
   $("log-wrap").classList.add("hidden");
 }
-$("org").addEventListener("change", () => { resetLog(); render(); loadPeople(); loadGroups(); });
+$("org").addEventListener("change", () => { resetLog(); render(); loadPeople(); loadGroups(); loadScripts(); });
 $("add-group").addEventListener("click", () => {
   const name = el("input", { maxlength: "60" });
   const err = errorLine();

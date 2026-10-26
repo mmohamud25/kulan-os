@@ -1,6 +1,5 @@
 // The web dashboard (fleet/dashboard) in a real browser: sign-in faked, fleet-admin answered
-// by a stand-in, every 2.8b flow clicked through (the policy with USB and apps,
-// groups, installing an app on a group, approving a drive, a person's groups).
+// by a stand-in, every flow clicked through (2.8b to 2.9b).
 //   node dashboard.test.cjs ../dashboard     (needs playwright and its Chromium)
 const { chromium } = require("playwright");
 const path = require("path"), http = require("http"), fs = require("fs");
@@ -10,15 +9,27 @@ const srv = http.createServer((q, r) => { const f = path.join(root, q.url.split(
 srv.listen(18899);
 const org = "11111111-1111-4111-8111-111111111111";
 const AAL2 = "eyJhYWwiOiJhYWwyIiwiZXhwIjo5OTk5OTk5OTk5LCJzdWIiOiJ4In0";  // {"aal":"aal2","exp":9999999999,"sub":"x"}
-const AAL2_TOKEN = `x.${AAL2}.x`;
+const AAL2_TOKEN = `eyJhbGciOiJub25lIn0.${AAL2}.c2lnbg`;
 const state = { needCode: true, auth: [], verifiedWith: null, policy: { firewall: true, usb: "block" }, groups: [], calls: [], approved: [],
-                mail: null };
+                mail: null, allowScripts: false, scripts: [] };
 function reply(b) {
   state.calls.push(b);
   switch (b.op) {
-    case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy }],
-      devices: [{ id: "d1", organisation_id: org, hostname: "laptop-a", last_seen: new Date().toISOString() }], actions: [], alerts: [] };
+    case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy, allow_scripts: state.allowScripts }],
+      devices: [{ id: "d1", organisation_id: org, hostname: "laptop-a", last_seen: new Date().toISOString(),
+                  pushed: { networks: { n1: "added" }, printers: { pr1: "couldn't reach the printer; tried again at the next report" } } }],
+      actions: [{ id: "a1", device_id: "d1", type: "run-fix", status: "done", detail: "no problems found", created_at: "2026-10-26T09:00:00Z",
+                  requested_by: "a@x", exit_code: 0, has_output: true, what: "check-disk" }], alerts: [] };
+    case "action-output": return { output: "== Disk errors in the last 7 days\nnone", exit_code: 0, status: "done", type: "run-fix" };
+    case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true };
+    case "set-scripts-allowed": state.allowScripts = b.allowed; return {};
+    case "add-script": state.scripts.push({ id: "s1", name: b.name, description: b.description, body: b.body, sha256: "ab".repeat(32),
+                                             updated_at: "2026-10-26T09:00:00Z", updated_by: "a@x" }); return { id: "s1" };
+    case "add-network": state.groups[0].networks = [{ id: "n1", ssid: b.ssid, security: b.security, hidden: b.hidden }]; return { id: "n1" };
+    case "add-printer": state.groups[0].printers = [{ id: "pr1", name: b.name, uri: b.uri }]; return { id: "pr1" };
+    case "message-person": return { count: 1 };
     case "people": return { people: [{ id: "p1", username: "amina", full_name: "Amina", role: "employee", enabled: true, all_computers: false, computers: [], groups: ["g1"], on: [],
+                                        signed_in: [{ hostname: "laptop-a", last: 1790000000, now: true }],
                                         ...(state.mail ? { mailbox: "amina@acme.test", mailbox_state: "active", mailbox_todo: "rename", mailbox_error: "Google couldn't be reached" } : {}) }],
                             removed_with_mailbox_todo: [], is_owner: true };
     case "mail": return { connection: state.mail, mailboxes: state.mail ? 1 : 0, is_owner: true };
@@ -83,7 +94,7 @@ function reply(b) {
     }
     return json({});
   });
-  await page.addInitScript(() => localStorage.setItem("sb-xegnwqxpegznsufulclx-auth-token", JSON.stringify({ access_token: "x.eyJleHAiOjk5OTk5OTk5OTksInN1YiI6IngifQ.x", refresh_token: "r", token_type: "bearer", expires_at: 9999999999, expires_in: 3600, user: { id: "x", email: "a@x" } })));
+  await page.addInitScript(() => localStorage.setItem("sb-xegnwqxpegznsufulclx-auth-token", JSON.stringify({ access_token: "eyJhbGciOiJub25lIn0.eyJleHAiOjk5OTk5OTk5OTksInN1YiI6IngifQ.c2lnbg", refresh_token: "r", token_type: "bearer", expires_at: 9999999999, expires_in: 3600, user: { id: "x", email: "a@x" } })));
   await page.goto("http://127.0.0.1:18899/");
   // 2.8d: the server wants the authenticator app's code first.
   await page.waitForSelector("#dlg-title:has-text(\"Your authenticator app's code\")");
@@ -217,6 +228,68 @@ function reply(b) {
   await page.waitForTimeout(300);
   const rp = state.calls.filter((c) => c.op === "remove-person").pop();
   if (rp?.mailbox !== "delete" || rp.confirm !== "amina") throw "remove-person mailbox " + JSON.stringify(rp);
+  // 2.9b: a fix and a message for a computer, a fix's output, scripts allowed by the Owner, added and run,
+  // a group's Wi-Fi and printers (how they went on its computers), a message to a person.
+  const last = (op) => state.calls.filter((c) => c.op === op && !c.refused).pop();
+  await page.selectOption("#devices select", "run-fix");
+  await page.click("#devices >> button:has-text('Send')");
+  await page.waitForSelector("#dlg-title:has-text('Run a fix on laptop-a')");
+  await page.selectOption("#dlg select", "reset-wifi");
+  if (!(await page.textContent("#dlg")).includes("offline for a few seconds")) throw "the fix isn't explained";
+  await page.click("#dlg-actions >> text=Run");
+  await page.waitForTimeout(300);
+  if (JSON.stringify(last("action")) !== JSON.stringify({ op: "action", device_id: "d1", type: "run-fix", payload: { fix: "reset-wifi" } })) throw "run-fix " + JSON.stringify(last("action"));
+  await page.selectOption("#devices select", "message");
+  await page.click("#devices >> button:has-text('Send')");
+  await page.click("#dlg-actions >> text=Send");
+  if (!(await page.textContent("#dlg")).includes("Give the message a title")) throw "a message without a title was sent";
+  await page.fill("#dlg input", "Restart tonight");
+  await page.fill("#dlg textarea", "Save your work.");
+  await page.click("#dlg-actions >> text=Send");
+  await page.waitForTimeout(300);
+  if (JSON.stringify(last("action").payload) !== JSON.stringify({ title: "Restart tonight", body: "Save your work." })) throw "message " + JSON.stringify(last("action"));
+  if (await page.locator("#devices option[value='run-script']").count()) throw "scripts offered before the Owner allowed them";
+  if (!(await page.textContent("#actions")).includes("Run a fix · Check the disk")) throw "the fix isn't named in Recent requests";
+  await page.click("#actions >> button:has-text('Output')");
+  await page.waitForSelector("#dlg-title:has-text('Check the disk on laptop-a')");
+  if (!(await page.textContent("#dlg pre")).includes("Disk errors in the last 7 days")) throw "output not shown";
+  await page.click("#dlg-actions >> text=Close");
+  if (!(await page.textContent("#scripts-sub")).startsWith("Off.") || !(await page.isHidden("#add-script"))) throw "scripts shown as allowed";
+  await page.check("#scripts-allow");
+  await page.waitForSelector("#add-script:not(.hidden)");
+  if (last("set-scripts-allowed")?.allowed !== true) throw "set-scripts-allowed " + JSON.stringify(last("set-scripts-allowed"));
+  await page.click("#add-script");
+  await page.fill("#dlg input >> nth=0", "Clear the print queue");
+  await page.fill("#dlg textarea", "cancel -a\n");
+  await page.click("#dlg-actions >> text=Save");
+  await page.waitForSelector("#scripts >> text=Clear the print queue");
+  if (last("add-script")?.body !== "cancel -a\n" || last("add-script").organisation_id !== org) throw "add-script " + JSON.stringify(last("add-script"));
+  await page.selectOption("#devices select", "run-script");
+  await page.click("#devices >> button:has-text('Send')");
+  await page.waitForSelector("#dlg-title:has-text('Run a script on laptop-a')");
+  if (!(await page.textContent("#dlg pre")).includes("cancel -a")) throw "the script isn't shown before it's run";
+  await page.click("#dlg-actions >> text=Run");
+  await page.waitForTimeout(300);
+  if (JSON.stringify(last("action")) !== JSON.stringify({ op: "action", device_id: "d1", type: "run-script", payload: { script_id: "s1" } })) throw "run-script " + JSON.stringify(last("action"));
+  await page.click("#groups >> text=Wi-Fi and printers…");
+  await page.fill("#dlg input[placeholder='Office Wi-Fi']", "Acme Staff");
+  await page.fill("#dlg input[type=password]", "correct horse");
+  await page.click("#dlg >> button:has-text('Add network')");
+  await page.waitForSelector("#dlg li >> text=Acme Staff");
+  if (JSON.stringify(last("add-network")) !== JSON.stringify({ op: "add-network", group_id: "g1", ssid: "Acme Staff", security: "wpa-psk", password: "correct horse", hidden: false })) throw "add-network " + JSON.stringify(last("add-network"));
+  if (!(await page.textContent("#dlg")).includes("added on 1 of 1")) throw "how the network went isn't shown";
+  await page.fill("#dlg input[placeholder='Front desk']", "Front desk");
+  await page.fill("#dlg input[placeholder^='ipp://']", "ipp://192.168.1.20/ipp/print");
+  await page.click("#dlg >> button:has-text('Add printer')");
+  await page.waitForSelector("#dlg li >> text=Front desk");
+  if (!(await page.textContent("#dlg")).includes("laptop-a: couldn't reach the printer")) throw "a printer's problem isn't shown";
+  await page.click("#dlg-actions >> text=Close");
+  await page.click("#people >> text=Manage…");
+  await page.click("#dlg-actions >> text=Send a message…");
+  await page.fill("#dlg input", "Hello");
+  await page.click("#dlg-actions >> text=Send");
+  await page.waitForTimeout(300);
+  if (JSON.stringify(last("message-person")) !== JSON.stringify({ op: "message-person", person_id: "p1", title: "Hello", body: "" })) throw "message-person " + JSON.stringify(last("message-person"));
   // 2.9a: remote help asked from a computer's row; the person says no.
   await page.selectOption("#devices select", "remote-help");
   await page.click("#devices >> button:has-text('Send')");
