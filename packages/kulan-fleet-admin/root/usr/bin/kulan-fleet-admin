@@ -21,6 +21,7 @@ they type it and choose their own password straight away.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -63,7 +64,21 @@ ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
            ("shutdown", "Switch off", "system-shutdown-symbolic")]
 ACTION_LABEL = {a: t for a, t, _i in ACTIONS}
 ACTION_LABEL.update({"erase": "Erase", "lost-mode-on": "Turn on lost mode", "lost-mode-off": "Release from lost mode",
-                     "install-app": "Install an app"})
+                     "install-app": "Install an app", "remote-help": "Remote help", "run-fix": "Run a fix",
+                     "run-script": "Run a script", "message": "Message"})
+# Kulan's fixes (2.9b): the same list as the computers' fixes.py.
+FIXES = [("free-space", "Free up disk space", "Removes downloaded update files, old system files and logs older than two weeks."),
+         ("reset-wifi", "Reset Wi-Fi", "Turns Wi-Fi off and on and restarts the network service. The computer is offline "
+                                       "for a few seconds."),
+         ("repair-updates", "Repair updates", "Finishes interrupted installs, fixes missing pieces and refreshes the "
+                                              "update lists."),
+         ("restart-printing", "Restart printing", "Restarts the printing service and turns stopped printers back on."),
+         ("check-disk", "Check the disk", "Looks for disk errors and checks the disk's health. It changes nothing.")]
+FIX_LABEL = {k: t for k, t, _a in FIXES}
+JOB_ROWS = [("run-fix", "Run a fix", "Free up disk space, reset Wi-Fi, repair updates and more", "applications-utilities-symbolic"),
+            ("run-script", "Run a script", "One of your organisation's scripts, as root", "utilities-terminal-symbolic"),
+            ("message", "Send a message", "A notification on the screen of whoever is signed in", "mail-send-symbolic")]
+PRINTER_URI = re.compile(r"^(ipps?|https?)://[A-Za-z0-9.:\[\]_-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~/%+-]*)?$")
 ROLE_LABEL = {"owner": "Owner", "admin": "Admin", "employee": "Employee"}
 ROLE_HELP = {"employee": "A standard account", "admin": "Administrator rights on the computers",
              "owner": "The Owner's account, with administrator rights"}
@@ -275,6 +290,14 @@ class Session:
     def call(self, body: dict) -> dict:
         return http(API, body, {"Authorization": f"Bearer {self.token()}"})
 
+    def aal(self) -> str | None:
+        """How strongly this sign-in is checked: "aal2" once the authenticator app's code was given."""
+        try:
+            part = self.token().split(".")[1]
+            return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))).get("aal")
+        except (IndexError, ValueError, TypeError, AttributeError):
+            return None
+
     # Authenticator apps (Supabase MFA, TOTP): the second step for Kulan Fleet admins.
     def _auth(self) -> dict:
         return {"Authorization": f"Bearer {self.token()}"}
@@ -348,6 +371,34 @@ def username_problem(name: str) -> str | None:
     if not USERNAME.match(name):
         return "Username: use lower-case letters, digits, - or _, starting with a letter."
     return f"Username: {name} is used by the system. Choose another." if name in RESERVED else None
+
+
+def network_problem(ssid: str, security: str, password: str) -> str | None:
+    """What's wrong with a Wi-Fi network as typed, or None (the same rules as the server and the computers)."""
+    size = len(ssid.encode())
+    if not 1 <= size <= 32 or any(ord(c) < 32 or ord(c) == 127 for c in ssid):
+        return "Network name: 1 to 32 characters"
+    if security == "wpa-psk" and not (re.fullmatch(r"[\x20-\x7e]{8,63}", password) or re.fullmatch(r"[0-9a-fA-F]{64}", password)):
+        return "Password: 8 to 63 characters"
+    return None
+
+
+def pushed_line(devices: list[dict], kind: str, item_id: str) -> str:
+    """How a group's network or printer went on its computers, from their reports."""
+    if not devices:
+        return "No computers in the group yet"
+    added = waiting = 0
+    problems = []
+    for d in devices:
+        state = (((d.get("pushed") or {}).get(kind)) or {}).get(item_id)
+        if state == "added":
+            added += 1
+        elif not state:
+            waiting += 1
+        else:
+            problems.append(f"{d.get('hostname') or '(no name)'}: {state}")
+    return " · ".join([f"Added on {added} of {len(devices)}"] +
+                      ([f"{waiting} waiting for their next report"] if waiting else []) + problems)
 
 
 def ago(iso: str | None) -> str:
@@ -720,6 +771,8 @@ class FleetWindow(Adw.ApplicationWindow):
         def answered(_d, response):
             if response == "ok":
                 on_code(code.get_text().strip(), note, dialog)
+            else:
+                self.after_code = None  # cancelled: what was waiting for the code isn't done
         dialog.connect("response", answered)
         code.connect("entry-activated", lambda _e: dialog.get_response_enabled("ok") and
                      (dialog.close(), on_code(code.get_text().strip(), note, dialog)))
@@ -741,6 +794,7 @@ class FleetWindow(Adw.ApplicationWindow):
                     return
                 self.toast("Signed in with your authenticator app")
                 self.reload()
+                self.code_done()
             self.background(work, done)
         return self.code_dialog("Your authenticator app's code",
                                 "Enter the 6-digit code from your authenticator app.",
@@ -781,6 +835,7 @@ class FleetWindow(Adw.ApplicationWindow):
                     return
                 self.toast("Authenticator app set up")
                 self.reload()
+                self.code_done()
             self.background(lambda: self.session.verify_authenticator(state["id"], code), done)
         dialog = self.code_dialog(
             "Set up an authenticator app",
@@ -1179,6 +1234,12 @@ class FleetWindow(Adw.ApplicationWindow):
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: self.open_mail(org))
         people.add(row)
+        row = Adw.ActionRow(title="Scripts", subtitle="Your organisation's own scripts, allowed by the Owner"
+                            if org.get("allow_scripts") else "Off. Only the Owner can allow them", activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="utilities-terminal-symbolic"))
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: self.open_scripts(org))
+        people.add(row)
 
         group = self.add_group("Computers", "Computers report every hour.")
         if not devices:
@@ -1240,7 +1301,9 @@ class FleetWindow(Adw.ApplicationWindow):
         if not acts:
             history.add(Adw.ActionRow(title="Nothing asked yet"))
         for a in acts:
-            row = Adw.ActionRow(title=GLib.markup_escape_text(f"{ACTION_LABEL.get(a['type'], a['type'])} · {names.get(a['device_id'], '')}"),
+            what = FIX_LABEL.get(a.get("what"), a.get("what")) if a["type"] == "run-fix" else a.get("what")
+            label = ACTION_LABEL.get(a["type"], a["type"]) + (f": {what}" if what else "")
+            row = Adw.ActionRow(title=GLib.markup_escape_text(f"{label} · {names.get(a['device_id'], '')}"),
                                 subtitle=GLib.markup_escape_text(" · ".join(x for x in (ago(a.get("created_at")), a.get("requested_by") or "",
                                                                                        a.get("detail") or "") if x)))
             row.add_suffix(tag(STATUS_LABEL.get(a["status"], a["status"]),
@@ -1250,6 +1313,10 @@ class FleetWindow(Adw.ApplicationWindow):
                                     css_classes=["destructive-action"] if a["type"] == "erase" else [])
                 cancel.connect("clicked", lambda _b, act=a: self.cancel_action(act))
                 row.add_suffix(cancel)
+            if a.get("has_output"):
+                output = Gtk.Button(label="Output", valign=Gtk.Align.CENTER)
+                output.connect("clicked", lambda _b, act=a: self.open_output(act, names.get(act["device_id"])))
+                row.add_suffix(output)
             history.add(row)
 
     # --- one computer ---------------------------------------------------------------------------
@@ -1317,6 +1384,8 @@ class FleetWindow(Adw.ApplicationWindow):
             row.connect("activated", lambda _r: self.install_app_dialog(d.get("hostname") or "this computer",
                                                                          {"op": "action", "device_id": d["id"]}))
             ask.add(row)
+            self.add_job_rows(ask, self.org_of(d["organisation_id"]), d.get("hostname") or "this computer",
+                              {"op": "action", "device_id": d["id"]})
             helping = Adw.PreferencesGroup(title="Help the person using it")
             page.add(helping)
             now = [x.get("username") for x in (d.get("sign_ins") or []) if x.get("now")]
@@ -1980,6 +2049,43 @@ class FleetWindow(Adw.ApplicationWindow):
         row.connect("activated", lambda _r: self.install_app_dialog(f"{g['name']}'s computers",
                                                                      {"op": "group-action", "group_id": g["id"]}))
         ask.add(row)
+        self.add_job_rows(ask, org, f"{g['name']}'s computers", {"op": "group-action", "group_id": g["id"]})
+
+        # Wi-Fi networks and printers the group's computers get (2.9b), and how each went on them.
+        members = [d for d in self.org_computers(org) if d["id"] in (g.get("devices") or [])]
+        wifi = Adw.PreferencesGroup(title="Wi-Fi networks", description="The group's computers connect to these at their "
+                                    "next report. Passwords are kept encrypted and only sent to the computers.")
+        page.add(wifi)
+        for n in g.get("networks") or []:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(n["ssid"]), subtitle_lines=0, subtitle=GLib.markup_escape_text(
+                " · ".join(["Open" if n.get("security") == "open" else "Password"] + (["Hidden"] if n.get("hidden") else []) +
+                           [pushed_line(members, "networks", n["id"])])))
+            row.add_prefix(Gtk.Image(icon_name="network-wireless-symbolic"))
+            gone = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                              tooltip_text=f"Remove {n['ssid']}")
+            gone.connect("clicked", lambda _b, x=n: self.remove_pushed(org, g, "network", x))
+            row.add_suffix(gone)
+            wifi.add(row)
+        row = Adw.ActionRow(title="Add a Wi-Fi network", activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="list-add-symbolic"))
+        row.connect("activated", lambda _r: self.network_dialog(org, g))
+        wifi.add(row)
+        printing = Adw.PreferencesGroup(title="Printers", description="Network printers that work without a driver "
+                                        "(most office printers made since 2015).")
+        page.add(printing)
+        for pr in g.get("printers") or []:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(pr["name"]), subtitle_lines=0, subtitle=GLib.markup_escape_text(
+                f"{pr['uri']} · {pushed_line(members, 'printers', pr['id'])}"))
+            row.add_prefix(Gtk.Image(icon_name="printer-symbolic"))
+            gone = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                              tooltip_text=f"Remove {pr['name']}")
+            gone.connect("clicked", lambda _b, x=pr: self.remove_pushed(org, g, "printer", x))
+            row.add_suffix(gone)
+            printing.add(row)
+        row = Adw.ActionRow(title="Add a printer", activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="list-add-symbolic"))
+        row.connect("activated", lambda _r: self.printer_dialog(org, g))
+        printing.add(row)
 
         danger = Adw.PreferencesGroup()
         page.add(danger)
@@ -2143,6 +2249,479 @@ class FleetWindow(Adw.ApplicationWindow):
                        "vendor_id": d.get("vendor_id"), "product_id": d.get("product_id"), "serial": d.get("serial")},
                       lambda _r, error: self.toast(error) if error else
                       (self.toast(f"{name} approved"), self.open_drives(org)))
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    # --- Fixes, scripts and messages (2.9b) -------------------------------------------------------
+    def org_of(self, org_id: str) -> dict:
+        return next((o for o in (self.data or {}).get("organisations", []) if o["id"] == org_id), {})
+
+    def add_job_rows(self, group: Adw.PreferencesGroup, org: dict, where: str, body: dict) -> None:
+        for kind, title, subtitle, icon in JOB_ROWS:
+            if kind == "run-script" and not org.get("allow_scripts"):
+                continue
+            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True)
+            row.add_prefix(Gtk.Image(icon_name=icon))
+            row.connect("activated", lambda _r, k=kind: self.job_dialog(k, org, where, body))
+            group.add(row)
+
+    def code_first(self, then) -> None:
+        """Scripts need the authenticator app's code: asked first, so nothing typed is lost."""
+        if self.sample_mode():
+            then()
+            return
+
+        def work():
+            return None if self.session.aal() == "aal2" else self.session.authenticators()
+
+        def got(factors, error):
+            if error:
+                self.toast(error)
+                return
+            if factors is None:
+                then()
+                return
+            if getattr(self, "two_step_dialog", None) is not None:
+                return
+            self.after_code = then
+            verified = any(f.get("status") == "verified" for f in factors)
+            self.two_step_dialog = self.ask_authenticator_code() if verified else self.set_up_authenticator(False)
+            self.two_step_dialog.connect("closed", lambda _d: setattr(self, "two_step_dialog", None))
+        self.background(work, got)
+
+    def code_done(self) -> None:
+        then, self.after_code = getattr(self, "after_code", None), None
+        if then:
+            then()
+
+    def send_job(self, kind: str, body: dict, payload: dict, said: str) -> None:
+        """body: {op: action, device_id}, {op: group-action, group_id} or {op: message-person, person_id}."""
+        call = {**body, **payload} if body.get("op") == "message-person" else {**body, "type": kind, "payload": payload}
+
+        def done(r, error):
+            if error:
+                self.toast(error)
+                return
+            n = (r or {}).get("count")
+            self.toast(said + (f" ({n} computer{'s' if n != 1 else ''})" if n is not None else ""))
+            if not self.sample_mode():
+                self.reload()
+        self.call(call, done, {"count": 1})
+
+    def job_dialog(self, kind: str, org: dict, where: str, body: dict) -> Adw.AlertDialog | None:
+        if kind == "run-script":
+            self.code_first(lambda: self.load_scripts(org, lambda out, error: self.toast(error) if error else
+                                                      self.script_run_dialog(where, body, out)))
+            return None
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.append(box)
+        if kind == "run-fix":
+            dialog = Adw.AlertDialog(heading=f"Run a fix on {where}", body="It runs at the next report. Whoever is "
+                                     "using the computer sees which fix is running.")
+            pick = Adw.ComboRow(title="Fix", model=Gtk.StringList.new([t for _k, t, _a in FIXES]))
+            box.append(pick)
+            about = Gtk.Label(label=FIXES[0][2], wrap=True, xalign=0, css_classes=["dim-label"])
+            pick.connect("notify::selected", lambda r, _p: about.set_label(FIXES[r.get_selected()][2]))
+            outer.append(about)
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("go", "Run")
+
+            def go():
+                key, label, _a = FIXES[pick.get_selected()]
+                self.send_job(kind, body, {"fix": key}, f"{label} will run on {where}")
+        else:
+            dialog = Adw.AlertDialog(heading=f"Send a message to {where}", body="It shows as a notification on the "
+                                     "screen of whoever is signed in, with your organisation's name.")
+            title = Adw.EntryRow(title="Title")
+            box.append(title)
+            text = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=8, bottom_margin=8, left_margin=10,
+                                right_margin=10, accepts_tab=False)
+            text.update_property([Gtk.AccessibleProperty.LABEL], ["Message"])
+            frame = Gtk.Frame(child=Gtk.ScrolledWindow(child=text, min_content_height=96))
+            outer.append(Gtk.Label(label="Message", xalign=0, css_classes=["dim-label"]))
+            outer.append(frame)
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("go", "Send")
+            dialog.set_response_enabled("go", False)
+            title.connect("changed", lambda e: dialog.set_response_enabled("go", bool(e.get_text().strip())))
+
+            def go():
+                buf = text.get_buffer()
+                self.send_job(kind, body, {"title": title.get_text().strip()[:80],
+                                           "body": buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False).strip()[:500]},
+                              f"The message will show on {where}")
+        dialog.set_extra_child(outer)
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+        dialog.connect("response", lambda _d, r: r == "go" and go())
+        dialog.present(self)
+        return dialog
+
+    def load_scripts(self, org: dict, then) -> None:
+        self.call({"op": "scripts", "organisation_id": org["id"]}, then,
+                  lambda: (self.data or {}).get("sample_scripts", {"allowed": False, "scripts": []}))
+
+    def script_run_dialog(self, where: str, body: dict, out: dict | None) -> Adw.AlertDialog | None:
+        scripts = (out or {}).get("scripts") or []
+        if not (out or {}).get("allowed"):
+            self.toast("The Owner hasn't allowed scripts for this organisation")
+            return None
+        if not scripts:
+            self.toast("No scripts yet. Add one under Scripts first")
+            return None
+        dialog = Adw.AlertDialog(heading=f"Run a script on {where}", body="It runs as root at the next report, for up to "
+                                 "10 minutes. The computer checks that it's this exact script before running it, and "
+                                 "whoever is using it sees the script's name.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        pick = Adw.ComboRow(title="Script", model=Gtk.StringList.new([x["name"] for x in scripts]))
+        box.append(pick)
+        about = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"])
+        shown = Gtk.TextView(editable=False, cursor_visible=False, monospace=True, top_margin=8, bottom_margin=8,
+                             left_margin=10, right_margin=10)
+        shown.update_property([Gtk.AccessibleProperty.LABEL], ["The script"])
+
+        def describe(*_a):
+            x = scripts[pick.get_selected()]
+            about.set_label(" · ".join(y for y in (x.get("description"), f"changed {ago(x.get('updated_at'))} by "
+                                                                         f"{x.get('updated_by') or '–'}") if y))
+            shown.get_buffer().set_text(x.get("body") or "")
+        pick.connect("notify::selected", describe)
+        describe()
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for w in (box, about, Gtk.Frame(child=Gtk.ScrolledWindow(child=shown, min_content_height=140))):
+            outer.append(w)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("go", "Run")
+        dialog.set_response_appearance("go", Adw.ResponseAppearance.SUGGESTED)
+
+        def answered(_d, r):
+            if r == "go":
+                x = scripts[pick.get_selected()]
+                self.send_job("run-script", body, {"script_id": x["id"]}, f"{x['name']} will run on {where}")
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def open_output(self, a: dict, hostname: str | None) -> None:
+        what = FIX_LABEL.get(a.get("what"), a.get("what")) if a["type"] == "run-fix" else a.get("what")
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        save = Gtk.Button(icon_name="document-save-symbolic", tooltip_text="Save as a file", sensitive=False)
+        header.pack_end(save)
+        view.add_top_bar(header)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, margin_top=12, margin_bottom=12,
+                      margin_start=18, margin_end=18)
+        status = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"],
+                           label=f"{ago(a.get('created_at'))} · asked by {a.get('requested_by') or '–'}")
+        text = Gtk.TextView(editable=False, cursor_visible=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR,
+                            top_margin=10, bottom_margin=10, left_margin=12, right_margin=12)
+        text.update_property([Gtk.AccessibleProperty.LABEL], ["Output"])
+        text.get_buffer().set_text("Loading…")
+        box.append(status)
+        box.append(Gtk.Frame(child=Gtk.ScrolledWindow(child=text, vexpand=True)))
+        view.set_content(box)
+        self.nav.push(Adw.NavigationPage(title=f"{what or ACTION_LABEL.get(a['type'], a['type'])} on {hostname or 'a computer'}",
+                                         child=view))
+        kept = {"text": ""}
+
+        def done(r, error):
+            if error:
+                text.get_buffer().set_text(error)
+                return
+            kept["text"] = (r or {}).get("output") or ""
+            text.get_buffer().set_text(kept["text"] or "No output kept. Output is kept for 90 days.")
+            if (r or {}).get("exit_code") is not None:
+                status.set_label(f"{status.get_label()} · exit code {r['exit_code']}")
+            save.set_sensitive(bool(kept["text"]))
+        name = f"{re.sub(r'[^A-Za-z0-9._-]+', '-', hostname or 'computer')}-{(a.get('created_at') or '')[:10]}.txt"
+
+        def write(path: str) -> None:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(kept["text"])
+        save.connect("clicked", lambda _b: self.save_file(name, write, "Output saved"))
+        self.call({"op": "action-output", "action_id": a["id"]}, done, lambda: (self.data or {}).get("sample_output"))
+
+    def open_scripts(self, org: dict) -> None:
+        if self.nav.find_page("scripts") is not None:
+            self.nav.pop_to_tag("org")
+        page = Adw.PreferencesPage()
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add a script", visible=False)
+        add.connect("clicked", lambda _b: self.script_dialog(org, None))
+        header.pack_start(add)
+        view.add_top_bar(header)
+        view.set_content(page)
+        self.nav.push(Adw.NavigationPage(title="Scripts", child=view, tag="scripts"))
+        group = Adw.PreferencesGroup(title=f"Scripts in {org['name']}", description="Loading…")
+        page.add(group)
+
+        def done(out, error):
+            if error:
+                group.set_description(error)
+                return
+            allowed, scripts = bool((out or {}).get("allowed")), (out or {}).get("scripts") or []
+            group.set_description("Your organisation's own scripts, run as root on the computers you choose, with their "
+                                  "output shown here. Adding, changing and running them needs your authenticator app's code."
+                                  if allowed else "Off. Only the Owner can allow your organisation's own scripts on its "
+                                  "computers. Kulan's fixes work either way.")
+            add.set_visible(allowed)
+            if (out or {}).get("is_owner"):
+                switch = Adw.SwitchRow(title="Allow scripts on this organisation's computers", subtitle_lines=0,
+                                       subtitle="Every script and every run is in the activity log", active=allowed)
+                switch.connect("notify::active", lambda sw, _p: self.set_scripts_allowed(org, sw))
+                group.add(switch)
+            if not allowed:
+                return
+            for x in scripts:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(x["name"]), activatable=True, subtitle_lines=2,
+                                    subtitle=GLib.markup_escape_text(" · ".join(y for y in (
+                                        x.get("description"), f"changed {ago(x.get('updated_at'))} by {x.get('updated_by') or '–'}") if y)))
+                row.add_prefix(Gtk.Image(icon_name="text-x-script-symbolic"))
+                row.add_suffix(Gtk.Image(icon_name="document-edit-symbolic"))
+                row.connect("activated", lambda _r, s=x: self.script_dialog(org, s))
+                group.add(row)
+            row = Adw.ActionRow(title="Add a script", activatable=True)
+            row.add_prefix(Gtk.Image(icon_name="list-add-symbolic"))
+            row.connect("activated", lambda _r: self.script_dialog(org, None))
+            group.add(row)
+        self.load_scripts(org, done)
+
+    def set_scripts_allowed(self, org: dict, switch: Adw.SwitchRow) -> Adw.AlertDialog | None:
+        if getattr(self, "toggling_scripts", False):
+            return None
+        want = switch.get_active()
+
+        def put_back() -> None:
+            self.toggling_scripts = True
+            switch.set_active(not want)
+            self.toggling_scripts = False
+
+        def go() -> None:
+            def done(_r, error):
+                if error:
+                    put_back()
+                    self.toast(error)
+                    return
+                org["allow_scripts"] = want
+                self.toast("Scripts allowed" if want else "Scripts stopped. Any still waiting won't run")
+                self.open_scripts(org)
+                if not self.sample_mode():
+                    self.reload()
+            self.call({"op": "set-scripts-allowed", "organisation_id": org["id"], "allowed": want}, done)
+        if not want:
+            go()
+            return None
+        dialog = Adw.AlertDialog(heading="Allow scripts?", body="Admins who sign in with their authenticator app can "
+                                 "then run any command as root on this organisation's computers. Every script and every "
+                                 "run is in the activity log.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("allow", "Allow scripts")
+        dialog.set_response_appearance("allow", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, r: self.code_first(go) if r == "allow" else put_back())
+        dialog.present(self)
+        return dialog
+
+    def script_dialog(self, org: dict, script: dict | None) -> None:
+        self.code_first(lambda: self.script_editor(org, script))
+
+    def script_editor(self, org: dict, script: dict | None) -> Adw.Dialog:
+        dialog = Adw.Dialog(title=script["name"] if script else "Add a script", content_width=640, content_height=620)
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
+        cancel = Gtk.Button(label="Cancel")
+        cancel.connect("clicked", lambda _b: dialog.close())
+        save = Gtk.Button(label="Save", css_classes=["suggested-action"], sensitive=False)
+        header.pack_start(cancel)
+        header.pack_end(save)
+        view.add_top_bar(header)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=12, margin_bottom=18,
+                      margin_start=18, margin_end=18)
+        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        name = Adw.EntryRow(title="Name", text=(script or {}).get("name", ""))
+        about = Adw.EntryRow(title="What it does (for other admins)", text=(script or {}).get("description", ""))
+        rows.append(name)
+        rows.append(about)
+        box.append(rows)
+        box.append(Gtk.Label(label="Bash, run as root with a 10-minute limit. Only the first 64 KB of what it prints is kept.",
+                             wrap=True, xalign=0, css_classes=["dim-label"]))
+        text = Gtk.TextView(monospace=True, top_margin=10, bottom_margin=10, left_margin=12, right_margin=12)
+        text.update_property([Gtk.AccessibleProperty.LABEL], ["Script"])
+        text.get_buffer().set_text((script or {}).get("body", ""))
+        box.append(Gtk.Frame(child=Gtk.ScrolledWindow(child=text, vexpand=True)))
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["error"])
+        box.append(note)
+        if script:
+            remove = Gtk.Button(label="Remove this script", css_classes=["destructive-action"], halign=Gtk.Align.START)
+            remove.connect("clicked", lambda _b: (dialog.close(), self.remove_script(org, script)))
+            box.append(remove)
+        view.set_content(box)
+        dialog.set_child(view)
+
+        def body_text() -> str:
+            buf = text.get_buffer()
+            return buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+
+        def check(*_a) -> None:
+            save.set_sensitive(bool(name.get_text().strip()) and bool(body_text().strip()))
+        name.connect("changed", check)
+        text.get_buffer().connect("changed", check)
+        check()
+
+        def saved(_r, error):
+            if error:
+                note.set_label(error)
+                save.set_sensitive(True)
+                return
+            dialog.close()
+            self.toast(f"{name.get_text().strip()} saved")
+            self.open_scripts(org)
+
+        def do_save(_b) -> None:
+            save.set_sensitive(False)
+            which = {"op": "edit-script", "script_id": script["id"]} if script else \
+                {"op": "add-script", "organisation_id": org["id"]}
+            self.call({**which, "name": name.get_text().strip(), "description": about.get_text().strip(),
+                       "body": body_text()}, saved)
+        save.connect("clicked", do_save)
+        dialog.present(self)
+        return dialog
+
+    def remove_script(self, org: dict, script: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=f"Remove {script['name']}?", body="Requests already sent still run if they "
+                                 "haven't yet. It stays in the activity log.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.connect("response", lambda _d, r: r == "remove" and self.call(
+            {"op": "remove-script", "script_id": script["id"]},
+            lambda _r, error: self.toast(error) if error else (self.toast(f"{script['name']} removed"), self.open_scripts(org))))
+        dialog.present(self)
+        return dialog
+
+    # --- Wi-Fi networks and printers for a group (2.9b) -------------------------------------------
+    def reopen_group(self, org: dict, g: dict) -> None:
+        def done(groups, error):
+            if error:
+                self.toast(error)
+                return
+            fresh = next((x for x in groups or [] if x["id"] == g["id"]), g)
+            self.nav.pop()
+            self.open_group(org, fresh)
+        self.load_groups(org, done)
+
+    def remove_pushed(self, org: dict, g: dict, kind: str, item: dict) -> Adw.AlertDialog:
+        label = item.get("ssid") or item.get("name")
+        dialog = Adw.AlertDialog(heading=f"Remove {label}?", body=f"It's taken off {g['name']}'s computers at their next "
+                                 "report. Networks and printers people added themselves stay.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def answered(_d, r):
+            if r != "remove":
+                return
+            if self.sample_mode():
+                key = "networks" if kind == "network" else "printers"
+                g[key] = [x for x in g.get(key) or [] if x is not item]
+            self.call({"op": f"remove-{kind}", f"{kind}_id": item["id"]},
+                      lambda _r, error: self.toast(error) if error else self.reopen_group(org, g))
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def network_dialog(self, org: dict, g: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=f"Add a Wi-Fi network to {g['name']}",
+                                 body="Its computers connect to it at their next report.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        ssid = Adw.EntryRow(title="Network name")
+        security = Adw.ComboRow(title="Security", model=Gtk.StringList.new(["Password (WPA2 or WPA3 personal)",
+                                                                           "Open, no password"]))
+        password = Adw.PasswordEntryRow(title="Password")
+        hidden = Adw.SwitchRow(title="Hidden network", subtitle="It doesn't show its name")
+        for w in (ssid, security, password, hidden):
+            box.append(w)
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"])
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.append(box)
+        outer.append(note)
+        outer.append(Gtk.Label(label="The password is kept encrypted and only sent to the group's computers. Nobody can "
+                               "see it here again.", wrap=True, xalign=0, css_classes=["dim-label"]))
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("add", False)
+        kind = lambda: "open" if security.get_selected() == 1 else "wpa-psk"  # noqa: E731
+
+        def check(*_a) -> None:
+            password.set_sensitive(kind() != "open")
+            problem = network_problem(ssid.get_text(), kind(), password.get_text())
+            note.set_label(problem if problem and ssid.get_text() else "")
+            dialog.set_response_enabled("add", problem is None)
+        for w, signal in ((ssid, "changed"), (password, "changed"), (security, "notify::selected")):
+            w.connect(signal, check)
+
+        def answered(_d, r):
+            if r != "add" or network_problem(ssid.get_text(), kind(), password.get_text()):
+                return
+            body = {"op": "add-network", "group_id": g["id"], "ssid": ssid.get_text(), "security": kind(),
+                    "hidden": hidden.get_active(), **({"password": password.get_text()} if kind() != "open" else {})}
+
+            def done(r_, error):
+                if error:
+                    self.toast(error)
+                    return
+                if self.sample_mode():
+                    g.setdefault("networks", []).append({"id": "n-new", "ssid": body["ssid"], "security": kind(),
+                                                         "hidden": body["hidden"]})
+                self.toast(f"{body['ssid']} added to {g['name']}")
+                self.reopen_group(org, g)
+            self.call(body, done, {"id": "n-new"})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def printer_dialog(self, org: dict, g: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading=f"Add a printer to {g['name']}",
+                                 body="Its computers get it at their next report. Most office printers made since 2015 "
+                                      "work without a driver.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        name = Adw.EntryRow(title="Name people see")
+        uri = Adw.EntryRow(title="Printer address")
+        box.append(name)
+        box.append(uri)
+        note = Gtk.Label(label="The address is usually ipp://, the printer's IP address, then /ipp/print. For example "
+                         "ipp://192.168.1.20/ipp/print", wrap=True, xalign=0, css_classes=["dim-label"])
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        outer.append(box)
+        outer.append(note)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("add", "Add")
+        dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_response_enabled("add", False)
+        ready = lambda: bool(name.get_text().strip()) and bool(PRINTER_URI.match(uri.get_text().strip()))  # noqa: E731
+        name.connect("changed", lambda _e: dialog.set_response_enabled("add", ready()))
+        uri.connect("changed", lambda _e: dialog.set_response_enabled("add", ready()))
+
+        def answered(_d, r):
+            if r != "add" or not ready():
+                return
+            body = {"op": "add-printer", "group_id": g["id"], "name": name.get_text().strip(), "uri": uri.get_text().strip()}
+
+            def done(_r, error):
+                if error:
+                    self.toast(error)
+                    return
+                if self.sample_mode():
+                    g.setdefault("printers", []).append({"id": "pr-new", "name": body["name"], "uri": body["uri"]})
+                self.toast(f"{body['name']} added to {g['name']}")
+                self.reopen_group(org, g)
+            self.call(body, done, {"id": "pr-new"})
         dialog.connect("response", answered)
         dialog.present(self)
         return dialog
@@ -2311,6 +2890,13 @@ class FleetWindow(Adw.ApplicationWindow):
             row = Adw.ActionRow(title=GLib.markup_escape_text(si.get("hostname") or ""),
                                 subtitle="Signed in now" if si.get("now") else ago_seconds(si.get("last")))
             row.add_prefix(Gtk.Image(icon_name="computer-symbolic"))
+            used.add(row)
+        if any(si.get("now") for si in person.get("signed_in") or []):
+            row = Adw.ActionRow(title="Send a message", subtitle="A notification on the screens they're signed in on now",
+                                activatable=True)
+            row.add_prefix(Gtk.Image(icon_name="mail-send-symbolic"))
+            row.connect("activated", lambda _r: self.job_dialog("message", org, name, {"op": "message-person",
+                                                                                         "person_id": person["id"]}))
             used.add(row)
         manages = is_owner or person.get("role") == "employee"
         two = Adw.PreferencesGroup(title="Two-step sign-in", description=None if person.get("two_step") else
@@ -3178,7 +3764,7 @@ def sample() -> dict:
                                                   ("Firewall", "fail", "4.5", "SC-7")], 1)]
     return {"sample": True, "email": "admin@kulan.example", "global": True,
             "organisations": [{"id": org, "name": "Kulan Cyber Advisory", "owner_email": "admin@kulan.example",
-                               "is_owner": True, "mail_domain": "kulan.example",
+                               "is_owner": True, "mail_domain": "kulan.example", "allow_scripts": True,
                                "policy": {"auto_updates": True, "screen_lock_minutes": 5, "require_encryption": True}}],
             "devices": [{"id": "d1", "organisation_id": org, "hostname": "kca-laptop-01", "kulan_version": "2.4",
                          "os": "Kulan OS 2.4", "last_seen": iso(1800), "enrolled_at": iso(86400 * 9),
@@ -3192,6 +3778,8 @@ def sample() -> dict:
                                            "app:block:debian:steam": "kept: removing it would also remove 2 other "
                                                                      "package(s) (steam-libs, steam-devices)"},
                          "app_count": 2, "apps_at": iso(3600),
+                         "pushed": {"networks": {"n1": "added"},
+                                    "printers": {"pr1": "couldn't reach the printer; tried again at the next report"}},
                          "sign_ins": [{"username": "amina", "last": now.timestamp() - 600, "now": True},
                                       {"username": "omar", "last": now.timestamp() - 86400 * 12, "now": False}]},
                         {"id": "d2", "organisation_id": org, "hostname": "kca-desk-02", "kulan_version": "2.4",
@@ -3213,7 +3801,15 @@ def sample() -> dict:
                             "at": iso(120)}],
             "actions": [{"id": "a1", "device_id": "d2", "type": "install-updates", "status": "pending",
                          "created_at": iso(120)},
-                        {"id": "a2", "device_id": "d1", "type": "erase", "status": "expired", "created_at": iso(86400 * 31)}],
+                        {"id": "a2", "device_id": "d1", "type": "erase", "status": "expired", "created_at": iso(86400 * 31)},
+                        {"id": "a3", "device_id": "d1", "type": "run-fix", "status": "done", "detail": "no problems found",
+                         "created_at": iso(600), "requested_by": "admin@kulan.example", "exit_code": 0, "has_output": True,
+                         "what": "check-disk"}],
+            "sample_output": {"output": "== Disk errors in the last 7 days\nnone", "exit_code": 0, "status": "done",
+                              "type": "run-fix"},
+            "sample_scripts": {"allowed": True, "is_owner": True, "scripts": [
+                {"id": "s1", "name": "Clear the print queue", "description": "Cancels every waiting print job",
+                 "body": "cancel -a\n", "sha256": "ab" * 32, "updated_at": iso(3600), "updated_by": "admin@kulan.example"}]},
             "sample_people": [
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
                  "mailbox": "amina@kulan.example", "mailbox_state": "active", "mailbox_todo": "rename",
@@ -3237,6 +3833,8 @@ def sample() -> dict:
                               "admins": [{"email": "admin@kulan.example", "created_at": iso(86400 * 9)},
                                          {"email": "helper@kulan.example", "created_at": iso(86400)}]},
             "sample_groups": [{"id": "g1", "name": "Finance", "devices": ["d1"], "people": ["p1"],
+                               "networks": [{"id": "n1", "ssid": "KCA Staff", "security": "wpa-psk", "hidden": False}],
+                               "printers": [{"id": "pr1", "name": "Front desk", "uri": "ipp://192.168.1.20/ipp/print"}],
                                "policy": {"usb": "approved", "firewall": True,
                                           "required_apps": [{"source": "flatpak", "id": "org.libreoffice.LibreOffice"}],
                                           "blocked_apps": [{"source": "debian", "id": "steam"}]}},
@@ -3454,6 +4052,37 @@ class FleetApp(Adw.Application):
                     assert username_problem("Amina") and username_problem("sudo") and username_problem("a:b")
                     win.cancel_action(win.data["actions"][0])
                     assert win.data["actions"][0]["status"] == "cancelled"
+                    # Fixes, scripts, messages, Wi-Fi and printers (2.9b).
+                    d1 = win.data["devices"][0]
+                    for kind in ("run-fix", "message"):
+                        win.job_dialog(kind, org, "kca-laptop-01", {"op": "action", "device_id": "d1"}).force_close()
+                    win.job_dialog("message", org, "Amina", {"op": "message-person", "person_id": "p1"}).force_close()
+                    running = win.script_run_dialog("kca-laptop-01", {"op": "action", "device_id": "d1"}, win.data["sample_scripts"])
+                    assert running is not None, "a script can be run"
+                    running.force_close()
+                    assert win.script_run_dialog("x", {}, {"allowed": False, "scripts": []}) is None, "not allowed: no dialog"
+                    win.nav.pop_to_tag("org")
+                    win.open_device(d1)
+                    win.nav.pop()
+                    win.open_output(win.data["actions"][2], "kca-laptop-01")
+                    win.nav.pop()
+                    win.open_scripts(org)
+                    win.script_editor(org, win.data["sample_scripts"]["scripts"][0]).force_close()
+                    win.script_editor(org, None).force_close()
+                    win.remove_script(org, win.data["sample_scripts"]["scripts"][0]).force_close()
+                    win.nav.pop_to_tag("org")
+                    g1 = win.data["sample_groups"][0]
+                    win.open_group(org, g1)
+                    for dialog in (win.network_dialog(org, g1), win.printer_dialog(org, g1),
+                                   win.remove_pushed(org, g1, "network", g1["networks"][0])):
+                        dialog.force_close()
+                    win.nav.pop_to_tag("org")
+                    assert pushed_line([d1], "printers", "pr1") == ("Added on 0 of 1 · kca-laptop-01: couldn't reach the "
+                                                                    "printer; tried again at the next report")
+                    assert pushed_line([d1], "networks", "n1") == "Added on 1 of 1"
+                    assert pushed_line([d1], "networks", "n2") == "Added on 0 of 1 · 1 waiting for their next report"
+                    assert network_problem("Acme", "wpa-psk", "short") and network_problem("x" * 33, "open", "")
+                    assert network_problem("Acme", "open", "") is None and network_problem("Acme ☕", "wpa-psk", "correct horse") is None
                     win.org_id = None
                     win.render_org()
                     print("Kulan Fleet: every page built")
