@@ -11,6 +11,7 @@ Cloudflare account later hosts big ISO downloads on R2); running a fix
 (a script) is off until the Owner turns it on.
 
 ## The steps
+(After 2.9c comes 2.10, the quality release: docs/plan-2.10.md. Then 3.0.)
 - 2.9a Remote help: an admin sees, and with permission controls, the
   screen of someone who asked for help, from the Kulan Fleet app or the
   web dashboard (now hosted at os.kulangroup.com/fleet/, so it works on a
