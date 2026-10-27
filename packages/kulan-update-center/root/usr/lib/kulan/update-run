@@ -20,6 +20,8 @@
 #   update-run phone-link-on|phone-link-off  let phones (KDE Connect) reach this computer through the firewall
 #   update-run remote-desktop-on|remote-desktop-off  let remote desktop apps (RDP, port 3389) through the
 #                                         firewall, from local networks only
+#   update-run sharing-on|sharing-off     let file sharing (port 30301) and media sharing (30302) through
+#                                         the firewall, from local networks only
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
@@ -495,6 +497,31 @@ PY
 			done
 		fi
 		if [[ "$1" == remote-desktop-on ]]; then
+			install -d -m 0755 /var/lib/kulan
+			touch "${MARK}"
+		else
+			rm -f "${MARK}"
+		fi
+		;;
+	sharing-on | sharing-off)
+		[[ $# -eq 1 ]] || die "usage: update-run sharing-on|sharing-off"
+		# File sharing (gnome-user-share, 30301) and media sharing (Rygel,
+		# 30302), from local networks only, never the internet. Their
+		# discovery (mDNS 5353 and UPnP 1900) is let in by ufw's own rules.
+		# Kulan Settings › Sharing reads the mark to know it's open.
+		MARK=/var/lib/kulan/sharing-firewall
+		if command -v ufw >/dev/null 2>&1; then
+			for NET in "${PRIVATE_NETS[@]}"; do
+				if [[ "$1" == sharing-on && "${NET}" == *:* ]]; then
+					ufw allow proto tcp from "${NET}" to any port 30301,30302 comment "Kulan file and media sharing" 1>&2 || true
+				elif [[ "$1" == sharing-on ]]; then
+					ufw allow proto tcp from "${NET}" to any port 30301,30302 comment "Kulan file and media sharing" 1>&2
+				else
+					ufw --force delete allow proto tcp from "${NET}" to any port 30301,30302 >/dev/null 2>&1 || true
+				fi
+			done
+		fi
+		if [[ "$1" == sharing-on ]]; then
 			install -d -m 0755 /var/lib/kulan
 			touch "${MARK}"
 		else

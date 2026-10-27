@@ -100,9 +100,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Kulan Files: Debian 13's Nautilus with Kulan's patch, one build per
-  # architecture. Rebuilt when the patch or the script changes, or when Debian
-  # updates Nautilus (its version is part of the cache key).
+  # Kulan Files: Debian 13's Nautilus with Kulan's patch, and Debian 13's
+  # gnome-user-share (file sharing) on a fixed port, one build per
+  # architecture. Rebuilt when a change or a script changes, or when Debian
+  # updates either (their versions are part of the cache key).
   files:
     needs: plan
     name: Kulan Files (${{ matrix.arch }})
@@ -117,22 +118,25 @@ jobs:
         id: debian
         run: |
           VERSION="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh --version | tail -n 1)"
-          echo "Debian's Nautilus: ${VERSION}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          SHARE="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-user-share.sh --version | tail -n 1)"
+          echo "Debian's Nautilus: ${VERSION}; gnome-user-share: ${SHARE}"
+          echo "version=${VERSION}-${SHARE}" >> "$GITHUB_OUTPUT"
       - id: cache
         uses: actions/cache@v6
         with:
           path: dist/files
-          key: kulan-files-${{ matrix.arch }}-${{ steps.debian.outputs.version }}-${{ hashFiles('ci/build-nautilus.sh', 'packages-src/nautilus/**') }}
+          key: kulan-files-${{ matrix.arch }}-${{ steps.debian.outputs.version }}-${{ hashFiles('ci/build-nautilus.sh', 'ci/build-user-share.sh', 'packages-src/**') }}
       - name: Build Kulan Files in Debian 13
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-user-share.sh
           sudo chown -R "$(id -u):$(id -g)" dist
       - name: Check the packages
         run: |
           ls -l dist/files/
           dpkg-deb --info dist/files/nautilus_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
+          dpkg-deb --info dist/files/gnome-user-share_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Version:/p'
       - uses: actions/upload-artifact@v6
         with:
           name: kulan-files-${{ matrix.arch }}

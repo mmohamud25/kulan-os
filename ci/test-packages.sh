@@ -334,6 +334,20 @@ check "Remote desktop firewall" "remote-desktop-on allows RDP (3389) from local 
 	[ "$(grep -c "^allow proto tcp from .* to any port 3389 comment Kulan remote desktop$" /tmp/ufw-on.log)" = 5 ] || { cat /tmp/ufw-on.log; exit 1; }
 	! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
 	[ "$(grep -c "^--force delete allow proto tcp from .* to any port 3389$" "$log")" = 5 ] || { cat "$log"; exit 1; }'
+check "Sharing firewall" "sharing-on allows file and media sharing (30301, 30302) from local networks only, and marks it for Sharing; off closes it" bash -c '
+	real=/usr/sbin/ufw; log=/tmp/ufw-calls.log; rm -f "$log"
+	[ -e "$real" ] && mv "$real" "$real.kulan-test"
+	printf "#!/bin/sh\necho \"\$*\" >> %s\n" "$log" > "$real"; chmod +x "$real"
+	/usr/lib/kulan/update-run sharing-on >/dev/null 2>&1; on=$?; [ -e /var/lib/kulan/sharing-firewall ]; marked=$?
+	cp "$log" /tmp/ufw-on.log; rm -f "$log"
+	/usr/lib/kulan/update-run sharing-off >/dev/null 2>&1; off=$?
+	rm -f "$real"; [ -e "$real.kulan-test" ] && mv "$real.kulan-test" "$real"
+	[ "$on" = 0 ] && [ "$off" = 0 ] && [ "$marked" = 0 ] && [ ! -e /var/lib/kulan/sharing-firewall ] || { echo "on=$on off=$off marked=$marked"; exit 1; }
+	[ "$(grep -c "^allow proto tcp from .* to any port 30301,30302 comment Kulan file and media sharing$" /tmp/ufw-on.log)" = 5 ] || { cat /tmp/ufw-on.log; exit 1; }
+	! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
+	[ "$(grep -c "^--force delete allow proto tcp from .* to any port 30301,30302$" "$log")" = 5 ] || { cat "$log"; exit 1; }'
+check "Sharing on fixed ports" "file sharing (gnome-user-share) and media sharing (Rygel) are given the ports the firewall allows" bash -c 'grep -qx "Environment=GNOME_USER_SHARE_PORT=30301" /usr/lib/systemd/user/gnome-user-share-webdav.service.d/50-kulan-port.conf && grep -qx "Environment=RYGEL_PORT=30302" /usr/lib/systemd/user/rygel.service.d/50-kulan-port.conf'
+check "File sharing works" "Apache as gnome-user-share starts it, on port 30301: anyone reads the Public folder, adding files needs Kulan's password, and with the password asked for, reading does too" bash -c 'command -v curl >/dev/null || apt-get install -y -q --no-install-recommends curl >/dev/null 2>&1; out="$(timeout 120 bash ci/file-sharing-test.sh 2>&1)"; echo "$out" | grep -qx "file sharing test passed" || { echo "$out" | tail -n 6; exit 1; }'
 check "Remote desktop with GNOME 48" "Sharing's settings, username and password (read back by GNOME Remote Desktop's grdctl) and certificate" bash -c 'command -v gnome-keyring-daemon >/dev/null || apt-get install -y -q --no-install-recommends gnome-keyring >/dev/null 2>&1; command -v grdctl >/dev/null || { echo "gnome-remote-desktop not installed"; exit 1; }; out="$(HOME=$(mktemp -d) timeout 120 dbus-run-session -- bash ci/sharing-test.sh 2>&1)"; echo "$out" | grep -qx "sharing self-test passed" || { echo "$out" | grep -v "fd limit" | tail -n 4; exit 1; }'
 check "Phone link works with GNOME 48" "Debian's GSConnect (the Phone link add-on) is made for GNOME 48" bash -c '
 	apt-get install -y -q --no-install-recommends gnome-shell-extension-gsconnect >/dev/null 2>&1 || { echo "not installable"; exit 1; }
@@ -457,6 +471,8 @@ PY
 if [[ ${#FILES[@]} -gt 0 ]]; then
 	NAUT="$(dpkg-query -W -f '${Version}' nautilus 2>/dev/null)"
 	check "Kulan Files" "Nautilus ${NAUT} with the status bar, preview pane and sidebar sections" bash -c "[[ '${NAUT}' == *+kulan* ]] && grep -aq kulan-status-bar /usr/bin/nautilus && grep -aq 'NautilusKulanPreview' /usr/bin/nautilus && grep -aq kulan-sidebar-heading /usr/bin/nautilus && grep -aq win.toggle-preview /usr/bin/nautilus"
+	GUS="$(dpkg-query -W -f '${Version}' gnome-user-share 2>/dev/null)"
+	check "File sharing's port" "gnome-user-share ${GUS} takes its port from GNOME_USER_SHARE_PORT" bash -c "[[ '${GUS}' == *+kulan* ]] && grep -aq GNOME_USER_SHARE_PORT /usr/libexec/gnome-user-share-webdav && grep -c 'AuthName \"Please log in as the user guest\"' /usr/share/gnome-user-share/dav_user_2.4.conf | grep -qx 2"
 else
 	result skip "Kulan Files" "no Kulan Files package for PCs in this run"
 fi
