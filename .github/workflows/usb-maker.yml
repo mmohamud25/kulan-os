@@ -38,20 +38,23 @@ jobs:
       - name: Unit tests
         working-directory: usb-maker/src-tauri
         run: |
-          cargo test 2>&1 | tee "$RUNNER_TEMP/out.txt"; rc=${PIPESTATUS[0]}
-          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
+          set +e +o pipefail
+          cargo test > "$RUNNER_TEMP/out.txt" 2>&1; rc=$?
+          cat "$RUNNER_TEMP/out.txt"
+          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
       - name: Write to a stand-in stick
         working-directory: usb-maker/src-tauri
         run: |
-          exec > >(tee "$RUNNER_TEMP/out.txt") 2>&1
-          trap 'rc=$?; [ $rc = 0 ] || echo "::error title=Writing::$(grep -v "^ *Compiling" "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e "s/%/%25/g" | sed -e ":a;N;\$!ba;s/\n/%0A/g")"' EXIT
-          set -e
-          cargo build --release --features test-devices
+          set +e +o pipefail
+          say() { echo "::error title=Writing::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+          cargo build --release --features test-devices > "$RUNNER_TEMP/out.txt" 2>&1 || say
           DISK="$(hdiutil attach -nomount ram://1048576 | awk '{print $1}')"   # 512 MB
           ID="${DISK#/dev/}"
-          echo "stand-in stick: ${ID}"
+          echo "stand-in stick: ${ID}" | tee "$RUNNER_TEMP/out.txt"
+          diskutil info "${ID}" >> "$RUNNER_TEMP/out.txt" 2>&1
           sudo env KULAN_USB_MAKER_TEST_DEVICES="${ID}" python3 ../test/write_test.py \
-            target/release/kulan-usb-maker "${ID}" "/dev/r${ID}" disk0
+            target/release/kulan-usb-maker "${ID}" "/dev/r${ID}" disk0 >> "$RUNNER_TEMP/out.txt" 2>&1 || say
+          cat "$RUNNER_TEMP/out.txt"
           hdiutil detach "${DISK}" || true
       - name: Build the app
         working-directory: usb-maker
@@ -74,8 +77,10 @@ jobs:
         working-directory: usb-maker/src-tauri
         shell: bash
         run: |
-          cargo test 2>&1 | tee "$RUNNER_TEMP/out.txt"; rc=${PIPESTATUS[0]}
-          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
+          set +e +o pipefail
+          cargo test > "$RUNNER_TEMP/out.txt" 2>&1; rc=$?
+          cat "$RUNNER_TEMP/out.txt"
+          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
       - name: Write to a stand-in stick
         working-directory: usb-maker/src-tauri
         shell: pwsh
