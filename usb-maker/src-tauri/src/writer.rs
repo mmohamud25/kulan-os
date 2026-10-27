@@ -174,7 +174,11 @@ fn write(job: &Job, status: &mut Status) -> Result<(), String> {
     target.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     write_padded(&mut target, &head)?;
     target.flush().map_err(write_error)?;
-    target.sync_all().map_err(write_error)?;
+    match target.sync_all() {
+        // macOS's /dev/rdisk can't be asked to (ENOTTY): its writes already went straight to the stick.
+        Err(e) if e.raw_os_error() == Some(25) => {}
+        other => other.map_err(write_error)?,
+    }
 
     // Read it all back and compare.
     status.write(json!({"phase": "check", "done": 0, "total": len}), true);
