@@ -17,7 +17,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 KEYRING="packages/kulan-archive-keyring.gpg"
-BACKUP="${HOME}/kulan-os-signing-key-BACKUP.asc"
+BACKUP="${HOME}/kulan-os-signing-key-BACKUP.asc.gpg"
 SECRET_NAME="KULAN_APT_SIGNING_KEY"
 
 say() { printf '\n==> %s\n' "$*"; }
@@ -56,12 +56,15 @@ FPR="$(gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr:/ {print $1
 say "Saving the public key to ${KEYRING}"
 gpg --batch --export "${FPR}" > "${KEYRING}"
 
-say "Storing the private key as the GitHub secret ${SECRET_NAME} on ${REPO}"
-gpg --batch --armor --export-secret-keys "${FPR}" | gh secret set "${SECRET_NAME}" --repo "${REPO}"
+say "Making the github-pages environment, for main only"
+scripts/signing-key.sh environment "${REPO}"
 
-say "Saving a backup of the private key to ${BACKUP}"
+say "Storing the private key as a secret of the github-pages environment (main only)"
+gpg --batch --armor --export-secret-keys "${FPR}" | gh secret set "${SECRET_NAME}" --repo "${REPO}" --env github-pages
+
+say "Saving a backup of the private key to ${BACKUP}, locked with a passphrase you choose now"
 umask 077
-gpg --batch --armor --export-secret-keys "${FPR}" > "${BACKUP}"
+gpg --batch --armor --export-secret-keys "${FPR}" | gpg --symmetric --cipher-algo AES256 --armor --output "${BACKUP}"
 
 say "Turning on GitHub Pages (it hosts the updates)"
 if gh api "repos/${REPO}/pages" >/dev/null 2>&1; then

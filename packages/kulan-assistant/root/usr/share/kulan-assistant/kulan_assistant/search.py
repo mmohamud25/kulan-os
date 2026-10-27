@@ -238,7 +238,7 @@ class Provider:
         elif method == "ActivateResult":
             if args[0].startswith(ASK_PREFIX):
                 ask_kulan(args[0][len(ASK_PREFIX):])
-            else:
+            elif args[0].startswith("file://"):  # only files, as this provider found them
                 try:
                     Gio.AppInfo.launch_default_for_uri(args[0], None)
                 except GLib.Error:

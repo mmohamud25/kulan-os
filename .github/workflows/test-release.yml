@@ -21,8 +21,17 @@ jobs:
       - name: Which build
         id: run
         run: |
+          set -euo pipefail
           RUN="${GITHUB_REF_NAME#test-release/}"
-          SHA="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN}" --jq .head_sha)"
+          # Only a number: it goes into API paths and the notes.
+          [[ "${RUN}" =~ ^[0-9]{1,20}$ ]] || { echo "::error::the branch must be test-release/<build run ID>"; exit 1; }
+          # Only a build of this repository's ISO workflow that passed every test.
+          INFO="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN}" \
+                  --jq '[.head_sha, .conclusion, .path, .head_repository.full_name] | @tsv')"
+          IFS=$'\t' read -r SHA CONCLUSION WORKFLOW FROM <<<"${INFO}"
+          [[ "${CONCLUSION}" == success && "${WORKFLOW}" == .github/workflows/build-iso.yml && "${FROM}" == "${GITHUB_REPOSITORY}" ]] ||
+            { echo "::error::run ${RUN} isn't a passed build of build-iso.yml in this repository (${CONCLUSION} ${WORKFLOW} ${FROM})"; exit 1; }
+          [[ "${SHA}" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no commit for run ${RUN}"; exit 1; }
           echo "run=${RUN}" >> "$GITHUB_OUTPUT"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
         env:
@@ -43,9 +52,12 @@ jobs:
       - name: Make the pre-release
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN: ${{ steps.run.outputs.run }}
+          SHA: ${{ steps.run.outputs.sha }}
         run: |
           set -euo pipefail
           VERSION="$(cat debs/VERSION)"
+          [[ "${VERSION}" =~ ^[0-9][A-Za-z0-9.+~-]{0,60}$ ]] || { echo "::error::odd version ${VERSION}"; exit 1; }
           SHORT="$(echo "${VERSION}" | cut -d. -f1-2)"
           N=1
           while gh release view "v${SHORT}-test${N}" >/dev/null 2>&1; do N=$((N + 1)); done
@@ -53,8 +65,8 @@ jobs:
           rm -f debs/VERSION
           (cd debs && sha256sum *.deb > SHA256SUMS)
           sed -e "s|@TAG@|${TAG}|g" -e "s|@REPO@|${GITHUB_REPOSITORY}|g" ci/test-update.sh > debs/kulan-test-update.sh
-          gh release create "${TAG}" --prerelease --target "${{ steps.run.outputs.sha }}" \
+          gh release create "${TAG}" --prerelease --target "${SHA}" \
             --title "Kulan OS ${SHORT} test ${N} (not a release)" \
-            --notes "Packages from build ${{ steps.run.outputs.run }} for testing on an installed Kulan OS. Not on the update channel. In Terminal: curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/kulan-test-update.sh | sh" \
+            --notes "Packages from build ${RUN} for testing on an installed Kulan OS. Not on the update channel. In Terminal: curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/kulan-test-update.sh | sh" \
             debs/*
           echo "::notice title=Test release::${TAG}"

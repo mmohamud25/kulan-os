@@ -5,7 +5,7 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: gnome
 Priority: optional
 Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), systemd, pipewire-bin
-Recommends: kulan-assistant-engine, kulan-settings (= @VERSION@), poppler-utils, python3-nautilus, gir1.2-tsparql-3.0, tracker-miner-fs
+Recommends: kulan-assistant-engine, kulan-settings (= @VERSION@), poppler-utils, bubblewrap, python3-nautilus, gir1.2-tsparql-3.0, tracker-miner-fs
 Homepage: @HOME_URL@
 Description: @NAME@ Assistant for private writing help and search
  Dictation, writing tools for text you select in any app, summaries of

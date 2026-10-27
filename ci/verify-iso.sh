@@ -264,6 +264,11 @@ if [[ "${ARCH}" == amd64 ]]; then
 fi
 if has_path etc/apt/sources.list.d/kulan.sources; then
 	result pass "Update channel" "kulan.sources and signing key included"
+	if has_path etc/apt/preferences.d/50-kulan-channel; then
+		result pass "Update channel pin" "only Kulan's own packages from the channel"
+	else
+		result fail "Update channel pin" "etc/apt/preferences.d/50-kulan-channel missing"
+	fi
 else
 	result info "Update channel" "not set up yet - run scripts/setup-update-channel.sh"
 fi

@@ -29,6 +29,18 @@ for DEB in ./*.deb; do
 			WANT="${WANT} ${DEB}" ;;
 	esac
 done
+# A test version never brings a different update channel key: the key decides
+# what this computer installs from then on.
+for D in ${WANT}; do
+	if [ "$(dpkg-deb -f "${D}" Package)" = kulan-base ] && [ -f /usr/share/keyrings/kulan-archive-keyring.gpg ]; then
+		mkdir -p base && dpkg-deb -x "${D}" base
+		if [ -f base/usr/share/keyrings/kulan-archive-keyring.gpg ] &&
+			! cmp -s base/usr/share/keyrings/kulan-archive-keyring.gpg /usr/share/keyrings/kulan-archive-keyring.gpg; then
+			echo "This test version has a different update channel key. Not installed." >&2
+			exit 1
+		fi
+	fi
+done
 echo "Installing:$(for D in ${WANT}; do printf ' %s' "$(dpkg-deb -f "${D}" Package)"; done)"
 # No questions (this runs from a pipe): settings files someone edited are
 # kept, as Software Update does.

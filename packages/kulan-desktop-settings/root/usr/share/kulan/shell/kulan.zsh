@@ -139,9 +139,14 @@ if (( $+commands[kulan] )); then
 	alias ask='noglob kulan ask'
 	alias '?'='noglob kulan ask'
 fi
-export KULAN_LAST_FAILED_FILE="${XDG_RUNTIME_DIR:-/tmp}/kulan-last-failed-$$"
+# Only in the session's own folder (never /tmp, where others could read it).
+if [[ -n "${XDG_RUNTIME_DIR}" && -O "${XDG_RUNTIME_DIR}" ]]; then
+	export KULAN_LAST_FAILED_FILE="${XDG_RUNTIME_DIR}/kulan-last-failed-$$"
+else
+	unset KULAN_LAST_FAILED_FILE
+fi
 _kulan_save_failed() {
-	(( _kulan_last_status != 0 )) && [[ -n $_kulan_last_cmd ]] &&
+	(( _kulan_last_status != 0 )) && [[ -n $_kulan_last_cmd && -n $KULAN_LAST_FAILED_FILE ]] &&
 		print -r -- "$_kulan_last_status"$'\t'"$_kulan_last_cmd" >| "$KULAN_LAST_FAILED_FILE" 2>/dev/null
 	return 0
 }

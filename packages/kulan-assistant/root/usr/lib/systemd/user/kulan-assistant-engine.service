@@ -12,3 +12,5 @@ Restart=no
 # The engine needs nothing from the network and nothing outside its model.
 PrivateTmp=yes
 NoNewPrivileges=yes
+# It talks only over its Unix socket: no internet sockets at all.
+RestrictAddressFamilies=AF_UNIX

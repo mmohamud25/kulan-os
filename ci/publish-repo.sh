@@ -51,6 +51,18 @@ fi
 shopt -s nullglob
 FILES=("${DEBS}"/*.deb)
 [[ ${#FILES[@]} -gt 0 ]] || { echo "::error::no packages in ${DEBS}" >&2; exit 1; }
+# Only the packages installed systems take from the channel (kulan.conf): anything
+# else would be published but never installed (their apt pins it to "never").
+read -ra PATTERNS <<<"${KULAN_CHANNEL_PACKAGES:?KULAN_CHANNEL_PACKAGES is not set in kulan.conf}"
+for FILE in "${FILES[@]}"; do
+	PKG="$(dpkg-deb --field "${FILE}" Package)"
+	ALLOWED=""
+	for PATTERN in "${PATTERNS[@]}"; do
+		# shellcheck disable=SC2053  # a glob on purpose
+		[[ "${PKG}" == ${PATTERN} ]] && ALLOWED=1
+	done
+	[[ -n "${ALLOWED}" ]] || { echo "::error::${PKG} isn't in KULAN_CHANNEL_PACKAGES (kulan.conf): installed systems would never take it" >&2; exit 1; }
+done
 
 rm -rf "${SITE}"
 mkdir -p "${REPO}"

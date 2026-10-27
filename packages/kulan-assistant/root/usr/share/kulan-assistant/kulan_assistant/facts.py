@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,6 +46,12 @@ def memory() -> tuple[int, int]:
     return fields.get("MemTotal", 0), fields.get("MemAvailable", 0)
 
 
+def plain(name: str, limit: int = 40) -> str:
+    """A name from the system (a program's, a network's) as plain words only: it goes into
+    the assistant's instructions, so it mustn't be able to read as one."""
+    return re.sub(r"[^\w .()+-]", "", name)[:limit].strip()
+
+
 def top_apps(count: int = 3) -> list[tuple[str, int]]:
     """The programs using the most memory, added up by name (Firefox's many
     processes count as one)."""
@@ -52,7 +59,7 @@ def top_apps(count: int = 3) -> list[tuple[str, int]]:
     for line in _out(["ps", "-eo", "rss=,comm="]).splitlines():
         parts = line.split(None, 1)
         if len(parts) == 2 and parts[0].isdigit():
-            name = parts[1].strip()
+            name = plain(parts[1])
             name = {"Isolated Web Co": "firefox-esr", "Web Content": "firefox-esr", "WebExtensions": "firefox-esr",
                     "RDD Process": "firefox-esr", "Socket Process": "firefox-esr", "Privileged Cont": "firefox-esr",
                     "Utility Process": "firefox-esr"}.get(name, name)
@@ -66,7 +73,7 @@ def busiest(count: int = 3) -> list[tuple[str, float]]:
     for line in _out(["ps", "-eo", "pid=,pcpu=,comm=", "--sort=-pcpu"]).splitlines():
         parts = line.split(None, 2)
         try:
-            pid, pct, name = int(parts[0]), float(parts[1]), parts[2].strip()
+            pid, pct, name = int(parts[0]), float(parts[1]), plain(parts[2])
         except (IndexError, ValueError):
             continue
         if pid != os.getpid() and pct >= 5:
@@ -93,7 +100,7 @@ def network() -> str:
     wifi = _out(["nmcli", "-t", "-f", "WIFI", "general"]) or "unknown"
     active = [line.split(":") for line in _out(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show",
                                                  "--active"]).splitlines()]
-    names = [f"{n[0]} ({n[1].replace('802-11-wireless', 'Wi-Fi').replace('802-3-ethernet', 'cable')})"
+    names = [f"{plain(n[0])} ({n[1].replace('802-11-wireless', 'Wi-Fi').replace('802-3-ethernet', 'cable')})"
              for n in active if len(n) >= 2 and n[1] not in ("loopback", "bridge")]
     words = {"full": "internet works", "none": "no internet", "limited": "limited (no internet)",
              "portal": "a Wi-Fi sign-in page is waiting", "unknown": "not checked"}

@@ -15,6 +15,7 @@ PLAN_TTL_S; nothing is written anywhere.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import threading
 import time
@@ -28,6 +29,19 @@ OBJECT_PATH = "/org/kulan/Assistant/Ask"
 PLAN_TTL_S = 30 * 60
 IDLE_EXIT_S = 15 * 60
 MAX_TEXT = 500
+# Changes run only when the Ask Kulan panel asks: the desktop itself, never
+# another program on the session bus (it could skip the person's "Do it").
+SHELL = "/usr/bin/gnome-shell"
+
+
+def from_shell(connection: Gio.DBusConnection, sender: str) -> bool:
+    try:
+        pid = connection.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                   "GetConnectionUnixProcessID", GLib.Variant("(s)", (sender,)),
+                                   GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+        return os.readlink(f"/proc/{pid}/exe") == SHELL
+    except (GLib.Error, OSError):
+        return False
 
 INTERFACE = """
 <node>
@@ -153,9 +167,12 @@ class Service:
         self.loop.quit()
         return GLib.SOURCE_REMOVE
 
-    def on_call(self, _conn, _sender, _path, _iface, method, params, invocation) -> None:
+    def on_call(self, conn, sender, _path, _iface, method, params, invocation) -> None:
         GLib.source_remove(self.idle_timer)
         self.idle_timer = GLib.timeout_add_seconds(IDLE_EXIT_S, self.idle_exit)
+        if method in ("Run", "Undo") and not from_shell(conn, sender):
+            invocation.return_dbus_error("org.freedesktop.DBus.Error.AccessDenied", "only the Ask Kulan panel can do that")
+            return
         args = params.unpack()
         work = {"Ask": lambda: ask(self.plans, args[0]), "Run": lambda: run(self.plans, args[0]),
                 "Undo": lambda: undo(self.plans, args[0]), "Status": status}.get(method)

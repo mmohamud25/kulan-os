@@ -231,6 +231,14 @@ if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	# An upgrade must move computers to this build's address (kulan.conf), even
 	# when the released version pointed somewhere else.
 	check "Update channel address" "kulan.sources uses ${CHANNEL}" grep -qx "URIs: ${CHANNEL}" /etc/apt/sources.list.d/kulan.sources
+	# Only Kulan's own packages from the channel (a stolen key can't replace Debian's), and only from its own site.
+	CHANNEL_HOST="$(sed -E 's#^https://([^/:]+).*#\1#' <<<"${CHANNEL}")"
+	check "Update channel pin" "only Kulan's own packages from ${CHANNEL_HOST}; anything else from it never" bash -c "
+		! apt-cache policy 2>&1 | grep -q '^[EW]:' &&
+		grep -q 'Pin: origin \"${CHANNEL_HOST}\"' /etc/apt/preferences.d/50-kulan-channel &&
+		apt-cache policy kulan-base | grep -Eq '^ +(\*\*\* )?[0-9][^ ]* 500$' &&
+		apt-cache policy kulan-base | grep -q 'https://${CHANNEL_HOST}/' &&
+		grep -q 'origin=Kulan OS,site=${CHANNEL_HOST}' /etc/apt/apt.conf.d/52kulan-auto-upgrades"
 fi
 
 # --- Update Center ------------------------------------------------------------------
