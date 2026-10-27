@@ -63,6 +63,13 @@
 // ("help_requests": {id, username, text, state, reply, ...}), so the person
 // sees theirs, and the admin's answer when it's done.
 //
+// Approval (2.10): a computer that joined with a code an admin other than
+// the Owner made waits for the Owner to approve it. Until then its reports are
+// kept, but it gets its policy, its help requests and its wake topic only: no
+// accounts (so no password hashes or phone codes), no Wi-Fi passwords, no
+// printers, no requests, and nothing it says about passwords or second steps
+// is taken. Reports are limited to 20 in 10 minutes per computer.
+//
 // Computers authenticate with their own key (made here at enrolment; only its
 // SHA-256 is stored), so the platform's JWT check is off for this function.
 // Data lives in the private "fleet" schema, reached over a direct Postgres
@@ -89,6 +96,8 @@ const HASH = /^\$(y|gy|6|5|2b|2y|7)\$[./A-Za-z0-9$=,]{8,250}$/;
 const MAX_PASSWORDS = 50;
 const MAX_SIGN_INS = 200;
 const MAX_FACTORS = 10; // per person
+const MAX_POLICY_STATUS = 300;
+const REPORTS_PER_10_MIN = 20;
 const U2F = /^[A-Za-z0-9+\/=_-]{16,1024},[A-Za-z0-9+\/=_-]{16,1024},(es256|eddsa|rs256),[+a-z]{0,40}$/;
 const TOTP_HEX = /^[0-9a-f]{40}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -363,11 +372,47 @@ async function helpRoute(req: Request, id: string, body: Record<string, unknown>
   return reply(400, { error: "unknown op" });
 }
 
+// The compliance checks a computer reports ({check: "met" ...}): a few hundred, short.
+export function cleanPolicyStatus(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, status] of Object.entries(value).slice(0, MAX_POLICY_STATUS)) {
+    if (/^[\w.:-]{1,80}$/.test(key) && typeof status === "string") out[key] = status.slice(0, 40);
+  }
+  return out;
+}
+
+// The request's body, at most max bytes (read in pieces, never all of a larger one).
+export async function readBody(req: Request, max: number): Promise<string | null> {
+  if (Number(req.headers.get("Content-Length") ?? "0") > max) return null;
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) {
+    all.set(p, at);
+    at += p.length;
+  }
+  return new TextDecoder().decode(all);
+}
+
 async function device(req: Request, body: Record<string, unknown>) {
   const auth = req.headers.get("Authorization") ?? "";
   if (!auth.startsWith("Bearer ")) return null;
   const hash = await sha256(auth.slice(7).trim());
-  const rows = await sql`select id, organisation_id, hostname from fleet.devices
+  const rows = await sql`select id, organisation_id, hostname, approved_at is not null as approved from fleet.devices
                          where token_hash = ${hash} and left_at is null`;
   if (rows.length !== 1 || rows[0].id !== body.device_id) return null;
   return rows[0];
@@ -375,10 +420,8 @@ async function device(req: Request, body: Record<string, unknown>) {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return reply(405, { error: "POST only" });
-  const length = Number(req.headers.get("Content-Length") ?? "0");
-  if (length > MAX_BODY) return reply(413, { error: "too large" });
-  const raw = await req.text();
-  if (raw.length > MAX_BODY) return reply(413, { error: "too large" });
+  const raw = await readBody(req, MAX_BODY);
+  if (raw === null) return reply(413, { error: "too large" });
   let body: Record<string, unknown>;
   try {
     const parsed = JSON.parse(raw || "{}");
@@ -401,15 +444,22 @@ Deno.serve(async (req: Request) => {
       const result = await sql.begin(async (tx) => {
         const codes = await tx`update fleet.enrolment_codes set uses_left = uses_left - 1
                                where code_hash = ${codeHash} and uses_left > 0 and expires_at > now()
-                               returning organisation_id`;
+                               returning organisation_id, trusted, created_by`;
         if (codes.length !== 1) return null;
-        const org = codes[0].organisation_id;
-        const [dev] = await tx`insert into fleet.devices (organisation_id, token_hash, hostname, os, kulan_version, last_seen)
-                               values (${org}, ${await sha256(token)}, ${text(body.hostname, 120)},
-                                       ${text(body.os, 120)}, ${text(body.kulan_version, 60)}, now())
+        const { organisation_id: org, trusted, created_by } = codes[0];
+        const hostname = text(body.hostname, 120);
+        const [dev] = await tx`insert into fleet.devices (organisation_id, token_hash, hostname, os, kulan_version, last_seen,
+                                                          approved_at, approved_by)
+                               values (${org}, ${await sha256(token)}, ${hostname},
+                                       ${text(body.os, 120)}, ${text(body.kulan_version, 60)}, now(),
+                                       case when ${trusted}::boolean then now() end, ${trusted ? created_by : null})
                                returning id`;
+        await tx`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+                 values (${org}, ${dev.id}, ${created_by ?? "the computer"},
+                         ${trusted ? "a computer joined" : "a computer joined and waits for the Owner's approval"},
+                         ${json({ computer: hostname })})`;
         const [o] = await tx`select name from fleet.organisations where id = ${org}`;
-        return { device_id: dev.id, organisation: o.name };
+        return { device_id: dev.id, organisation: o.name, ...(trusted ? {} : { pending: true }) };
       });
       if (!result) return reply(403, { error: "that code isn't valid. It may be used, expired or mistyped" });
       return reply(200, { ...result, token });
@@ -419,9 +469,12 @@ Deno.serve(async (req: Request) => {
     if (!dev) return reply(401, { error: "unknown computer or key" });
 
     if (path === "/v1/report") {
+      const [{ recent }] = await sql`select count(*)::int as recent from fleet.reports
+                                     where device_id = ${dev.id} and received_at > now() - interval '10 minutes'`;
+      if (recent >= REPORTS_PER_10_MIN) return reply(429, { error: "too many reports from this computer. Try again later" });
       const apps = cleanApps(body.apps);
       delete body.apps; // kept on the computer's row, not in every hourly report
-      const passwords = cleanPasswords(body.passwords);
+      const passwordsIn = cleanPasswords(body.passwords);
       delete body.passwords; // into fleet.people only, never into the reports
       const peopleStatus = cleanPeopleStatus(body.people_status);
       if (peopleStatus === undefined) delete body.people_status;
@@ -435,16 +488,27 @@ Deno.serve(async (req: Request) => {
       const pushed = acts.cleanPushed(body.pushed);
       if (pushed === undefined) delete body.pushed;
       else body.pushed = pushed;
-      const factorsAdded = cleanFactors(body.factors);
-      const factorsRemoved = cleanRemovedFactors(body.factors_removed);
+      const policyStatus = cleanPolicyStatus(body.policy_status);
+      if (policyStatus === undefined) delete body.policy_status;
+      else body.policy_status = policyStatus;
+      // A computer waiting for approval: nothing it says about passwords or second steps is taken.
+      const factorsAdded = dev.approved ? cleanFactors(body.factors) : [];
+      const factorsRemoved = dev.approved ? cleanRemovedFactors(body.factors_removed) : [];
+      const passwords = dev.approved ? passwordsIn : [];
       delete body.factors; // into fleet.person_factors only, never into the reports
       delete body.factors_removed;
+      // Who was signed in here at the last report (before this one): an admin's
+      // or the Owner's password or second step is taken only from a computer
+      // they were signed in on, so one computer can't change theirs unseen.
+      const [prev] = await sql`select last_report->'sign_ins' as sign_ins, hostname from fleet.devices where id = ${dev.id}`;
+      const signedInBefore = new Set((cleanSignIns(prev?.sign_ins) ?? []).filter((x) => x.now).map((x) => x.username));
       // A person on this computer, if they may use it and aren't disabled or removed.
       const allowedHere = async (username: string): Promise<string | null> => {
         const rows = await sql`
           select pe.id from fleet.people pe
           where pe.organisation_id = ${dev.organisation_id} and pe.username = ${username}
             and pe.removed_at is null and pe.enabled
+            and (pe.role = 'employee' or ${signedInBefore.has(username)})
             and (pe.all_computers
                  or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
                  or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
@@ -494,6 +558,7 @@ Deno.serve(async (req: Request) => {
                  password_changed_at = greatest(extract(epoch from now())::bigint, pe.password_changed_at + 1)
           where pe.organisation_id = ${dev.organisation_id} and pe.username = ${p.username}
             and pe.removed_at is null and pe.enabled and pe.password_hash is distinct from ${p.hash}
+            and (pe.role = 'employee' or ${signedInBefore.has(p.username)})
             and (pe.all_computers
                  or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
                  or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
@@ -514,6 +579,23 @@ Deno.serve(async (req: Request) => {
                   kulan_version = coalesce(${text(body.kulan_version, 60)}, kulan_version),
                   wake_topic = coalesce(wake_topic, ${newWakeTopic()})
                 where id = ${dev.id} returning wake_topic`;
+      const newName = text(body.hostname, 120);
+      if (newName && prev?.hostname && newName !== prev.hostname) {
+        await sql`insert into fleet.audit (organisation_id, device_id, email, what, detail)
+                  values (${dev.organisation_id}, ${dev.id}, 'the computer', 'a computer was renamed',
+                          ${json({ from: prev.hostname, to: newName })})`;
+      }
+      const helpRequests = await sql`select id, username, body, state, reply, created_at, done_at from fleet.help_requests
+                                     where device_id = ${dev.id} and created_at > now() - interval '30 days'
+                                     order by created_at desc limit 50`;
+      const helpList = helpRequests.map((h) => ({ id: h.id, username: h.username, text: String(h.body).slice(0, 200),
+                                                  state: h.state, reply: h.reply, created_at: h.created_at, done_at: h.done_at }));
+      if (!dev.approved) {
+        // Waiting for the Owner: its policy (no scripts, no USB drive list), its help requests, its wake topic.
+        const [o] = await sql`select policy from fleet.organisations where id = ${dev.organisation_id}`;
+        const { policy } = mergePolicies([o?.policy ?? {}]);
+        return reply(200, { pending: true, actions: [], policy, help_requests: helpList, wake: wakeInfo(wake_topic) });
+      }
       // A fix or script handed to the computer but never answered (it was switched off mid-run, say)
       // expires after a day: its script can't be fetched any more.
       await sql`update fleet.actions set status = 'expired', finished_at = now()
@@ -593,13 +675,9 @@ Deno.serve(async (req: Request) => {
           !(policy.required_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id)) {
         sent.required_apps = [...(policy.required_apps ?? []), MAIL_APP];
       }
-      // This computer's help requests of the last 30 days, so each person sees theirs and any answer.
-      const helpRequests = await sql`select id, username, body, state, reply, created_at, done_at from fleet.help_requests
-                                     where device_id = ${dev.id} and created_at > now() - interval '30 days'
-                                     order by created_at desc limit 50`;
       return reply(200, {
-        help_requests: helpRequests.map((h) => ({ id: h.id, username: h.username, text: String(h.body).slice(0, 200),
-                                                  state: h.state, reply: h.reply, created_at: h.created_at, done_at: h.done_at })),
+        // This computer's help requests of the last 30 days, so each person sees theirs and any answer.
+        help_requests: helpList,
         actions: actions.filter((a) => ACTIONS.has(a.type))
           .map((a) => a.payload ? { id: a.id, type: a.type, payload: a.payload } : { id: a.id, type: a.type }),
         policy: sent,

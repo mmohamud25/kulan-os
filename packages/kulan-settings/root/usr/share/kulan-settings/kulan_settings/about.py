@@ -244,8 +244,11 @@ class AboutPage(Page):
             when = time.strftime("%d %b %Y, %H:%M", time.localtime(last)) if last else "not yet"
             head = Adw.ActionRow(title=GLib.markup_escape_text(f"Managed by {data.get('organisation', '')}"),
                                  subtitle=GLib.markup_escape_text(
-                                     f"Reports to {data.get('server', '')} every hour · last report {when}"
-                                     + (f" · last problem: {data['last_error']}" if data.get("last_error") else "")))
+                                     ("Waiting for the organisation's Owner to approve this computer · "
+                                      if data.get("pending") else "")
+                                     + f"Reports to {data.get('server', '')} every hour · last report {when}"
+                                     + (f" · last problem: {data['last_error']}" if data.get("last_error") else "")),
+                                 subtitle_lines=0)
             head.add_prefix(Gtk.Image(icon_name="network-workgroup-symbolic"))
             leave = Gtk.Button(label="Leave…", valign=Gtk.Align.CENTER)
             leave.connect("clicked", lambda _b: self.leave_org())

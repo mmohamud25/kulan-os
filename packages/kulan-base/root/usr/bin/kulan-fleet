@@ -901,11 +901,14 @@ def power_off() -> None:
 
 
 # --- commands -------------------------------------------------------------------------------
-def publish(config: dict | None, last_report: int | None = None, error: str | None = None) -> None:
+def publish(config: dict | None, last_report: int | None = None, error: str | None = None,
+            pending: bool | None = None) -> None:
     if config is None:
         PUBLIC.unlink(missing_ok=True)
         return
     old = read_json(PUBLIC, {})
+    # Waiting for the Owner's approval (2.10): as the server last said.
+    waiting = bool(old.get("pending")) if pending is None else pending
     write_json(PUBLIC, {
         "joined": True,
         "organisation": config.get("organisation", ""),
@@ -916,6 +919,7 @@ def publish(config: dict | None, last_report: int | None = None, error: str | No
         "shared": SHARED,
         "actions": list(ALLOWED_ACTIONS),
         "allow_erase": bool(config.get("allow_erase")),
+        "pending": waiting,
     }, 0o644)
 
 
@@ -945,9 +949,10 @@ def join(server: str, allow_erase: bool = False) -> int:
               "organisation": str(reply.get("organisation", "")).strip()[:80] or urllib.parse.urlsplit(server).hostname,
               "since": int(time.time()), "allow_erase": allow_erase}
     write_json(CONFIG, config, 0o600)
-    publish(config)
+    publish(config, pending=reply.get("pending") is True)
     run(["systemctl", "enable", "--now", "kulan-fleet.timer"])
-    say(f"Joined {config['organisation']}")
+    say(f"Joined {config['organisation']}" + (". It waits for the organisation's Owner to approve it"
+                                               if reply.get("pending") is True else ""))
     return report()
 
 
@@ -998,12 +1003,13 @@ def report() -> int:
             publish(config, error=str(e))
             say(f"Report not sent: {e}")
             return 1
-        publish(config, last_report=int(time.time()))
+        waiting = reply.get("pending") is True
+        publish(config, last_report=int(time.time()), pending=waiting)
         keep_wake(reply.get("wake"), server)
         if apps_due:
             APPS_SENT.parent.mkdir(parents=True, exist_ok=True)
             APPS_SENT.touch()
-        if passwords:
+        if passwords and not waiting:  # a computer waiting for approval: the server didn't take them
             people.sent(people_state, passwords)
         if "accounts" in reply:
             people_state, accounts_status = people.apply(reply.get("accounts"), run, people_state)

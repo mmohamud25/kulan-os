@@ -270,7 +270,11 @@ ok(shown.full_name === "Amina Yusuf HR" && shown.email === "amina@acme.test", "n
 ok(!JSON.stringify(r.body).includes("password_hash") && !JSON.stringify(r.body).includes("$6$"), "hashes never shown to admins");
 
 // --- the computers get their accounts ------------------------------------------------------
-const report = (c, extra = {}) => computer(c, "/v1/report", { hostname: c === A ? "laptop-a" : "laptop-b", ...extra });
+// (Earlier reports aged by an hour each time, so the tests stay under the limit of 20 in 10 minutes.)
+const report = async (c, extra = {}) => {
+  await db`update fleet.reports set received_at = received_at - interval '1 hour' where device_id = ${c.device_id}`;
+  return computer(c, "/v1/report", { hostname: c === A ? "laptop-a" : "laptop-b", ...extra });
+};
 r = await report(A);
 const namesA = r.body.accounts.map((a) => a.username).sort();
 ok(r.status === 200 && JSON.stringify(namesA) === '["amina","mo"]', "laptop-a: amina and mo, not omar", r.body.accounts);
@@ -655,13 +659,18 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
      !r.body.summary.people.two_step_missing.includes("mo"), "the weekly report lists who hasn't set it up", r.body.summary.people);
 
   // mo removes the phone code on laptop-b; an admin resets two-step (a lost key).
+  // mo is the Owner's account: taken only from a computer mo was signed in on at its last report.
+  await report(B, { factors_removed: [{ username: "mo", id: id(2) }] });
+  ok((await db`select id from fleet.person_factors`).length === 2, "the Owner's second step isn't removed from a computer they weren't signed in on");
+  await report(B, { sign_ins: [{ username: "mo", last: 1790000000, now: true }] });
   await report(B, { factors_removed: [{ username: "mo", id: id(2) }, { username: "omar", id: id(1) }] });
   ok((await db`select id from fleet.person_factors`).map((x) => x.id).join() === id(1), "the code removed; someone else's can't be", 0);
   r = await admin(HELPER, { op: "reset-two-step", person_id: moP.id });
   ok(r.status === 403, "an admin can't reset the Owner's account's two-step", r);
   r = await admin(NEWOWNER, { op: "reset-two-step", person_id: moP.id });
   ok(r.status === 200 && r.body.removed === 1, "the Owner resets it", r);
-  ok((await report(A)).body.accounts.find((x) => x.username === "mo").two_step.factors.length === 0, "and the computers drop it");
+  ok((await report(A, { sign_ins: [{ username: "mo", last: 1790000000, now: true }] })).body.accounts
+       .find((x) => x.username === "mo").two_step.factors.length === 0, "and the computers drop it");
 
   // A phone code the server can't open (its key changed): computers are told to keep theirs.
   await report(A, { factors: [{ username: "mo", id: id(6), kind: "code", label: "Phone", data: SECRET }] });
@@ -1517,6 +1526,102 @@ await db`insert into fleet.admins (email, organisation_id) values (${BOSS2}, nul
      r.body.entries.some((e) => e.what === "asked to see the screen"), "asking is logged", r.body.entries.map((e) => e.what));
   ok(!JSON.stringify((await db`select detail from fleet.audit`).map((x) => x.detail)).includes("v=0"), "nothing of the connection in the log");
   env.CLOUDFLARE_TURN_KEY_ID = env.CLOUDFLARE_TURN_TOKEN = undefined;
+}
+
+// --- the security review (2.10): approval, join codes, removing a computer, limits ----------
+{
+  // A join code another admin makes: its computers wait for the Owner.
+  r = await admin(HELPER, { op: "new-code", organisation_id: org, hours: 2, uses: 3 });
+  ok(r.status === 200 && r.body.approved === false, "an admin's join code: computers wait for the Owner", r.body);
+  const helperCode = r.body.code;
+  const P = (await call("fleet", "/v1/enrol", { code: helperCode, hostname: "rogue" })).body;
+  ok(P.device_id && P.pending === true, "it joins, waiting", P);
+  await db`update fleet.people set all_computers = true where username = 'omar'`;
+  const pr = (extra = {}) => computer(P, "/v1/report", { hostname: "rogue", ...extra });
+  r = await pr();
+  ok(r.status === 200 && r.body.pending === true && r.body.accounts === undefined && r.body.networks === undefined &&
+     r.body.printers === undefined && r.body.actions.length === 0 && r.body.policy && !r.body.policy.scripts &&
+     !JSON.stringify(r.body).includes("$6$"), "waiting: no accounts, password hashes, Wi-Fi, printers or requests", r.body);
+  const before = (await db`select password_hash from fleet.people where username = 'omar'`)[0].password_hash;
+  await pr({ sign_ins: [{ username: "omar", last: 1790000000, now: true }] });
+  await pr({ passwords: [{ username: "omar", password_hash: HASH("stolen") }],
+             factors: [{ username: "omar", id: "00000000-0000-4000-8000-0000000000aa", kind: "code", label: "x",
+                         data: "3132333435363738393031323334353637383930" }] });
+  ok((await db`select password_hash from fleet.people where username = 'omar'`)[0].password_hash === before &&
+     (await db`select 1 from fleet.person_factors where id = '00000000-0000-4000-8000-0000000000aa'`).length === 0,
+     "waiting: no password or second step taken from it");
+  r = await admin(HELPER, { op: "action", device_id: P.device_id, type: "refresh" });
+  ok(r.status === 400 && /approval/.test(r.body.error), "no requests to a computer that waits", r);
+  r = await admin(HELPER, { op: "help-start", device_id: P.device_id });
+  ok(r.status === 400, "no remote help either", r);
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.body.alerts.some((a) => a.kind === "approve" && a.device_id === P.device_id), "the overview asks for approval", r.body.alerts);
+  r = await admin(HELPER, { op: "approve-computer", device_id: P.device_id });
+  ok(r.status === 403, "only the Owner approves", r);
+  r = await admin(NEWOWNER, { op: "approve-computer", device_id: P.device_id });
+  ok(r.status === 200, "the Owner approves", r);
+  await db`update fleet.reports set received_at = received_at - interval '1 hour' where device_id = ${P.device_id}`;
+  r = await pr();
+  ok(r.body.pending === undefined && r.body.accounts.some((x) => x.username === "omar"), "approved: it gets its accounts", r.body);
+  await db`update fleet.people set all_computers = false where username = 'omar'`;
+
+  // The Owner's codes make trusted computers; codes are listed (never the code) and withdrawn.
+  r = await admin(NEWOWNER, { op: "new-code", organisation_id: org });
+  ok(r.body.approved === true, "the Owner's join code: trusted at once", r.body);
+  r = await admin(HELPER, { op: "codes", organisation_id: org });
+  ok(r.status === 200 && r.body.codes.length >= 2 && !JSON.stringify(r.body).includes(helperCode) &&
+     r.body.codes.some((c) => c.created_by === HELPER && c.trusted === false && c.uses_left === 2), "join codes listed", r.body);
+  const hc = r.body.codes.find((c) => c.created_by === HELPER);
+  r = await admin("nobody@x.test", { op: "revoke-code", organisation_id: org, code_id: hc.id });
+  ok(r.status === 403, "not someone else's", r);
+  r = await admin(HELPER, { op: "revoke-code", organisation_id: other, code_id: hc.id });
+  ok(r.status === 404, "not another organisation's", r);
+  r = await admin(HELPER, { op: "revoke-code", organisation_id: org, code_id: hc.id });
+  ok(r.status === 200, "withdrawn", r);
+  r = await call("fleet", "/v1/enrol", { code: helperCode, hostname: "late" });
+  ok(r.status === 403, "a withdrawn code can't be used", r);
+
+  // Limits: 20 reports in 10 minutes; a few hundred compliance checks.
+  let last = null;
+  for (let i = 0; i < 21; i++) last = await pr({ policy_status: Object.fromEntries([...Array(400)].map((_, j) => [`check${j}`, "met"])) });
+  ok(last.status === 429, "too many reports", last);
+  const ps = (await db`select last_report->'policy_status' as p from fleet.devices where id = ${P.device_id}`)[0].p;
+  ok(Object.keys(ps).length === 300, "at most 300 compliance checks kept", Object.keys(ps).length);
+  await db`update fleet.reports set received_at = received_at - interval '1 hour' where device_id = ${P.device_id}`;
+  // A rename is in the activity log.
+  await pr({ hostname: "rogue-2" });
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "renamed" });
+  ok(r.body.entries.some((e) => e.what === "a computer was renamed"), "renames are logged", r.body.entries);
+  // Too large a body.
+  const big = await handlers["fleet-admin"](new Request("https://x.test/functions/v1/fleet-admin", { method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tokenFor(HELPER)}` },
+    body: JSON.stringify({ op: "overview", pad: "x".repeat(1100000) }) }));
+  ok(big.status === 413, "fleet-admin: too large", big.status);
+  const big2 = await handlers.fleet(new Request("https://x.test/functions/v1/fleet/v1/report", { method: "POST",
+    headers: { Authorization: `Bearer ${P.token}` }, body: "x".repeat(600 * 1024) }));
+  ok(big2.status === 413, "fleet: too large", big2.status);
+
+  // An admin's or the Owner's account: only the Owner changes its computers or email.
+  const mo = (await admin(HELPER, { op: "people", organisation_id: org })).body.people.find((x) => x.username === "mo");
+  r = await admin(HELPER, { op: "edit-person", person_id: mo.id, all_computers: false, computers: [] });
+  ok(r.status === 403 || mo.all_computers === false, "an admin can't take the Owner's account off computers", r);
+  r = await admin(HELPER, { op: "edit-person", person_id: mo.id, email: "evil@x.test" });
+  ok(r.status === 403, "an admin can't change the Owner's account's email", r);
+  r = await admin(HELPER, { op: "edit-person", person_id: mo.id, full_name: "Mo A" });
+  ok(r.status === 200, "but can fix a name", r);
+
+  // Removing a computer: its key stops working, its requests are cancelled.
+  await admin(HELPER, { op: "action", device_id: P.device_id, type: "refresh" });
+  r = await admin(HELPER, { op: "remove-computer", device_id: P.device_id, confirm: "wrong" });
+  ok(r.status === 400, "type its name to confirm", r);
+  r = await admin(HELPER, { op: "remove-computer", device_id: P.device_id, confirm: "rogue-2" });
+  ok(r.status === 200, "removed", r);
+  r = await pr();
+  ok(r.status === 401, "its key no longer works", r);
+  ok((await db`select count(*)::int as n from fleet.actions where device_id = ${P.device_id} and status = 'pending'`)[0].n === 0,
+     "its requests cancelled");
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "removed a computer" });
+  ok(r.body.entries.length === 1, "in the activity log", r.body);
 }
 
 await db.end();

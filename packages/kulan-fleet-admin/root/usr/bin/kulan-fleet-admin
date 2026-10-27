@@ -693,6 +693,8 @@ def health(d: dict, alerts: list[dict]) -> tuple[str, str, str]:
     """A computer's health, as in the web dashboard: (label, tag kind, tab)."""
     if d.get("left_at"):
         return "Left", "dim", "left"
+    if d.get("approved") is False:
+        return "Waiting for approval", "warn", "attention"
     if (d.get("state") or {}).get("lost_mode"):
         return "Lost mode", "bad", "lost"
     if offline(d):
@@ -1638,7 +1640,40 @@ class FleetWindow(Adw.ApplicationWindow):
         uses.set_title("Number of computers")
         rows.append(hours)
         rows.append(uses)
-        dialog.set_extra_child(rows)
+        # The join codes still usable (never the codes themselves), each with Withdraw.
+        codes = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, visible=False)
+        holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        holder.append(rows)
+        codes_title = Gtk.Label(label="Join codes still usable", xalign=0, css_classes=["heading"], visible=False)
+        holder.append(codes_title)
+        holder.append(codes)
+        dialog.set_extra_child(holder)
+
+        def show_codes(result, error):
+            while (child := codes.get_first_child()) is not None:
+                codes.remove(child)
+            listed = [] if error else (result or {}).get("codes", [])
+            codes.set_visible(bool(listed))
+            codes_title.set_visible(bool(listed))
+            for c in listed:
+                row = Adw.ActionRow(title=GLib.markup_escape_text(f"Made {ago(c.get('created_at'))} by {c.get('created_by') or 'an admin'}"),
+                                    subtitle=GLib.markup_escape_text(
+                                        f"{c.get('uses_left')} of {c.get('uses') or c.get('uses_left')} left · until "
+                                        f"{str(c.get('expires_at', ''))[:10]}"
+                                        + ("" if c.get("trusted") else " · computers wait for approval")),
+                                    subtitle_lines=0)
+                button = Gtk.Button(label="Withdraw", valign=Gtk.Align.CENTER)
+                button.connect("clicked", lambda _b, cid=c["id"]: self.call(
+                    {"op": "revoke-code", "organisation_id": org["id"], "code_id": cid},
+                    lambda _r, err: self.toast(err) if err else load_codes()))
+                row.add_suffix(button)
+                codes.append(row)
+
+        def load_codes():
+            self.call({"op": "codes", "organisation_id": org["id"]}, show_codes,
+                      lambda: {"codes": (self.data or {}).get("sample_codes", [])})
+        self.codes_list = codes  # for the self-test
+        load_codes()
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("make", "Make a join code")
         dialog.set_response_appearance("make", Adw.ResponseAppearance.SUGGESTED)
@@ -1714,7 +1749,19 @@ class FleetWindow(Adw.ApplicationWindow):
         line.append(texts)
         line.append(tag(label, kind))
         head.add(line)
-        if not d.get("left_at"):
+        waiting = d.get("approved") is False and not d.get("left_at")
+        if waiting:
+            approve = Adw.PreferencesGroup(title="Waiting for approval", description=(
+                "It joined with a join code an admin made. Until the Owner approves it, it gets no accounts, Wi-Fi "
+                "or printers, and takes no requests."))
+            page.add(approve)
+            if (org or {}).get("is_owner"):
+                row = Adw.ActionRow(title="Approve", subtitle="Only if you know it's one of your organisation's computers",
+                                    activatable=True)
+                row.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic"))
+                row.connect("activated", lambda _r: self.approve_computer(d))
+                approve.add(row)
+        if not d.get("left_at") and not waiting:
             quick = Gtk.Box(spacing=8, margin_top=14, homogeneous=True)
             for text, handler, style in (
                     ("Remote help", lambda: self.open_remote_help(d), ["suggested-action"]),
@@ -1783,7 +1830,7 @@ class FleetWindow(Adw.ApplicationWindow):
             apps_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             apps_row.connect("activated", lambda _r: self.open_apps(d))
         apps.add(apps_row)
-        if not d.get("left_at"):
+        if not d.get("left_at") and not waiting:
             ask = Adw.PreferencesGroup(title="Ask it to", description="The computer does it at its next report.")
             page.add(ask)
             for kind, label, icon in ACTIONS:
@@ -1836,6 +1883,15 @@ class FleetWindow(Adw.ApplicationWindow):
                 erase.add_css_class("error")
                 erase.connect("activated", lambda _r: self.ask_erase(d))
             lost.add(erase)
+        if not d.get("left_at"):
+            leave = Adw.PreferencesGroup()
+            page.add(leave)
+            remove = Adw.ActionRow(title="Remove from the organisation", activatable=True, subtitle_lines=0,
+                                   subtitle="Its key stops working at once. Nothing on it is erased.")
+            remove.add_prefix(Gtk.Image(icon_name="list-remove-symbolic"))
+            remove.add_css_class("error")
+            remove.connect("activated", lambda _r: self.ask_remove(d))
+            leave.add(remove)
         controls = Adw.PreferencesGroup(title="Compliance", description="Loading the latest report…")
         page.add(controls)
 
@@ -2183,6 +2239,40 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog.present(self)
         return dialog
 
+    def approve_computer(self, d: dict) -> None:
+        self.background(lambda: self.session.call({"op": "approve-computer", "device_id": d["id"]}),
+                        lambda _r, error: (self.toast(error) if error else
+                                           (self.toast(f"{d.get('hostname') or 'The computer'} is approved"), self.reload())))
+
+    def ask_remove(self, d: dict) -> Adw.AlertDialog:
+        name = d.get("hostname") or ""
+        dialog = Adw.AlertDialog(heading=f"Remove {name} from the organisation?",
+                                 body="It stops getting accounts, Wi-Fi, printers and requests at once, and its "
+                                      "requests waiting are cancelled. Nothing on it is erased, and it isn't told. "
+                                      "To join again it needs a new join code. Type the computer’s name to confirm.")
+        entry = Adw.EntryRow(title=f"Type {name}")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_enabled("remove", False)
+        dialog.set_default_response("cancel")
+        entry.connect("changed", lambda e: dialog.set_response_enabled("remove", e.get_text().strip() == name))
+
+        def answered(_d, response):
+            if response != "remove" or entry.get_text().strip() != name:
+                return
+            self.background(lambda: self.session.call({"op": "remove-computer", "device_id": d["id"],
+                                                        "confirm": entry.get_text().strip()}),
+                            lambda _r, error: (self.toast(error) if error else
+                                               (self.toast(f"{name or 'The computer'} was removed"), self.nav.pop(),
+                                                self.reload())))
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
     def send_action(self, d: dict, kind: str) -> Adw.AlertDialog | None:
         def go() -> None:
             self.background(lambda: self.session.call({"op": "action", "device_id": d["id"], "type": kind}),
@@ -2222,7 +2312,9 @@ class FleetWindow(Adw.ApplicationWindow):
             box.append(Gtk.Label(label=result["code"], xalign=0, selectable=True, css_classes=["fleet-code"]))
             dialog = Adw.AlertDialog(heading="Join code",
                                      body=f"Works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
-                                          f"within {result['hours']} hours. It's shown only once.")
+                                          f"within {result['hours']} hours. It's shown only once."
+                                          + (" Computers that join with it wait for the Owner's approval."
+                                             if result.get("approved") is False else ""))
             dialog.set_extra_child(box)
             dialog.add_response("copy", "Copy code")
             dialog.add_response("close", "Done")
@@ -4217,6 +4309,8 @@ def sample() -> dict:
                                     "printers": {"pr1": "couldn't reach the printer; tried again at the next report"}},
                          "sign_ins": [{"username": "amina", "last": now.timestamp() - 600, "now": True},
                                       {"username": "omar", "last": now.timestamp() - 86400 * 12, "now": False}]},
+                        {"id": "d3", "organisation_id": org, "hostname": "kca-new-03", "last_seen": iso(300),
+                         "enrolled_at": iso(600), "approved": False},
                         {"id": "d2", "organisation_id": org, "hostname": "kca-desk-02", "kulan_version": "2.4",
                          "last_seen": iso(5 * 3600), "updates": {"waiting": 6, "security": 2}, "tpm": {"on": False},
                          "compliance_passed": 8, "compliance_total": 10, "hardware": {"vendor": "Dell"},
@@ -4231,6 +4325,8 @@ def sample() -> dict:
                         "text": "2 security updates waiting"},
                        {"organisation_id": org, "device_id": "d2", "hostname": "kca-desk-02", "kind": "encryption",
                         "text": "Not encrypted, and the organisation requires it"}],
+            "sample_codes": [{"id": "c1", "created_at": iso(3600), "expires_at": iso(-86400 * 2), "uses": 3, "uses_left": 2,
+                              "trusted": False, "created_by": "helper@kulan.example"}],
             "sample_apps": [{"name": "org.gimp.GIMP", "version": "3.0", "source": "flatpak"},
                             {"name": "firefox-esr", "version": "128.3", "source": "debian"}],
             "sample_log": [{"email": "admin@kulan.example", "what": "changed the policy", "at": iso(600)},
@@ -4396,12 +4492,20 @@ class FleetApp(Adw.Application):
                     win.computer_search.set_text("")
                     win.computer_search.emit("search-changed")
                     assert "healthy" in win.health_text, win.health_text
-                    win.add_computers_dialog(win.current_org()).force_close()
+                    adding_computers = win.add_computers_dialog(win.current_org())
+                    assert win.codes_list.get_visible() and win.codes_list.get_row_at_index(0) is not None, "join codes listed"
+                    adding_computers.force_close()
+                    # A computer waiting for the Owner's approval (2.10): approve, or remove it.
+                    waiting = next(d for d in win.data["devices"] if d.get("approved") is False)
+                    assert health(waiting, [])[0] == "Waiting for approval"
+                    win.open_device(waiting)
+                    win.nav.pop()
+                    win.ask_remove(waiting).force_close()
                     win.open_device(win.data["devices"][0])
                     win.open_apps(win.data["devices"][0])
                     win.nav.pop()
                     win.nav.pop()
-                    win.open_device(win.data["devices"][1])
+                    win.open_device(win.data["devices"][2])
                     win.nav.pop()
                     win.open_log(win.data["organisations"][0])
                     win.nav.pop()

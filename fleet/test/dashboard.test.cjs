@@ -16,13 +16,16 @@ const PNG1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkaPhfDw
 function reply(b) {
   state.calls.push(b);
   switch (b.op) {
-    case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy, allow_scripts: state.allowScripts }],
+    case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy, allow_scripts: state.allowScripts, is_owner: true }],
       devices: [{ id: "d1", organisation_id: org, hostname: "laptop-a", last_seen: new Date().toISOString(),
-                  pushed: { networks: { n1: "added" }, printers: { pr1: "couldn't reach the printer; tried again at the next report" } } }],
+                  pushed: { networks: { n1: "added" }, printers: { pr1: "couldn't reach the printer; tried again at the next report" } } },
+                ...(!state.showD2 || state.removed ? [] : [{ id: "d2", organisation_id: org, hostname: "new-pc", last_seen: new Date().toISOString(), approved: state.approvedD2 }])],
       actions: [{ id: "a1", device_id: "d1", type: "run-fix", status: "done", detail: "no problems found", created_at: "2026-10-26T09:00:00Z",
                   requested_by: "a@x", exit_code: 0, has_output: true, what: "check-disk" }],
-      alerts: state.helpDone ? [] : [{ kind: "help", organisation_id: org, device_id: "d1", hostname: "laptop-a", request_id: "h1", title: "Help request",
-                                       text: "Amina asked for help: The printer won't print" }],
+      alerts: [...(!state.showD2 || state.approvedD2 || state.removed ? [] : [{ kind: "approve", organisation_id: org, device_id: "d2", hostname: "new-pc",
+                                                               title: "New computer", text: "new-pc joined and waits for the Owner's approval." }]),
+               ...(state.helpDone ? [] : [{ kind: "help", organisation_id: org, device_id: "d1", hostname: "laptop-a", request_id: "h1", title: "Help request",
+                                       text: "Amina asked for help: The printer won't print" }])],
       help_requests: [{ id: "h1", organisation_id: org, device_id: "d1", hostname: "laptop-a", username: "amina", full_name: "Amina",
                         body: "The printer won't print.\nIt says offline.", state: state.helpDone ? "done" : "open", reply: null,
                         created_at: new Date().toISOString(), has_screenshot: true }] };
@@ -30,6 +33,12 @@ function reply(b) {
       body: "The printer won't print.\nIt says offline. <img src=x onerror=alert(1)>", state: "open", reply: null,
       created_at: new Date().toISOString(), screenshot: PNG1, screenshot_type: "image/png" } };
     case "close-help": state.helpDone = true; return {};
+    case "approve-computer": state.approvedD2 = true; return {};
+    case "remove-computer": state.removed = true; return {};
+    case "codes": return { codes: state.revoked ? [] : [{ id: "c1", created_at: new Date().toISOString(), expires_at: "2026-11-01T00:00:00Z",
+                                                          uses: 3, uses_left: 2, trusted: false, created_by: "helper@x" }] };
+    case "revoke-code": state.revoked = true; return {};
+    case "new-code": return { code: "ABCD-EFGH-JKLM", hours: 72, uses: 1, approved: true };
     case "action-output": return { output: "== Disk errors in the last 7 days\nnone", exit_code: 0, status: "done", type: "run-fix" };
     case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true };
     case "set-scripts-allowed": state.allowScripts = b.allowed; return {};
@@ -79,6 +88,7 @@ function reply(b) {
   }
 }
 (async () => {
+  state.approvedD2 = false;
   const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true, colorScheme: process.env.DARK ? "dark" : "light" });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && !m.text().includes("status of 403") && errors.push(m.text()));
   page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().includes("name you'll") ? "Finance drive" : ""); else await d.accept(); });
@@ -365,6 +375,34 @@ function reply(b) {
   await page.click("#dlg-actions >> text=Start remote help…");
   await page.waitForSelector("#dlg-title:has-text('Remote help on laptop-a')");
   await page.click("#dlg-actions >> text=Cancel");
+  // 2.10: a computer waiting for approval, approved; removing a computer; join codes withdrawn.
+  await view("computers");
+  state.showD2 = true;
+  await page.click("#devices tr:has-text('laptop-a')");
+  await page.click("#detail >> button:has-text('Lock the screen')");
+  await page.waitForSelector("#devices tr:has-text('new-pc')");
+  await page.click("#devices tr:has-text('new-pc')");
+  await page.waitForSelector("#detail >> text=Waiting for approval");
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/waiting.png` });
+  if (await page.locator("#detail >> text=Remote help").count()) throw "requests offered to a computer waiting for approval";
+  await page.click("#detail >> button:has-text('Approve')");
+  await page.waitForTimeout(300);
+  if (!last("approve-computer") || last("approve-computer").device_id !== "d2") throw "approve-computer " + JSON.stringify(last("approve-computer"));
+  await page.click("#devices tr:has-text('new-pc')");
+  await page.waitForSelector("#detail >> text=Remove from the organisation…");
+  page.removeAllListeners("dialog");
+  page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().startsWith("Remove new-pc") ? "new-pc" : ""); else await d.accept(); });
+  await page.click("#detail >> text=Remove from the organisation…");
+  await page.waitForTimeout(300);
+  if (JSON.stringify(last("remove-computer")) !== JSON.stringify({ op: "remove-computer", device_id: "d2", confirm: "new-pc" })) throw "remove-computer " + JSON.stringify(last("remove-computer"));
+  await page.click("#add-computers");
+  await page.waitForSelector("#codes-list >> text=computers wait for approval");
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/join-codes.png` });
+  await page.click("#codes-list >> button:has-text('Withdraw')");
+  await page.waitForTimeout(300);
+  if (!last("revoke-code") || last("revoke-code").code_id !== "c1") throw "revoke-code " + JSON.stringify(last("revoke-code"));
+  if (await page.locator("#codes-box:not(.hidden)").count()) throw "a withdrawn code is still listed";
+  await page.click("#add-close");
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/phone.png`, fullPage: true });
