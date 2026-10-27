@@ -12,6 +12,7 @@ in the sizes, and says so plainly when the newest release isn't there yet.
 """
 from __future__ import annotations
 
+import datetime
 import html
 import json
 import os
@@ -96,7 +97,7 @@ def page(path: str, title: str, description: str, body: str, script: str = "") -
 <footer>
 <div class="wrap">
 <span>© 2026 {e(C.get("KULAN_PUBLISHER", "Kulan Group LLC"))} · Kulan means “gathering” in Somali</span>
-<nav aria-label="Footer"><a href="/help/#security">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
+<nav aria-label="Footer"><a href="/security/">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
 </div>
 </footer>
 {script}
@@ -444,6 +445,48 @@ what it never does.</p><p class="muted">For {e(NAME)} {e(LABEL)} and later.</p>{
     return page("/privacy/", "Privacy policy", f"What {NAME} sends, and what it never does.", body)
 
 
+def security() -> str:
+    """How to report a security problem, and how Kulan OS is protected (with /.well-known/security.txt)."""
+    sections = [
+        ("Report a security problem", f"""<p>Found a way to get around {e(NAME)}’s protections, in the system,
+Kulan Fleet, the installer, Kulan USB Maker or this website? Please tell us privately first, at
+<a href="mailto:{SECURITY}">{SECURITY}</a>, before telling anyone else.</p>
+<ul><li>Say what you found and how to repeat it, and which version you used (Kulan Settings › About).</li>
+<li>We confirm we got it, keep you told as we fix it, and release the fix as an update. Tell us if you’d like
+to be thanked by name in the release notes.</li>
+<li>Please don’t look at, change or keep other people’s data, or test against computers or organisations that
+aren’t yours.</li></ul>
+<p>Problems in Debian’s own packages go to the <a href="https://www.debian.org/security/">Debian security
+team</a>; {e(NAME)} gets their fixes the same day through its updates.</p>"""),
+        (f"How {NAME} is protected", f"""<ul>
+<li><strong>Signed updates</strong>: every {e(NAME)} update and release is signed with Kulan’s key
+(<a href="/apt/kulan-archive-keyring.gpg">download it</a>), and installed computers only take system updates signed by it
+or by Debian.</li>
+<li><strong>Security updates</strong> from Debian install by themselves, with a restore point first.</li>
+<li><strong>Disk encryption</strong> is on when you install, and Secure Boot is supported.</li>
+<li><strong>A firewall</strong> blocks connections from outside; sharing and remote desktop are let in from your
+local network only, and only when you turn them on.</li>
+<li><strong>Kulan Fleet</strong> (for organisations) can only do what’s listed in Kulan Settings › About ›
+Organisation; remote help needs the person at the computer to agree, every time.</li>
+<li><strong>Kulan Assistant</strong> runs on your computer, and nothing you type in it leaves it.</li>
+<li>The <a href="https://github.com/{REPO}">source code</a> is open for anyone to check.</li></ul>"""),
+    ]
+    parts = "".join(f'<section class="stack"><h2>{e(title)}</h2>{text}</section>' for title, text in sections)
+    body = f"""<section class="wrap narrow stack"><h1>Security</h1><p class="lead">How to report a security
+problem, and how {e(NAME)} keeps your computer safe.</p>{parts}</section>"""
+    return page("/security/", "Security", f"How to report a security problem in {NAME}.", body)
+
+
+def security_txt(today: datetime.date) -> str:
+    """RFC 9116. Expires a year after the website was built (every release rebuilds it)."""
+    expires = (today + datetime.timedelta(days=365)).strftime("%Y-%m-%dT00:00:00Z")
+    return (f"Contact: mailto:{SECURITY}\n"
+            f"Expires: {expires}\n"
+            "Preferred-Languages: en\n"
+            "Canonical: https://os.kulangroup.com/.well-known/security.txt\n"
+            "Policy: https://os.kulangroup.com/security/\n")
+
+
 def not_found() -> str:
     body = """<section class="wrap stack"><h1>Page not found</h1><p class="lead">That page isn’t here. Try the <a href="/">home page</a> or <a href="/help/">Help</a>.</p></section>"""
     return page("/404", "Page not found", "Page not found.", body)
@@ -460,7 +503,8 @@ def main(argv: list[str]) -> int:
               f"aren't for {VERSION}", file=sys.stderr)
         return 1
     pages = {"index.html": home(notes), "download/index.html": download(), "install/index.html": install(),
-             "whats-new/index.html": whats_new(notes), "help/index.html": help_page(), "privacy/index.html": privacy(), "404.html": not_found()}
+             "whats-new/index.html": whats_new(notes), "help/index.html": help_page(), "privacy/index.html": privacy(), "security/index.html": security(),
+             ".well-known/security.txt": security_txt(datetime.date.today()), "404.html": not_found()}
     for rel, text in pages.items():
         target = out / rel
         target.parent.mkdir(parents=True, exist_ok=True)
