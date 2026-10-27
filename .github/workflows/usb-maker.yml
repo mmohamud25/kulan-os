@@ -37,10 +37,15 @@ jobs:
         run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - name: Unit tests
         working-directory: usb-maker/src-tauri
-        run: cargo test
+        run: |
+          cargo test 2>&1 | tee "$RUNNER_TEMP/out.txt"; rc=${PIPESTATUS[0]}
+          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
       - name: Write to a stand-in stick
         working-directory: usb-maker/src-tauri
         run: |
+          exec > >(tee "$RUNNER_TEMP/out.txt") 2>&1
+          trap 'rc=$?; [ $rc = 0 ] || echo "::error title=Writing::$(grep -v "^ *Compiling" "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e "s/%/%25/g" | sed -e ":a;N;\$!ba;s/\n/%0A/g")"' EXIT
+          set -e
           cargo build --release --features test-devices
           DISK="$(hdiutil attach -nomount ram://1048576 | awk '{print $1}')"   # 512 MB
           ID="${DISK#/dev/}"
@@ -67,12 +72,18 @@ jobs:
         with: { node-version: 22 }
       - name: Unit tests
         working-directory: usb-maker/src-tauri
-        run: cargo test
+        shell: bash
+        run: |
+          cargo test 2>&1 | tee "$RUNNER_TEMP/out.txt"; rc=${PIPESTATUS[0]}
+          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')"; exit 1; }
       - name: Write to a stand-in stick
         working-directory: usb-maker/src-tauri
         shell: pwsh
         run: |
+          Start-Transcript -Path "$env:RUNNER_TEMP\out.txt" | Out-Null
+          trap { Stop-Transcript | Out-Null; $t = (Get-Content "$env:RUNNER_TEMP\out.txt" | Select-Object -Last 60) -join '%0A'; Write-Host "::error title=Writing::$t"; exit 1 }
           cargo build --release --features test-devices
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
           $vhd = "$env:RUNNER_TEMP\stick.vhdx"
           "create vdisk file=`"$vhd`" maximum=512 type=expandable`r`nselect vdisk file=`"$vhd`"`r`nattach vdisk" | Set-Content "$env:RUNNER_TEMP\vhd.txt"
           diskpart /s "$env:RUNNER_TEMP\vhd.txt"
@@ -81,8 +92,9 @@ jobs:
           $system = (Get-Disk | Where-Object { $_.IsSystem }).Number
           Write-Host "stand-in stick: disk $number; the system's disk: $system"
           $env:KULAN_USB_MAKER_TEST_DEVICES = "$number"
-          python ..\test\write_test.py target\release\kulan-usb-maker.exe "$number" "\\.\PhysicalDrive$number" "$system"
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python ..\test\write_test.py target\release\kulan-usb-maker.exe "$number" "\\.\PhysicalDrive$number" "$system" 2>&1 | Write-Host
+          if ($LASTEXITCODE -ne 0) { throw "the write test failed" }
+          Stop-Transcript | Out-Null
       - name: Build the app
         working-directory: usb-maker
         run: |
