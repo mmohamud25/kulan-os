@@ -47,6 +47,11 @@ when this list is empty.
 - Then both are rebuilt in it: navigation by section (Computers, People,
   Groups, Policy, Scripts, Activity, Settings), list and detail views,
   search, and the same words and icons on the web and in the app.
+- Done (27 Oct 2026): the web dashboard (sections, fleet health, the
+  computers' tabs and search, a computer's details beside the list, light and
+  dark, phones) and the Fleet app (the same sections in the sidebar, fleet
+  health, tabs and search, a computer's page with its health and quick
+  buttons, light and dark). Both tests pass.
 
 ## 1c. Installing it should be easy
 Today a new laptop takes a download, Etcher, the boot key, a long installer

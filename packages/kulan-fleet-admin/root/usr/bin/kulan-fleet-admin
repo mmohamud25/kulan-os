@@ -41,7 +41,8 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
+gi.require_version("Pango", "1.0")
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Secret", "1")
@@ -126,16 +127,51 @@ STATUS_LABEL = {"pending": "waiting for the computer", "sent": "sent", "done": "
                 "cancelled": "cancelled", "expired": "expired"}
 TIMEOUT = 30
 
+# The Console design (2.10), as in the web dashboard: a sidebar of sections, a calm page per section.
 CSS = """
-.fleet-tag { padding: 1px 9px; border-radius: 999px; font-size: 0.82em; font-weight: 700; }
-.fleet-tag.good { background: alpha(#0d9488, 0.18); color: #0f766e; }
-.fleet-tag.bad { background: alpha(#dc2626, 0.16); color: #b91c1c; }
-.fleet-tag.warn { background: alpha(#f59e0b, 0.20); color: #b45309; }
-.fleet-tag.dim { background: alpha(currentColor, 0.08); color: alpha(currentColor, 0.65); }
-.fleet-stat { padding: 14px 16px; border-radius: 14px; }
-.fleet-stat-number { font-family: Manrope, Inter, sans-serif; font-weight: 800; font-size: 28px; }
+.fleet-tag { padding: 2px 9px; border-radius: 999px; font-size: 0.82em; font-weight: 700; }
+.fleet-tag.good { background: #d7f5ef; color: #0b5f58; }
+.fleet-tag.bad { background: #fde3e3; color: #a11d1d; }
+.fleet-tag.warn { background: #fdf0d2; color: #8a4a07; }
+.fleet-tag.dim { background: alpha(currentColor, 0.08); color: alpha(currentColor, 0.7); }
 .fleet-code { font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 26px; letter-spacing: 3px; }
+.fleet-brand { font-family: Manrope, Inter, sans-serif; font-weight: 800; font-size: 15px; }
+.fleet-title { font-family: Manrope, Inter, sans-serif; font-weight: 800; font-size: 26px; }
+.fleet-sub { color: alpha(currentColor, 0.68); }
+.fleet-small { font-size: 0.85em; color: alpha(currentColor, 0.62); }
+.fleet-count { font-size: 0.85em; color: alpha(currentColor, 0.55); font-feature-settings: "tnum"; }
+.fleet-health { padding: 16px 18px; }
+.fleet-dot { min-width: 9px; min-height: 9px; border-radius: 3px; }
+.fleet-dot.good { background: #0d9488; }
+.fleet-dot.warn { background: #f59e0b; }
+.fleet-dot.dim { background: #94a3b8; }
+.fleet-dot.bad { background: #dc2626; }
+.fleet-sections row { padding: 8px 10px; }
+.fleet-me { padding: 12px 14px; border-top: 1px solid alpha(currentColor, 0.1); }
 """
+CSS_DARK = """
+.fleet-tag.good { background: alpha(#0d9488, 0.25); color: #5eead4; }
+.fleet-tag.bad { background: alpha(#b91c1c, 0.3); color: #fca5a5; }
+.fleet-tag.warn { background: alpha(#f59e0b, 0.2); color: #fcd34d; }
+"""
+SECTIONS = [("computers", "Computers", "computer-symbolic"), ("people", "People", "system-users-symbolic"),
+            ("groups", "Groups", "view-grid-symbolic"), ("policy", "Policy", "security-high-symbolic"),
+            ("scripts", "Scripts", "utilities-terminal-symbolic"), ("activity", "Activity", "document-open-recent-symbolic"),
+            ("settings", "Settings", "emblem-system-symbolic")]
+SECTION_LABEL = {k: t for k, t, _i in SECTIONS}
+SECTION_SUB = {
+    "people": "Accounts on the organisation's computers. Each person signs in with their own password.",
+    "groups": "Sets of computers and people with their own policy, Wi-Fi networks and printers. A computer follows the "
+              "organisation's policy and every group it's in, and the stricter rule wins.",
+    "policy": "Applies to every computer at its next report. Groups can add stricter rules. Encryption can't be turned "
+              "on from afar, so computers without it show an alert.",
+    "scripts": "Your organisation's own scripts, run as root on the computers you choose.",
+    "activity": "What was asked of the computers, the weekly security report, and who changed what.",
+    "settings": "Who runs this organisation in Kulan Fleet, its email, and your own sign-in."}
+# The computers' list: [label, kind, which tab], the most urgent first.
+COMPUTER_TABS = [("all", "All"), ("attention", "Needs attention"), ("offline", "Offline"), ("lost", "Lost mode"),
+                 ("left", "Left")]
+HEALTH_RANK = {"lost": 0, "attention": 1, "offline": 2, "healthy": 3, "left": 4}
 
 
 # --- the session ---------------------------------------------------------------------
@@ -622,7 +658,7 @@ def policy_summary(policy: dict) -> str:
 
 
 def tag(text: str, kind: str) -> Gtk.Label:
-    return Gtk.Label(label=text, css_classes=["fleet-tag", kind], valign=Gtk.Align.CENTER)
+    return Gtk.Label(label=text[:1].upper() + text[1:], css_classes=["fleet-tag", kind], valign=Gtk.Align.CENTER)
 
 
 def compliance_tag(d: dict) -> Gtk.Label:
@@ -644,10 +680,46 @@ def updates_tag(d: dict) -> Gtk.Label:
     return tag("up to date", "good")
 
 
+def offline(d: dict, now: datetime | None = None) -> bool:
+    """Not heard from for over a day."""
+    try:
+        seen = datetime.fromisoformat(str(d["last_seen"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return True
+    return ((now or datetime.now(timezone.utc)) - seen).total_seconds() > 86400
+
+
+def health(d: dict, alerts: list[dict]) -> tuple[str, str, str]:
+    """A computer's health, as in the web dashboard: (label, tag kind, tab)."""
+    if d.get("left_at"):
+        return "Left", "dim", "left"
+    if (d.get("state") or {}).get("lost_mode"):
+        return "Lost mode", "bad", "lost"
+    if offline(d):
+        return "Offline", "dim", "offline"
+    issues = sum(1 for a in alerts if a.get("device_id") == d.get("id") and a.get("kind") not in ("offline", "help"))
+    return (f"{issues} issue{'s' if issues != 1 else ''}", "warn", "attention") if issues else ("Healthy", "good", "healthy")
+
+
+def device_model(d: dict) -> str:
+    hw = d.get("hardware") or {}
+    return " ".join(x for x in (hw.get("vendor"), hw.get("model")) if x) or d.get("os") or ""
+
+
+def used_by(d: dict, names: dict[str, str]) -> str:
+    """Who's signed in now, or who used it last."""
+    ins = d.get("sign_ins") or []
+    now = [x.get("username", "") for x in ins if x.get("now")]
+    if now:
+        return ", ".join(names.get(u) or u for u in now)
+    return (names.get(ins[0].get("username")) or ins[0].get("username", "")) if ins else ""
+
+
 # --- the window ------------------------------------------------------------------------
 class FleetWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application, session: Session, sample: dict | None = None) -> None:
-        super().__init__(application=app, title="Kulan Fleet", default_width=1040, default_height=720)
+        super().__init__(application=app, title="Kulan Fleet", default_width=1100, default_height=760,
+                         width_request=480, height_request=420)
         self.session = session
         self.data: dict | None = sample
         self.org_id: str | None = None
@@ -879,7 +951,9 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def sign_out(self) -> None:
         self.background(self.session.sign_out, lambda _r, _e: None)
-        self.data = None
+        self.data, self.org_id, self.section = None, None, "computers"
+        self.people_cache.clear()
+        self.org_groups.clear()
         self.code_row.set_visible(False)
         self.signin_button.set_label("Email me a sign-in link")
         self.signin_note.set_label("Signed out.")
@@ -887,64 +961,152 @@ class FleetWindow(Adw.ApplicationWindow):
 
     # --- main view -----------------------------------------------------------------------------
     def build_main(self) -> Gtk.Widget:
-        self.org_list = Gtk.ListBox(css_classes=["navigation-sidebar"])
-        self.org_list.connect("row-selected", self.on_org)
+        # The sidebar: the organisation, its sections, and who's signed in.
         side = Adw.ToolbarView()
-        side_header = Adw.HeaderBar()
+        side_header = Adw.HeaderBar(show_title=False)
+        brand = Gtk.Box(spacing=8)
+        brand.append(Gtk.Image(icon_name=APP_ID, pixel_size=20))
+        brand.append(Gtk.Label(label="Kulan Fleet", css_classes=["fleet-brand"]))
+        side_header.pack_start(brand)
         self.new_org_button = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="New organisation",
                                          visible=False)
         self.new_org_button.connect("clicked", lambda _b: self.new_org())
-        side_header.pack_start(self.new_org_button)
+        side_header.pack_end(self.new_org_button)
         side.add_top_bar(side_header)
-        side.set_content(Gtk.ScrolledWindow(child=self.org_list, vexpand=True))
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.org_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, margin_start=12, margin_end=12,
+                               margin_top=4, margin_bottom=8)
+        self.org_box.append(Gtk.Label(label="Organisation", xalign=0, css_classes=["fleet-small"]))
+        self.org_model = Gtk.StringList()
+        self.org_pick = Gtk.DropDown(model=self.org_model)
+        names = Gtk.SignalListItemFactory()  # long names are cut short, not a wider sidebar
+        names.connect("setup", lambda _f, item: item.set_child(Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END,
+                                                                         width_chars=8, max_width_chars=24)))
+        names.connect("bind", lambda _f, item: item.get_child().set_label(item.get_item().get_string()))
+        self.org_pick.set_factory(names)
+        self.org_pick.update_property([Gtk.AccessibleProperty.LABEL], ["Organisation"])
+        self.org_pick.connect("notify::selected", self.on_org_picked)
+        self.org_box.append(self.org_pick)
+        column.append(self.org_box)
+        self.org_ids: list[str] = []
+        self.updating_orgs = False
+        self.section_list = Gtk.ListBox(css_classes=["navigation-sidebar", "fleet-sections"])
+        self.section_rows: dict[str, Gtk.ListBoxRow] = {}
+        self.section_counts: dict[str, Gtk.Label] = {}
+        for key, label, icon in SECTIONS:
+            row = Gtk.ListBoxRow()
+            row.section = key
+            line = Gtk.Box(spacing=12)
+            line.append(Gtk.Image(icon_name=icon))
+            line.append(Gtk.Label(label=label, xalign=0, hexpand=True))
+            count = Gtk.Label(css_classes=["fleet-count"])
+            line.append(count)
+            row.set_child(line)
+            self.section_list.append(row)
+            self.section_rows[key], self.section_counts[key] = row, count
+        self.section_list.connect("row-selected", self.on_section)
+        # Tapping the section already chosen (a narrow window shows the sidebar alone) opens it.
+        self.section_list.connect("row-activated", lambda _l, _r: self.data is not None and self.split.set_show_content(True))
+        column.append(Gtk.ScrolledWindow(child=self.section_list, vexpand=True,
+                                         hscrollbar_policy=Gtk.PolicyType.NEVER))
+        me = Gtk.Box(spacing=10, css_classes=["fleet-me"])
+        self.me_avatar = Adw.Avatar(size=32, show_initials=True)
+        me.append(self.me_avatar)
+        who = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        self.me_email = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, css_classes=["heading"])
+        self.me_role = Gtk.Label(label="Kulan Fleet admin", xalign=0, css_classes=["fleet-small"])
+        who.append(self.me_email)
+        who.append(self.me_role)
+        me.append(who)
+        column.append(me)
+        side.set_content(column)
         sidebar = Adw.NavigationPage(title="Kulan Fleet", child=side)
 
+        # The content: one page per section, with what's opened from it pushed on top.
         self.nav = Adw.NavigationView()
-        content_view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
+        self.content_page = Adw.NavigationPage(title="Computers", child=self.nav)
+        for name, handler in (("sign-out", self.sign_out), ("recover", self.recover_owner),
+                              ("authenticator", self.my_authenticator)):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", lambda *_a, h=handler: h())
+            self.add_action(action)
+        self.section = "computers"
+        self.page: Adw.PreferencesPage | None = None
+        self.groups: list[Adw.PreferencesGroup] = []
+        self.people_cache: dict[str, list[dict]] = {}
+        self.rendering = False
+        self.split = Adw.NavigationSplitView(sidebar=sidebar, content=self.content_page, min_sidebar_width=220,
+                                             max_sidebar_width=260)
+        self.status_page("Loading your organisations…", "", spinner=True)
+        breakpoint_ = Adw.Breakpoint.new(Adw.BreakpointCondition.parse("max-width: 860sp"))
+        breakpoint_.add_setter(self.split, "collapsed", True)
+        self.add_breakpoint(breakpoint_)
+        return self.split
+
+    def header(self, root: bool) -> Adw.HeaderBar:
+        """The content's header bar: Refresh and the menu."""
+        header = Adw.HeaderBar(show_title=not root)
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text="Refresh")
         refresh.connect("clicked", lambda _b: self.reload())
-        header.pack_end(refresh)
         menu = Gio.Menu()
         menu.append("Your authenticator app…", "win.authenticator")
         menu.append("Become the Owner with a recovery code…", "win.recover")
         menu.append("Sign out", "win.sign-out")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, tooltip_text="Menu"))
-        action = Gio.SimpleAction.new("sign-out", None)
-        action.connect("activate", lambda *_a: self.sign_out())
-        self.add_action(action)
-        action = Gio.SimpleAction.new("recover", None)
-        action.connect("activate", lambda *_a: self.recover_owner())
-        self.add_action(action)
-        action = Gio.SimpleAction.new("authenticator", None)
-        action.connect("activate", lambda *_a: self.my_authenticator())
-        self.add_action(action)
-        content_view.add_top_bar(header)
-        self.page = Adw.PreferencesPage()
-        content_view.set_content(self.page)
-        self.nav.add(Adw.NavigationPage(title="Computers", child=content_view, tag="org"))
-        content = Adw.NavigationPage(title="Computers", child=self.nav)
+        header.pack_end(refresh)
+        return header
 
-        self.groups: list[Adw.PreferencesGroup] = []
-        split = Adw.NavigationSplitView(sidebar=sidebar, content=content, min_sidebar_width=220)
-        return split
+    def status_page(self, title: str, description: str, spinner: bool = False) -> None:
+        view = Adw.ToolbarView()
+        view.add_top_bar(self.header(False))
+        status = Adw.StatusPage(title=title, description=GLib.markup_escape_text(description))
+        if spinner:
+            status.set_child(Gtk.Spinner(spinning=True, width_request=32, height_request=32))
+        view.set_content(status)
+        self.nav.replace([Adw.NavigationPage(title="Kulan Fleet", child=view, tag="org")])
+        self.page, self.groups = None, []
+
+    def section_page(self, key: str, subtitle: str | None = None) -> tuple[Adw.PreferencesPage, Gtk.Box]:
+        """A section's page, in place of whatever was showing: (page, the box for its buttons)."""
+        label = SECTION_LABEL[key]
+        view = Adw.ToolbarView()
+        view.add_top_bar(self.header(True))
+        page = Adw.PreferencesPage()
+        view.set_content(page)
+        head = Adw.PreferencesGroup()
+        line = Gtk.Box(spacing=12)
+        texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+        texts.append(Gtk.Label(label=label, xalign=0, css_classes=["fleet-title"]))
+        self.page_sub = Gtk.Label(label=subtitle or SECTION_SUB.get(key, ""), xalign=0, wrap=True,
+                                  css_classes=["fleet-sub"], visible=bool(subtitle or SECTION_SUB.get(key)))
+        texts.append(self.page_sub)
+        actions = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
+        line.append(texts)
+        line.append(actions)
+        head.add(line)
+        page.add(head)
+        self.nav.replace([Adw.NavigationPage(title=label, child=view, tag="org")])
+        self.content_page.set_title(label)
+        self.page, self.groups = page, []
+        self.section = key
+        row = self.section_rows.get(key)
+        if row is not None and self.section_list.get_selected_row() is not row:
+            self.choosing_section = True
+            self.section_list.select_row(row)
+            self.choosing_section = False
+        return page, actions
 
     def reload(self) -> None:
         first = self.data is None
         if first:  # nothing to show yet: say it's loading, not a blank window
-            self.org_list.remove_all()
-            loading = Adw.ActionRow(title="Loading your organisations…")
-            loading.add_prefix(Gtk.Spinner(spinning=True))
-            self.org_list.append(loading)
+            self.status_page("Loading your organisations…", "", spinner=True)
 
         def done(result, error):
             if error:
                 if "sign in" in error.lower():
                     self.sign_out()
                 elif first:
-                    self.org_list.remove_all()
-                    self.org_list.append(Adw.ActionRow(title="Couldn’t load", subtitle=GLib.markup_escape_text(
-                        error + " Press Refresh to try again."), subtitle_lines=0))
+                    self.status_page("Couldn’t load", error + " Press Refresh to try again.")
                 self.toast(error)
                 return
             self.data = result
@@ -954,33 +1116,88 @@ class FleetWindow(Adw.ApplicationWindow):
     def show_data(self) -> None:
         data = self.data or {}
         self.new_org_button.set_visible(bool(data.get("global")))
-        keep = self.org_id
-        self.org_list.remove_all()
-        for org in data.get("organisations", []):
-            row = Adw.ActionRow(title=GLib.markup_escape_text(org["name"]))
-            row.org_id = org["id"]
-            count = sum(1 for d in data.get("devices", []) if d["organisation_id"] == org["id"] and not d.get("left_at"))
-            row.add_suffix(Gtk.Label(label=str(count), css_classes=["dim-label"]))
-            self.org_list.append(row)
-        rows = [self.org_list.get_row_at_index(i) for i in range(len(data.get("organisations", [])))]
-        chosen = next((r for r in rows if getattr(r, "org_id", None) == keep), None)
-        target = chosen or (rows[0] if rows else None)
-        if target is not None:
-            self.org_list.select_row(target)
-        else:
-            self.org_id = None
-            self.render_org()
+        email = self.session.email or ("admin@kulan.example" if self.sample_mode() else "")
+        self.me_avatar.set_text(email)
+        self.me_email.set_label(email or "Signed in")
+        self.me_role.set_label("Kulan Fleet admin, all organisations" if data.get("global") else "Kulan Fleet admin")
+        orgs = data.get("organisations", [])
+        self.org_ids = [o["id"] for o in orgs]
+        keep = self.org_id if self.org_id in self.org_ids else (self.org_ids[0] if self.org_ids else None)
+        self.updating_orgs = True
+        self.org_model.splice(0, self.org_model.get_n_items(), [o["name"] for o in orgs])
+        if keep:
+            self.org_pick.set_selected(self.org_ids.index(keep))
+        self.updating_orgs = False
+        self.org_box.set_visible(bool(orgs))
+        self.org_id = keep
+        self.render_section()
 
-    def on_org(self, _list, row) -> None:
-        if row is None:
+    def on_org_picked(self, pick: Gtk.DropDown, _p) -> None:
+        i = pick.get_selected()
+        if self.updating_orgs or i >= len(self.org_ids):
             return
-        self.org_id = getattr(row, "org_id", None)
-        self.nav.pop_to_tag("org")
-        self.render_org()
+        if self.org_ids[i] != self.org_id:
+            self.org_id = self.org_ids[i]
+            self.render_section()
+
+    def on_section(self, _list, row) -> None:
+        if row is None or getattr(self, "choosing_section", False) or self.data is None:
+            return  # (still loading, or couldn't load: its page stays)
+        self.section = row.section
+        self.split.set_show_content(True)
+        self.render_section()
+
+    def current_org(self) -> dict | None:
+        return next((o for o in (self.data or {}).get("organisations", []) if o["id"] == self.org_id), None)
+
+    def update_counts(self, org: dict | None) -> None:
+        counts = {"computers": len([d for d in self.org_computers(org) if not d.get("left_at")]) if org else None,
+                  "people": len(self.people_cache[org["id"]]) if org and org["id"] in self.people_cache else None,
+                  "groups": len(self.org_groups[org["id"]]) if org and org["id"] in self.org_groups else None}
+        for key, label in self.section_counts.items():
+            label.set_label(str(counts[key]) if counts.get(key) is not None else "")
+
+    def render_section(self) -> None:
+        """The chosen section of the chosen organisation, built afresh."""
+        data = self.data or {}
+        org = self.current_org()
+        self.update_counts(org)
+        if not org:
+            self.section_page(self.section, "Add one with the + button." if data.get("global") else
+                              "Ask the fleet owner to add you to one.")
+            self.add_group().add(Gtk.Label(label="No organisation yet", xalign=0, css_classes=["title-2"]))
+            return
+
+        def loaded(oid: str) -> None:
+            """Counts, and on the computers' list people's names and groups, once they're known."""
+            if oid != self.org_id:
+                return
+            self.update_counts(self.current_org())
+            if (not self.rendering and self.section == "computers" and self.nav.get_visible_page().get_tag() == "org"
+                    and not getattr(self, "computer_search", Gtk.SearchEntry()).get_text()):
+                self.render_computers(self.current_org())
+        self.rendering = True  # (replies straight away with sample data: the page is built just below)
+        if org["id"] not in self.org_groups and self.section != "groups":  # (Groups loads them itself)
+            self.load_groups(org, lambda _g, error, oid=org["id"]: error or loaded(oid))
+        if org["id"] not in self.people_cache and self.section != "people":  # (and People them)
+            def got_people(result, error, oid=org["id"]) -> None:
+                if not error:
+                    self.people_cache[oid] = (result or {}).get("people") or []
+                    loaded(oid)
+            self.call({"op": "people", "organisation_id": org["id"]}, got_people,
+                      lambda: {"people": (self.data or {}).get("sample_people", [])})
+        self.rendering = False
+        {"computers": self.render_computers, "people": self.open_people, "groups": self.open_groups,
+         "policy": self.render_policy, "scripts": self.open_scripts, "activity": self.render_activity,
+         "settings": self.open_admins}[self.section](org)
+
+    def render_org(self) -> None:  # the older name, still used after changes
+        self.render_section()
 
     def clear(self) -> None:
-        for g in self.groups:
-            self.page.remove(g)
+        if self.page is not None:
+            for g in self.groups:
+                self.page.remove(g)
         self.groups = []
 
     def add_group(self, title: str = "", description: str = "") -> Adw.PreferencesGroup:
@@ -990,7 +1207,7 @@ class FleetWindow(Adw.ApplicationWindow):
         return g
 
     def policy_group(self, org: dict) -> None:
-        group = self.add_group("Policy", "Applies to every computer at its next report. Groups can add stricter rules.")
+        group = self.add_group()
 
         def save(new, done):
             if self.sample_mode():
@@ -1151,9 +1368,11 @@ class FleetWindow(Adw.ApplicationWindow):
         return dialog
 
     def alerts_group(self, org: dict) -> None:
-        alerts = [a for a in (self.data or {}).get("alerts", []) if a.get("organisation_id") == org["id"]]
-        group = self.add_group("Needs attention", None if alerts else "Every computer looks fine.")
+        # Help requests have their own list, just below.
+        alerts = [a for a in (self.data or {}).get("alerts", []) if a.get("organisation_id") == org["id"]
+                  and a.get("kind") != "help"]
         devices = {d["id"]: d for d in (self.data or {}).get("devices", [])}
+        group = self.add_group("Needs attention") if alerts else None
         for a in alerts[:30]:
             row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("title") or a.get("hostname") or "Computer"),
                                 subtitle=GLib.markup_escape_text(a.get("text", "")), activatable=True)
@@ -1281,136 +1500,174 @@ class FleetWindow(Adw.ApplicationWindow):
         self.call({"op": "help-request", "request_id": request_id}, done,
                   lambda: {"request": next((dict(h) for h in (self.data or {}).get("sample_help", []) if h["id"] == request_id), {})})
 
-    def render_org(self) -> None:
-        self.clear()
+    def render_computers(self, org: dict) -> None:
         data = self.data or {}
-        org = next((o for o in data.get("organisations", []) if o["id"] == self.org_id), None)
-        head = self.add_group()
-        head.add(Gtk.Label(label=org["name"] if org else "No organisation yet", xalign=0,
-                           css_classes=["kulan-page-title", "title-1"]))
-        if not org:
-            note = "Add one with the + button." if data.get("global") else "Ask the fleet owner to add you to one."
-            head.add(Gtk.Label(label=note, xalign=0, css_classes=["dim-label"]))
-            return
         devices = [d for d in data.get("devices", []) if d["organisation_id"] == org["id"]]
         active = [d for d in devices if not d.get("left_at")]
-        now = datetime.now(timezone.utc)
-
-        def recent(d):
-            try:
-                return (now - datetime.fromisoformat(d["last_seen"].replace("Z", "+00:00"))).total_seconds() < 86400
-            except (KeyError, AttributeError, ValueError):
-                return False
-        stats = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, min_children_per_line=2, max_children_per_line=4,
-                            column_spacing=12, row_spacing=12, homogeneous=True)
-        for number, text in ((len(active), "computers"), (sum(map(recent, active)), "reported in the last day"),
-                             (sum(1 for d in active if d.get("compliance_total") and
-                                  d.get("compliance_passed") == d.get("compliance_total")), "meet the baseline"),
-                             (sum(1 for d in active if (d.get("updates") or {}).get("security")), "need security updates")):
-            card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["card", "fleet-stat"])
-            card.append(Gtk.Label(label=str(number), xalign=0, css_classes=["fleet-stat-number"]))
-            card.append(Gtk.Label(label=text, xalign=0, css_classes=["dim-label"], wrap=True))
-            stats.append(card)
-        head.add(stats)
+        latest = max((d.get("last_seen") or "" for d in active), default="")
+        page, actions = self.section_page("computers", " · ".join(x for x in (
+            plural(len(active), "computer"), f"last report {ago(latest)}" if latest else "") if x))
+        search = Gtk.SearchEntry(placeholder_text="Search by name, person or model", hexpand=True, margin_top=6,
+                                 margin_bottom=6, margin_start=6, margin_end=6)
+        add = Gtk.Button(label="Add computers", css_classes=["suggested-action"])
+        add.connect("clicked", lambda _b: self.add_computers_dialog(org))
+        actions.append(add)
+        alerts = [a for a in data.get("alerts", []) if a.get("organisation_id") == org["id"]]
+        self.add_group().add(self.health_card(active, alerts))
         self.alerts_group(org)
 
-        people = self.add_group("People and groups", "Accounts on the organisation's computers. Each person signs "
-                                "in with their own password.")
-        self.load_groups(org)
-        row = Adw.ActionRow(title="People", subtitle="Add, change, disable or remove accounts", activatable=True)
-        row.add_prefix(Gtk.Image(icon_name="system-users-symbolic"))
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.open_people(org))
-        people.add(row)
-        owner = org.get("owner_email")
-        row = Adw.ActionRow(title="Kulan Fleet admins and the Owner",
-                            subtitle=GLib.markup_escape_text(f"Owner: {owner}" if owner else "No Owner set yet"),
-                            activatable=True)
-        row.add_prefix(Gtk.Image(icon_name="avatar-default-symbolic"))
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.open_admins(org))
-        people.add(row)
-        row = Adw.ActionRow(title="Groups", subtitle="Sets of computers and people with their own policy", activatable=True)
-        row.add_prefix(Gtk.Image(icon_name="view-grid-symbolic"))
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.open_groups(org))
-        people.add(row)
-        row = Adw.ActionRow(title="USB drives", subtitle="Drives approved for computers that limit USB drives", activatable=True)
-        row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.open_drives(org))
-        people.add(row)
-        row = Adw.ActionRow(title="Google Workspace", subtitle=GLib.markup_escape_text(
-            f"Mailboxes on {org['mail_domain']} are managed with People" if org.get("mail_domain")
-            else "Not connected"), activatable=True)
-        row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic"))
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.open_mail(org))
-        people.add(row)
-        row = Adw.ActionRow(title="Scripts", subtitle="Your organisation's own scripts, allowed by the Owner"
-                            if org.get("allow_scripts") else "Off. Only the Owner can allow them", activatable=True)
-        row.add_prefix(Gtk.Image(icon_name="utilities-terminal-symbolic"))
-        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.open_scripts(org))
-        people.add(row)
-
-        group = self.add_group("Computers", "Computers report every hour.")
-        if not devices:
-            group.add(Adw.ActionRow(title="No computers yet", subtitle="Make a join code below"))
-        for d in devices:
-            left = bool(d.get("left_at"))
-            hw = " ".join(x for x in ((d.get("hardware") or {}).get("vendor"), (d.get("hardware") or {}).get("model")) if x)
-            subtitle = " · ".join(x for x in (f"Kulan OS {d['kulan_version']}" if d.get("kulan_version") else "",
-                                               hw, f"left {ago(d['left_at'])}" if left else ago(d.get("last_seen"))) if x)
+        # Every computer, the most urgent first, by tab and search.
+        names = {p["username"]: p.get("full_name") or p["username"] for p in self.people_cache.get(org["id"], [])}
+        group_names = {}
+        for g in self.org_groups.get(org["id"], []):
+            for i in g.get("devices") or []:
+                group_names.setdefault(i, []).append(g["name"])
+        group = self.add_group("All computers", "Computers report every hour.")
+        tabs = Gtk.Box(css_classes=["linked"], valign=Gtk.Align.CENTER)
+        # Scrolls sideways rather than widen the page when every tab shows.
+        group.set_header_suffix(Gtk.ScrolledWindow(child=tabs, propagate_natural_width=True,
+                                                   vscrollbar_policy=Gtk.PolicyType.NEVER, valign=Gtk.Align.CENTER))
+        group.add(Adw.PreferencesRow(child=search, activatable=False, title="Search"))
+        rows = []
+        for d in sorted(devices, key=lambda x: (HEALTH_RANK[health(x, alerts)[2]], (x.get("hostname") or "").lower())):
+            label, kind, where = health(d, alerts)
+            person = used_by(d, names)
+            subtitle = " · ".join(x for x in (device_model(d), ", ".join(group_names.get(d["id"], [])),
+                                               f"used by {person}" if person else "",
+                                               f"left {ago(d['left_at'])}" if d.get("left_at") else
+                                               f"last report {ago(d.get('last_seen'))}") if x)
             row = Adw.ActionRow(title=GLib.markup_escape_text(d.get("hostname") or "(no name)"),
                                 subtitle=GLib.markup_escape_text(subtitle), activatable=True)
             row.add_prefix(Gtk.Image(icon_name="computer-symbolic"))
-            if not left:
-                if (d.get("state") or {}).get("lost_mode"):
-                    row.add_suffix(tag("lost mode", "bad"))
-                row.add_suffix(compliance_tag(d))
+            row.add_suffix(tag(label, kind))
+            if not d.get("left_at"):
                 row.add_suffix(updates_tag(d))
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-            if left:
-                row.set_opacity(0.55)
             row.connect("activated", lambda _r, dev=d: self.open_device(dev))
             group.add(row)
+            text = " ".join((d.get("hostname") or "", device_model(d), person,
+                             *(x.get("username", "") for x in d.get("sign_ins") or []))).lower()
+            rows.append((row, where, text))
+        empty = Adw.ActionRow(title="No computers yet" if not devices else "No computers here",
+                              subtitle="Add them with Add computers" if not devices else "")
+        group.add(empty)
+        state = {"tab": "all"}
 
-        self.policy_group(org)
+        def show(*_a) -> None:
+            words = search.get_text().strip().lower().split()
+            shown = 0
+            for row, where, text in rows:
+                in_tab = (where != "left" if state["tab"] == "all" else
+                          where in ("attention", "lost") if state["tab"] == "attention" else where == state["tab"])
+                row.set_visible(in_tab and all(w in text for w in words))
+                shown += row.get_visible()
+            empty.set_visible(not shown)
+        first = None
+        for key, label in COMPUTER_TABS:
+            n = sum(1 for _r, where, _t in rows if (where != "left" if key == "all" else
+                                                    where in ("attention", "lost") if key == "attention" else where == key))
+            if key not in ("all", "attention") and not n:
+                continue  # only the tabs with something in them
+            button = Gtk.ToggleButton(label=f"{label} {n}", active=key == "all", group=first)
+            first = first or button
+            button.connect("toggled", lambda b, k=key: b.get_active() and (state.__setitem__("tab", k), show()))
+            tabs.append(button)
+        search.connect("search-changed", show)
+        show()
+        self.computer_rows = rows  # for the self-test
+        self.computer_search = search
 
-        add = self.add_group("Add computers",
-                             "On each computer, open Kulan Settings → About → Organisation → Join an organisation.")
+    def health_card(self, active: list[dict], alerts: list[dict]) -> Gtk.Widget:
+        """Fleet health: how many are healthy, need attention or are offline, as one bar."""
+        kinds = [health(d, alerts)[2] for d in active]
+        good = kinds.count("healthy")
+        attention = kinds.count("attention") + kinds.count("lost")
+        away = kinds.count("offline")
+        baseline = sum(1 for d in active if d.get("compliance_total") and d.get("compliance_passed") == d.get("compliance_total"))
+        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10, css_classes=["card", "fleet-health"])
+        top = Gtk.Box(spacing=8)
+        top.append(Gtk.Label(label="Fleet health", xalign=0, hexpand=True, css_classes=["heading"]))
+        top.append(Gtk.Label(label=f"{baseline} of {len(active)} meet the compliance baseline", css_classes=["fleet-small"]))
+        card.append(top)
+        bar = Gtk.DrawingArea(content_height=10, hexpand=True)
+        parts = [(good, (0.051, 0.580, 0.533)), (attention, (0.961, 0.620, 0.043)), (away, (0.580, 0.639, 0.722))]
+
+        def draw(_area, cr, width, height) -> None:
+            total = sum(n for n, _c in parts)
+            radius = height / 2
+            cr.new_sub_path()
+            cr.arc(radius, radius, radius, 1.5708, 4.7124)
+            cr.arc(width - radius, radius, radius, -1.5708, 1.5708)
+            cr.close_path()
+            cr.clip()
+            cr.set_source_rgba(0.5, 0.5, 0.5, 0.15)
+            cr.paint()
+            x = 0.0
+            for n, (r, g, b) in parts:
+                if total and n:
+                    w = width * n / total
+                    cr.set_source_rgb(r, g, b)
+                    cr.rectangle(x, 0, w, height)
+                    cr.fill()
+                    x += w
+        bar.set_draw_func(draw)
+        bar.update_property([Gtk.AccessibleProperty.LABEL],
+                            [f"{good} healthy, {attention} need attention, {away} offline for over a day"])
+        card.append(bar)
+        legend = Gtk.Box(spacing=18)
+        for n, text, kind in ((good, "healthy", "good"), (attention, "need attention", "warn"),
+                              (away, "offline for over a day", "dim")):
+            item = Gtk.Box(spacing=6)
+            item.append(Gtk.Box(css_classes=["fleet-dot", kind], valign=Gtk.Align.CENTER))
+            item.append(Gtk.Label(label=f"{n} {text}", css_classes=["fleet-sub"]))
+            legend.append(item)
+        card.append(legend)
+        self.health_text = f"{good} healthy, {attention} need attention, {away} offline"  # for the self-test
+        return card
+
+    def add_computers_dialog(self, org: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Add computers",
+                                 body="Make a join code. On each computer, open Kulan Settings › About › Organisation › "
+                                      "Join an organisation, and type it there.")
+        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         hours = Adw.ComboRow(title="Code works for", model=Gtk.StringList.new(["1 day", "3 days", "1 week", "30 days"]),
                              selected=1)
         uses = Adw.SpinRow.new_with_range(1, 500, 1)
         uses.set_title("Number of computers")
-        make = Adw.ButtonRow(title="Make a join code") if hasattr(Adw, "ButtonRow") else None
-        add.add(hours)
-        add.add(uses)
-        if make is not None:
-            make.add_css_class("suggested-action")
-            make.connect("activated", lambda _r: self.make_code(org["id"], hours.get_selected(), int(uses.get_value())))
-            add.add(make)
-        else:
-            button = Gtk.Button(label="Make a join code", css_classes=["suggested-action"], margin_top=12)
-            button.connect("clicked", lambda _b: self.make_code(org["id"], hours.get_selected(), int(uses.get_value())))
-            add.add(button)
+        rows.append(hours)
+        rows.append(uses)
+        dialog.set_extra_child(rows)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("make", "Make a join code")
+        dialog.set_response_appearance("make", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("cancel")
+        dialog.connect("response", lambda _d, r: r == "make" and self.make_code(org["id"], hours.get_selected(),
+                                                                                int(uses.get_value())))
+        dialog.present(self)
+        return dialog
 
-        names = {d["id"]: d.get("hostname") or "" for d in data.get("devices", [])}
-        ids = {d["id"] for d in devices}
-        acts = [a for a in data.get("actions", []) if a["device_id"] in ids][:15]
-        security = self.add_group("Security and activity")
+    def render_policy(self, org: dict) -> None:
+        page, actions = self.section_page("policy")
+        self.policy_group(org)
+
+    def render_activity(self, org: dict) -> None:
+        page, actions = self.section_page("activity")
+        security = self.add_group()
         for title, subtitle, icon, opener in (
                 ("Weekly security report", "This week compared with last, ready to save as a PDF", "security-high-symbolic", self.open_weekly),
                 ("Admin-rights review", "Check who has administrator rights, every 90 days", "security-medium-symbolic", self.open_review),
-                ("Activity log", "Who changed what, and when. Search and export it.",
+                ("Activity log", "Who changed what, and when. Search it, or export it as a CSV file.",
                  "document-open-recent-symbolic", self.open_log)):
             row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=True, subtitle_lines=2)
             row.add_prefix(Gtk.Image(icon_name=icon))
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             row.connect("activated", lambda _r, f=opener: f(org))
             security.add(row)
-        history = self.add_group("Recent requests")
+        data = self.data or {}
+        names = {d["id"]: d.get("hostname") or "" for d in data.get("devices", [])}
+        ids = {d["id"] for d in data.get("devices", []) if d["organisation_id"] == org["id"]}
+        acts = [a for a in data.get("actions", []) if a["device_id"] in ids][:15]
+        history = self.add_group("Recent requests", "What was asked of the computers, newest first")
         if not acts:
             history.add(Adw.ActionRow(title="Nothing asked yet"))
         for a in acts:
@@ -1439,7 +1696,47 @@ class FleetWindow(Adw.ApplicationWindow):
         view.add_top_bar(Adw.HeaderBar())
         view.set_content(page)
         self.nav.push(Adw.NavigationPage(title=d.get("hostname") or "Computer", child=view))
-        info = Adw.PreferencesGroup(title=d.get("hostname") or "Computer")
+        # Its name and health, what needs attention, and the usual requests, as in the web dashboard.
+        alerts = (self.data or {}).get("alerts", [])
+        label, kind, _where = health(d, alerts)
+        org = self.org_of(d["organisation_id"])
+        head = Adw.PreferencesGroup()
+        page.add(head)
+        line = Gtk.Box(spacing=12)
+        texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+        texts.append(Gtk.Label(label=d.get("hostname") or "(no name)", xalign=0, css_classes=["fleet-title"]))
+        groups = [g["name"] for g in self.org_groups.get(d["organisation_id"], []) if d["id"] in (g.get("devices") or [])]
+        where = " · ".join(x for x in (device_model(d), ", ".join(groups)) if x)
+        if where:
+            texts.append(Gtk.Label(label=where, xalign=0, wrap=True, css_classes=["fleet-sub"]))
+        line.append(texts)
+        line.append(tag(label, kind))
+        head.add(line)
+        if not d.get("left_at"):
+            quick = Gtk.Box(spacing=8, margin_top=14, homogeneous=True)
+            for text, handler, style in (
+                    ("Remote help", lambda: self.open_remote_help(d), ["suggested-action"]),
+                    ("Run a fix", lambda: self.job_dialog("run-fix", org, d.get("hostname") or "this computer",
+                                                          {"op": "action", "device_id": d["id"]}), []),
+                    ("Lock the screen", lambda: self.send_action(d, "lock-screen"), [])):
+                button = Gtk.Button(label=text, css_classes=style)
+                button.connect("clicked", lambda _b, h=handler: h())
+                quick.append(button)
+            head.add(quick)
+            issues = [a for a in alerts if a.get("device_id") == d["id"] and a.get("kind") != "offline"]
+            if issues:
+                attention = Adw.PreferencesGroup(title="Needs attention")
+                page.add(attention)
+                for a in issues:
+                    row = Adw.ActionRow(title=GLib.markup_escape_text(a.get("title") or "Needs attention"),
+                                        subtitle=GLib.markup_escape_text(a.get("text", "")), subtitle_lines=0)
+                    row.add_prefix(Gtk.Image(icon_name=ALERT_ICON.get(a.get("kind"), "dialog-warning-symbolic")))
+                    if a.get("kind") == "help" and a.get("request_id"):
+                        row.set_activatable(True)
+                        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+                        row.connect("activated", lambda _r, rid=a["request_id"]: self.open_help_request(org, rid))
+                    attention.add(row)
+        info = Adw.PreferencesGroup(title="Details")
         page.add(info)
         hw = d.get("hardware") or {}
         for title, value in (("Kulan OS", d.get("kulan_version") or "–"), ("System", d.get("os") or "–"),
@@ -2027,28 +2324,30 @@ class FleetWindow(Adw.ApplicationWindow):
                   lambda: {"groups": (self.data or {}).get("sample_groups", [])})
 
     def open_groups(self, org: dict) -> None:
-        if self.nav.find_page("groups") is not None:
-            self.nav.pop_to_tag("org")
-        page = Adw.PreferencesPage()
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add a group")
+        if org.get("id") != self.org_id:
+            return  # a reply about another organisation, after it was switched
+        page, actions = self.section_page("groups")
+        add = Gtk.Button(label="Add a group", css_classes=["suggested-action"])
         add.connect("clicked", lambda _b: self.add_group_dialog(org))
-        header.pack_start(add)
-        view.add_top_bar(header)
-        view.set_content(page)
-        self.nav.push(Adw.NavigationPage(title="Groups", child=view, tag="groups"))
-        group = Adw.PreferencesGroup(title=f"Groups in {org['name']}", description="Loading…")
+        actions.append(add)
+        group = Adw.PreferencesGroup(description="Loading…")
         page.add(group)
+        drives = Adw.PreferencesGroup()
+        page.add(drives)
+        row = Adw.ActionRow(title="USB drives", subtitle="Drives approved for computers that limit USB drives",
+                            activatable=True)
+        row.add_prefix(Gtk.Image(icon_name="drive-removable-media-symbolic"))
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        row.connect("activated", lambda _r: self.open_drives(org))
+        drives.add(row)
         names = {d["id"]: d.get("hostname") or "" for d in self.org_computers(org)}
 
         def done(groups, error):
             if error:
                 group.set_description(error)
                 return
-            group.set_description("A computer follows the organisation's policy and every group it's in. The "
-                                  "stricter rule wins." if groups else
-                                  "No groups yet. Add one with the + button, for example Office or Finance.")
+            self.update_counts(self.current_org())
+            group.set_description("" if groups else "No groups yet. Add one, for example Office or Finance.")
             for g in groups or []:
                 n = len([i for i in g.get("devices") or [] if i in names])
                 row = Adw.ActionRow(title=GLib.markup_escape_text(g["name"]), activatable=True, subtitle_lines=2,
@@ -2557,18 +2856,13 @@ class FleetWindow(Adw.ApplicationWindow):
         self.call({"op": "action-output", "action_id": a["id"]}, done, lambda: (self.data or {}).get("sample_output"))
 
     def open_scripts(self, org: dict) -> None:
-        if self.nav.find_page("scripts") is not None:
-            self.nav.pop_to_tag("org")
-        page = Adw.PreferencesPage()
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add a script", visible=False)
+        if org.get("id") != self.org_id:
+            return  # a reply about another organisation, after it was switched
+        page, actions = self.section_page("scripts")
+        add = Gtk.Button(label="Add a script", css_classes=["suggested-action"], visible=False)
         add.connect("clicked", lambda _b: self.script_dialog(org, None))
-        header.pack_start(add)
-        view.add_top_bar(header)
-        view.set_content(page)
-        self.nav.push(Adw.NavigationPage(title="Scripts", child=view, tag="scripts"))
-        group = Adw.PreferencesGroup(title=f"Scripts in {org['name']}", description="Loading…")
+        actions.append(add)
+        group = Adw.PreferencesGroup(description="Loading…")
         page.add(group)
 
         def done(out, error):
@@ -2596,10 +2890,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 row.add_suffix(Gtk.Image(icon_name="document-edit-symbolic"))
                 row.connect("activated", lambda _r, s=x: self.script_dialog(org, s))
                 group.add(row)
-            row = Adw.ActionRow(title="Add a script", activatable=True)
-            row.add_prefix(Gtk.Image(icon_name="list-add-symbolic"))
-            row.connect("activated", lambda _r: self.script_dialog(org, None))
-            group.add(row)
+            if not scripts:
+                group.add(Adw.ActionRow(title="No scripts yet", subtitle="Add one with Add a script"))
         self.load_scripts(org, done)
 
     def set_scripts_allowed(self, org: dict, switch: Adw.SwitchRow) -> Adw.AlertDialog | None:
@@ -2896,17 +3188,12 @@ class FleetWindow(Adw.ApplicationWindow):
                               [i for i, c in group_checks if c.get_active()])
 
     def open_people(self, org: dict) -> None:
-        if self.nav.find_page("people") is not None:
-            self.nav.pop_to_tag("org")
-        page = Adw.PreferencesPage()
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add a person", sensitive=False)
-        header.pack_start(add)
-        view.add_top_bar(header)
-        view.set_content(page)
-        self.nav.push(Adw.NavigationPage(title="People", child=view, tag="people"))
-        group = Adw.PreferencesGroup(title=f"People in {org['name']}", description="Loading…")
+        if org.get("id") != self.org_id:
+            return  # a reply about another organisation, after it was switched
+        page, actions = self.section_page("people")
+        add = Gtk.Button(label="Add a person", css_classes=["suggested-action"], sensitive=False)
+        actions.append(add)
+        group = Adw.PreferencesGroup(description="Loading…")
         page.add(group)
         self.people_page = page
 
@@ -2915,12 +3202,14 @@ class FleetWindow(Adw.ApplicationWindow):
                 group.set_description(error)
                 return
             people = (result or {}).get("people") or []
+            self.people_cache[org["id"]] = people
+            self.update_counts(self.current_org())
             is_owner = bool((result or {}).get("is_owner"))
             add.set_sensitive(True)
             add.connect("clicked", lambda _b: self.add_person(org, is_owner))
             group.set_description(f"{len(people)} {'person' if len(people) == 1 else 'people'}. Computers get "
                                   "changes at their next report." if people else
-                                  "Nobody yet. Add someone with the + button.")
+                                  "Nobody yet. Add someone with Add a person.")
             for person in people:
                 n = len(person.get("on") or [])
                 where = "all computers" if person.get("all_computers") else f"{n} computer{'s' if n != 1 else ''}"
@@ -3705,19 +3994,17 @@ class FleetWindow(Adw.ApplicationWindow):
 
     # --- admins and the Owner ---------------------------------------------------------------------
     def open_admins(self, org: dict) -> None:
-        if self.nav.find_page("admins") is not None:
-            self.nav.pop_to_tag("org")
-        page = Adw.PreferencesPage()
-        view = Adw.ToolbarView()
-        view.add_top_bar(Adw.HeaderBar())
-        view.set_content(page)
-        self.nav.push(Adw.NavigationPage(title="Admins and the Owner", child=view, tag="admins"))
-        group = Adw.PreferencesGroup(title="Kulan Fleet admins", description="Loading…")
+        """Settings: the admins and the Owner, Google Workspace, your sign-in, organisations."""
+        if org.get("id") != self.org_id:
+            return  # a reply about another organisation, after it was switched
+        page, _actions = self.section_page("settings")
+        group = Adw.PreferencesGroup(title="Kulan Fleet admins and the Owner", description="Loading…")
         page.add(group)
 
         def done(result, error):
             if error:
                 group.set_description(error)
+                self.settings_groups(page, org)
                 return
             result = result or {}
             owner, is_owner = result.get("owner"), bool(result.get("is_owner"))
@@ -3776,8 +4063,33 @@ class FleetWindow(Adw.ApplicationWindow):
                 entry = Adw.EntryRow(title="Make this email the Owner", show_apply_button=True)
                 entry.connect("apply", lambda e: e.get_text().strip() and self.set_owner(org, e.get_text().strip()))
                 boss.add(entry)
+            self.settings_groups(page, org)
         self.call({"op": "admins", "organisation_id": org["id"]}, done,
                   lambda: (self.data or {}).get("sample_admins", {}))
+
+    def settings_groups(self, page: Adw.PreferencesPage, org: dict) -> None:
+        """The rest of Settings, below the admins."""
+        def link(group, title, subtitle, icon, opened, external=False) -> None:
+            row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(subtitle), activatable=True, subtitle_lines=2)
+            row.add_prefix(Gtk.Image(icon_name=icon))
+            row.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic" if external else "go-next-symbolic"))
+            row.connect("activated", lambda _r: opened())
+            group.add(row)
+        mail = Adw.PreferencesGroup(title="Email")
+        page.add(mail)
+        link(mail, "Google Workspace", f"Mailboxes on {org['mail_domain']} are managed with People" if org.get("mail_domain")
+             else "Not connected. Connect it to manage mailboxes with People", "mail-unread-symbolic", lambda: self.open_mail(org))
+        mine = Adw.PreferencesGroup(title="Your sign-in", description=GLib.markup_escape_text(self.session.email or ""))
+        page.add(mine)
+        link(mine, "Your authenticator app", "Asked for after the email link, once you've set one up", "phone-symbolic",
+             self.my_authenticator)
+        link(mine, "Sign out", "From Kulan Fleet on this computer", "system-log-out-symbolic", self.sign_out)
+        orgs = Adw.PreferencesGroup(title="Organisations")
+        page.add(orgs)
+        if (self.data or {}).get("global"):
+            link(orgs, "New organisation", "With its own computers, people and Owner", "list-add-symbolic", self.new_org)
+        link(orgs, "Become the Owner with a recovery code", "If the Owner lost their email account",
+             "starred-symbolic", self.recover_owner)
 
     def reset_admin_authenticator(self, org: dict, email: str) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading=f"Reset {email}'s authenticator app?",
@@ -4023,10 +4335,21 @@ class FleetApp(Adw.Application):
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        display = Gdk.Display.get_default()
         provider = Gtk.CssProvider()
         provider.load_from_string(CSS)
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider,
-                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        dark = Gtk.CssProvider()
+        dark.load_from_string(CSS_DARK)
+        styles = Adw.StyleManager.get_default()
+
+        def follow(*_a) -> None:  # the tags' colours for a dark style
+            if styles.get_dark():
+                Gtk.StyleContext.add_provider_for_display(display, dark, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+            else:
+                Gtk.StyleContext.remove_provider_for_display(display, dark)
+        styles.connect("notify::dark", follow)
+        follow()
 
     def do_activate(self) -> None:
         win = self.get_active_window()
@@ -4035,7 +4358,43 @@ class FleetApp(Adw.Application):
         win.present()
         if self.self_test:
             def check() -> bool:
+                shots = os.environ.get("KULAN_FLEET_SHOTS")
+                if shots:  # only pictures of each section, for checking the design by eye
+                    steps = [(k, lambda k=k: win.section_list.select_row(win.section_rows[k])) for k, _l, _i in SECTIONS]
+                    steps.append(("computers", lambda: win.section_list.select_row(win.section_rows["computers"])))
+                    steps.append(("computer", lambda: win.open_device(win.data["devices"][0])))
+
+                    def step() -> bool:
+                        if not steps:
+                            self.quit()
+                            return False
+                        name, go = steps.pop(0)
+                        go()
+
+                        def snap() -> bool:
+                            subprocess.run(["import", "-window", "root", os.path.join(shots, f"app-{name}.png")])
+                            GLib.timeout_add(50, step)
+                            return False
+                        GLib.timeout_add(700, snap)
+                        return False
+                    GLib.timeout_add(300, step)
+                    return False
                 try:
+                    # The Console design (2.10): every section from the sidebar, the computers' tabs and search.
+                    for key, _label, _icon in SECTIONS:
+                        win.section_list.select_row(win.section_rows[key])
+                        assert win.section == key and win.content_page.get_title() == SECTION_LABEL[key], key
+                    win.section_list.select_row(win.section_rows["computers"])
+                    assert win.section_counts["computers"].get_label() == str(len(win.org_computers(win.current_org())))
+                    assert win.section_counts["people"].get_label() == str(len(win.data["sample_people"]))
+                    shown = lambda: sorted(r.get_title() for r, _w, _t in win.computer_rows if r.get_visible())  # noqa: E731
+                    win.computer_search.set_text("amina")
+                    win.computer_search.emit("search-changed")
+                    assert shown() == ["kca-laptop-01"], shown()
+                    win.computer_search.set_text("")
+                    win.computer_search.emit("search-changed")
+                    assert "healthy" in win.health_text, win.health_text
+                    win.add_computers_dialog(win.current_org()).force_close()
                     win.open_device(win.data["devices"][0])
                     win.open_apps(win.data["devices"][0])
                     win.nav.pop()
