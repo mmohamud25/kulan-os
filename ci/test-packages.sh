@@ -474,7 +474,7 @@ if [[ ${#FILES[@]} -gt 0 ]]; then
 	NAUT="$(dpkg-query -W -f '${Version}' nautilus 2>/dev/null)"
 	check "Kulan Files" "Nautilus ${NAUT} with the status bar, preview pane and sidebar sections" bash -c "[[ '${NAUT}' == *+kulan* ]] && grep -aq kulan-status-bar /usr/bin/nautilus && grep -aq 'NautilusKulanPreview' /usr/bin/nautilus && grep -aq kulan-sidebar-heading /usr/bin/nautilus && grep -aq win.toggle-preview /usr/bin/nautilus"
 	GUS="$(dpkg-query -W -f '${Version}' gnome-user-share 2>/dev/null)"
-	check "File sharing's port" "gnome-user-share ${GUS} takes its port from GNOME_USER_SHARE_PORT" bash -c "[[ '${GUS}' == *+kulan* ]] && grep -aq GNOME_USER_SHARE_PORT /usr/libexec/gnome-user-share-webdav && grep -c 'AuthName \"Please log in as the user guest\"' /usr/share/gnome-user-share/dav_user_2.4.conf | grep -qx 2"
+	check "File sharing's port" "gnome-user-share ${GUS} takes its port from GNOME_USER_SHARE_PORT" bash -c "[[ '${GUS}' == *+kulan* ]] && grep -rlaqs GNOME_USER_SHARE_PORT \$(dpkg -L gnome-user-share | grep -E \"/(libexec|bin)/\") && grep -c 'AuthName \"Please log in as the user guest\"' /usr/share/gnome-user-share/dav_user_2.4.conf | grep -qx 2"
 else
 	result skip "Kulan Files" "no Kulan Files package for PCs in this run"
 fi

@@ -74,7 +74,12 @@ for DEB in ../gnome-user-share_*.deb; do
 	esac
 	cp "${DEB}" "${OUT}/"
 done
-grep -aq GNOME_USER_SHARE_PORT "${OUT}"/gnome-user-share_*.deb || dpkg-deb --fsys-tarfile "${OUT}"/gnome-user-share_*.deb \
-	| tar -xO --wildcards './usr/libexec/gnome-user-share-webdav' | grep -aq GNOME_USER_SHARE_PORT \
-	|| { echo "::error title=File sharing::the built package doesn't read GNOME_USER_SHARE_PORT" >&2; exit 1; }
+CHECK="${WORK}/check"
+mkdir -p "${CHECK}"
+for DEB in "${OUT}"/gnome-user-share_*.deb; do dpkg-deb -x "${DEB}" "${CHECK}"; done
+if ! grep -rlaq GNOME_USER_SHARE_PORT "${CHECK}"; then
+	echo "::error title=File sharing::the built package doesn't read GNOME_USER_SHARE_PORT: $(find "${CHECK}" -type f -perm -u+x | tr '\n' ' ')" >&2
+	exit 1
+fi
+echo "Reads GNOME_USER_SHARE_PORT: $(grep -rla GNOME_USER_SHARE_PORT "${CHECK}" | sed "s#${CHECK}##")"
 ls -l "${OUT}"
