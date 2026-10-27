@@ -8,79 +8,202 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
 <style>
+/* Kulan Fleet, "Console" (2.10): a sidebar of sections, tables with tabs, a computer's details beside them. */
 :root {
-  --bg: #f4f7fb; --surface: #ffffff; --side: #eef3f8; --ink: #0a2240; --muted: #5b6b80; --line: #e1e8f0;
-  --teal: #0d9488; --teal-ink: #ffffff; --amber: #f59e0b; --good: #0f766e; --good-bg: #ccfbf1;
-  --bad: #b91c1c; --bad-bg: #fee2e2; --warn: #b45309; --warn-bg: #fef3c7; --chip: #e3eaf2;
+  --bg: #f4f7fb; --surface: #ffffff; --side: #eef3f8; --hover: #e8eef5; --ink: #0a2240; --ink-2: #33445c; --muted: #5b6b80;
+  --line: #e1e8f0; --line-2: #edf1f6; --field: #d5dee8;
+  --teal: #0d9488; --teal-ink: #ffffff; --teal-text: #0f766e; --amber: #f59e0b; --slate: #94a3b8; --selected: #eef8f6;
+  --good: #0b5f58; --good-bg: #d7f5ef; --warn: #8a4a07; --warn-bg: #fdf0d2; --bad: #a11d1d; --bad-bg: #fde3e3;
+  --dim: #46566b; --dim-bg: #e6ebf1; --navy: #1e3a6e; --navy-bg: #e3e9f6; --warn-soft: #fdf6e7; --bad-soft: #fdecec;
+  --shadow: 0 1px 2px rgba(10,34,64,.08);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #071428; --surface: #0c1a30; --side: #0a1c36; --ink: #eef4fb; --muted: #93a4b8; --line: #1c2c45;
-    --good: #5eead4; --good-bg: rgba(13,148,136,.22); --bad: #fca5a5; --bad-bg: rgba(185,28,28,.22);
-    --warn: #fcd34d; --warn-bg: rgba(245,158,11,.18); --chip: #15253a;
+    --bg: #071428; --surface: #0c1a30; --side: #0a1c36; --hover: #11233f; --ink: #eef4fb; --ink-2: #c9d5e3; --muted: #93a4b8;
+    --line: #1c2c45; --line-2: #16263e; --field: #2a3d5a; --teal-text: #5eead4; --selected: #0f2b33;
+    --good: #5eead4; --good-bg: rgba(13,148,136,.22); --warn: #fcd34d; --warn-bg: rgba(245,158,11,.18);
+    --bad: #fca5a5; --bad-bg: rgba(185,28,28,.24); --dim: #b6c3d3; --dim-bg: #15253a; --navy: #bfd2f5; --navy-bg: #17284a;
+    --warn-soft: rgba(245,158,11,.14); --bad-soft: rgba(185,28,28,.18); --shadow: none; --nav-on: #142a4a;
   }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 Inter, system-ui, sans-serif; }
-header { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 2; }
-header h1 { font: 800 18px Manrope, Inter, sans-serif; margin: 0; }
-header .who { margin-left: auto; color: var(--muted); font-size: 13px; }
-main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 60px; }
-h2 { font: 800 24px Manrope, Inter, sans-serif; margin: 0 0 4px; }
-.sub { color: var(--muted); margin: 0 0 18px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin-bottom: 18px; }
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-button, select, input { font: inherit; color: inherit; }
-button { border: 0; border-radius: 10px; padding: 8px 14px; font-weight: 600; cursor: pointer; background: var(--chip); }
-button.primary { background: var(--teal); color: var(--teal-ink); }
-button:disabled { opacity: .5; cursor: default; }
-input, select, textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 8px 10px; }
-textarea { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; color: inherit; }
-input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--teal); outline-offset: 1px; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
-.stat b { display: block; font: 800 28px Manrope, Inter, sans-serif; }
-.stat span { color: var(--muted); font-size: 13px; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; }
-th { text-align: left; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px; border-bottom: 2px solid var(--line); white-space: nowrap; }
-td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
-tr.left td { opacity: .5; }
-.tag { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
-.tag.good { background: var(--good-bg); color: var(--good); }
-.tag.bad { background: var(--bad-bg); color: var(--bad); }
-.tag.warn { background: var(--warn-bg); color: var(--warn); }
-.tag.dim { background: var(--chip); color: var(--muted); }
-.name { font-weight: 600; }
-.name a { color: var(--teal); text-decoration: none; }
-.name a:hover { text-decoration: underline; }
-@media (prefers-color-scheme: dark) { .name a { color: #5eead4; } }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 Inter, system-ui, sans-serif; }
+a { color: var(--teal-text); }
+h1 { margin: 0; font: 800 28px/1.2 Manrope, Inter, sans-serif; }
+h2 { margin: 0; font: 700 15px/1.3 Inter, system-ui, sans-serif; }
+h3 { margin: 0; font: 600 13px/1.3 Inter, system-ui, sans-serif; color: var(--muted); }
+h4 { margin: 14px 0 6px; }
+.sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
 .small { font-size: 12px; color: var(--muted); }
-.code { font: 700 26px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; }
-.empty { color: var(--muted); padding: 18px 8px; }
-#signin { max-width: 420px; margin: 10vh auto; }
+.note { font-size: 13px; color: var(--muted); }
 .hidden { display: none !important; }
 .error { color: var(--bad); }
-dialog { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); color: var(--ink); max-width: 720px; width: calc(100% - 32px); }
-dialog::backdrop { background: rgba(7,20,40,.45); }
-pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--side); border-radius: 10px; padding: 12px; max-height: 60vh; overflow: auto; }
-.logo { width: 26px; height: 26px; }
-@media (max-width: 640px) { header { padding: 12px 16px; } .hide-sm { display: none; } }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Controls */
+button, select, input, textarea { font: inherit; color: inherit; }
+button { font-size: 14px; font-weight: 600; border: 1px solid var(--field); background: var(--surface); color: var(--ink);
+  border-radius: 8px; padding: 7px 12px; min-height: 36px; cursor: pointer; }
+button:hover:not(:disabled) { background: var(--hover); }
+button.primary { background: var(--teal); border-color: var(--teal); color: var(--teal-ink); }
+button.primary:hover:not(:disabled) { background: #0b7f75; }
+button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--field)); }
+button.link { border: 0; background: none; padding: 0; min-height: 0; color: var(--teal-text); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+input, select, textarea { border: 1px solid var(--field); background: var(--surface); border-radius: 8px; padding: 7px 10px; min-height: 36px; }
+input[type=checkbox], input[type=radio] { min-height: 0; width: 16px; height: 16px; padding: 0; margin: 0; flex: none; accent-color: var(--teal); }
+label:has(> input[type=checkbox]), label:has(> input[type=radio]) { display: inline-flex; align-items: center; gap: 8px; }
+.policy-switches { display: flex; flex-wrap: wrap; gap: 10px 24px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.policy-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 16px; margin: 14px 0 4px; }
+.policy-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.policy-fields select { color: var(--ink); }
+textarea { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible, tr:focus-visible {
+  outline: 2px solid var(--teal); outline-offset: 1px; }
+.field { display: grid; gap: 4px; margin: 10px 0; }
+.field > span { font-size: 12px; color: var(--muted); font-weight: 500; }
+.checks { display: grid; gap: 4px; margin: 6px 0 0 4px; }
+
+/* Pills */
+.tag { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tag.good { background: var(--good-bg); color: var(--good); }
+.tag.warn { background: var(--warn-bg); color: var(--warn); }
+.tag.bad { background: var(--bad-bg); color: var(--bad); }
+.tag.dim { background: var(--dim-bg); color: var(--dim); }
+.tag.navy { background: var(--navy-bg); color: var(--navy); }
+.tag .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+/* Sign-in */
+.signin { max-width: 420px; margin: 12vh auto; padding: 0 16px; }
+.signin .panel { padding: 28px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 800 17px Manrope, Inter, sans-serif; }
+.brand svg { width: 22px; height: 22px; flex: none; }
+
+/* The shell: sidebar and the open section */
+.shell { display: flex; min-height: 100vh; background: linear-gradient(90deg, var(--side) 240px, var(--line) 240px, var(--line) 241px, transparent 241px); }
+.side { width: 240px; flex: none; padding: 18px 14px; display: flex; flex-direction: column; gap: 4px;
+  border-right: 1px solid var(--line); background: var(--side); position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+.side .brand { padding: 4px 10px 14px; }
+.org-pick { display: grid; gap: 2px; margin: 0 0 14px; }
+.org-pick span { font-size: 11px; color: var(--muted); font-weight: 500; padding-left: 2px; }
+.org-pick select { width: 100%; font-weight: 600; background: var(--surface); }
+.nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--ink-2);
+  text-decoration: none; font-size: 14px; font-weight: 500; }
+.nav svg { width: 17px; height: 17px; flex: none; }
+.nav:hover { background: var(--hover); color: var(--ink); }
+.nav.on { background: var(--nav-on, var(--surface)); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+.nav .count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 500; }
+.nav .count.alert { color: var(--bad); font-weight: 700; }
+.grow { flex: 1; min-height: 24px; }
+.me { display: flex; align-items: center; gap: 10px; padding: 10px; font-size: 13px; }
+.me .avatar { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); color: var(--bg); display: grid; place-items: center;
+  font-weight: 700; font-size: 12px; flex: none; }
+.me .who { display: flex; flex-direction: column; min-width: 0; }
+.me .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+main { flex: 1; min-width: 0; padding: 28px 32px 60px; display: flex; flex-direction: column; gap: 20px; }
+.view { display: flex; flex-direction: column; gap: 20px; }
+.head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.head > div:first-child { flex: 1 1 260px; }
+.search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--field); background: var(--surface); border-radius: 8px;
+  padding: 0 12px; min-height: 36px; flex: 0 1 300px; }
+.search input { border: 0; outline: 0; background: transparent; width: 100%; padding: 0; min-height: 34px; }
+.search svg { width: 16px; height: 16px; flex: none; color: var(--muted); }
+
+/* Panels */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.panel > h2 + .sub { margin-bottom: 12px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 4px; }
+.panel-head h2 { flex: 1; }
+.flush { padding: 0; }
+.split { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.split > .table-panel { flex: 999 1 560px; min-width: 0; }
+.split > .detail { flex: 1 1 340px; max-width: 440px; }
+
+/* Health bar */
+.health { display: flex; flex-direction: column; gap: 10px; }
+.health-top { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 13px; }
+.health-top b { font-weight: 600; }
+.bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; gap: 2px; background: var(--line-2); }
+.bar span { min-width: 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+/* Tabs and tables */
+.tabs { display: flex; flex-wrap: wrap; padding: 4px 16px 0; border-bottom: 1px solid var(--line); }
+.tab { border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 13px; padding: 8px 2px; margin-right: 18px;
+  border-bottom: 2px solid transparent; min-height: 40px; }
+.tab:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.tab.on { color: var(--ink); border-bottom-color: var(--teal); }
+.tab .n { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 11px 12px; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--hover); }
+tr.on td { background: var(--selected); }
+tr.left td { opacity: .55; }
+.name { font-weight: 600; }
+.name a { color: inherit; text-decoration: none; }
+.name a:hover { text-decoration: underline; }
+.empty { color: var(--muted); padding: 22px 12px; text-align: center; }
+.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px; }
+.avatar-sm { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  color: #0a2240; flex: none; }
+.who-cell { display: flex; align-items: center; gap: 10px; }
+.foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; font-size: 13px; color: var(--muted);
+  border-top: 1px solid var(--line-2); }
+
+/* Lists in panels */
+.list { list-style: none; margin: 0; padding: 0; }
+.list > li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--line-2); }
+.list > li:last-child { border-bottom: 0; }
+.list > li .grow-text { flex: 1 1 240px; min-width: 0; }
+.list > li.small { padding: 8px 0; }
 .alerts { margin: 0; padding-left: 18px; }
 .alerts li { margin: 4px 0; }
-a { color: var(--teal); }
-@media (prefers-color-scheme: dark) { a { color: #5eead4; } }
-.field { display: grid; gap: 4px; margin: 10px 0; }
-.field > span { font-size: 12px; color: var(--muted); }
-.checks { display: grid; gap: 4px; margin: 6px 0 0 4px; }
-button.danger { background: var(--bad-bg); color: var(--bad); }
-.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 16px; }
-.note { font-size: 13px; color: var(--muted); }
-h4 { margin: 14px 0 6px; }
+.issue { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--warn-soft); }
+.issue.bad { background: var(--bad-soft); }
+.issue .grow-text { flex: 1 1 200px; min-width: 0; }
+.issue b { display: block; font-weight: 600; }
+
+/* A computer's details */
+.detail { display: flex; flex-direction: column; gap: 16px; padding: 20px; position: sticky; top: 16px; }
+.detail-head { display: flex; align-items: flex-start; gap: 12px; }
+.detail-head > div { flex: 1; min-width: 0; }
+.detail-head h2 { font: 800 20px/1.25 Manrope, Inter, sans-serif; overflow-wrap: anywhere; }
+.quick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.quick select { width: 100%; font-weight: 600; }
+.facts { display: flex; flex-direction: column; }
+.fact { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-2); font-size: 13px; }
+.fact:last-child { border-bottom: 0; }
+.fact > span:first-child { color: var(--muted); flex: none; }
+.fact > span:last-child { text-align: right; overflow-wrap: anywhere; }
+.stack { display: flex; flex-direction: column; gap: 8px; }
+
+/* Messages */
+#app-msg { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); z-index: 20;
+  background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 24px rgba(7,20,40,.25); }
+#app-msg:empty { display: none; }
+#app-msg.error { background: var(--bad); color: #fff; }
+
+/* Dialogs */
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); max-width: 720px;
+  width: calc(100% - 32px); padding: 22px 24px; box-shadow: 0 20px 60px rgba(7,20,40,.25); }
+dialog::backdrop { background: rgba(7,20,40,.45); }
+.dlg-title { margin: 0 0 8px; font: 800 20px/1.25 Manrope, Inter, sans-serif; }
+.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 18px; }
+pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--side); border-radius: 10px; padding: 12px;
+  max-height: 60vh; overflow: auto; }
+.code { font: 700 26px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; }
 .report-line { margin: 6px 0; }
-.report-line .detail { display: block; font-size: 12px; color: var(--muted); margin-left: 20px; }
+.report-line .detail { display: block; font-size: 12px; color: var(--muted); margin-left: 20px; position: static; padding: 0; }
 .report-line.bad > b { color: var(--bad); }
-.report-line.good > b { color: var(--teal); }
+.report-line.good > b { color: var(--teal-text); }
+
 /* Printing (Save as PDF) the weekly report: only the report. */
 @media print {
   body.printing > *:not(#print-area) { display: none !important; }
@@ -88,6 +211,7 @@ h4 { margin: 14px 0 6px; }
   body:not(.printing) #print-area { display: none; }
 }
 #print-area { display: none; }
+
 /* Remote help (2.9a): the person's screen, as big as it fits. */
 dialog.help { max-width: none; width: 100vw; height: 100dvh; max-height: none; margin: 0; padding: 0; border: 0; border-radius: 0; background: #000; color: #fff; }
 dialog.help[open] { display: flex; flex-direction: column; }
@@ -95,215 +219,284 @@ dialog.help[open] { display: flex; flex-direction: column; }
 .help-bar b { font: 800 15px Manrope, Inter, sans-serif; }
 .help-bar .help-status { color: #cbd5e1; font-size: 13px; flex: 1 1 200px; }
 .help-bar label { font-size: 13px; display: flex; gap: 6px; align-items: center; }
-.help-bar button { background: #15253a; color: #fff; }
-.help-bar button.danger { background: #b91c1c; color: #fff; }
+.help-bar button { background: #15253a; color: #fff; border-color: #2a3d5a; }
+.help-bar button.danger { background: #b91c1c; color: #fff; border-color: #b91c1c; }
 #help-video { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; outline: none; touch-action: none; }
 #help-video.control { cursor: crosshair; }
+
+/* Narrow screens (phones): the sidebar becomes a bar of sections at the top. */
+@media (max-width: 900px) {
+  .shell { flex-direction: column; background: none; }
+  .side { width: auto; height: auto; position: static; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px;
+    padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
+  .side .brand { padding: 0; margin-right: auto; }
+  .org-pick { order: 1; flex: 1 1 100%; margin: 6px 0; }
+  .side nav.sections { order: 2; flex: 1 1 100%; display: flex; gap: 2px; overflow-x: auto; }
+  .nav { white-space: nowrap; padding: 6px 10px; }
+  .nav .count { margin-left: 4px; }
+  .grow { display: none; }
+  .me { padding: 0; }
+  .me .who { display: none; }
+  main { padding: 20px 16px 60px; }
+  h1 { font-size: 24px; }
+  .detail { position: static; }
+  .split > .detail { max-width: none; }
+}
+.side nav.sections { display: contents; }
+@media (max-width: 900px) { .side nav.sections { display: flex; } }
+.hide-sm { }
+@media (max-width: 640px) { .hide-sm { display: none; } }
 </style>
 </head>
 <body>
-<header>
-  <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><g fill="#f59e0b"><circle cx="12" cy="4.5" r="2.2"/><circle cx="5.5" cy="15.75" r="2.2"/><circle cx="18.5" cy="15.75" r="2.2"/></g><g fill="#0d9488"><circle cx="18.5" cy="8.25" r="2.2"/><circle cx="12" cy="19.5" r="2.2"/><circle cx="5.5" cy="8.25" r="2.2"/></g><circle cx="12" cy="12" r="2.8" fill="#0d9488"/></svg>
-  <h1>Kulan Fleet</h1>
-  <span class="who" id="who"></span>
-  <button id="my-auth" class="hidden">Authenticator app…</button>
-  <button id="signout" class="hidden">Sign out</button>
-</header>
+<svg width="0" height="0" style="position: absolute" aria-hidden="true">
+  <symbol id="i-logo" viewBox="0 0 22 22"><circle cx="11" cy="4" r="2.6" fill="#0d9488"/><circle cx="4.5" cy="11" r="2.6" fill="#f59e0b"/><circle cx="17.5" cy="11" r="2.6" fill="#0d9488"/><circle cx="11" cy="18" r="2.6" fill="currentColor"/><circle cx="11" cy="11" r="2" fill="#0d9488"/></symbol>
+  <symbol id="i-computers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5M16 4.8a3.5 3.5 0 0 1 0 6.4M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/></symbol>
+  <symbol id="i-groups" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></symbol>
+  <symbol id="i-policy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.3 7.5 9.5 4.3-1.2 7.5-4.9 7.5-9.5V6z"/></symbol>
+  <symbol id="i-scripts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m5 8 4 4-4 4M12 17h7"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3-7 4 14 3-7h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+</svg>
 
-<main>
-  <section id="signin" class="card">
-    <h2>Sign in</h2>
-    <p class="sub">We'll email you a sign-in link. Only fleet admins can see computers.</p>
+<section id="signin" class="signin">
+  <div class="panel">
+    <div class="brand" style="margin-bottom: 18px"><svg><use href="#i-logo"/></svg>Kulan Fleet</div>
+    <h1 style="font-size: 24px">Sign in</h1>
+    <p class="sub" style="margin-bottom: 16px">We'll email you a sign-in link. Only Kulan Fleet admins can see computers.</p>
     <form id="signin-form" class="row">
-      <input id="email" type="email" required placeholder="you@example.com" autocomplete="email" style="flex:1; min-width: 220px" aria-label="Email">
+      <input id="email" type="email" required placeholder="you@example.com" autocomplete="email" style="flex: 1; min-width: 220px" aria-label="Email">
       <button class="primary" type="submit">Email me a link</button>
     </form>
     <p id="signin-msg" class="small" role="status"></p>
-  </section>
+  </div>
+</section>
 
-  <section id="app" class="hidden">
-    <div class="row" style="margin-bottom: 14px">
-      <div>
-        <h2 id="org-title">Computers</h2>
-        <p class="sub" id="org-sub">Reports arrive every hour.</p>
-      </div>
-      <div class="row" style="margin-left: auto">
-        <label class="small" for="org">Organisation</label>
-        <select id="org"></select>
-        <button id="new-org" class="hidden">New organisation…</button>
+<div id="app" class="shell hidden">
+  <aside class="side" aria-label="Kulan Fleet">
+    <div class="brand"><svg><use href="#i-logo"/></svg>Kulan Fleet</div>
+    <label class="org-pick"><span>Organisation</span><select id="org"></select></label>
+    <nav class="sections" aria-label="Sections">
+      <a class="nav" href="#computers" data-view="computers"><svg aria-hidden="true"><use href="#i-computers"/></svg>Computers<span class="count" id="n-computers"></span></a>
+      <a class="nav" href="#people" data-view="people"><svg aria-hidden="true"><use href="#i-people"/></svg>People<span class="count" id="n-people"></span></a>
+      <a class="nav" href="#groups" data-view="groups"><svg aria-hidden="true"><use href="#i-groups"/></svg>Groups<span class="count" id="n-groups"></span></a>
+      <a class="nav" href="#policy" data-view="policy"><svg aria-hidden="true"><use href="#i-policy"/></svg>Policy</a>
+      <a class="nav" href="#scripts" data-view="scripts"><svg aria-hidden="true"><use href="#i-scripts"/></svg>Scripts</a>
+      <a class="nav" href="#activity" data-view="activity"><svg aria-hidden="true"><use href="#i-activity"/></svg>Activity</a>
+      <a class="nav" href="#settings" data-view="settings"><svg aria-hidden="true"><use href="#i-settings"/></svg>Settings</a>
+    </nav>
+    <div class="grow"></div>
+    <div class="me"><span class="avatar" id="me-initials" aria-hidden="true"></span><span class="who"><b id="who"></b><span class="small" id="me-role"></span></span></div>
+  </aside>
+
+  <main>
+    <!-- Computers ---------------------------------------------------------------------------------->
+    <section class="view" data-view="computers" aria-labelledby="org-title">
+      <div class="head">
+        <div><h1 id="org-title">Computers</h1><p class="sub" id="org-sub"></p></div>
+        <label class="search"><svg aria-hidden="true"><use href="#i-search"/></svg><span class="sr">Search computers</span>
+          <input id="find-computers" type="search" placeholder="Search by name, person or model" autocomplete="off"></label>
         <button id="refresh">Refresh</button>
+        <button class="primary" id="add-computers">Add computers</button>
       </div>
-    </div>
-
-    <div class="stats">
-      <div class="stat"><b id="s-total">0</b><span>computers</span></div>
-      <div class="stat"><b id="s-seen">0</b><span>reported in the last day</span></div>
-      <div class="stat"><b id="s-compliant">0</b><span>meet the compliance baseline</span></div>
-      <div class="stat"><b id="s-security">0</b><span>with security updates waiting</span></div>
-    </div>
-
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Needs attention</h3>
-      <ul id="alerts" class="alerts"></ul>
-    </div>
-
-    <div class="card hidden" id="help-card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Help requests</h3>
-      <p class="sub">What people asked for in Settings › Get help on their computers. Open one to see their screenshot, start remote help, or answer it.</p>
-      <ul id="help-requests" class="alerts"></ul>
-    </div>
-
-    <div class="card">
-      <div class="row" style="margin-bottom: 8px">
-        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">People</h3>
-        <button class="primary" id="add-person" style="margin-left: auto">Add a person…</button>
+      <section class="panel health" id="health" aria-label="Fleet health"></section>
+      <section class="panel" id="attention-card">
+        <div class="panel-head"><h2>Needs attention</h2></div>
+        <ul id="alerts" class="list"></ul>
+      </section>
+      <section class="panel hidden" id="help-card">
+        <div class="panel-head"><h2>Help requests</h2></div>
+        <p class="sub" style="margin-bottom: 8px">What people asked for in Settings › Get help. Open one to see their screenshot, start remote help or answer it.</p>
+        <ul id="help-requests" class="list"></ul>
+      </section>
+      <div class="split">
+        <section class="panel flush table-panel" aria-label="All computers">
+          <div class="tabs" role="tablist" id="computer-tabs" aria-label="Show"></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Computer</th><th>Used by</th><th>Health</th><th>Updates</th><th class="hide-sm">Kulan OS</th><th>Last report</th></tr></thead>
+              <tbody id="devices"></tbody>
+            </table>
+          </div>
+        </section>
+        <aside class="panel detail hidden" id="detail" aria-live="polite"></aside>
       </div>
-      <p class="sub">Accounts on the organisation's computers. Each person signs in with their own password. Computers get changes at their next report.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Sign-in</th><th class="hide-sm">Computers</th><th></th></tr></thead>
-          <tbody id="people"></tbody>
-        </table>
-      </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Kulan Fleet admins and the Owner</h3>
-      <p class="sub" id="admins-sub">Admins manage computers and people.</p>
-      <ul id="admins" class="alerts"></ul>
-      <form id="add-admin" class="row hidden" style="margin-top: 10px">
-        <input id="admin-email" type="email" required placeholder="their@email" aria-label="New admin's email" style="flex: 1; min-width: 220px">
-        <button type="submit">Add an admin</button>
-      </form>
-      <form id="set-owner" class="row hidden" style="margin-top: 10px">
-        <input id="owner-email" type="email" required placeholder="owner@email" aria-label="The Owner's email" style="flex: 1; min-width: 220px">
-        <button type="submit">Make this email the Owner</button>
-      </form>
-    </div>
+    <!-- People ------------------------------------------------------------------------------------->
+    <section class="view" data-view="people" aria-labelledby="people-title">
+      <div class="head">
+        <div><h1 id="people-title">People</h1><p class="sub">Accounts on your computers. Each person signs in with their own password. Computers get changes at their next report.</p></div>
+        <label class="search"><svg aria-hidden="true"><use href="#i-search"/></svg><span class="sr">Search people</span>
+          <input id="find-people" type="search" placeholder="Search by name or username" autocomplete="off"></label>
+        <button id="to-admins">Admins and Owner</button>
+        <button class="primary" id="add-person">Add a person</button>
+      </div>
+      <section class="panel flush" aria-label="All people">
+        <div class="tabs" role="tablist" id="people-tabs" aria-label="Show"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Sign-in</th><th class="hide-sm">Computers</th><th class="hide-sm">Last used</th><th><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="people"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
 
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Google Workspace</h3>
-      <p class="sub" id="mail-sub">Connect Google Workspace to manage mailboxes with People.</p>
-      <ul id="mail" class="alerts"></ul>
-      <div class="row" style="margin-top: 10px">
-        <button id="mail-connect">Connect Google Workspace…</button>
-        <button id="mail-users" class="hidden">Existing mailboxes…</button>
-        <button id="mail-disconnect" class="danger hidden">Disconnect…</button>
-        <a class="small" href="https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md" target="_blank" rel="noopener">How to connect it</a>
+    <!-- Groups and USB drives -------------------------------------------------------------------->
+    <section class="view" data-view="groups" aria-labelledby="groups-title">
+      <div class="head">
+        <div><h1 id="groups-title">Groups</h1><p class="sub">Sets of computers and people with their own policy, Wi-Fi networks and printers. A computer follows the organisation's policy and every group it's in, and the stricter rule wins.</p></div>
+        <button class="primary" id="add-group">Add a group</button>
       </div>
-    </div>
+      <section class="panel flush">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Group</th><th>Computers</th><th>Policy</th><th><span class="sr">Actions</span></th></tr></thead>
+            <tbody id="groups"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>USB drives</h2></div>
+        <p class="sub" style="margin-bottom: 8px">Approved drives work where a policy allows approved drives only. Drives plugged into computers with a USB policy appear here for approval.</p>
+        <ul id="drives" class="list"></ul>
+      </section>
+    </section>
 
-    <div class="card">
-      <div class="row" style="margin-bottom: 8px">
-        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Computers</h3>
+    <!-- Policy ------------------------------------------------------------------------------------>
+    <section class="view" data-view="policy" aria-labelledby="policy-title">
+      <div class="head">
+        <div><h1 id="policy-title">Policy</h1><p class="sub">Applies to every computer at its next report. Groups can add stricter rules. Encryption can't be turned on from afar, so computers without it show an alert.</p></div>
+        <button id="p-save" class="primary">Save policy</button>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Computer</th><th>Kulan OS</th><th>Last report</th><th>Compliance</th><th>Updates</th><th class="hide-sm">TPM unlock</th><th>Ask it to…</th></tr></thead>
-          <tbody id="devices"></tbody>
-        </table>
-      </div>
-    </div>
+      <section class="panel"><div id="policy"></div></section>
+    </section>
 
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Policy</h3>
-      <p class="sub">Applies to every computer at its next report. Groups can add stricter rules. Encryption can't be turned on remotely, so computers without it show an alert.</p>
-      <div id="policy"></div>
-      <div class="row" style="margin-top: 10px"><button id="p-save" class="primary">Save policy</button></div>
-    </div>
+    <!-- Scripts ----------------------------------------------------------------------------------->
+    <section class="view" data-view="scripts" aria-labelledby="scripts-title">
+      <div class="head">
+        <div><h1 id="scripts-title">Scripts</h1><p class="sub" id="scripts-sub"></p></div>
+        <button id="add-script" class="primary hidden">Add a script</button>
+      </div>
+      <section class="panel">
+        <label class="row hidden" id="scripts-allow-row" style="margin-bottom: 8px"><input type="checkbox" id="scripts-allow"> Allow scripts on this organisation's computers</label>
+        <ul id="scripts" class="list"></ul>
+      </section>
+    </section>
 
-    <div class="card">
-      <div class="row" style="margin-bottom: 8px">
-        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Groups</h3>
-        <button id="add-group" style="margin-left: auto">Add a group…</button>
+    <!-- Activity ---------------------------------------------------------------------------------->
+    <section class="view" data-view="activity" aria-labelledby="activity-title">
+      <div class="head">
+        <div><h1 id="activity-title">Activity</h1><p class="sub">What was asked of the computers, the weekly security report, and who changed what.</p></div>
+        <button id="weekly" class="primary">Weekly security report</button>
+        <button id="review">Admin-rights review</button>
       </div>
-      <p class="sub">Sets of computers and people with their own policy. A computer follows the organisation's policy and every group it's in, and the stricter rule wins.</p>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Group</th><th>Computers</th><th>Policy</th><th></th></tr></thead>
-          <tbody id="groups"></tbody>
-        </table>
-      </div>
-    </div>
+      <section class="panel flush">
+        <div class="panel-head" style="padding: 14px 16px 6px"><h2>Recent requests</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>When</th><th>Computer</th><th>Request</th><th>Result</th></tr></thead>
+            <tbody id="actions"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Activity log</h2></div>
+        <p class="sub" style="margin-bottom: 10px">Who changed what, and when. Search it, or export it as a CSV file.</p>
+        <form id="log-find" class="row">
+          <label class="small">From <input id="log-from" type="date" aria-label="From"></label>
+          <label class="small">To <input id="log-to" type="date" aria-label="To"></label>
+          <input id="log-who" placeholder="Who (email)" aria-label="Who" style="min-width: 160px">
+          <input id="log-what" placeholder="What, or a computer" aria-label="What" style="min-width: 160px">
+          <button type="submit">Search</button>
+          <button type="button" id="log-csv">Export CSV</button>
+        </form>
+        <div class="table-wrap hidden" id="log-wrap" style="margin-top: 10px">
+          <table>
+            <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
+            <tbody id="log"></tbody>
+          </table>
+          <button type="button" id="log-more" class="hidden" style="margin-top: 8px">Show more</button>
+        </div>
+      </section>
+    </section>
 
-    <div class="card">
-      <div class="row" style="margin-bottom: 8px">
-        <h3 style="margin: 0; font: 800 16px Manrope, Inter, sans-serif">Scripts</h3>
-        <button id="add-script" class="hidden" style="margin-left: auto">Add a script…</button>
-      </div>
-      <p class="sub" id="scripts-sub"></p>
-      <label class="row hidden" id="scripts-allow-row" style="margin-bottom: 8px"><input type="checkbox" id="scripts-allow"> Allow scripts on this organisation's computers</label>
-      <ul id="scripts" class="alerts"></ul>
-    </div>
+    <!-- Settings ---------------------------------------------------------------------------------->
+    <section class="view" data-view="settings" aria-labelledby="settings-title">
+      <div class="head"><div><h1 id="settings-title">Settings</h1><p class="sub">Who runs this organisation in Kulan Fleet, its email, and your own sign-in.</p></div></div>
+      <section class="panel" id="admins-card">
+        <div class="panel-head"><h2>Kulan Fleet admins and the Owner</h2></div>
+        <p class="sub" id="admins-sub" style="margin-bottom: 8px">Admins manage computers and people.</p>
+        <ul id="admins" class="list"></ul>
+        <form id="add-admin" class="row hidden" style="margin-top: 10px">
+          <input id="admin-email" type="email" required placeholder="their@email" aria-label="New admin's email" style="flex: 1; min-width: 220px">
+          <button type="submit">Add an admin</button>
+        </form>
+        <form id="set-owner" class="row hidden" style="margin-top: 10px">
+          <input id="owner-email" type="email" required placeholder="owner@email" aria-label="The Owner's email" style="flex: 1; min-width: 220px">
+          <button type="submit">Make this email the Owner</button>
+        </form>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Google Workspace</h2></div>
+        <p class="sub" id="mail-sub" style="margin-bottom: 8px">Connect Google Workspace to manage mailboxes with People.</p>
+        <ul id="mail" class="list"></ul>
+        <div class="row" style="margin-top: 10px">
+          <button id="mail-connect">Connect Google Workspace…</button>
+          <button id="mail-users" class="hidden">Existing mailboxes…</button>
+          <button id="mail-disconnect" class="danger hidden">Disconnect…</button>
+          <a class="small" href="https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md" target="_blank" rel="noopener">How to connect it</a>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Your sign-in</h2></div>
+        <p class="sub" style="margin-bottom: 10px">Kulan Fleet asks for your authenticator app's code after the email link when you've set one up, or when the Owner requires it.</p>
+        <div class="row">
+          <button id="my-auth">Authenticator app…</button>
+          <button id="signout">Sign out</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Organisations</h2></div>
+        <p class="sub" style="margin-bottom: 10px">If the Owner loses their email account, another email can become the Owner with the organisation's recovery code.</p>
+        <div class="row">
+          <button id="new-org" class="hidden">New organisation…</button>
+          <button type="button" class="link" id="recover">Become the Owner with a recovery code…</button>
+        </div>
+      </section>
+    </section>
+  </main>
+</div>
 
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">USB drives</h3>
-      <p class="sub">Approved drives work where a policy allows approved drives only. Drives plugged into computers with a USB policy appear here for approval.</p>
-      <ul id="drives" class="alerts"></ul>
-    </div>
-
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Add computers</h3>
-      <p class="sub">Make a join code, then on each computer open Kulan Settings → About → Organisation → Join an organisation.</p>
-      <div class="row">
-        <label class="small" for="hours">Valid for</label>
-        <select id="hours"><option value="24">1 day</option><option value="72" selected>3 days</option><option value="168">1 week</option><option value="720">30 days</option></select>
-        <label class="small" for="uses">Computers</label>
-        <input id="uses" type="number" min="1" max="500" value="1" style="width: 90px">
-        <button class="primary" id="make-code">Make a join code</button>
-      </div>
-      <div id="code-box" class="hidden" style="margin-top: 14px">
-        <div class="small">Server address</div>
-        <div id="server" style="font-family: ui-monospace, monospace; margin-bottom: 8px"></div>
-        <div class="small">Join code (shown once)</div>
-        <div class="code" id="code"></div>
-        <div class="small" id="code-note"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Recent requests</h3>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>When</th><th>Computer</th><th>Request</th><th>Result</th></tr></thead>
-          <tbody id="actions"></tbody>
-        </table>
-      </div>
-    </div>
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Security</h3>
-      <p class="sub">This week's security report compared with last week, and the admin-rights review, due every 90 days.</p>
-      <div class="row"><button id="weekly" class="primary">Weekly security report…</button><button id="review">Admin-rights review…</button></div>
-    </div>
-    <div class="card">
-      <h3 style="margin: 0 0 6px; font: 800 16px Manrope, Inter, sans-serif">Activity log</h3>
-      <p class="sub">Who changed what, and when. Search entries or export them as a CSV file.</p>
-      <form id="log-find" class="row">
-        <label class="small">From <input id="log-from" type="date" aria-label="From"></label>
-        <label class="small">To <input id="log-to" type="date" aria-label="To"></label>
-        <input id="log-who" placeholder="Who (email)" aria-label="Who" style="min-width: 160px">
-        <input id="log-what" placeholder="What, or a computer" aria-label="What" style="min-width: 160px">
-        <button type="submit">Search</button>
-        <button type="button" id="log-csv">Export CSV</button>
-      </form>
-      <div class="table-wrap hidden" id="log-wrap">
-        <table>
-          <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
-          <tbody id="log"></tbody>
-        </table>
-        <button type="button" id="log-more" class="hidden" style="margin-top: 8px">Show more</button>
-      </div>
-    </div>
-    <p id="app-msg" class="small error" role="status"></p>
-    <p class="small"><a href="#" id="recover">Become the Owner with a recovery code…</a></p>
-  </section>
-</main>
-
+<p id="app-msg" role="status" aria-live="polite"></p>
 <div id="print-area"></div>
 <dialog id="dlg" aria-labelledby="dlg-title">
-  <h3 id="dlg-title" style="margin: 0 0 8px; font: 800 18px Manrope, Inter, sans-serif"></h3>
+  <h2 id="dlg-title" class="dlg-title"></h2>
   <div id="dlg-body"></div>
   <div class="dlg-actions" id="dlg-actions"></div>
+</dialog>
+
+<dialog id="add-dialog" aria-labelledby="add-title">
+  <h2 id="add-title" class="dlg-title">Add computers</h2>
+  <p class="note">Make a join code. Then on each computer open Kulan Settings › About › Join an organisation, and type the server address and the code.</p>
+  <div class="row">
+    <label class="small" for="hours">Valid for</label>
+    <select id="hours"><option value="24">1 day</option><option value="72" selected>3 days</option><option value="168">1 week</option><option value="720">30 days</option></select>
+    <label class="small" for="uses">Computers</label>
+    <input id="uses" type="number" min="1" max="500" value="1" style="width: 90px">
+    <button class="primary" id="make-code">Make a join code</button>
+  </div>
+  <div id="code-box" class="hidden" style="margin-top: 16px">
+    <div class="small">Server address</div>
+    <div id="server" class="mono" style="margin-bottom: 10px; overflow-wrap: anywhere"></div>
+    <div class="small">Join code (shown once)</div>
+    <div class="code" id="code"></div>
+    <div class="small" id="code-note"></div>
+  </div>
+  <div class="dlg-actions"><button type="button" id="add-close">Close</button></div>
 </dialog>
 
 <dialog id="help-dialog" class="help" aria-label="Remote help">
@@ -317,8 +510,8 @@ dialog.help[open] { display: flex; flex-direction: column; }
   <video id="help-video" autoplay muted playsinline tabindex="0" aria-label="Their screen"></video>
 </dialog>
 
-<dialog id="report-dialog">
-  <div class="row"><h3 id="report-title" style="margin: 0; font: 800 18px Manrope, Inter, sans-serif"></h3><button id="report-close" style="margin-left: auto">Close</button></div>
+<dialog id="report-dialog" aria-labelledby="report-title">
+  <div class="row"><h2 id="report-title" class="dlg-title" style="margin: 0; flex: 1"></h2><button id="report-close">Close</button></div>
   <div id="report-body"></div>
 </dialog>
 
@@ -512,9 +705,34 @@ async function myAuthenticator() {
 function show(signedIn) {
   $("signin").classList.toggle("hidden", signedIn);
   $("app").classList.toggle("hidden", !signedIn);
-  $("signout").classList.toggle("hidden", !signedIn);
-  $("my-auth").classList.toggle("hidden", !signedIn);
 }
+
+// --- Sections (2.10): #computers, #people... in the address, so Back works and links can be shared.
+const VIEWS = ["computers", "people", "groups", "policy", "scripts", "activity", "settings"];
+let view = "computers";
+function go(next, remember = true) {
+  if (!VIEWS.includes(next)) next = "computers";
+  view = next;
+  for (const v of document.querySelectorAll("section.view")) v.classList.toggle("hidden", v.dataset.view !== next);
+  for (const a of document.querySelectorAll(".nav[data-view]")) {
+    const on = a.dataset.view === next;
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+  }
+  if (remember && location.hash !== `#${next}`) history.pushState(null, "", `#${next}`);
+  document.title = `${next[0].toUpperCase() + next.slice(1)} · Kulan Fleet`;
+}
+for (const a of document.querySelectorAll(".nav[data-view]")) {
+  a.addEventListener("click", (ev) => { ev.preventDefault(); go(a.dataset.view); scrollTo(0, 0); });
+}
+addEventListener("popstate", () => go(location.hash.slice(1), false));
+
+// Messages appear at the bottom for a few seconds (anything that sets #app-msg's text).
+let msgTimer = null;
+new MutationObserver(() => {
+  clearTimeout(msgTimer);
+  if ($("app-msg").textContent) msgTimer = setTimeout(() => { $("app-msg").textContent = ""; }, 8000);
+}).observe($("app-msg"), { childList: true, characterData: true, subtree: true });
 
 async function load() {
   $("app-msg").textContent = "";
@@ -525,6 +743,7 @@ async function load() {
     return;
   }
   $("who").textContent = data.email;
+  $("me-initials").textContent = (data.email.split("@")[0].match(/[a-z0-9]/gi) || ["?"]).slice(0, 2).join("").toUpperCase();
   $("new-org").classList.toggle("hidden", !data.global);
   const select = $("org"), keep = select.value;
   select.replaceChildren(...data.organisations.map((o) => el("option", { value: o.id }, o.name)));
@@ -553,42 +772,77 @@ async function loadPeople() {
 }
 
 function signInTag(p) {
-  if (!p.enabled) return el("span", { class: "tag bad" }, "disabled");
-  if (p.must_change) return el("span", { class: "tag warn" }, "setup code not used yet");
-  return el("span", { class: "tag good" }, "own password");
+  if (!p.enabled) return el("span", { class: "tag bad" }, "Disabled");
+  if (p.must_change) return el("span", { class: "tag dim" }, "Setup code not used");
+  if ((p.two_step || []).length) return el("span", { class: "tag good" }, "Two-step on");
+  return el("span", { class: "tag good" }, "Own password");
 }
-
+const TINTS = ["#c7d7f2", "#ccefe9", "#dbe7fb", "#fbe9c8", "#e6dcfb", "#fbdde2", "#d9f0d3"];
+function avatar(name, key) {
+  const parts = String(name || "?").trim().split(/\s+/);
+  const initials = ((parts[0]?.[0] || "?") + (parts.length > 1 ? parts[parts.length - 1][0] : parts[0]?.[1] || "")).toUpperCase();
+  let h = 0;
+  for (const c of String(key || name)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return el("span", { class: "avatar-sm", style: `background: ${TINTS[h % TINTS.length]}`, "aria-hidden": "true" }, initials);
+}
+function lastUsed(p) {
+  const s = (p.signed_in || [])[0];
+  return !s ? "Never" : s.now ? "Signed in now" : agoSeconds(s.last);
+}
+const PEOPLE_TABS = [["all", "Everyone", () => true], ["admins", "Admins", (p) => p.role !== "employee"],
+                     ["new", "Haven't signed in yet", (p) => p.enabled && p.must_change], ["disabled", "Disabled", (p) => !p.enabled]];
+let peopleTab = "all";
 function renderPeople() {
-  const rows = people.map((p) => {
+  $("n-people").textContent = people.length ? String(people.length) : "";
+  const find = $("find-people").value.trim().toLowerCase();
+  const tabs = PEOPLE_TABS.map(([id, label, test]) => {
+    const n = people.filter(test).length;
+    const b = el("button", { type: "button", class: `tab${id === peopleTab ? " on" : ""}`, role: "tab", "aria-selected": String(id === peopleTab),
+                             onclick: () => { peopleTab = id; renderPeople(); } }, label, el("span", { class: "n" }, String(n)));
+    return id === "all" || n ? b : null;
+  }).filter(Boolean);
+  $("people-tabs").replaceChildren(...tabs);
+  const test = (PEOPLE_TABS.find(([id]) => id === peopleTab) || PEOPLE_TABS[0])[2];
+  const shown = people.filter(test).filter((p) => !find || [p.full_name, p.username, p.email].some((x) => (x || "").toLowerCase().includes(find)));
+  const rows = shown.map((p) => {
     const n = (p.on || []).length;
+    const open = (ev) => { ev?.preventDefault(); openPerson(p); };
     return el("tr", {},
-      el("td", {}, el("div", { class: "name" }, el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openPerson(p); } }, p.full_name || p.username)),
-         el("div", { class: "small" }, p.email || "")),
-      el("td", {}, p.username), el("td", {}, ROLE[p.role] || p.role),
-      el("td", {}, signInTag(p), p.mailbox_todo ? el("span", { class: "tag bad", style: "margin-left: 4px" }, `mailbox ${MAILBOX_TODO[p.mailbox_todo] || "needs a retry"}`) : ""),
-      el("td", { class: "hide-sm" }, p.all_computers ? "all" : `${n} chosen${p.groups?.length ? ` (${p.groups.length} group${p.groups.length === 1 ? "" : "s"})` : ""}`),
-      el("td", {}, el("button", { onclick: () => openPerson(p) }, "Manage…")));
+      el("td", {}, el("div", { class: "who-cell" }, avatar(p.full_name || p.username, p.username),
+        el("div", {}, el("div", { class: "name" }, el("a", { href: "#", onclick: open }, p.full_name || p.username)),
+                      el("div", { class: "small" }, p.email || "No work email")))),
+      el("td", { class: "mono" }, p.username),
+      el("td", {}, el("span", { class: `tag ${p.role === "employee" ? "dim" : "navy"}` }, ROLE[p.role] || p.role)),
+      el("td", {}, signInTag(p), p.mailbox_todo ? el("span", { class: "tag bad", style: "margin-left: 4px" }, `Mailbox ${MAILBOX_TODO[p.mailbox_todo] || "needs a retry"}`) : ""),
+      el("td", { class: "hide-sm" }, p.all_computers ? "All computers" : [
+        ...groups.filter((g) => (p.groups || []).includes(g.id)).map((g) => `${g.name} group`),
+        ...((p.computers || []).length ? [`${p.computers.length} computer${p.computers.length === 1 ? "" : "s"}`] : [])].join(", ") || "None yet"),
+      el("td", { class: "hide-sm small" }, lastUsed(p)),
+      el("td", { style: "text-align: right" }, el("button", { onclick: open }, "Manage…")));
   });
-  for (const p of removedWithMailbox) {
-    rows.push(el("tr", {}, el("td", { colspan: "5" }, `${p.username} (removed): mailbox ${p.mailbox} ${MAILBOX_TODO[p.mailbox_todo] || ""} · ${p.mailbox_error || ""}`),
+  for (const p of peopleTab === "all" ? removedWithMailbox : []) {
+    rows.push(el("tr", {}, el("td", { colspan: "6" }, `${p.username} (removed): mailbox ${p.mailbox} ${MAILBOX_TODO[p.mailbox_todo] || ""} · ${p.mailbox_error || ""}`),
       el("td", {}, mailboxButton(p, "retry", "Retry"))));
   }
-  $("people").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "6", class: "empty" },
-    "Nobody yet. Add someone to give them a setup code."))]));
+  $("people").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "7", class: "empty" },
+    people.length ? "Nobody matches." : "Nobody yet. Add someone to give them a setup code."))]));
   $("add-person").disabled = !$("org").value;
+  if (data) renderComputers();  // "Used by" shows people's names
 }
+$("find-people").addEventListener("input", renderPeople);
+$("to-admins").addEventListener("click", () => go("settings"));
 
 function renderAdmins(out) {
   if (!out) { $("admins").replaceChildren(); return; }
   const owner = out.owner;
   $("admins-sub").textContent = "Admins manage computers and people. " +
     (out.is_owner ? "As the Owner, you choose who they are." : "Only the Owner can change who they are.");
-  const items = [el("li", {}, el("b", {}, owner || "No Owner yet"), " · Owner")];
+  const items = [el("li", {}, el("span", { class: "grow-text" }, el("b", {}, owner || "No Owner yet")), el("span", { class: "tag navy" }, "Owner"))];
   for (const a of out.admins || []) {
     if (a.email === owner) continue;
-    items.push(el("li", {}, a.email, ` · admin since ${ago(a.created_at)} `,
+    items.push(el("li", {}, el("span", { class: "grow-text" }, el("b", {}, a.email), el("span", { class: "small" }, ` · admin since ${ago(a.created_at)}`)),
       out.is_owner ? el("button", { onclick: () => changeAdmin("remove-admin", a.email) }, "Remove") : "",
-      out.is_owner ? el("button", { style: "margin-left: 6px", onclick: async () => {
+      out.is_owner ? el("button", { onclick: async () => {
         if (!confirm(`Reset ${a.email}'s authenticator app? They set it up again at their next sign-in. Make sure the request really comes from them.`)) return;
         try { await api({ op: "reset-admin-two-step", organisation_id: $("org").value, email: a.email }); $("app-msg").textContent = `${a.email} will set it up at their next sign-in.`; }
         catch (e) { $("app-msg").textContent = e.message; }
@@ -678,7 +932,7 @@ function appList(title, apps, blocking) {
 
 // The policy's fields: {node, value()} (value() is null while an app typed in isn't valid).
 function policyForm(p) {
-  const box = (key, label) => { const b = el("input", { type: "checkbox" }); b.checked = !!p[key]; return [key, b, el("label", {}, b, ` ${label}`)]; };
+  const box = (key, label) => { const b = el("input", { type: "checkbox" }); b.checked = !!p[key]; return [key, b, el("label", {}, b, label)]; };
   const boxes = [box("auto_updates", "Automatic updates"), box("firewall", "Firewall"), box("require_encryption", "Require disk encryption")];
   const lock = el("select", { "aria-label": "Screen lock" }, ...SCREEN_LOCK.map(([m, t]) => el("option", { value: String(m) }, t)));
   lock.value = String(p.screen_lock_minutes || 0);
@@ -690,9 +944,9 @@ function policyForm(p) {
   const required = appList("Required apps", p.required_apps, false);
   const blocked = appList("Blocked apps", p.blocked_apps, true);
   return {
-    node: el("div", {}, el("div", { class: "row" }, ...boxes.map(([, , l]) => l),
-                           el("label", { class: "small" }, "Screen lock ", lock), el("label", { class: "small" }, "USB drives ", usb),
-                           el("label", { class: "small" }, "Two-step sign-in ", two)),
+    node: el("div", {}, el("div", { class: "policy-switches" }, ...boxes.map(([, , l]) => l)),
+             el("div", { class: "policy-fields" }, el("label", {}, "Screen lock", lock), el("label", {}, "USB drives", usb),
+                el("label", {}, "Two-step sign-in", two)),
              el("p", { class: "note" }, "Keyboards, mice and other USB devices always work."), required.node, blocked.node),
     value: () => {
       const req = required.value(), blk = blocked.value();
@@ -903,6 +1157,8 @@ function renderGroups() {
   $("groups").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "4", class: "empty" },
     "No groups yet. Add one, for example Office or Finance."))]));
   $("add-group").disabled = !$("org").value;
+  $("n-groups").textContent = groups.length ? String(groups.length) : "";
+  if (data) renderComputers();  // a computer's groups, in its details
 }
 
 function openGroup(g) {
@@ -1308,90 +1564,223 @@ function mailboxNodes(p, manages) {
 function render() {
   const org = $("org").value;
   const orgName = data.organisations.find((o) => o.id === org)?.name;
-  $("org-title").textContent = orgName || "No organisation yet";
-  $("org-sub").textContent = orgName ? "Reports arrive every hour." : "Make an organisation first.";
-  const devices = data.devices.filter((d) => d.organisation_id === org);
-  const active = devices.filter((d) => !d.left_at);
-  $("s-total").textContent = active.length;
-  $("s-seen").textContent = active.filter((d) => d.last_seen && Date.now() - new Date(d.last_seen) < 86400000).length;
-  $("s-compliant").textContent = active.filter((d) => d.compliance_total && d.compliance_passed === d.compliance_total).length;
-  $("s-security").textContent = active.filter((d) => (d.updates?.security || 0) > 0).length;
+  $("org-title").textContent = orgName ? "Computers" : "No organisation yet";
+  const role = orgNow()?.is_owner ? "Owner" : data.global ? "Kulan Fleet admin" : "Admin";
+  $("me-role").textContent = orgName ? role : "";
 
   const alerts = (data.alerts || []).filter((a) => a.organisation_id === org);
-  $("alerts").replaceChildren(...(alerts.length ? alerts.slice(0, 50).map((a) => el("li", {},
-    el("b", {}, a.title || a.hostname || "Computer"), ` · ${a.text}`,
-    a.kind === "review" ? el("button", { style: "margin-left: 8px", onclick: openReview }, "Review now…") : "",
+  // Problems of the organisation itself; a computer's own are in its details (and its Health),
+  // and help requests have their own list below.
+  const general = alerts.filter((a) => !a.device_id);
+  $("attention-card").classList.toggle("hidden", !general.length);
+  $("alerts").replaceChildren(...general.slice(0, 50).map((a) => el("li", {},
+    el("span", { class: "grow-text" }, el("b", {}, a.title || a.hostname || "Computer"), ` · ${a.text}`),
+    a.kind === "review" ? el("button", { onclick: openReview }, "Review now…") : "",
     a.kind === "mailbox" && a.person_id ? mailboxButton({ id: a.person_id }, "retry", "Retry") : "",
-    a.kind === "help" && a.request_id ? el("button", { style: "margin-left: 8px", onclick: () => openHelpRequest(a.request_id) }, "Open…") : ""))
-    : [el("li", { class: "small" }, "Every computer looks fine.")]));
+    a.kind === "mail" ? el("button", { onclick: () => go("settings") }, "Open settings") : "",
+    a.kind === "help" && a.request_id ? el("button", { onclick: () => openHelpRequest(a.request_id) }, "Open…") : "")));
   renderHelpRequests(org);
   orgPolicy = policyForm(data.organisations.find((o) => o.id === org)?.policy || {});
   $("policy").replaceChildren(orgPolicy.node);
   $("policy").classList.toggle("hidden", !org);
   $("p-save").disabled = !org;
+  $("add-computers").disabled = !org;
+  renderComputers();
 
-  const rows = devices.map((d) => {
-    const comp = d.compliance_total == null ? el("span", { class: "tag dim" }, "unknown")
-      : el("span", { class: `tag ${d.compliance_passed === d.compliance_total ? "good" : "warn"}` },
-           `${d.compliance_passed} of ${d.compliance_total}${d.compliance_mode === "on" ? " · on" : ""}`);
-    const upd = d.updates == null ? el("span", { class: "tag dim" }, "unknown")
-      : d.updates.security ? el("span", { class: "tag bad" }, `${d.updates.security} security`)
-      : d.updates.waiting ? el("span", { class: "tag warn" }, `${d.updates.waiting} waiting`)
-      : el("span", { class: "tag good" }, "up to date");
-    const tpm = d.tpm == null ? "–" : d.tpm.on ? el("span", { class: "tag good" }, "on") : el("span", { class: "tag dim" }, d.tpm.possible ? "off" : "not possible");
-    const pick = el("select", { "aria-label": `Ask ${d.hostname || "this computer"} to` },
-      el("option", { value: "" }, "Choose…"), ...ACTIONS.map(([v, t]) => el("option", { value: v }, t)));
-    pick.append(d.state?.lost_mode ? el("option", { value: "lost-mode-off" }, "Release from lost mode")
-                                   : el("option", { value: "lost-mode-on" }, "Turn on lost mode…"));
-    pick.append(el("option", { value: "install-app" }, "Install an app…"));
-    pick.append(el("option", { value: "remote-help" }, "Remote help…"));
-    pick.append(el("option", { value: "run-fix" }, "Run a fix…"));
-    if (orgNow()?.allow_scripts) pick.append(el("option", { value: "run-script" }, "Run a script…"));
-    pick.append(el("option", { value: "message" }, "Send a message…"));
-    if (d.state?.erase_allowed && d.state?.encrypted) pick.append(el("option", { value: "erase" }, "Erase…"));
-    const go = el("button", { onclick: async () => {
-      if (!pick.value) return;
-      if (pick.value === "install-app") { askInstallApp(d.hostname || "this computer", { op: "action", device_id: d.id }); return; }
-      if (pick.value === "remote-help") { askRemoteHelp(d); return; }
-      if (JOBS.has(pick.value)) { askJob(pick.value, d.hostname || "this computer", { op: "action", device_id: d.id }); return; }
-      if (pick.value === "restart" && !confirm(`Restart ${d.hostname}? Anyone using it gets 5 minutes' notice.`)) return;
-      if (pick.value === "shutdown" && !confirm(`Switch off ${d.hostname}? Anyone using it gets 5 minutes' notice. It reports again when it's switched on.`)) return;
-      if (pick.value === "lost-mode-on" && !confirm(`Turn on lost mode on ${d.hostname}? At its next report, nobody can sign in. Anyone using it is signed out after a 20-second warning, and unsaved work is lost. The sign-in screen asks for it to be returned to your organisation.`)) return;
-      let confirmName;
-      if (pick.value === "erase") {
-        confirmName = prompt(`Erase ${d.hostname}? At its next report, anyone using it gets a 20-second warning. Then everything on its disk is made unreadable and it switches off. This can't be undone. Type the computer's name to confirm.`);
-        if (!confirmName || confirmName.trim() !== d.hostname) { $("app-msg").textContent = "Not erased. The name didn't match."; return; }
-      }
-      go.disabled = true;
-      try { await api({ op: "action", device_id: d.id, type: pick.value, confirm: confirmName }); await load(); }
-      catch (e) { $("app-msg").textContent = e.message; go.disabled = false; }
-    } }, "Send");
-    const name = el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); openReport(d); } }, d.hostname || "(no name)");
-    return el("tr", { class: d.left_at ? "left" : "" },
-      el("td", {}, el("div", { class: "name" }, name, d.state?.lost_mode && !d.left_at ? el("span", { class: "tag bad", style: "margin-left: 6px" }, "lost mode") : ""),
-         el("div", { class: "small" }, [d.hardware?.vendor, d.hardware?.model].filter(Boolean).join(" ") || d.os || "")),
-      el("td", {}, d.kulan_version || "–"),
-      el("td", {}, d.left_at ? `left ${ago(d.left_at)}` : ago(d.last_seen)),
-      el("td", {}, comp), el("td", {}, upd), el("td", { class: "hide-sm" }, tpm),
-      el("td", {}, d.left_at ? "" : el("div", { class: "row" }, pick, go)));
-  });
-  $("devices").replaceChildren(...(rows.length ? rows : [el("tr", {}, el("td", { colspan: "7", class: "empty" }, "No computers yet. Make a join code below."))]));
-
+  const devices = data.devices.filter((d) => d.organisation_id === org);
   const names = Object.fromEntries(data.devices.map((d) => [d.id, d.hostname]));
   const ids = new Set(devices.map((d) => d.id));
   const acts = data.actions.filter((a) => ids.has(a.device_id)).map((a) =>
-    el("tr", {}, el("td", {}, ago(a.created_at)), el("td", {}, names[a.device_id] || ""),
-       el("td", {}, LABEL[a.type] || a.type, a.what ? el("span", { class: "small" }, ` · ${a.type === "run-fix" ? FIX_NAME[a.what] || a.what : a.what}`) : ""),
-       el("td", {}, el("span", { class: `tag ${a.status === "done" ? "good" : a.status === "failed" ? "bad" : "dim"}` },
-                     { pending: "waiting for the computer", sent: "sent", done: "done", failed: "failed",
-                       cancelled: "cancelled", expired: "expired" }[a.status] || a.status),
+    el("tr", {}, el("td", { class: "small" }, ago(a.created_at)), el("td", {}, names[a.device_id] || ""),
+       el("td", {}, requestLabel(a)), el("td", {}, ...requestResult(a, names[a.device_id]))));
+  $("actions").replaceChildren(...(acts.length ? acts : [el("tr", {}, el("td", { colspan: "4", class: "empty" }, "Nothing asked yet."))]));
+}
+
+// --- Computers (2.10: the Console look) -------------------------------------------------------
+const DAY_MS = 86400000;
+let selected = null, computerTab = "all";
+const deviceAlerts = (d) => (data.alerts || []).filter((a) => a.device_id === d.id);
+const offline = (d) => !d.last_seen || Date.now() - new Date(d.last_seen).getTime() > DAY_MS;
+// [label, pill kind, which tab] for a computer.
+function health(d) {
+  if (d.left_at) return ["Left", "dim", "left"];
+  if (d.state?.lost_mode) return ["Lost mode", "bad", "lost"];
+  if (offline(d)) return ["Offline", "dim", "offline"];
+  const issues = deviceAlerts(d).filter((a) => a.kind !== "offline" && a.kind !== "help").length;
+  return issues ? [`${issues} issue${issues === 1 ? "" : "s"}`, "warn", "attention"] : ["Healthy", "good", "healthy"];
+}
+function updatesTag(d) {
+  if (d.updates == null) return el("span", { class: "tag dim" }, "Unknown");
+  if (d.updates.security) return el("span", { class: "tag bad" }, `${d.updates.security} security`);
+  if (d.updates.waiting) return el("span", { class: "tag warn" }, `${d.updates.waiting} waiting`);
+  return el("span", { class: "tag good" }, "Up to date");
+}
+const model = (d) => [d.hardware?.vendor, d.hardware?.model].filter(Boolean).join(" ") || d.os || "";
+const personName = (u) => people.find((p) => p.username === u)?.full_name || u;
+function usedBy(d) {
+  const ins = d.sign_ins || [];
+  const now = ins.filter((x) => x.now);
+  if (now.length) return now.map((x) => personName(x.username)).join(", ");
+  return ins.length ? personName(ins[0].username) : "–";
+}
+const groupsOf = (d) => groups.filter((g) => (g.devices || []).includes(d.id)).map((g) => g.name);
+const COMPUTER_TABS = [["all", "All", (d) => !d.left_at], ["attention", "Needs attention", (d) => ["attention", "lost"].includes(health(d)[2])],
+                       ["offline", "Offline", (d) => health(d)[2] === "offline"], ["lost", "Lost mode", (d) => health(d)[2] === "lost"],
+                       ["left", "Left", (d) => !!d.left_at]];
+const RANK = { lost: 0, attention: 1, offline: 2, healthy: 3, left: 4 };
+
+function renderComputers() {
+  const org = $("org").value;
+  const all = data.devices.filter((d) => d.organisation_id === org);
+  const active = all.filter((d) => !d.left_at);
+  $("n-computers").textContent = active.length ? String(active.length) : "";
+  const latest = active.map((d) => d.last_seen).filter(Boolean).sort().pop();
+  $("org-sub").textContent = !org ? "Make an organisation first, in Settings."
+    : active.length ? `${active.length} computer${active.length === 1 ? "" : "s"} · last report ${ago(latest)}` : "No computers yet. Add one to get started.";
+  renderHealth(active);
+
+  const tabs = COMPUTER_TABS.map(([id, label, test]) => {
+    const n = all.filter(test).length;
+    if (id !== "all" && id !== "attention" && !n) return null;
+    return el("button", { type: "button", class: `tab${id === computerTab ? " on" : ""}`, role: "tab", "aria-selected": String(id === computerTab),
+                          onclick: () => { computerTab = id; renderComputers(); } }, label, el("span", { class: "n" }, String(n)));
+  }).filter(Boolean);
+  if (!tabs.some((t) => t.classList.contains("on"))) { computerTab = "all"; return renderComputers(); }
+  $("computer-tabs").replaceChildren(...tabs);
+  const find = $("find-computers").value.trim().toLowerCase();
+  const test = COMPUTER_TABS.find(([id]) => id === computerTab)[2];
+  const shown = all.filter(test)
+    .filter((d) => !find || [d.hostname, model(d), usedBy(d), ...(d.sign_ins || []).map((x) => x.username)].some((x) => (x || "").toLowerCase().includes(find)))
+    .sort((a, b) => RANK[health(a)[2]] - RANK[health(b)[2]] || (a.hostname || "").localeCompare(b.hostname || ""));
+  if (!shown.some((d) => d.id === selected)) selected = shown[0]?.id || null;
+  $("devices").replaceChildren(...(shown.length ? shown.map((d) => {
+    const [label, kind] = health(d);
+    const pick = () => { selected = d.id; renderComputers(); };
+    return el("tr", { class: `pick${d.id === selected ? " on" : ""}${d.left_at ? " left" : ""}`, tabindex: "0", "aria-selected": String(d.id === selected),
+                      onclick: pick, onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } } },
+      el("td", {}, el("div", { class: "name" }, d.hostname || "(no name)"), el("div", { class: "small" }, model(d))),
+      el("td", {}, usedBy(d)),
+      el("td", {}, el("span", { class: `tag ${kind}` }, el("span", { class: "dot" }), label)),
+      el("td", {}, d.left_at ? "" : updatesTag(d)),
+      el("td", { class: "hide-sm" }, d.kulan_version || "–"),
+      el("td", { class: "small" }, d.left_at ? `left ${ago(d.left_at)}` : ago(d.last_seen)));
+  }) : [el("tr", {}, el("td", { colspan: "6", class: "empty" },
+    !all.length ? "No computers yet. Choose Add computers to make a join code." : find ? "No computer matches." : "Nothing here.")) ]));
+  renderDetail(all.find((d) => d.id === selected));
+}
+$("find-computers").addEventListener("input", renderComputers);
+
+function renderHealth(active) {
+  const by = { healthy: 0, attention: 0, offline: 0 };
+  for (const d of active) { const k = health(d)[2]; by[k === "lost" ? "attention" : k]++; }
+  $("health").classList.toggle("hidden", !active.length);
+  const part = (n, colour) => n ? el("span", { style: `flex: ${n}; background: ${colour}` }) : null;
+  const key = (n, colour, text) => el("span", {}, el("i", { style: `background: ${colour}` }), `${n} ${text}`);
+  const passing = active.filter((d) => d.compliance_total && d.compliance_passed === d.compliance_total).length;
+  $("health").replaceChildren(
+    el("div", { class: "health-top" }, el("b", {}, "Fleet health"),
+       el("span", { class: "small" }, `${passing} of ${active.length} meet the compliance baseline`)),
+    el("div", { class: "bar", role: "img", "aria-label": `${by.healthy} healthy, ${by.attention} need attention, ${by.offline} offline` },
+       ...[part(by.healthy, "var(--teal)"), part(by.attention, "var(--amber)"), part(by.offline, "var(--slate)")].filter(Boolean)),
+    el("div", { class: "legend" }, key(by.healthy, "var(--teal)", "healthy"), key(by.attention, "var(--amber)", "need attention"),
+       key(by.offline, "var(--slate)", "offline for over a day")));
+}
+
+// What a computer can be asked from its details: [value, label].
+function actionChoices(d) {
+  const out = [...ACTIONS];
+  out.push(d.state?.lost_mode ? ["lost-mode-off", "Release from lost mode"] : ["lost-mode-on", "Turn on lost mode…"]);
+  out.push(["install-app", "Install an app…"], ["remote-help", "Remote help…"], ["run-fix", "Run a fix…"]);
+  if (orgNow()?.allow_scripts) out.push(["run-script", "Run a script…"]);
+  out.push(["message", "Send a message…"]);
+  if (d.state?.erase_allowed && d.state?.encrypted) out.push(["erase", "Erase…"]);
+  return out;
+}
+async function sendAction(d, type) {
+  const where = d.hostname || "this computer";
+  if (type === "install-app") return askInstallApp(where, { op: "action", device_id: d.id });
+  if (type === "remote-help") return askRemoteHelp(d);
+  if (JOBS.has(type)) return askJob(type, where, { op: "action", device_id: d.id });
+  if (type === "restart" && !confirm(`Restart ${where}? Anyone using it gets 5 minutes' notice.`)) return;
+  if (type === "shutdown" && !confirm(`Switch off ${where}? Anyone using it gets 5 minutes' notice. It reports again when it's switched on.`)) return;
+  if (type === "lost-mode-on" && !confirm(`Turn on lost mode on ${where}? At its next report, nobody can sign in. Anyone using it is signed out after a 20-second warning, and unsaved work is lost. The sign-in screen asks for it to be returned to your organisation.`)) return;
+  let confirmName;
+  if (type === "erase") {
+    confirmName = prompt(`Erase ${where}? At its next report, anyone using it gets a 20-second warning. Then everything on its disk is made unreadable and it switches off. This can't be undone. Type the computer's name to confirm.`);
+    if (!confirmName || confirmName.trim() !== d.hostname) { $("app-msg").textContent = "Not erased. The name didn't match."; return; }
+  }
+  try {
+    await api({ op: "action", device_id: d.id, type, confirm: confirmName });
+    $("app-msg").textContent = `${LABEL[type] || type}: asked. ${where} gets it in a few seconds if it's online.`;
+    await load();
+  } catch (e) { $("app-msg").textContent = e.message; }
+}
+
+const requestLabel = (a) => el("span", {}, LABEL[a.type] || a.type,
+  a.what ? el("span", { class: "small" }, ` · ${a.type === "run-fix" ? FIX_NAME[a.what] || a.what : a.what}`) : "");
+function requestResult(a, hostname) {
+  return [el("span", { class: `tag ${a.status === "done" ? "good" : a.status === "failed" ? "bad" : "dim"}` },
+            { pending: "Waiting", sent: "Sent", done: "Done", failed: "Failed", cancelled: "Cancelled", expired: "Expired" }[a.status] || a.status),
           a.detail ? el("span", { class: "small" }, ` ${a.detail}`) : "",
-          a.has_output ? el("button", { style: "margin-left: 8px", onclick: () => showOutput(a, names[a.device_id]) }, "Output") : "",
+          a.has_output ? el("button", { style: "margin-left: 8px", onclick: () => showOutput(a, hostname) }, "Output") : "",
           a.status === "pending" ? el("button", { style: "margin-left: 8px", onclick: async () => {
             try { await api({ op: "cancel-action", action_id: a.id }); await load(); }
             catch (e) { $("app-msg").textContent = e.message; }
-          } }, "Cancel") : "")));
-  $("actions").replaceChildren(...(acts.length ? acts : [el("tr", {}, el("td", { colspan: "4", class: "empty" }, "Nothing asked yet."))]));
+          } }, "Cancel") : ""];
+}
+
+// The selected computer's details, beside the list.
+function renderDetail(d) {
+  const box = $("detail");
+  box.classList.toggle("hidden", !d);
+  if (!d) { box.replaceChildren(); return; }
+  const [label, kind] = health(d);
+  const where = [model(d), groupsOf(d).join(", ")].filter(Boolean).join(" · ");
+  const parts = [el("div", { class: "detail-head" },
+    el("div", {}, el("h2", {}, d.hostname || "(no name)"), where ? el("p", { class: "sub" }, where) : ""),
+    el("span", { class: `tag ${kind}` }, el("span", { class: "dot" }), label))];
+  if (d.left_at) {
+    parts.push(el("p", { class: "note" }, `It left the organisation ${ago(d.left_at)}. It no longer reports or takes requests.`));
+    box.replaceChildren(...parts);
+    return;
+  }
+  const issues = deviceAlerts(d);
+  if (issues.length) {
+    const fix = (a) => {
+      if (a.kind === "updates") return el("button", { onclick: () => sendAction(d, "install-updates") }, "Install now");
+      if (a.kind === "help" && a.request_id) return el("button", { onclick: () => openHelpRequest(a.request_id) }, "Open…");
+      if (a.kind === "lost") return el("button", { onclick: () => sendAction(d, "lost-mode-off") }, "Release");
+      if (a.kind === "disk") return el("button", { onclick: () => askJob("run-fix", d.hostname || "this computer", { op: "action", device_id: d.id }) }, "Run a fix…");
+      if (["firewall", "policy", "encryption"].includes(a.kind)) return el("button", { onclick: () => go("policy") }, "Open policy");
+      if (a.kind === "compliance") return el("button", { onclick: () => openReport(d) }, "See checks");
+      return "";
+    };
+    parts.push(el("div", { class: "stack" }, el("h3", {}, issues.every((a) => a.kind === "help") ? "Asked for help" : "Needs attention"),
+      ...issues.map((a) => el("div", { class: `issue${["lost", "encryption"].includes(a.kind) ? " bad" : ""}` },
+        el("span", { class: "grow-text" }, a.text), fix(a)))));
+  }
+  const more = el("select", { "aria-label": `Ask ${d.hostname || "this computer"} to` }, el("option", { value: "" }, "More…"),
+    ...actionChoices(d).map(([v, t]) => el("option", { value: v }, t)));
+  more.addEventListener("change", () => { const t = more.value; more.value = ""; if (t) sendAction(d, t); });
+  parts.push(el("div", { class: "quick" },
+    el("button", { class: "primary", onclick: () => askRemoteHelp(d) }, "Remote help"),
+    el("button", { onclick: () => askJob("run-fix", d.hostname || "this computer", { op: "action", device_id: d.id }) }, "Run a fix"),
+    el("button", { onclick: () => sendAction(d, "lock-screen") }, "Lock the screen"), more));
+  const now = (d.sign_ins || []).filter((x) => x.now).map((x) => personName(x.username));
+  const disk = d.hardware?.disk_total_gb ? `${d.hardware.disk_free_gb} GB free of ${d.hardware.disk_total_gb} GB` : "";
+  const facts = [["Kulan OS", d.kulan_version || "–"], ["Last report", ago(d.last_seen)], ["Signed in now", now.join(", ") || "Nobody"],
+    ["Compliance", d.compliance_total == null ? "Not reported" : `${d.compliance_passed} of ${d.compliance_total} checks pass${d.compliance_mode === "on" ? " · compliance mode on" : ""}`],
+    ["Disk", disk], ["Encryption", d.state?.encrypted === true ? "On" : d.state?.encrypted === false ? "Off" : ""],
+    ["TPM unlock", d.tpm == null ? "" : d.tpm.on ? "On" : d.tpm.possible ? "Off" : "Not possible"],
+    ["Joined", d.enrolled_at ? dayLabel(d.enrolled_at) : ""]].filter(([, v]) => v);
+  parts.push(el("div", { class: "facts" }, ...facts.map(([k, v]) => el("div", { class: "fact" }, el("span", {}, k), el("span", {}, v)))));
+  const recent = data.actions.filter((a) => a.device_id === d.id).slice(0, 4);
+  if (recent.length) {
+    parts.push(el("div", { class: "stack" }, el("h3", {}, "Recent requests"), el("ul", { class: "list" }, ...recent.map((a) =>
+      el("li", {}, el("span", { class: "grow-text" }, requestLabel(a), el("span", { class: "small" }, ` · ${ago(a.created_at)}`)), ...requestResult(a, d.hostname))))));
+  }
+  parts.push(el("div", { class: "row" }, el("button", { class: "link", onclick: () => openReport(d) }, "Full report, compliance checks and apps…")));
+  box.replaceChildren(...parts);
 }
 
 // --- Fixes, scripts and messages (2.9b) -----------------------------------------------------
@@ -1596,12 +1985,13 @@ function openGroupNetwork(g) {
 function renderHelpRequests(org) {
   const list = (data.help_requests || []).filter((h) => h.organisation_id === org);
   $("help-card").classList.toggle("hidden", !list.length);
-  $("help-requests").replaceChildren(...list.slice(0, 50).map((h) => el("li", { class: h.state === "done" ? "small" : "" },
-    el("b", {}, h.full_name || h.username), ` on ${h.hostname || "a computer"} · ${ago(h.created_at)}`,
-    h.state === "done" ? el("span", { class: "tag good", style: "margin-left: 8px" }, "Done") : "",
-    h.has_screenshot ? el("span", { class: "tag dim", style: "margin-left: 8px" }, "Screenshot") : "",
-    el("button", { style: "margin-left: 8px", onclick: () => openHelpRequest(h.id) }, "Open…"),
-    el("div", { class: "note", style: "white-space: pre-wrap; margin-top: 2px" }, String(h.body).slice(0, 300) + (h.body.length > 300 ? "…" : "")))));
+  $("help-requests").replaceChildren(...list.slice(0, 50).map((h) => el("li", {},
+    avatar(h.full_name || h.username, h.username),
+    el("span", { class: "grow-text" }, el("b", {}, h.full_name || h.username), el("span", { class: "small" }, ` on ${h.hostname || "a computer"} · ${ago(h.created_at)}`),
+       el("div", { class: "note", style: "white-space: pre-wrap" }, String(h.body).slice(0, 300) + (h.body.length > 300 ? "…" : ""))),
+    h.state === "done" ? el("span", { class: "tag good" }, "Done") : el("span", { class: "tag warn" }, "Waiting"),
+    h.has_screenshot ? el("span", { class: "tag dim" }, "Screenshot") : "",
+    el("button", { onclick: () => openHelpRequest(h.id) }, "Open…"))));
 }
 
 async function openHelpRequest(id) {
@@ -1806,7 +2196,7 @@ function resetLog() {
   $("log-more").classList.add("hidden");
   $("log-wrap").classList.add("hidden");
 }
-$("org").addEventListener("change", () => { resetLog(); render(); loadPeople(); loadGroups(); loadScripts(); });
+$("org").addEventListener("change", () => { selected = null; resetLog(); render(); loadPeople(); loadGroups(); loadScripts(); });
 $("add-group").addEventListener("click", () => {
   const name = el("input", { maxlength: "60" });
   const err = errorLine();
@@ -1874,6 +2264,8 @@ $("new-org").addEventListener("click", async () => {
     showRecovery(name, out.recovery_code);
   } catch (e) { $("app-msg").textContent = e.message; }
 });
+$("add-computers").addEventListener("click", () => { $("code-box").classList.add("hidden"); $("add-dialog").showModal(); });
+$("add-close").addEventListener("click", () => $("add-dialog").close());
 $("make-code").addEventListener("click", async () => {
   try {
     const out = await api({ op: "new-code", organisation_id: $("org").value, hours: Number($("hours").value), uses: Number($("uses").value) });
@@ -1895,6 +2287,8 @@ $("signin-form").addEventListener("submit", async (ev) => {
 });
 
 if (linkError) $("signin-msg").textContent = linkError;
+
+go(location.hash.slice(1), false);
 
 // Fires once at start (INITIAL_SESSION) and on every sign-in or sign-out.
 supabase.auth.onAuthStateChange((event, session) => {
