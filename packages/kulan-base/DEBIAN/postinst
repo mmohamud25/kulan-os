@@ -35,6 +35,8 @@ case "$1" in
 		# restart in ARM VMs, where a normal restart freezes (UTM on Apple
 		# silicon). The generator takes effect from the next start.
 		deb-systemd-helper enable kulan-kexec-guard.service >/dev/null || true
+		# An organisation's USB stick: join it once online (does nothing otherwise).
+		deb-systemd-helper enable kulan-fleet-autojoin.timer >/dev/null || true
 		deb-systemd-helper enable kulan-fast-restart.service >/dev/null || true
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true

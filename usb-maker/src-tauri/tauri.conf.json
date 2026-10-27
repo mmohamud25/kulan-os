@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kulan USB Maker",
+  "version": "1.0.0",
+  "identifier": "com.kulangroup.usbmaker",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Kulan USB Maker",
+        "width": 560,
+        "height": 760,
+        "minWidth": 440,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "nsis"],
+    "publisher": "Kulan Group LLC",
+    "copyright": "Kulan Group LLC",
+    "category": "Utility",
+    "shortDescription": "Makes a Kulan OS USB stick",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "macOS": { "minimumSystemVersion": "11.0" },
+    "windows": {
+      "nsis": { "installMode": "currentUser" }
+    }
+  }
+}

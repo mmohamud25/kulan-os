@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Kulan OS logo: the gathering. "Kulan" means "gathering" in Somali:
+       six people in a circle around one centre, the place where they meet. -->
+  <defs>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0F766E"/>
+      <stop offset="1" stop-color="#0B2A4A"/>
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#badge)"/>
+  <g fill="#F59E0B">
+    <circle cx="256" cy="126" r="34"/>
+    <circle cx="143.4" cy="321" r="34"/>
+    <circle cx="368.6" cy="321" r="34"/>
+  </g>
+  <g fill="#ECFDF5">
+    <circle cx="368.6" cy="191" r="34"/>
+    <circle cx="256" cy="386" r="34"/>
+    <circle cx="143.4" cy="191" r="34"/>
+  </g>
+  <circle cx="256" cy="256" r="44" fill="#ECFDF5" fill-opacity="0.95"/>
+</svg>

@@ -69,6 +69,24 @@ stick, press the boot key, click Install.
 - The boot key: the USB Maker asks the laptop's brand and shows its key.
 - Later (3.0 era): laptops sold with Kulan OS on them, installing over a
   business's network.
+- Done so far (27 Oct 2026):
+  - Kulan Installer is one screen: where, your name and one password (it
+    signs you in and unlocks the encrypted disk), Install. The rest is
+    guessed, under More choices. (Agreed: one password for both.)
+  - Kulan USB Maker (usb-maker/, Tauri: Rust and a web page), unsigned for
+    now (agreed): lists only USB and SD drives, downloads the newest Kulan
+    OS and only uses it if its SHA-256 is in a SHA256SUMS signed with the
+    update channel's key, writes it as an administrator (the partition
+    table last, so nothing mounts half-written), reads it all back, and
+    shows the boot key for the computer's make. Built and tested for real
+    on Macs and Windows by .github/workflows/usb-maker.yml (a RAM disk and a
+    virtual disk stand in for the stick).
+  - Organisation sticks: a Kulan Fleet join code typed into the USB Maker
+    goes in a small checked block after Kulan OS on the stick; the
+    installer copies it to the new system, and kulan-fleet-autojoin joins
+    once online (stopping when joined, refused, or after 14 days).
+  - Still to do at release: put the USB Maker on the release, and the
+    install guide's step 1 on the website.
 
 ## 2. Security
 - An independent review of each part: the base system, Kulan Fleet (server,

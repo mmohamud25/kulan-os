@@ -34,6 +34,7 @@ USB stick, so no internet is needed; rebuilds the start-up image.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -113,6 +114,53 @@ def live_disks() -> set[str]:
             found.update("/dev/" + p.strip() for p in parent.split() if p.strip())
             found.add(source)
     return found
+
+
+STICK_MAGIC = b"KULAN-STICK-CONFIG 1\n"
+JOIN_CODE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
+MIB = 1 << 20
+
+
+def live_device() -> str | None:
+    """The whole USB stick (or disc) the live session started from."""
+    source = subprocess.run(["findmnt", "-no", "SOURCE", "/run/live/medium"], capture_output=True, text=True).stdout.strip()
+    if not source:
+        return None
+    parent = subprocess.run(["lsblk", "-no", "PKNAME", source], capture_output=True, text=True).stdout.split()
+    return "/dev/" + parent[0] if parent else source
+
+
+def stick_settings(device: str | None = None) -> dict | None:
+    """An organisation's settings on the USB stick (Kulan USB Maker puts them
+    in a 4 KiB block on a megabyte boundary, within 64 MiB after Kulan OS):
+    {"server", "code"} of its Kulan Fleet, or None."""
+    device = device or live_device()
+    if not device:
+        return None
+    try:
+        with open(device, "rb") as f:
+            f.seek(16 * 2048)
+            pvd = f.read(2048)
+            if pvd[1:6] != b"CD001":
+                return None
+            end = int.from_bytes(pvd[80:84], "little") * (int.from_bytes(pvd[128:130], "little") or 2048)
+            start = -(-end // MIB) * MIB
+            for offset in range(start, start + 64 * MIB, MIB):
+                f.seek(offset)
+                block = f.read(4096)
+                if not block.startswith(STICK_MAGIC):
+                    continue
+                lines = block.rstrip(b"\0").split(b"\n")
+                if len(lines) < 3 or hashlib.sha256(lines[2]).hexdigest().encode() != lines[1]:
+                    return None
+                fleet = json.loads(lines[2]).get("fleet") or {}
+                server, code = str(fleet.get("server", "")), str(fleet.get("code", "")).upper()
+                if server.startswith("https://") and len(server) < 300 and JOIN_CODE.match(code):
+                    return {"server": server, "code": code}
+                return None
+    except (OSError, ValueError, AttributeError):
+        return None
+    return None
 
 
 def free_areas(disk: str) -> list[dict]:
@@ -614,6 +662,10 @@ def install(plan: dict) -> None:
         copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
         at("configure", 0, "Setting the language, keyboard and time zone…")
         configure(plan, target, parts, disk_info)
+        org = stick_settings(plan.get("stick"))
+        if org:  # joined once online, by kulan-fleet-autojoin
+            write(target / "var/lib/kulan/fleet-join.json", json.dumps(org) + "\n", 0o600)
+            log(f"joins {org['server']} once online")
         with Chroot(target, parts.get("esp"), efivars=not plan.get("no_nvram")) as chroot:
             chroot.run(["systemd-machine-id-setup"], check=False)
             chroot.run(["locale-gen"], check=False)
@@ -662,7 +714,10 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         if argv[1] == "disks":
-            print(json.dumps({"firmware": firmware(), "disks": disks()}))
+            org = stick_settings()
+            print(json.dumps({"firmware": firmware(), "disks": disks(),
+                              # (the server only: the code itself stays out of the window)
+                              **({"organisation": {"server": org["server"]}} if org else {})}))
             return 0
         plan = json.loads(sys.stdin.read() or "{}")
         install(plan)

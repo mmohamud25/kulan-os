@@ -1628,7 +1628,9 @@ class FleetWindow(Adw.ApplicationWindow):
     def add_computers_dialog(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Add computers",
                                  body="Make a join code. On each computer, open Kulan Settings › About › Organisation › "
-                                      "Join an organisation, and type it there.")
+                                      "Join an organisation, and type it there. Installing on new computers? Put the code "
+                                      "on the USB stick with Kulan USB Maker (For an organisation): every computer "
+                                      "installed from it joins by itself.")
         rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         hours = Adw.ComboRow(title="Code works for", model=Gtk.StringList.new(["1 day", "3 days", "1 week", "30 days"]),
                              selected=1)

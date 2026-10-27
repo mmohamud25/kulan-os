@@ -1,0 +1,94 @@
+name: Kulan USB Maker
+
+# Builds Kulan USB Maker for Macs and Windows, and tests it on each: its
+# unit tests, its window, and writing for real to a stand-in USB stick (a RAM
+# disk on the Mac, a virtual disk on Windows). The apps are kept as this
+# run's artifacts; they're put on a release by hand, when it's released.
+on:
+  push:
+    paths: ["usb-maker/**", ".github/workflows/usb-maker.yml", "packages/kulan-archive-keyring.gpg"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  window:
+    name: The window
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Test every screen
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node usb-maker/test/ui.test.cjs
+
+  mac:
+    name: Mac
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Rust for both kinds of Mac
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Unit tests
+        working-directory: usb-maker/src-tauri
+        run: cargo test
+      - name: Write to a stand-in stick
+        working-directory: usb-maker/src-tauri
+        run: |
+          cargo build --release --features test-devices
+          DISK="$(hdiutil attach -nomount ram://1048576 | awk '{print $1}')"   # 512 MB
+          ID="${DISK#/dev/}"
+          echo "stand-in stick: ${ID}"
+          sudo env KULAN_USB_MAKER_TEST_DEVICES="${ID}" python3 ../test/write_test.py \
+            target/release/kulan-usb-maker "${ID}" "/dev/r${ID}" disk0
+          hdiutil detach "${DISK}" || true
+      - name: Build the app
+        working-directory: usb-maker
+        run: |
+          npm ci
+          npx tauri build --target universal-apple-darwin
+      - uses: actions/upload-artifact@v5
+        with:
+          name: kulan-usb-maker-mac
+          path: usb-maker/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Unit tests
+        working-directory: usb-maker/src-tauri
+        run: cargo test
+      - name: Write to a stand-in stick
+        working-directory: usb-maker/src-tauri
+        shell: pwsh
+        run: |
+          cargo build --release --features test-devices
+          $vhd = "$env:RUNNER_TEMP\stick.vhdx"
+          "create vdisk file=`"$vhd`" maximum=512 type=expandable`r`nselect vdisk file=`"$vhd`"`r`nattach vdisk" | Set-Content "$env:RUNNER_TEMP\vhd.txt"
+          diskpart /s "$env:RUNNER_TEMP\vhd.txt"
+          $number = (Get-Disk | Where-Object { $_.Location -eq $vhd }).Number
+          if ($null -eq $number) { $number = (Get-Disk | Where-Object { $_.BusType -eq 'File Backed Virtual' } | Select-Object -Last 1).Number }
+          $system = (Get-Disk | Where-Object { $_.IsSystem }).Number
+          Write-Host "stand-in stick: disk $number; the system's disk: $system"
+          $env:KULAN_USB_MAKER_TEST_DEVICES = "$number"
+          python ..\test\write_test.py target\release\kulan-usb-maker.exe "$number" "\\.\PhysicalDrive$number" "$system"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Build the app
+        working-directory: usb-maker
+        run: |
+          npm ci
+          npx tauri build
+      - uses: actions/upload-artifact@v5
+        with:
+          name: kulan-usb-maker-windows
+          path: usb-maker/src-tauri/target/release/bundle/nsis/*.exe

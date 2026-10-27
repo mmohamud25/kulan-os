@@ -24,6 +24,7 @@ import re
 import subprocess
 import sys
 import threading
+import urllib.parse
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -241,6 +242,9 @@ class Installer(Adw.ApplicationWindow):
         box.append(self.titled("You", you))
         self.password_note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"])
         box.append(self.password_note)
+        # An organisation's USB stick (Kulan USB Maker): said, so it's no surprise.
+        self.org_note = Gtk.Label(wrap=True, xalign=0, visible=False)
+        box.append(self.org_note)
 
         # More choices: what's guessed, to change if it's wrong.
         more = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
@@ -383,7 +387,8 @@ class Installer(Adw.ApplicationWindow):
             GLib.idle_add(lambda: self.show_disks({"firmware": "uefi", "disks": [
                 {"path": "/dev/nvme0n1", "size": 512 * GB, "model": "Samsung SSD 980", "removable": False,
                  "empty": False, "contents": ["Windows"], "windows": True, "table": "gpt",
-                 "largest_free": 120 * GB, "big_enough": True}]}, None) and False)
+                 "largest_free": 120 * GB, "big_enough": True}],
+                "organisation": {"server": "https://fleet.example.org/functions/v1/fleet"}}, None) and False)
             return
         if getattr(self, "disks_loading", False):
             return
@@ -419,6 +424,12 @@ class Installer(Adw.ApplicationWindow):
             return
         self.disk_info = info
         self.disks_loaded = True
+        org = (info.get("organisation") or {}).get("server", "")
+        host = urllib.parse.urlsplit(org).hostname or "" if org else ""
+        self.org_note.set_visible(bool(host))
+        if host:
+            self.org_note.set_label(f"This USB stick is your organisation’s: once installed, the computer joins its "
+                                    f"Kulan Fleet ({host}) the first time it’s online.")
         disks = info.get("disks", [])
         first: Gtk.CheckButton | None = None
         for disk in disks:
@@ -714,6 +725,7 @@ class App(Adw.Application):
             assert window.choice.get("disk"), "the sample disk is chosen"
             assert window.choice["mode"] == "free", "next to Windows first: nothing is lost"
             assert window.problem() == "Type your name", window.problem()
+            assert "fleet.example.org" in window.org_note.get_label() and window.org_note.get_visible()
             window.full_name.set_text("Amina Yusuf")
             assert window.username.get_text() == "amina" and window.hostname.get_text().startswith("amina-")
             window.password.set_text("short")
