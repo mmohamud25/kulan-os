@@ -280,15 +280,14 @@ def install() -> str:
 </div><figure><img src="/images/live-desktop.jpg" width="1200" height="675" alt="The {e(NAME)} live desktop, with Install {e(NAME)} first in the dock" loading="lazy"></figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">4</span><h3>Install with Kulan Installer</h3></div>
-<p>Click Install {e(NAME)}, the first icon in the dock, and follow four short steps:</p>
+<p>Click Install {e(NAME)}, the first icon in the dock. It’s one screen:</p>
 <ol>
-<li><strong>Keyboard:</strong> pick your layout and try it.</li>
-<li><strong>Where to install:</strong> Erase disk deletes everything on the disk. Install next to Windows uses the space you made and keeps Windows and your files. Tick encryption to protect your files with a password.</li>
-<li><strong>Time zone:</strong> usually filled in for you.</li>
-<li><strong>Your account:</strong> your name, a username and a password.</li>
+<li><strong>Where:</strong> next to Windows, using the space you made and keeping Windows and your files, or erase the whole disk.</li>
+<li><strong>You:</strong> your name and a password. The password signs you in and unlocks the encrypted disk when the computer starts.</li>
+<li><strong>Install.</strong> Language, keyboard and time zone are filled in for you. To change them, open More choices.</li>
 </ol>
-<p>A summary shows what will change, and nothing happens until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, restart, remove the stick and sign in.</p>
-</div><figure><img src="/images/installer-disk.jpg" width="840" height="665" alt="Kulan Installer’s Where to install step, offering to install next to Windows" loading="lazy"></figure></div>
+<p>Nothing on the computer changes until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, restart, remove the stick and sign in.</p>
+</div><figure><img src="/images/installer-disk.jpg" width="840" height="665" alt="Kulan Installer’s one screen, offering to install next to Windows" loading="lazy"></figure></div>
 <p class="muted" style="font-size:15px">Want to choose partitions yourself? Open Advanced install from the app grid instead.</p>
 </section>
 <section class="band" id="mac">

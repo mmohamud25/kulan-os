@@ -158,8 +158,7 @@ shot("desktop")
 
 # The installer in demo mode: a sample Windows disk, never installs.
 for name, cmd in (("installer", "/usr/bin/kulan-installer --demo"),
-                  ("installer-disk", "/usr/bin/kulan-installer --demo disk"),
-                  ("installer-summary", "/usr/bin/kulan-installer --demo summary"),
+                  ("installer-filled", "/usr/bin/kulan-installer --demo filled"),
                   ("settings", "/usr/bin/kulan-settings")):
     if qga is None:
         break
