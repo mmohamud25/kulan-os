@@ -112,6 +112,24 @@ stick, press the boot key, click Install.
 - A passphrase-protected update signing key, with a rotation plan.
 - Vulnerability scans with nothing known left open; a published way to report
   security problems (security.txt, a security page).
+- Status (27 Oct 2026): three independent reviews done (Kulan Fleet's server;
+  the privileged code on the computer; updates, the build and Ask Kulan).
+  Fixed:
+  - Kulan Fleet: a computer that joins with a code from an admin other than
+    the Owner waits for the Owner's approval, and gets no accounts, Wi-Fi or
+    printers until then; join codes listed and withdrawn; Remove a computer;
+    an admin's or the Owner's password or second step taken only from a
+    computer they were signed in on; only the Owner moves an admin's or the
+    Owner's account; limits on reports and request sizes; the dashboard under
+    a Content Security Policy.
+  - Scripts the Owner signed (agreed): computers run only scripts signed with
+    the Owner's script signing code, which never reaches the server.
+  - The update channel: computers take only Kulan's own packages from it;
+    the signing key for main only, a locked backup and a yearly subkey
+    (docs/signing-key.md; three steps for you to run on the Mac).
+  - Smaller fixes on the computer, in the build and in Ask Kulan.
+  - Still to do: signed start-up files (unified kernel images); the steps in
+    docs/signing-key.md and protecting main on GitHub (yours).
 
 ## 3. Reliability
 - Sleep and wake; installing next to Windows; restoring a restore point;
