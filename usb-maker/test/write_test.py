@@ -22,14 +22,19 @@ MIB = 1 << 20
 BINARY, DRIVE, DEVICE = sys.argv[1], sys.argv[2], sys.argv[3]
 SYSTEM = sys.argv[4] if len(sys.argv) > 4 else None
 work = tempfile.mkdtemp(prefix="kum-test-")
+listed = json.loads(subprocess.run([BINARY, "--list-drives"], capture_output=True, text=True).stdout or "[]")
+FINGERPRINT = next((d["fingerprint"] for d in listed if d["id"] == DRIVE), None)
+if not FINGERPRINT:
+    print(f"FAIL {DRIVE} isn't listed: {listed}")
+    sys.exit(1)
 
 
-def helper(image, drive, config=None, stop_after=None):
+def helper(image, drive, config=None, stop_after=None, sha=None, fingerprint=None):
     status, stop = os.path.join(work, "status"), os.path.join(work, "stop")
     for f in (status, stop):
         if os.path.exists(f):
             os.remove(f)
-    args = [BINARY, "--write-helper", image, drive, status, stop] + ([config] if config else [])
+    args = [BINARY, "--write-helper", image, sha or digest, drive, fingerprint or FINGERPRINT, status, stop] + ([config] if config else [])
     proc = subprocess.Popen(args)
     if stop_after:
         while not os.path.exists(status) or "write" not in open(status).read():
@@ -102,7 +107,20 @@ if code != 3 or status.get("error") != "stopped":
     fail(f"stopping: exit {code}, {status}")
 print("ok: stopped when asked")
 
-# 4. Never the computer's own disk (nor one that isn't there).
+# 4. Not when the drive behind the id changed, nor when the file changed after it was checked.
+with open(DEVICE, "r+b", buffering=0) as f:
+    f.write(b"\0" * MIB)
+code, status = helper(image, DRIVE, fingerprint="Another drive|1|X")
+if code == 0 or "changed for another drive" not in status.get("error", ""):
+    fail(f"another drive wasn't refused: exit {code}, {status}")
+code, status = helper(image, DRIVE, sha="0" * 64)
+if code == 0 or "changed after it was checked" not in status.get("error", ""):
+    fail(f"a changed file wasn't refused: exit {code}, {status}")
+if read(0, MIB) != b"\0" * MIB:
+    fail("a changed file's start was written (it could start)")
+print("ok: another drive, or a changed file, refused (the stick left unstartable)")
+
+# 5. Never the computer's own disk (nor one that isn't there).
 for other in [d for d in (SYSTEM, "nonexistent9") if d]:
     code, status = helper(image, other)
     if code == 0 or "isn't plugged in" not in status.get("error", ""):

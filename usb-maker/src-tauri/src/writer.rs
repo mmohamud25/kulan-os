@@ -2,14 +2,19 @@
 //! reads it back to check it, and, for an organisation's stick, adds its
 //! settings after Kulan OS.
 //!
-//!   kulan-usb-maker --write-helper IMAGE DRIVE_ID STATUS_FILE STOP_FILE [CONFIG_FILE]
+//!   kulan-usb-maker --write-helper IMAGE SHA256 DRIVE_ID FINGERPRINT STATUS_FILE STOP_FILE [CONFIG_FILE]
 //!
-//! It checks again that DRIVE_ID is a USB drive (never the computer's own
-//! disk) and big enough. It writes everything but the first megabyte, then
-//! the first megabyte last: until then the stick has no partition table, so
-//! Windows and macOS don't mount half-written partitions. STATUS_FILE gets
-//! one line of JSON at a time: {"phase","done","total"} or {"error"} or
-//! {"finished":true}. If STOP_FILE appears, it stops.
+//! Before writing it checks again that DRIVE_ID is a USB drive (never the
+//! computer's own disk), still the one the person agreed to erase
+//! (FINGERPRINT: its name, size and serial number), and big enough. It clears
+//! the stick's old partition tables (its first and last megabyte), writes
+//! everything but Kulan OS's first megabyte, checks that what it wrote has
+//! the SHA-256 the app verified (so a file swapped meanwhile is never made
+//! startable), then writes that megabyte last: until then the stick has no
+//! partition table, so nothing mounts half-written partitions. Then it reads
+//! it all back. STATUS_FILE gets one line of JSON at a time:
+//! {"phase","done","total"}, {"error"} or {"finished":true}. If STOP_FILE
+//! appears, it stops.
 
 use crate::drives;
 use serde_json::json;
@@ -37,21 +42,29 @@ impl Status<'_> {
             return;
         }
         self.last = Instant::now();
-        // A new file, renamed into place, so a half-written line is never read.
+        // As an administrator, in a folder the person's programs can write to:
+        // a new file only (never through a link someone put there), renamed
+        // into place (a rename replaces a link, never what it points to).
         let tmp = self.path.with_extension("tmp");
-        if std::fs::write(&tmp, format!("{value}\n")).is_ok() {
-            let _ = std::fs::rename(&tmp, self.path);
+        let _ = std::fs::remove_file(&tmp);
+        if let Ok(mut f) = OpenOptions::new().write(true).create_new(true).open(&tmp) {
+            if f.write_all(format!("{value}\n").as_bytes()).is_ok() {
+                drop(f);
+                let _ = std::fs::rename(&tmp, self.path);
+            }
         }
     }
 }
 
 pub fn helper_main(args: &[String]) -> i32 {
-    if args.len() < 4 {
-        eprintln!("usage: --write-helper IMAGE DRIVE_ID STATUS_FILE STOP_FILE [CONFIG_FILE]");
+    if args.len() < 6 {
+        eprintln!("usage: --write-helper IMAGE SHA256 DRIVE_ID FINGERPRINT STATUS_FILE STOP_FILE [CONFIG_FILE]");
         return 2;
     }
-    let mut status = Status { path: Path::new(&args[2]), last: Instant::now() };
-    match write(Path::new(&args[0]), &args[1], &mut status, Path::new(&args[3]), args.get(4).map(Path::new)) {
+    let mut status = Status { path: Path::new(&args[4]), last: Instant::now() };
+    let job = Job { image: Path::new(&args[0]), sha256: &args[1], drive: &args[2], fingerprint: &args[3],
+                    stop: Path::new(&args[5]), config: args.get(6).map(Path::new) };
+    match write(&job, &mut status) {
         Ok(()) => {
             status.write(json!({"finished": true}), true);
             0
@@ -61,6 +74,15 @@ pub fn helper_main(args: &[String]) -> i32 {
             if e == crate::STOPPED { 3 } else { 1 }
         }
     }
+}
+
+struct Job<'a> {
+    image: &'a Path,
+    sha256: &'a str,
+    drive: &'a str,
+    fingerprint: &'a str,
+    stop: &'a Path,
+    config: Option<&'a Path>,
 }
 
 /// The 4 KiB block an organisation's stick carries after Kulan OS: a line
@@ -85,11 +107,12 @@ pub fn config_offset(image_len: u64) -> u64 {
     image_len.div_ceil(MIB) * MIB
 }
 
-fn write(image: &Path, drive_id: &str, status: &mut Status, stop: &Path, config: Option<&Path>) -> Result<(), String> {
-    let drive = drives::find(drive_id)?;
-    let mut source = File::open(image).map_err(|e| format!("{}: {e}", image.display()))?;
+fn write(job: &Job, status: &mut Status) -> Result<(), String> {
+    let stop = job.stop;
+    let drive = drives::find(job.drive, Some(job.fingerprint))?;
+    let mut source = File::open(job.image).map_err(|e| format!("{}: {e}", job.image.display()))?;
     let len = source.metadata().map_err(|e| e.to_string())?.len();
-    let block = match config {
+    let block = match job.config {
         Some(p) => Some(config_block(&std::fs::read(p).map_err(|e| e.to_string())?)?),
         None => None,
     };
@@ -100,6 +123,15 @@ fn write(image: &Path, drive_id: &str, status: &mut Status, stop: &Path, config:
     status.write(json!({"phase": "prepare", "done": 0, "total": len}), true);
     platform::prepare(&drive)?;
     let mut target = platform::open(&drive)?;
+    let mut aligned = Aligned::new(BLOCK);
+    let buf = aligned.slice();
+
+    // The old partition tables (at the start, and GPT's copy at the end) go first.
+    let zeros = vec![0u8; MIB as usize];
+    for at in [0, (drive.size / MIB - 1) * MIB] {
+        target.seek(SeekFrom::Start(at)).map_err(|e| e.to_string())?;
+        target.write_all(&zeros).map_err(write_error)?;
+    }
 
     // Everything but the first megabyte, then that.
     let first = len.min(MIB);
@@ -108,8 +140,6 @@ fn write(image: &Path, drive_id: &str, status: &mut Status, stop: &Path, config:
     let mut hasher = Sha256::new();
     hasher.update(&head);
     target.seek(SeekFrom::Start(first)).map_err(|e| e.to_string())?;
-    let mut aligned = Aligned::new(BLOCK);
-    let buf = aligned.slice();
     let mut done = first;
     while done < len {
         if stop.exists() {
@@ -125,6 +155,9 @@ fn write(image: &Path, drive_id: &str, status: &mut Status, stop: &Path, config:
         status.write(json!({"phase": "write", "done": done, "total": len}), false);
     }
     let image_hash = hasher.finalize();
+    if !hex::encode(image_hash).eq_ignore_ascii_case(job.sha256) {
+        return Err("Kulan OS's file changed after it was checked. Nothing on the USB stick will start. Try again.".into());
+    }
     // The organisation's settings (or nothing), with what an earlier stick had there cleared.
     let offset = config_offset(len);
     target.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
@@ -142,11 +175,11 @@ fn write(image: &Path, drive_id: &str, status: &mut Status, stop: &Path, config:
     write_padded(&mut target, &head)?;
     target.flush().map_err(write_error)?;
     target.sync_all().map_err(write_error)?;
-    drop(target);
 
     // Read it all back and compare.
     status.write(json!({"phase": "check", "done": 0, "total": len}), true);
-    let mut target = platform::open_read(&drive)?;
+    let mut target = platform::for_reading(&drive, target)?;
+    target.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     let mut hasher = Sha256::new();
     let mut done = 0u64;
     while done < len {
@@ -168,9 +201,9 @@ fn write(image: &Path, drive_id: &str, status: &mut Status, stop: &Path, config:
     }
     if let Some(block) = &block {
         target.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
-        let mut back = vec![0u8; CONFIG_SIZE];
-        target.read_exact(&mut back).map_err(|e| e.to_string())?;
-        if &back != block {
+        let back = &mut buf[..CONFIG_SIZE];
+        read_full(&mut target, back)?;
+        if back != &block[..] {
             return Err("The USB stick didn't keep the organisation's settings. Try another stick.".into());
         }
     }
@@ -229,7 +262,7 @@ fn write_error(e: std::io::Error) -> String {
 mod platform {
     use super::*;
     pub fn prepare(drive: &drives::Drive) -> Result<(), String> {
-        let out = std::process::Command::new("diskutil").args(["unmountDisk", "force", &format!("/dev/{}", drive.id)])
+        let out = std::process::Command::new("/usr/sbin/diskutil").args(["unmountDisk", "force", &format!("/dev/{}", drive.id)])
             .output().map_err(|e| e.to_string())?;
         if !out.status.success() {
             return Err("The USB stick couldn't be unmounted. Close any windows showing it and try again.".into());
@@ -239,11 +272,13 @@ mod platform {
     pub fn open(drive: &drives::Drive) -> Result<File, String> {
         OpenOptions::new().read(true).write(true).open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
     }
-    pub fn open_read(drive: &drives::Drive) -> Result<File, String> {
-        File::open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
+    /// The same open stick: /dev/rdisk reads come from the stick itself, and
+    /// it stays open, so macOS doesn't mount the new partitions mid-check.
+    pub fn for_reading(_drive: &drives::Drive, target: File) -> Result<File, String> {
+        Ok(target)
     }
     pub fn finish(drive: &drives::Drive) {
-        let _ = std::process::Command::new("diskutil").args(["eject", &format!("/dev/{}", drive.id)]).output();
+        let _ = std::process::Command::new("/usr/sbin/diskutil").args(["eject", &format!("/dev/{}", drive.id)]).output();
     }
 }
 
@@ -252,13 +287,17 @@ mod platform {
     use super::*;
     use std::os::windows::process::CommandExt;
     pub fn prepare(drive: &drives::Drive) -> Result<(), String> {
-        // Remove its partitions, so Windows lets go of them (and mounts none while writing).
-        let script = std::env::temp_dir().join(format!("kulan-usb-maker-{}.txt", std::process::id()));
-        std::fs::write(&script, format!("select disk {}\r\nclean\r\nrescan\r\n", drive.id)).map_err(|e| e.to_string())?;
-        let out = std::process::Command::new("diskpart").arg("/s").arg(&script).creation_flags(0x0800_0000)
-            .output().map_err(|e| e.to_string());
-        let _ = std::fs::remove_file(&script);
-        let out = out?;
+        // Remove its partitions, so Windows lets go of them (and mounts none
+        // while writing). The script goes to diskpart directly, never through
+        // a file another program could change first.
+        let number: u32 = drive.id.parse().map_err(|_| "not a disk number")?;
+        let mut child = std::process::Command::new(drives::system32("diskpart.exe"))
+            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped())
+            .creation_flags(0x0800_0000).spawn().map_err(|e| e.to_string())?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(format!("select disk {number}\r\nclean\r\nrescan\r\nexit\r\n").as_bytes());
+        }
+        let out = child.wait_with_output().map_err(|e| e.to_string())?;
         if !out.status.success() {
             return Err(format!("The USB stick couldn't be prepared ({}). Close any windows showing it and try again.",
                                String::from_utf8_lossy(&out.stdout).lines().last().unwrap_or("").trim()));
@@ -271,9 +310,11 @@ mod platform {
         OpenOptions::new().read(true).write(true).share_mode(3).custom_flags(0x8000_0000) // FILE_FLAG_WRITE_THROUGH
             .open(&drive.path).map_err(|e| format!("The USB stick couldn't be opened: {e}"))
     }
-    pub fn open_read(drive: &drives::Drive) -> Result<File, String> {
+    /// Opened again without Windows' cache, so it really comes from the stick.
+    pub fn for_reading(drive: &drives::Drive, target: File) -> Result<File, String> {
         use std::os::windows::fs::OpenOptionsExt;
-        OpenOptions::new().read(true).share_mode(3).custom_flags(0x2000_0000) // FILE_FLAG_NO_BUFFERING: from the stick itself
+        drop(target);
+        OpenOptions::new().read(true).share_mode(3).custom_flags(0x2000_0000) // FILE_FLAG_NO_BUFFERING
             .open(&drive.path).map_err(|e| format!("The USB stick couldn't be read back: {e}"))
     }
     pub fn finish(_drive: &drives::Drive) {}
@@ -297,7 +338,8 @@ mod platform {
     pub fn open(drive: &drives::Drive) -> Result<File, String> {
         OpenOptions::new().read(true).write(true).open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
     }
-    pub fn open_read(drive: &drives::Drive) -> Result<File, String> {
+    pub fn for_reading(drive: &drives::Drive, target: File) -> Result<File, String> {
+        drop(target);
         let _ = std::process::Command::new("blockdev").args(["--flushbufs", &drive.path]).output();
         File::open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
     }

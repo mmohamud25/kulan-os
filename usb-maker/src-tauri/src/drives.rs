@@ -11,6 +11,17 @@ pub struct Drive {
     pub path: String,
     pub name: String,
     pub size: u64,
+    /// Its serial number where the system says it (Windows, Linux), else "".
+    pub serial: String,
+}
+
+impl Drive {
+    /// What the person saw and agreed to erase: the helper writes only if the
+    /// drive behind the id still matches (an id can pass to another drive
+    /// when sticks are swapped).
+    pub fn fingerprint(&self) -> String {
+        format!("{}|{}|{}", self.name, self.size, self.serial)
+    }
 }
 
 pub fn list() -> Result<Vec<Drive>, String> {
@@ -30,12 +41,17 @@ pub fn list() -> Result<Vec<Drive>, String> {
     Ok(drives)
 }
 
-/// The drive with this id, if it's still plugged in (and still a USB drive).
-pub fn find(id: &str) -> Result<Drive, String> {
-    list()?
+/// The drive with this id, if it's still plugged in (and still a USB drive),
+/// and, with a fingerprint, still the same drive.
+pub fn find(id: &str, fingerprint: Option<&str>) -> Result<Drive, String> {
+    let drive = list()?
         .into_iter()
         .find(|d| d.id == id)
-        .ok_or_else(|| "The USB stick isn't plugged in any more.".to_string())
+        .ok_or_else(|| "The USB stick isn't plugged in any more.".to_string())?;
+    if fingerprint.is_some_and(|f| f != drive.fingerprint()) {
+        return Err("The USB stick was changed for another drive. Nothing was written. Choose it again.".into());
+    }
+    Ok(drive)
 }
 
 fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
@@ -68,7 +84,32 @@ pub fn mac_drive(id: &str, info: &plist::Value) -> Option<Drive> {
     }
     let name = [text("MediaName"), text("IORegistryEntryName")].into_iter().find(|s| !s.is_empty())
         .unwrap_or_else(|| "USB drive".into());
-    Some(Drive { id: id.into(), path: format!("/dev/r{id}"), name: name.trim().into(), size })
+    Some(Drive { id: id.into(), path: format!("/dev/r{id}"), name: name.trim().into(), size, serial: String::new() })
+}
+
+/// The whole disks the Mac is running from, from `diskutil info -plist /`:
+/// never listed, even when it's a USB drive (a Mac started from an external disk).
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn mac_boot_disks(info: &plist::Value) -> Vec<String> {
+    let whole = |s: &str| {
+        let digits: String = s.strip_prefix("disk").unwrap_or("").chars().take_while(|c| c.is_ascii_digit()).collect();
+        (!digits.is_empty()).then(|| format!("disk{digits}"))
+    };
+    let mut found = vec![];
+    let Some(dict) = info.as_dictionary() else { return found };
+    for key in ["ParentWholeDisk", "DeviceIdentifier"] {
+        if let Some(d) = dict.get(key).and_then(|v| v.as_string()).and_then(whole) {
+            found.push(d);
+        }
+    }
+    if let Some(stores) = dict.get("APFSPhysicalStores").and_then(|v| v.as_array()) {
+        for store in stores {
+            if let Some(d) = store.as_dictionary().and_then(|d| d.get("APFSPhysicalStore")).and_then(|v| v.as_string()).and_then(whole) {
+                found.push(d);
+            }
+        }
+    }
+    found
 }
 
 /// Whole disks named in `diskutil list -plist external physical`.
@@ -109,7 +150,9 @@ pub fn windows_drives(json: &str) -> Vec<Drive> {
             return None;
         }
         let name = d.get("FriendlyName").and_then(|v| v.as_str()).unwrap_or("USB drive").trim().to_string();
-        Some(Drive { id: number.to_string(), path: format!(r"\\.\PhysicalDrive{number}"), name, size })
+        let serial = [d.get("SerialNumber"), d.get("UniqueId")].iter()
+            .filter_map(|v| v.and_then(|v| v.as_str()).map(str::trim)).collect::<Vec<_>>().join("/");
+        Some(Drive { id: number.to_string(), path: format!(r"\\.\PhysicalDrive{number}"), name, size, serial })
     }).collect()
 }
 
@@ -131,7 +174,8 @@ pub fn linux_drives(json: &str, test_devices: &[String]) -> Vec<Drive> {
         let name = [d.get("vendor"), d.get("model")].iter()
             .filter_map(|v| v.and_then(|v| v.as_str()).map(str::trim)).filter(|s| !s.is_empty())
             .collect::<Vec<_>>().join(" ");
-        Some(Drive { id: path.clone(), path, name: if name.is_empty() { "USB drive".into() } else { name }, size })
+        let serial = d.get("serial").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        Some(Drive { id: path.clone(), path, name: if name.is_empty() { "USB drive".into() } else { name }, size, serial })
     }).filter(|d| d.size > 0).collect()
 }
 
@@ -141,7 +185,13 @@ mod platform {
     pub fn list() -> Result<Vec<Drive>, String> {
         let out = run("diskutil", &["list", "-plist", "external", "physical"])?;
         let value = plist::Value::from_reader_xml(out.as_bytes()).map_err(|e| e.to_string())?;
-        Ok(mac_whole_disks(&value).iter().filter_map(|id| {
+        // Without knowing the Mac's own disk, nothing is listed.
+        let root = run("diskutil", &["info", "-plist", "/"])?;
+        let boot = mac_boot_disks(&plist::Value::from_reader_xml(root.as_bytes()).map_err(|e| e.to_string())?);
+        if boot.is_empty() {
+            return Err("The Mac's own disk couldn't be found".into());
+        }
+        Ok(mac_whole_disks(&value).iter().filter(|id| !boot.contains(id)).filter_map(|id| {
             let info = run("diskutil", &["info", "-plist", id]).ok()?;
             mac_drive(id, &plist::Value::from_reader_xml(info.as_bytes()).ok()?)
         }).collect())
@@ -151,25 +201,41 @@ mod platform {
         let info = run("diskutil", &["info", "-plist", id]).ok()?;
         let value = plist::Value::from_reader_xml(info.as_bytes()).ok()?;
         let size = value.as_dictionary()?.get("TotalSize")?.as_unsigned_integer()?;
-        Some(Drive { id: id.into(), path: format!("/dev/r{id}"), name: "Test disk".into(), size })
+        Some(Drive { id: id.into(), path: format!("/dev/r{id}"), name: "Test disk".into(), size, serial: String::new() })
     }
+}
+
+/// A program in Windows' own folder, by its full path (never one found in
+/// the app's folder or elsewhere on the PATH: the helper runs as an administrator).
+#[cfg(windows)]
+pub fn system32(program: &str) -> String {
+    // Asked of Windows itself, not from the environment (which the person can set).
+    let mut buf = [0u16; 260];
+    let n = unsafe { windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW(buf.as_mut_ptr(), buf.len() as u32) };
+    let dir = if n > 0 && (n as usize) < buf.len() { String::from_utf16_lossy(&buf[..n as usize]) } else { r"C:\Windows\System32".into() };
+    format!(r"{dir}\{program}")
+}
+
+#[cfg(windows)]
+fn powershell() -> String {
+    system32(r"WindowsPowerShell\v1.0\powershell.exe")
 }
 
 #[cfg(windows)]
 mod platform {
     use super::*;
     pub fn list() -> Result<Vec<Drive>, String> {
-        let out = run("powershell.exe", &["-NoProfile", "-NonInteractive", "-Command",
-            "Get-Disk | Select-Object Number,FriendlyName,Size,@{n='BusType';e={[string]$_.BusType}},IsBoot,IsSystem | ConvertTo-Json -Compress"])?;
+        let out = run(&powershell(), &["-NoProfile", "-NonInteractive", "-Command",
+            "Storage\\Get-Disk | Select-Object Number,FriendlyName,Size,SerialNumber,UniqueId,@{n='BusType';e={[string]$_.BusType}},IsBoot,IsSystem | ConvertTo-Json -Compress"])?;
         Ok(windows_drives(&out))
     }
     #[cfg(feature = "test-devices")]
     pub fn test_drive(id: &str) -> Option<Drive> {
         let n: u32 = id.parse().ok()?;
-        let out = run("powershell.exe", &["-NoProfile", "-NonInteractive", "-Command",
-            &format!("(Get-Disk -Number {n}).Size")]).ok()?;
+        let out = run(&powershell(), &["-NoProfile", "-NonInteractive", "-Command",
+            &format!("(Storage\\Get-Disk -Number {n}).Size")]).ok()?;
         let size = out.trim().parse().ok()?;
-        Some(Drive { id: id.into(), path: format!(r"\\.\PhysicalDrive{n}"), name: "Test disk".into(), size })
+        Some(Drive { id: id.into(), path: format!(r"\\.\PhysicalDrive{n}"), name: "Test disk".into(), size, serial: String::new() })
     }
 }
 
@@ -177,12 +243,12 @@ mod platform {
 mod platform {
     use super::*;
     pub fn list() -> Result<Vec<Drive>, String> {
-        let out = run("lsblk", &["-J", "-b", "-d", "-o", "NAME,PATH,SIZE,TRAN,TYPE,MODEL,VENDOR"])?;
+        let out = run("lsblk", &["-J", "-b", "-d", "-o", "NAME,PATH,SIZE,TRAN,TYPE,MODEL,VENDOR,SERIAL"])?;
         Ok(linux_drives(&out, &[]))
     }
     #[cfg(feature = "test-devices")]
     pub fn test_drive(id: &str) -> Option<Drive> {
-        let out = run("lsblk", &["-J", "-b", "-d", "-o", "NAME,PATH,SIZE,TRAN,TYPE,MODEL,VENDOR", id]).ok()?;
+        let out = run("lsblk", &["-J", "-b", "-d", "-o", "NAME,PATH,SIZE,TRAN,TYPE,MODEL,VENDOR,SERIAL", id]).ok()?;
         let mut d = linux_drives(&out, &[id.to_string()]).pop()?;
         d.name = "Test disk".into();
         Some(d)
@@ -201,7 +267,7 @@ mod tests {
             <key>VirtualOrPhysical</key><string>Physical</string><key>WholeDisk</key><true/></dict></plist>"#;
         let value = plist::Value::from_reader_xml(usb.as_bytes()).unwrap();
         assert_eq!(mac_drive("disk4", &value), Some(Drive { id: "disk4".into(), path: "/dev/rdisk4".into(),
-            name: "SanDisk Ultra".into(), size: 32015679488 }));
+            name: "SanDisk Ultra".into(), size: 32015679488, serial: String::new() }));
         let internal = usb.replace("<key>Internal</key><false/>", "<key>Internal</key><true/>");
         assert_eq!(mac_drive("disk0", &plist::Value::from_reader_xml(internal.as_bytes()).unwrap()), None);
         let sata = usb.replace(">USB<", ">SATA<");
@@ -220,14 +286,31 @@ mod tests {
     }
 
     #[test]
+    fn mac_boot_disks_found() {
+        let apfs = r#"<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>
+            <key>DeviceIdentifier</key><string>disk3s1s1</string><key>ParentWholeDisk</key><string>disk3</string>
+            <key>APFSPhysicalStores</key><array><dict><key>APFSPhysicalStore</key><string>disk12s2</string></dict></array>
+            </dict></plist>"#;
+        assert_eq!(mac_boot_disks(&plist::Value::from_reader_xml(apfs.as_bytes()).unwrap()), vec!["disk3", "disk3", "disk12"]);
+        assert!(mac_boot_disks(&plist::Value::from_reader_xml(r#"<?xml version="1.0"?><plist version="1.0"><dict/></plist>"#.as_bytes()).unwrap()).is_empty());
+    }
+
+    #[test]
+    fn fingerprints() {
+        let d = Drive { id: "2".into(), path: "p".into(), name: "Stick".into(), size: 8, serial: "S1".into() };
+        assert_eq!(d.fingerprint(), "Stick|8|S1");
+    }
+
+    #[test]
     fn windows_usb_listed_system_not() {
         let json = r#"[{"Number":0,"FriendlyName":"NVMe SSD","Size":512110190592,"BusType":"NVMe","IsBoot":true,"IsSystem":true},
-                       {"Number":2,"FriendlyName":"Kingston DataTraveler","Size":31004295168,"BusType":"USB","IsBoot":false,"IsSystem":false},
+                       {"Number":2,"FriendlyName":"Kingston DataTraveler","Size":31004295168,"BusType":"USB","IsBoot":false,"IsSystem":false,"SerialNumber":"ABC123","UniqueId":null},
                        {"Number":3,"FriendlyName":"USB boot","Size":31004295168,"BusType":"USB","IsBoot":true,"IsSystem":false},
                        {"Number":4,"FriendlyName":"Card","Size":1000,"BusType":12,"IsBoot":false,"IsSystem":false}]"#;
         let drives = windows_drives(json);
         assert_eq!(drives.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(), vec!["2", "4"]);
         assert_eq!(drives[0].path, r"\\.\PhysicalDrive2");
+        assert_eq!(drives[0].serial, "ABC123");
         let one = r#"{"Number":5,"FriendlyName":"Stick","Size":8000,"BusType":"USB","IsBoot":false,"IsSystem":false}"#;
         assert_eq!(windows_drives(one).len(), 1);
         assert!(windows_drives("").is_empty());

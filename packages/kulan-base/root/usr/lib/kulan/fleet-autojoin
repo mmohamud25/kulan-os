@@ -6,20 +6,21 @@ stick's server and join code to /var/lib/kulan/fleet-join.json (root only).
 Run by kulan-fleet-autojoin.timer: shortly after start-up, then every 10
 minutes until it has joined. The file is removed once joined, when the
 server refuses the code (used up, expired), when the computer already joined
-some other way, or after 14 days of trying.
+some other way, or after 2,000 tries (14 days of being on; counted in tries,
+not by the clock, which may be wrong until the computer is first online).
 """
 from __future__ import annotations
 
 import json
 import re
+import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 JOIN = Path("/var/lib/kulan/fleet-join.json")
 CONFIG = Path("/etc/kulan/fleet.json")
-GIVE_UP_S = 14 * 86400
+GIVE_UP = 2000  # tries, every 10 minutes
 CODE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
 
 
@@ -41,8 +42,14 @@ def main() -> int:
         return done("The USB stick's settings couldn't be read")
     if not server.startswith("https://") or not CODE.match(code):
         return done("The USB stick's settings aren't valid")
-    if time.time() - JOIN.stat().st_mtime > GIVE_UP_S:
+    tries = int(settings.get("tries", 0)) if str(settings.get("tries", 0)).isdigit() else 0
+    if tries >= GIVE_UP:
         return done("Couldn't join the organisation for 14 days: stopped trying. Join in Kulan Settings › About")
+    settings["tries"] = tries + 1
+    tmp = JOIN.with_suffix(".new")
+    tmp.write_text(json.dumps(settings))
+    os.chmod(tmp, 0o600)
+    tmp.replace(JOIN)
     try:
         out = subprocess.run(["/usr/bin/kulan-fleet", "join", server], input=code + "\n", text=True,
                              capture_output=True, timeout=600)
@@ -53,7 +60,8 @@ def main() -> int:
     print(said)
     if out.returncode == 0 or CONFIG.exists():
         return done("Joined the organisation from the USB stick")
-    if re.search(r"server said 4\d\d", said):
+    # Refused (400, 403...), but not "too many at once" (429) or "too slow" (408).
+    if re.search(r"server said 4(?!08|29)\d\d", said):
         return done("The organisation's server refused the USB stick's join code (used up or expired): "
                     "join in Kulan Settings › About with a new code")
     return 0  # not online yet, or the server busy: next time

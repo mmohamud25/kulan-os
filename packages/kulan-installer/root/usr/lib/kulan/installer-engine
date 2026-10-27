@@ -12,6 +12,8 @@ The plan (JSON on standard input):
     encrypt     true/false; password  the disk password (with encrypt)
     locale      "en_US.UTF-8";  keyboard {"layout": "us", "variant": ""}
     timezone    "America/New_York";  hostname "amina-laptop"
+    join_organisation  false: don't join the organisation of the USB stick
+                (Kulan USB Maker's settings on it); default true
     user        {"full_name", "username", "password", "autologin"}
   For tests only:
     source      the live system's squashfs (default: the one the live session runs)
@@ -153,12 +155,20 @@ def stick_settings(device: str | None = None) -> dict | None:
                 lines = block.rstrip(b"\0").split(b"\n")
                 if len(lines) < 3 or hashlib.sha256(lines[2]).hexdigest().encode() != lines[1]:
                     return None
-                fleet = json.loads(lines[2]).get("fleet") or {}
+                settings = json.loads(lines[2])
+                # Only for the Kulan OS it was written with (not another one
+                # written over it later with another app, which leaves this block).
+                image = settings.get("image") or {}
+                volume = pvd[40:72].decode("ascii", "replace").rstrip(" \0")
+                created = pvd[813:829].decode("ascii", "replace").rstrip(" \0")
+                if image.get("volume") != volume or image.get("created") != created:
+                    return None
+                fleet = settings.get("fleet") or {}
                 server, code = str(fleet.get("server", "")), str(fleet.get("code", "")).upper()
                 if server.startswith("https://") and len(server) < 300 and JOIN_CODE.match(code):
                     return {"server": server, "code": code}
                 return None
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, RecursionError):
         return None
     return None
 
@@ -662,7 +672,7 @@ def install(plan: dict) -> None:
         copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
         at("configure", 0, "Setting the language, keyboard and time zone…")
         configure(plan, target, parts, disk_info)
-        org = stick_settings(plan.get("stick"))
+        org = stick_settings(plan.get("stick")) if plan.get("join_organisation", True) else None
         if org:  # joined once online, by kulan-fleet-autojoin
             write(target / "var/lib/kulan/fleet-join.json", json.dumps(org) + "\n", 0o600)
             log(f"joins {org['server']} once online")

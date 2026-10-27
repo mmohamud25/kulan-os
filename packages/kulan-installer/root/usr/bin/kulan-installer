@@ -242,9 +242,12 @@ class Installer(Adw.ApplicationWindow):
         box.append(self.titled("You", you))
         self.password_note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"])
         box.append(self.password_note)
-        # An organisation's USB stick (Kulan USB Maker): said, so it's no surprise.
-        self.org_note = Gtk.Label(wrap=True, xalign=0, visible=False)
-        box.append(self.org_note)
+        # An organisation's USB stick (Kulan USB Maker): said, so it's no
+        # surprise, and it can be turned off.
+        self.org_list = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, visible=False)
+        self.org_row = Adw.SwitchRow(title="Join your organisation", active=True, subtitle_lines=0)
+        self.org_list.append(self.org_row)
+        box.append(self.org_list)
 
         # More choices: what's guessed, to change if it's wrong.
         more = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
@@ -426,10 +429,11 @@ class Installer(Adw.ApplicationWindow):
         self.disks_loaded = True
         org = (info.get("organisation") or {}).get("server", "")
         host = urllib.parse.urlsplit(org).hostname or "" if org else ""
-        self.org_note.set_visible(bool(host))
+        self.org_list.set_visible(bool(host))
         if host:
-            self.org_note.set_label(f"This USB stick is your organisation’s: once installed, the computer joins its "
-                                    f"Kulan Fleet ({host}) the first time it’s online.")
+            self.org_row.set_subtitle(GLib.markup_escape_text(
+                f"This USB stick is an organisation’s. Once installed, the computer joins its Kulan Fleet ({host}) "
+                "the first time it’s online, so it can manage this computer."))
         disks = info.get("disks", [])
         first: Gtk.CheckButton | None = None
         for disk in disks:
@@ -541,6 +545,7 @@ class Installer(Adw.ApplicationWindow):
             "encrypt": self.encrypt_row.get_active(), "password": password,
             "locale": self.chosen_locale(), "keyboard": {"layout": layout, "variant": variant},
             "timezone": self.zones[self.zone_row.get_selected()], "hostname": self.hostname.get_text(),
+            "join_organisation": self.org_list.get_visible() and self.org_row.get_active(),
             "user": {"full_name": self.full_name.get_text().strip(), "username": self.username.get_text(),
                      "password": password, "autologin": self.autologin.get_active()},
         }
@@ -725,7 +730,7 @@ class App(Adw.Application):
             assert window.choice.get("disk"), "the sample disk is chosen"
             assert window.choice["mode"] == "free", "next to Windows first: nothing is lost"
             assert window.problem() == "Type your name", window.problem()
-            assert "fleet.example.org" in window.org_note.get_label() and window.org_note.get_visible()
+            assert "fleet.example.org" in window.org_row.get_subtitle() and window.org_list.get_visible()
             window.full_name.set_text("Amina Yusuf")
             assert window.username.get_text() == "amina" and window.hostname.get_text().startswith("amina-")
             window.password.set_text("short")
@@ -741,6 +746,9 @@ class App(Adw.Application):
             plan = window.plan()
             assert plan["user"]["username"] == "amina" and plan["disk"] == "/dev/nvme0n1", plan
             assert plan["password"] == plan["user"]["password"] == "correct horse", "one password for both"
+            assert plan["join_organisation"] is True
+            window.org_row.set_active(False)
+            assert window.plan()["join_organisation"] is False, "joining can be turned off"
             erase = next(b for b in window.disk_buttons if b[2] == "erase")
             erase[0].set_active(True)
             button = window.nav.find_page("install").view.next_button

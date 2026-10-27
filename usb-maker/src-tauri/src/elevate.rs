@@ -94,8 +94,9 @@ pub fn run_helper(exe: &Path, args: &[String]) -> Result<i32, String> {
         info.lpParameters = params.as_ptr();
         info.nShow = 0; // SW_HIDE
         if ShellExecuteExW(&mut info) == 0 {
-            return Err(if GetLastError() == ERROR_CANCELLED { CANCELLED.into() } else {
-                format!("The writing part couldn't start (error {}).", GetLastError())
+            let error = GetLastError();
+            return Err(if error == ERROR_CANCELLED { CANCELLED.into() } else {
+                format!("The writing part couldn't start (error {error}).")
             });
         }
         if info.hProcess.is_null() {

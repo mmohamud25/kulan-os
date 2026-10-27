@@ -42,19 +42,24 @@ fn emit(app: &AppHandle, phase: &'static str, done: u64, total: u64, text: &str)
     let _ = app.emit("progress", Progress { phase, done, total, text: text.to_string() });
 }
 
+/// The USB sticks, each with the fingerprint the window hands back to Make.
 #[tauri::command]
-fn list_drives() -> Result<Vec<drives::Drive>, String> {
-    drives::list()
+fn list_drives() -> Result<Vec<serde_json::Value>, String> {
+    Ok(drives::list()?.into_iter().map(|d| {
+        let mut v = serde_json::to_value(&d).unwrap_or_default();
+        v["fingerprint"] = json!(d.fingerprint());
+        v
+    }).collect())
 }
 
 #[tauri::command]
-fn start(app: AppHandle, jobs: State<Jobs>, source: Source, drive: String,
+fn start(app: AppHandle, jobs: State<Jobs>, source: Source, drive: String, fingerprint: String,
          organisation: Option<serde_json::Value>) -> Result<(), String> {
     let mut job = jobs.0.lock().map_err(|e| e.to_string())?;
     if job.running {
         return Err("Already making a stick".into());
     }
-    drives::find(&drive)?;
+    drives::find(&drive, Some(&fingerprint))?;
     let work = std::env::temp_dir().join(format!("kulan-usb-maker-{}-{}", std::process::id(),
                                                  std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
                                                      .map(|d| d.as_millis()).unwrap_or(0)));
@@ -63,7 +68,7 @@ fn start(app: AppHandle, jobs: State<Jobs>, source: Source, drive: String,
     *job = Job { running: true, stop: stop.clone(), stop_file: Some(work.join("stop")) };
     drop(job);
     std::thread::spawn(move || {
-        let result = make(&app, &source, &drive, organisation.as_ref(), &work, &stop);
+        let result = make(&app, &source, &drive, &fingerprint, organisation.as_ref(), &work, &stop);
         match result {
             Ok(()) => emit(&app, "done", 0, 0, ""),
             Err(e) if e == STOPPED => emit(&app, "stopped", 0, 0, ""),
@@ -88,21 +93,26 @@ fn stop(jobs: State<Jobs>) {
     }
 }
 
-fn make(app: &AppHandle, source: &Source, drive: &str, organisation: Option<&serde_json::Value>,
+fn make(app: &AppHandle, source: &Source, drive: &str, fingerprint: &str, organisation: Option<&serde_json::Value>,
         work: &Path, stop: &AtomicBool) -> Result<(), String> {
-    let image = match source {
+    let (image, sha256) = match source {
         Source::Download { arch } => get_release(arch, &mut |phase, d, t| emit(app, phase, d, t, ""), stop)?,
         Source::File { path } => {
             let path = PathBuf::from(path);
             check_iso(&path)?;
-            path
+            let sha = download::hash_file(&path, &mut |d, t| emit(app, "verify", d, t, ""), stop)?;
+            (path, sha)
         }
     };
-    let mut args = vec![image.to_string_lossy().into_owned(), drive.to_string(),
+    let mut args = vec![image.to_string_lossy().into_owned(), sha256, drive.to_string(), fingerprint.to_string(),
                         work.join("status").to_string_lossy().into_owned(), work.join("stop").to_string_lossy().into_owned()];
     if let Some(org) = organisation {
+        // Tied to this Kulan OS: a stick later written over with another
+        // (by another app) doesn't pass on these settings.
+        let mut org = org.clone();
+        org["image"] = json!(iso_identity(&image)?);
         let file = work.join("organisation.json");
-        std::fs::write(&file, serde_json::to_vec(org).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        std::fs::write(&file, serde_json::to_vec(&org).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         args.push(file.to_string_lossy().into_owned());
     }
     if stop.load(Ordering::Relaxed) {
@@ -155,8 +165,9 @@ fn make(app: &AppHandle, source: &Source, drive: &str, organisation: Option<&ser
 
 /// The newest Kulan OS, downloaded (or kept from before) and checked against
 /// the signed SHA256SUMS.
+/// The newest Kulan OS and its (verified) SHA-256.
 pub fn get_release(arch: &str, progress: &mut dyn FnMut(&'static str, u64, u64), stop: &AtomicBool)
-                   -> Result<PathBuf, String> {
+                   -> Result<(PathBuf, String), String> {
     if arch != "amd64" && arch != "arm64" {
         return Err("Unknown kind of computer".into());
     }
@@ -183,7 +194,7 @@ pub fn get_release(arch: &str, progress: &mut dyn FnMut(&'static str, u64, u64),
     if file.exists() {
         let have = download::hash_file(&file, &mut |d, t| progress("verify", d, t), stop)?;
         if have == expected {
-            return Ok(file);
+            return Ok((file, expected));
         }
         let _ = std::fs::remove_file(&file);
     }
@@ -193,7 +204,21 @@ pub fn get_release(arch: &str, progress: &mut dyn FnMut(&'static str, u64, u64),
         let _ = std::fs::remove_file(&file);
         return Err("The download was damaged on the way. Try again.".into());
     }
-    Ok(file)
+    Ok((file, expected))
+}
+
+/// An ISO 9660 image's volume name and creation time (its primary volume
+/// descriptor): what the installer compares with the stick it starts from.
+pub fn iso_identity(path: &Path) -> Result<serde_json::Value, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut pvd = [0u8; 2048];
+    f.seek(SeekFrom::Start(16 * 2048)).and_then(|_| f.read_exact(&mut pvd)).map_err(|_| not_iso())?;
+    if &pvd[1..6] != b"CD001" {
+        return Err(not_iso());
+    }
+    let text = |r: std::ops::Range<usize>| String::from_utf8_lossy(&pvd[r]).trim_end_matches([' ', '\0']).to_string();
+    Ok(json!({"volume": text(40..72), "created": text(813..829)}))
 }
 
 /// An .iso someone picked: a real ISO 9660 image, of a sensible size.
@@ -242,11 +267,13 @@ mod tests {
     fn the_newest_release() {
         let stop = AtomicBool::new(false);
         let mut phases = vec![];
-        let file = get_release("amd64", &mut |p, _d, _t| if phases.last() != Some(&p) { phases.push(p) }, &stop).unwrap();
+        let (file, sha) = get_release("amd64", &mut |p, _d, _t| if phases.last() != Some(&p) { phases.push(p) }, &stop).unwrap();
+        assert_eq!(sha.len(), 64);
+        println!("{}", iso_identity(&file).unwrap());
         assert!(phases.contains(&"download") || phases.contains(&"verify"), "{phases:?}");
         check_iso(&file).unwrap();
         let mut again = vec![];
-        let same = get_release("amd64", &mut |p, _d, _t| if again.last() != Some(&p) { again.push(p) }, &stop).unwrap();
+        let (same, _) = get_release("amd64", &mut |p, _d, _t| if again.last() != Some(&p) { again.push(p) }, &stop).unwrap();
         assert_eq!(same, file);
         assert_eq!(again, vec!["release", "verify"], "kept from before, checked, not downloaded again");
         println!("{}", file.display());
@@ -270,6 +297,15 @@ mod tests {
             f.write_all(b"CD001").unwrap();
         }
         assert!(check_iso(&fake).is_ok());
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut f = std::fs::OpenOptions::new().write(true).open(&fake).unwrap();
+            f.seek(SeekFrom::Start(0x8000 + 40)).unwrap();
+            f.write_all(b"Kulan OS 2.10 amd64             ").unwrap();
+            f.seek(SeekFrom::Start(0x8000 + 813)).unwrap();
+            f.write_all(b"2026102712000000\0").unwrap();
+        }
+        assert_eq!(iso_identity(&fake).unwrap(), json!({"volume": "Kulan OS 2.10 amd64", "created": "2026102712000000"}));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

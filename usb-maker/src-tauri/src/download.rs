@@ -88,9 +88,14 @@ pub fn download(client: &reqwest::blocking::Client, url: &str, dest: &Path,
     let status = response.status();
     let total;
     let mut out;
+    let range = response.headers().get("content-range").and_then(|v| v.to_str().ok()).map(String::from);
+    if status.as_u16() == 206 && have > 0 && content_range_start(range.as_deref()) != Some(have) {
+        // Not where it stopped: from the start next time.
+        let _ = fs::remove_file(&part);
+        return Err("The download couldn't carry on where it stopped. Try again.".into());
+    }
     if status.as_u16() == 206 && have > 0 {
-        total = content_range_total(response.headers().get("content-range").and_then(|v| v.to_str().ok()))
-            .ok_or("the server's answer couldn't be understood")?;
+        total = content_range_total(range.as_deref()).ok_or("the server's answer couldn't be understood")?;
         out = OpenOptions::new().append(true).open(&part).map_err(|e| e.to_string())?;
     } else if status.as_u16() == 416 && have > 0 {
         // Already complete.
@@ -143,6 +148,11 @@ fn disk_error(e: std::io::Error) -> String {
     }
 }
 
+/// "bytes 100-199/1000" -> 100
+pub fn content_range_start(value: Option<&str>) -> Option<u64> {
+    value?.strip_prefix("bytes ")?.split('-').next()?.trim().parse().ok()
+}
+
 /// "bytes 100-199/1000" -> 1000
 pub fn content_range_total(value: Option<&str>) -> Option<u64> {
     value?.rsplit('/').next()?.trim().parse().ok()
@@ -158,6 +168,8 @@ mod tests {
         assert_eq!(content_range_total(Some("bytes */1000")), Some(1000));
         assert_eq!(content_range_total(Some("bytes 1-2/*")), None);
         assert_eq!(content_range_total(None), None);
+        assert_eq!(content_range_start(Some("bytes 100-199/1000")), Some(100));
+        assert_eq!(content_range_start(Some("bytes */1000")), None);
     }
 
     #[test]

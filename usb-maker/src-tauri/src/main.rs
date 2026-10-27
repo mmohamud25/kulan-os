@@ -14,6 +14,14 @@ pub const STOPPED: &str = "stopped";
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // Tests only: the drives as the helper sees them (with their fingerprints).
+    #[cfg(feature = "test-devices")]
+    if args.get(1).map(String::as_str) == Some("--list-drives") {
+        let drives: Vec<_> = drives::list().unwrap_or_default().iter()
+            .map(|d| serde_json::json!({"id": d.id, "fingerprint": d.fingerprint()})).collect();
+        println!("{}", serde_json::Value::Array(drives));
+        return;
+    }
     if args.get(1).map(String::as_str) == Some("--write-helper") {
         std::process::exit(writer::helper_main(&args[2..]));
     }

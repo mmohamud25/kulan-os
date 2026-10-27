@@ -31,6 +31,7 @@ const BRANDS = [
 
 let drives = [];
 let picked = { drive: null, file: null };
+let agreed = null;  // the drive as it was when Erase was clicked
 let total = 0;
 
 function el(tag, attrs = {}, ...kids) {
@@ -63,8 +64,9 @@ async function refreshDrives() {
 function renderDrives() {
   const box = $("drives");
   if (picked.drive && !drives.some((d) => d.id === picked.drive)) picked.drive = null;
+  // One stick plugged in: chosen for you, unless it's big enough to be a backup drive.
   const usable = drives.filter((d) => d.size >= MIN_SIZE);
-  if (!picked.drive && usable.length === 1) picked.drive = usable[0].id;
+  if (!picked.drive && usable.length === 1 && usable[0].size <= 256 * GB) picked.drive = usable[0].id;
   if (!drives.length) {
     box.replaceChildren(el("div", { class: "empty" }, el("span", { class: "spinner", "aria-hidden": "true" }),
       "Plug in a USB stick. It appears here."));
@@ -132,6 +134,7 @@ function update() {
 function askFirst() {
   const d = drives.find((x) => x.id === picked.drive);
   if (!d || problem()) return;
+  agreed = d;
   $("confirm-text").textContent = `Everything on “${d.name}” (${size(d.size)}) will be erased. This can’t be undone.`;
   $("confirm").showModal();
 }
@@ -144,7 +147,8 @@ async function make() {
   $("work-text").textContent = "Starting…";
   $("stop").disabled = false;
   try {
-    await invoke("start", { source: source(), drive: picked.drive, organisation: organisation().value });
+    await invoke("start", { source: source(), drive: agreed.id, fingerprint: agreed.fingerprint,
+                            organisation: organisation().value });
   } catch (e) {
     failed(String(e));
   }
@@ -264,7 +268,8 @@ function start() {
   T.event.listen("progress", (e) => onProgress(e.payload));
   renderDrives();
   refreshDrives();
-  setInterval(() => { if (!$("choose").classList.contains("hidden")) refreshDrives(); }, 2000);
+  // Not while asking to erase: what's asked about stays what's erased.
+  setInterval(() => { if (!$("choose").classList.contains("hidden") && !$("confirm").open) refreshDrives(); }, 2000);
 }
 
 start();

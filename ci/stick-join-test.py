@@ -64,6 +64,8 @@ def stand_in(settings_block: bytes | None, gap_mib: int = 0) -> str:
     pvd[80:84] = blocks.to_bytes(4, "little")
     pvd[84:88] = blocks.to_bytes(4, "big")
     pvd[128:130] = (2048).to_bytes(2, "little")
+    pvd[40:72] = b"Kulan OS 2.10 amd64".ljust(32)
+    pvd[813:830] = b"2026102712000000\0"
     with open(path, "wb") as f:
         f.truncate(80 * MIB)
         f.seek(16 * 2048)
@@ -74,7 +76,8 @@ def stand_in(settings_block: bytes | None, gap_mib: int = 0) -> str:
     return str(path)
 
 
-GOOD = {"fleet": {"server": "https://fleet.example/functions/v1/fleet", "code": "ABCD-EFGH-JK2M"}}
+IMAGE = {"volume": "Kulan OS 2.10 amd64", "created": "2026102712000000"}
+GOOD = {"fleet": {"server": "https://fleet.example/functions/v1/fleet", "code": "ABCD-EFGH-JK2M"}, "image": IMAGE}
 WANT = {"server": "https://fleet.example/functions/v1/fleet", "code": "ABCD-EFGH-JK2M"}
 
 # 1. The installer engine reading the stick.
@@ -85,12 +88,21 @@ check("settings found", engine.stick_settings(stand_in(block(GOOD))) == WANT)
 check("settings found further on (a bigger image)", engine.stick_settings(stand_in(block(GOOD), gap_mib=20)) == WANT)
 check("none on a plain stick", engine.stick_settings(stand_in(None)) is None)
 check("damaged settings refused", engine.stick_settings(stand_in(block(GOOD, damage=True))) is None)
-odd = [{"fleet": {"server": "http://fleet.example/x", "code": "ABCD-EFGH-JK2M"}},
-       {"fleet": {"server": "https://fleet.example/x", "code": "ABCD-EFGH"}},
-       {"fleet": {"server": "https://fleet.example/x", "code": "ABCD-EFGH-JK2M; rm -rf /"}},
-       {"other": 1}]
+odd = [{"fleet": {"server": "http://fleet.example/x", "code": "ABCD-EFGH-JK2M"}, "image": IMAGE},
+       {"fleet": {"server": "https://fleet.example/x", "code": "ABCD-EFGH"}, "image": IMAGE},
+       {"fleet": {"server": "https://fleet.example/x", "code": "ABCD-EFGH-JK2M; rm -rf /"}, "image": IMAGE},
+       {"other": 1, "image": IMAGE}]
 check("odd settings refused", all(engine.stick_settings(stand_in(block(o))) is None for o in odd))
-lower = {"fleet": {"server": "https://fleet.example/functions/v1/fleet", "code": "abcd-efgh-jk2m"}}
+lower = {"fleet": {"server": "https://fleet.example/functions/v1/fleet", "code": "abcd-efgh-jk2m"}, "image": IMAGE}
+other_image = {**GOOD, "image": {"volume": "Kulan OS 2.9 amd64", "created": "2026101012000000"}}
+check("settings for another Kulan OS (written over later) ignored", engine.stick_settings(stand_in(block(other_image))) is None)
+check("settings without the image they're for ignored", engine.stick_settings(stand_in(block({"fleet": GOOD["fleet"]}))) is None)
+deep = stand_in(None)
+with open(deep, "r+b") as f:
+    body = b"[" * 1990 + b"]" * 1990  # fits in the 4 KiB block; deeper than Python parses
+    f.seek(4 * MIB)
+    f.write(b"KULAN-STICK-CONFIG 1\n" + hashlib.sha256(body).hexdigest().encode() + b"\n" + body + b"\n")
+check("a deliberately odd block (deeply nested) is refused, not a crash", engine.stick_settings(deep) is None)
 check("a lower-case code is taken", engine.stick_settings(stand_in(block(lower))) == WANT)
 check("not an ISO: nothing", engine.stick_settings(str(work / "nothing")) is None)
 
@@ -140,11 +152,17 @@ check("already joined: nothing tried, the code removed", not calls and not autoj
 reset({"server": "http://fleet.example", "code": "ABCD-EFGH-JK2M"})
 autojoin.main()
 check("odd settings: nothing tried", not calls and not autojoin.JOIN.exists())
-reset()
-old = time.time() - 15 * 86400
-os.utime(autojoin.JOIN, (old, old))
+reset({**WANT, "tries": 2000})
 autojoin.main()
-check("after 14 days: stops trying", not calls and not autojoin.JOIN.exists())
+check("after 2,000 tries: stops trying", not calls and not autojoin.JOIN.exists())
+reset()
+old = time.time() - 400 * 86400  # a clock far off at install: not a reason to stop
+os.utime(autojoin.JOIN, (old, old))
+autojoin.subprocess.run = fake(1, "Couldn't join: the server said 429 Too Many Requests")
+autojoin.main()
+check("busy server (429) or an old date: kept, tries counted",
+      autojoin.JOIN.exists() and json.loads(autojoin.JOIN.read_text()).get("tries") == 1 and len(calls) == 1)
+check("still only root can read it", oct(autojoin.JOIN.stat().st_mode & 0o777) == "0o600")
 
 print("stick test: " + ("every check passed" if not failed else f"{len(failed)} failed"))
 sys.exit(1 if failed else 0)

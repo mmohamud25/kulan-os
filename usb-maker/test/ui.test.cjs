@@ -48,8 +48,8 @@ window.__TAURI__ = {
     await shot("empty");
 
     // Sticks appear (one too small, and the computer's own disks are never sent by Rust).
-    await page.evaluate(() => { window.__drives = [{ id: "disk4", path: "/dev/rdisk4", name: "SanDisk Ultra", size: 32e9 },
-                                                    { id: "disk5", path: "/dev/rdisk5", name: "Old stick", size: 2e9 }]; });
+    await page.evaluate(() => { window.__drives = [{ id: "disk4", path: "/dev/rdisk4", name: "SanDisk Ultra", size: 32e9, fingerprint: "SanDisk Ultra|32000000000|" },
+                                                    { id: "disk5", path: "/dev/rdisk5", name: "Old stick", size: 2e9, fingerprint: "Old stick|2000000000|" }]; });
     await page.waitForSelector("#drives input[value=disk4]", { timeout: 5000 });
     assert.strictEqual(await page.isDisabled("#drives input[value=disk5]"), true, "a 2 GB stick can't be chosen");
     assert.strictEqual(await page.isChecked("#drives input[value=disk4]"), true, "the one usable stick is chosen");
@@ -89,7 +89,7 @@ window.__TAURI__ = {
     await page.click("#confirm-yes");
     await page.waitForSelector("#working:not(.hidden)");
     const start = await page.evaluate(() => window.__calls.find((c) => c[0] === "start")[1]);
-    assert.deepStrictEqual(start, { source: { kind: "download", arch: "amd64" }, drive: "disk4",
+    assert.deepStrictEqual(start, { source: { kind: "download", arch: "amd64" }, drive: "disk4", fingerprint: "SanDisk Ultra|32000000000|",
       organisation: { fleet: { server: "https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet", code: "ABCD-EFGH-JK2M" } } });
     const texts = [];
     for (let i = 0; i < 6; i++) {
@@ -128,6 +128,12 @@ window.__TAURI__ = {
     await shot("failed");
     await page.click("#retry");
     await page.waitForSelector("#choose:not(.hidden)");
+
+    // A single big drive (a backup disk?) isn't chosen for you.
+    await page.evaluate(() => { window.__drives = [{ id: "disk7", path: "/dev/rdisk7", name: "Backup", size: 2e12, fingerprint: "Backup|2000000000000|" }]; });
+    await page.waitForSelector("#drives input[value=disk7]", { timeout: 5000 });
+    assert.strictEqual(await page.isChecked("#drives input[value=disk7]"), false);
+    assert.match(await page.textContent("#drives"), /make sure it’s the right one/);
 
     // The stick unplugged: no longer chosen.
     await page.evaluate(() => { window.__drives = []; });
