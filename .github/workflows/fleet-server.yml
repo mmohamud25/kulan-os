@@ -7,10 +7,10 @@ name: Fleet server
 # Deploying stays a separate, deliberate step at release.
 on:
   push:
-    paths: ["fleet/**", ".github/workflows/fleet-server.yml", "packages/kulan-base/root/usr/share/kulan-fleet/**",
+    paths: ["fleet/**", ".github/workflows/fleet-server.yml", "packages/kulan-base/root/usr/share/kulan-fleet/**", "packages/kulan-base/root/usr/bin/kulan-fleet",
             "packages/kulan-settings/root/usr/lib/kulan/kulan-remote-help", "ci/remotehelp-*.py", "ci/fleet-actions-test.py"]
   pull_request:
-    paths: ["fleet/**", ".github/workflows/fleet-server.yml", "packages/kulan-base/root/usr/share/kulan-fleet/**",
+    paths: ["fleet/**", ".github/workflows/fleet-server.yml", "packages/kulan-base/root/usr/share/kulan-fleet/**", "packages/kulan-base/root/usr/bin/kulan-fleet",
             "packages/kulan-settings/root/usr/lib/kulan/kulan-remote-help", "ci/remotehelp-*.py", "ci/fleet-actions-test.py"]
   workflow_dispatch:
 
@@ -65,7 +65,7 @@ jobs:
           PYTHON: /usr/bin/python3
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends python3-gi gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
+          sudo apt-get install -y -q --no-install-recommends python3-gi python3-cryptography gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 \
             gir1.2-gst-plugins-bad-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-nice
           npm install --no-save --no-audit --no-fund playwright@1.49.1
           npx playwright install --with-deps chromium

@@ -118,3 +118,19 @@ export function toBase64(bytes: Uint8Array): string {
   for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
+
+// Scripts the Owner signed (2.10): Ed25519, the public key and signatures in base64.
+export const SCRIPT_KEY = /^[A-Za-z0-9+/]{43}=$/;
+export const SIGNATURE = /^[A-Za-z0-9+/]{86}==$/;
+export const scriptMessage = (sha256: string) => `kulan-fleet-script v1\n${sha256}\n`;
+export const keyMessage = (key: string) => `kulan-fleet-script-key v1\n${key}\n`;
+const fromBase64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+export async function verifySigned(key: unknown, signature: unknown, message: string): Promise<boolean> {
+  if (typeof key !== "string" || !SCRIPT_KEY.test(key) || typeof signature !== "string" || !SIGNATURE.test(signature)) return false;
+  try {
+    const pub = await crypto.subtle.importKey("raw", fromBase64(key), { name: "Ed25519" }, false, ["verify"]);
+    return await crypto.subtle.verify({ name: "Ed25519" }, pub, fromBase64(signature), new TextEncoder().encode(message));
+  } catch {
+    return false;
+  }
+}

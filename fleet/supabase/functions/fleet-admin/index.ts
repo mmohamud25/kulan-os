@@ -740,8 +740,15 @@ Deno.serve(async (req: Request) => {
           return reply(403, { error: "running a script needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
         }
         const sid = uuid((raw as Record<string, unknown> | null)?.script_id);
-        const [sc] = sid ? await sql`select id, name, sha256 from fleet.scripts where id = ${sid} and organisation_id = ${org}` : [];
-        return sc ? { script_id: sc.id, sha256: sc.sha256, name: sc.name } : reply(404, { error: "no such script" });
+        const [sc] = sid ? await sql`select s.id, s.name, s.sha256, s.signature, o.script_key from fleet.scripts s
+                                     join fleet.organisations o on o.id = s.organisation_id
+                                     where s.id = ${sid} and s.organisation_id = ${org}` : [];
+        if (!sc) return reply(404, { error: "no such script" });
+        // Computers run only what the Owner's script signing key signed.
+        if (!(await acts.verifySigned(sc.script_key, sc.signature, acts.scriptMessage(sc.sha256)))) {
+          return reply(400, { error: "that script isn't signed with the organisation's script signing code. Sign it first" });
+        }
+        return { script_id: sc.id, sha256: sc.sha256, name: sc.name, signature: sc.signature };
       }
       return null;
     };
@@ -1863,13 +1870,64 @@ Deno.serve(async (req: Request) => {
       case "scripts": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
-        const [o] = await sql`select allow_scripts from fleet.organisations where id = ${org}`;
+        const [o] = await sql`select allow_scripts, script_key, script_key_set_at from fleet.organisations where id = ${org}`;
         // What a script says (it may hold a key or a password) only after the authenticator app's code.
         const scripts = await sql`select id, name, description, ${me.aal === "aal2" ? sql`body` : sql`null`} as body, sha256,
-                                         created_at, created_by, updated_at, updated_by
+                                         signature, created_at, created_by, updated_at, updated_by
                                   from fleet.scripts where organisation_id = ${org} order by lower(name)`;
+        for (const sc of scripts) {
+          sc.signed = await acts.verifySigned(o?.script_key, sc.signature, acts.scriptMessage(sc.sha256));
+          delete sc.signature;
+        }
         return reply(200, { allowed: o?.allow_scripts === true, scripts, is_owner: await isOwner(org),
-                            bodies: me.aal === "aal2" });
+                            bodies: me.aal === "aal2", script_key: o?.script_key ?? null, script_key_set_at: o?.script_key_set_at ?? null });
+      }
+      case "set-script-key": {
+        // The Owner's script signing key: its public half only (the code it comes from never leaves the Owner).
+        const org = uuid(body.organisation_id);
+        if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
+        if (!(await isOwner(org))) return reply(403, { error: "only the Owner sets up script signing" });
+        if (me.aal !== "aal2") {
+          return reply(403, { error: "script signing needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
+        const key = body.public_key;
+        if (typeof key !== "string" || !acts.SCRIPT_KEY.test(key)) return reply(400, { error: "that isn't a script signing key" });
+        const [o] = await sql`select script_key from fleet.organisations where id = ${org}`;
+        if (o?.script_key === key) return reply(200, {});
+        // A new code: signed by the old one (computers move to it by themselves), or a fresh start
+        // (computers keep the old key until someone with their admin password takes the new one).
+        let endorsement: string | null = null;
+        if (o?.script_key) {
+          if (await acts.verifySigned(o.script_key, body.endorsement, acts.keyMessage(key))) endorsement = body.endorsement as string;
+          else if (body.reset !== true) return reply(400, { error: "type the current script signing code to change it" });
+        }
+        await sql.begin(async (tx) => {
+          await tx`update fleet.organisations set script_key = ${key}, script_key_endorsement = ${endorsement},
+                          script_key_set_at = now() where id = ${org}`;
+          // Signed with the old key: to be signed again (computers check against the new one).
+          await tx`update fleet.scripts set signature = null where organisation_id = ${org}`;
+          await tx`update fleet.actions a set status = 'cancelled', finished_at = now()
+                   from fleet.devices d where d.id = a.device_id and d.organisation_id = ${org}
+                     and a.type = 'run-script' and a.status = 'pending'`;
+        });
+        await audit(org, null, !o?.script_key ? "set up script signing"
+                                : endorsement ? "changed the script signing code" : "set up a new script signing code (the old one wasn't given)");
+        return reply(200, { reset: !!o?.script_key && !endorsement });
+      }
+      case "sign-script": {
+        const id = uuid(body.script_id);
+        const [sc] = id ? await sql`select s.organisation_id, s.name, s.sha256, o.script_key from fleet.scripts s
+                                    join fleet.organisations o on o.id = s.organisation_id where s.id = ${id}` : [];
+        if (!sc || !canOrg(sc.organisation_id)) return reply(404, { error: "no such script" });
+        if (me.aal !== "aal2") {
+          return reply(403, { error: "signing a script needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
+        if (!(await acts.verifySigned(sc.script_key, body.signature, acts.scriptMessage(sc.sha256)))) {
+          return reply(400, { error: "that signing code isn't the organisation's" });
+        }
+        await sql`update fleet.scripts set signature = ${body.signature as string} where id = ${id}`;
+        await audit(sc.organisation_id, null, `signed script ${sc.name}`.slice(0, 80), { sha256: sc.sha256 });
+        return reply(200, {});
       }
       case "set-scripts-allowed": {
         const org = uuid(body.organisation_id);
@@ -1878,6 +1936,9 @@ Deno.serve(async (req: Request) => {
         if (typeof body.allowed !== "boolean") return reply(400, { error: "allowed is true or false" });
         if (body.allowed && me.aal !== "aal2") {
           return reply(403, { error: "allowing scripts needs your authenticator app's code", two_step: me.hasCode ? "code" : "set-up" });
+        }
+        if (body.allowed && !(await sql`select 1 from fleet.organisations where id = ${org} and script_key is not null`).length) {
+          return reply(400, { error: "set up script signing first" });
         }
         await sql`update fleet.organisations set allow_scripts = ${body.allowed} where id = ${org}`;
         if (!body.allowed) {  // scripts still waiting don't run
@@ -1908,15 +1969,21 @@ Deno.serve(async (req: Request) => {
         if (!script) return reply(400, { error: "a script is text, up to 64 KB" });
         const digest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(script))),
                                   (b) => b.toString(16).padStart(2, "0")).join("");
+        // Signed in the browser (or the Fleet app) with the Owner's script signing code.
+        const [k] = await sql`select script_key from fleet.organisations where id = ${org}`;
+        if (!(await acts.verifySigned(k?.script_key, body.signature, acts.scriptMessage(digest)))) {
+          return reply(400, { error: k?.script_key ? "that signing code isn't the organisation's" : "set up script signing first" });
+        }
+        const signature = body.signature as string;
         try {
           if (existing) {
             await sql`update fleet.scripts set name = ${name}, description = ${description}, body = ${script}, sha256 = ${digest},
-                        updated_at = now(), updated_by = ${email} where id = ${existing.id}`;
+                        signature = ${signature}, updated_at = now(), updated_by = ${email} where id = ${existing.id}`;
             await audit(org, null, `changed script ${name}`.slice(0, 80), { sha256: digest });
             return reply(200, { id: existing.id, sha256: digest });
           }
-          const [row] = await sql`insert into fleet.scripts (organisation_id, name, description, body, sha256, created_by, updated_by)
-                                  values (${org}, ${name}, ${description}, ${script}, ${digest}, ${email}, ${email}) returning id`;
+          const [row] = await sql`insert into fleet.scripts (organisation_id, name, description, body, sha256, signature, created_by, updated_by)
+                                  values (${org}, ${name}, ${description}, ${script}, ${digest}, ${signature}, ${email}, ${email}) returning id`;
           await audit(org, null, `added script ${name}`.slice(0, 80), { sha256: digest });
           return reply(200, { id: row.id, sha256: digest });
         } catch (e) {

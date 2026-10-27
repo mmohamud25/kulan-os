@@ -27,7 +27,7 @@ const FIXES = [
   ["check-disk", "Check the disk", "Looks for disk errors and checks the disk's health. It changes nothing."]];
 const FIX_NAME = Object.fromEntries(FIXES.map(([v, t]) => [v, t]));
 const JOBS = new Set(["run-fix", "run-script", "message"]);
-let scripts = [], scriptsAllowed = false;
+let scripts = [], scriptsAllowed = false, scriptKey = null;
 const SCREEN_LOCK = [[0, "Not set"], [2, "After 2 minutes"], [5, "After 5 minutes"], [10, "After 10 minutes"],
                      [15, "After 15 minutes"], [30, "After 30 minutes"]];
 const USB = [["", "Any USB drive works"], ["approved", "Approved drives only"], ["block", "Blocked"]];
@@ -1342,7 +1342,10 @@ async function askJob(kind, where, body) {
   if (scripts.some((x) => x.body === null)) await loadScripts();  // listed before the code: without what they say
   if (!scriptsAllowed) { $("app-msg").textContent = "The Owner hasn't allowed scripts for this organisation."; return; }
   if (!scripts.length) { $("app-msg").textContent = "No scripts yet. Add one under Scripts first."; return; }
-  const pick = el("select", {}, ...scripts.map((x) => el("option", { value: x.id }, x.name)));
+  if (!scripts.some((x) => x.signed)) { $("app-msg").textContent = "No signed scripts yet. Sign one under Scripts first."; return; }
+  const pick = el("select", {}, ...scripts.map((x) => el("option", { value: x.id, ...(x.signed ? {} : { disabled: true }) },
+    x.signed ? x.name : `${x.name} (not signed)`)));
+  pick.value = scripts.find((x) => x.signed).id;
   const about = el("p", { class: "note" });
   const shown = el("pre", { style: "max-height: 30vh" });
   const describe = () => {
@@ -1370,21 +1373,110 @@ async function showOutput(a, hostname) {
   } catch (e) { $("app-msg").textContent = e.message; }
 }
 
+// --- Script signing (2.10) -------------------------------------------------------------------
+// Computers run only scripts the Owner's script signing key signed. The key comes from a code
+// only the Owner holds (made here, written down, never sent): SHA-256 of it is the Ed25519 seed.
+// The server and computers get the public half. tweetnacl (public domain) does the signing.
+const SIGN_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const normalSigningCode = (c) => String(c).toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/(.{5})(?=.)/g, "$1-");
+function newSigningCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  return normalSigningCode(Array.from(bytes, (b) => SIGN_LETTERS[b % 32]).join(""));
+}
+const b64 = (bytes) => btoa(String.fromCharCode(...bytes));
+const utf8 = (t) => new TextEncoder().encode(t);
+const sha256Hex = async (t) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", typeof t === "string" ? utf8(t) : t)),
+                                          (b) => b.toString(16).padStart(2, "0")).join("");
+async function signerFrom(code) {
+  const seed = new Uint8Array(await crypto.subtle.digest("SHA-256", utf8(`kulan-fleet-script-key v1\n${normalSigningCode(code)}`)));
+  const pair = window.nacl.sign.keyPair.fromSeed(seed);
+  const sign = (message) => b64(window.nacl.sign.detached(utf8(message), pair.secretKey));
+  return { pub: b64(pair.publicKey), sign,
+           script: async (text) => sign(`kulan-fleet-script v1\n${await sha256Hex(text)}\n`),
+           endorse: (key) => sign(`kulan-fleet-script-key v1\n${key}\n`) };
+}
+// A short way to compare keys by eye (the same as kulan-fleet trust-script-key prints).
+async function keyFingerprint(key) {
+  const hex = (await sha256Hex(Uint8Array.from(atob(key), (c) => c.charCodeAt(0)))).slice(0, 16).toUpperCase();
+  return hex.match(/.{4}/g).join(" ");
+}
+// Kept only in this page, until it's closed: typed once per visit.
+let signer = null;
+const normalScript = (t) => t.replace(/\r\n/g, "\n");
+// The organisation's signer, asking for the code if this page doesn't have it.
+function askSigningCode(why) {
+  if (signer && signer.pub === scriptKey) return Promise.resolve(signer);
+  return new Promise((resolve) => {
+    const code = el("input", { type: "password", autocomplete: "off", spellcheck: "false", "aria-label": "Script signing code",
+                               placeholder: "XXXXX-XXXXX-XXXXX-XXXXX" });
+    const err = errorLine();
+    const ok = el("button", { type: "button", class: "primary", onclick: async () => {
+      const s2 = await signerFrom(code.value);
+      if (s2.pub !== scriptKey) { err.textContent = "That isn't your organisation's script signing code."; return; }
+      signer = s2;
+      $("dlg").close();
+      resolve(signer);
+    } }, "Continue");
+    dialog("Script signing code", [el("p", {}, `${why} Type the script signing code the Owner wrote down when they set up script signing.`),
+      field("Script signing code", code), err], [el("button", { type: "button", onclick: () => { $("dlg").close(); resolve(null); } }, "Cancel"), ok]);
+    code.focus();
+  });
+}
+async function setUpSigning(change) {
+  if (!(await codeFirst())) return;
+  let endorsement, reset = false;
+  if (change) {
+    const old = await askSigningCode("To change the code, the current one signs the new one, so the computers move to it by themselves.");
+    if (!old) {
+      if (!confirm("Lost the current code? You can start again with a new one, but every computer then refuses scripts until someone with its administrator password runs \"sudo kulan-fleet trust-script-key\" on it. Start again?")) return;
+      reset = true;
+    } else endorsement = old;
+  }
+  const code = newSigningCode();
+  const next = await signerFrom(code);
+  const written = el("input", { type: "checkbox" });
+  const err = errorLine();
+  const save = el("button", { type: "button", class: "primary", disabled: true, onclick: async () => {
+    try {
+      const out = await api({ op: "set-script-key", organisation_id: $("org").value, public_key: next.pub,
+                              ...(endorsement ? { endorsement: endorsement.endorse(next.pub) } : {}), ...(reset ? { reset: true } : {}) });
+      signer = next;
+      $("dlg").close();
+      $("app-msg").textContent = out.reset ? "New script signing code set up. Sign your scripts again; each computer needs \"sudo kulan-fleet trust-script-key\" before it runs them."
+        : change ? "Script signing code changed. Sign your scripts again." : "Script signing is set up.";
+      await loadScripts();
+    } catch (e) { err.textContent = e.message; }
+  } }, "Save");
+  written.addEventListener("change", () => { save.disabled = !written.checked; });
+  dialog(change ? "A new script signing code" : "Set up script signing", [
+    el("p", {}, "Computers run only scripts signed with this code. Write it down and keep it with your recovery code. Kulan doesn't keep it, so nobody, not even someone who breaks into Kulan Fleet, can run a script on your computers without it."),
+    el("div", { class: "code" }, code),
+    el("label", { class: "row" }, written, " I've written it down"), err], [closeButton(), save]);
+}
+
 async function loadScripts() {
   const org = $("org").value;
   scripts = [];
   scriptsAllowed = false;
+  scriptKey = null;
   let owner = false;
   if (org) {
     try {
       const out = await api({ op: "scripts", organisation_id: org });
       scripts = out.scripts || [];
       scriptsAllowed = out.allowed;
+      scriptKey = out.script_key || null;
       owner = out.is_owner;
     } catch (e) { $("app-msg").textContent = e.message; }
   }
+  const fp = scriptKey ? await keyFingerprint(scriptKey) : "";
+  $("signing").replaceChildren(org ? el("li", {},
+    el("span", { class: "grow-text" }, el("b", {}, "Script signing"), scriptKey
+      ? ` · key ${fp}. Computers run only scripts signed with the Owner's script signing code.`
+      : " · not set up. Computers run only scripts signed with the Owner's script signing code, so scripts need it first."),
+    owner ? el("button", { onclick: () => setUpSigning(!!scriptKey) }, scriptKey ? "Change the code…" : "Set up…") : "") : "");
   $("scripts-sub").textContent = scriptsAllowed
-    ? "Your organisation's own scripts, run as root on the computers you choose, with their output shown here. Adding, changing and running them needs your authenticator app's code."
+    ? "Your organisation's own scripts, run as root on the computers you choose, with their output shown here. Adding, changing and running them needs your authenticator app's code; computers run only those signed with the Owner's script signing code."
     : `Off. Only the Owner can allow your organisation's own scripts on its computers. Kulan's fixes work either way.${owner ? "" : " Ask the Owner if you need them."}`;
   $("scripts-allow-row").classList.toggle("hidden", !owner);
   $("scripts-allow").checked = scriptsAllowed;
@@ -1392,6 +1484,8 @@ async function loadScripts() {
   $("scripts").replaceChildren(...(scriptsAllowed ? (scripts.length ? scripts.map((x) => el("li", {},
     el("b", {}, x.name), x.description ? ` · ${x.description}` : "",
     el("span", { class: "small" }, ` · changed ${ago(x.updated_at)} by ${x.updated_by} `),
+    x.signed ? "" : el("span", { class: "tag warn" }, "Not signed"), " ",
+    x.signed ? "" : el("button", { onclick: () => signScript(x) }, "Sign…"), " ",
     el("button", { onclick: () => editScript(x) }, "Edit…"), " ",
     el("button", { class: "danger", onclick: async () => {
       if (!confirm(`Remove the script ${x.name}? Requests already sent still run if they haven't yet.`)) return;
@@ -1412,24 +1506,50 @@ async function editScript(x) {
   const text = el("textarea", { rows: "14", spellcheck: "false", placeholder: "#!/bin/bash\nset -e\n…" });
   text.value = x?.body || "";
   const err = errorLine();
+  // Signed when it's saved: the Owner's script signing code, unless this page has it already.
+  const needCode = !(signer && signer.pub === scriptKey);
+  const code = el("input", { type: "password", autocomplete: "off", spellcheck: "false", placeholder: "XXXXX-XXXXX-XXXXX-XXXXX" });
   dialog(x ? `Edit ${x.name}` : "Add a script", [
-    el("p", { class: "note" }, "Bash, run as root with a 10-minute limit. Only the first 64 KB of what it prints is kept."),
-    field("Name", name), field("What it does", about), field("Script", text), err],
+    el("p", { class: "note" }, "Bash, run as root with a 10-minute limit. Only the first 64 KB of what it prints is kept. Computers run it only once it's signed with the Owner's script signing code."),
+    field("Name", name), field("What it does", about), field("Script", text), needCode && scriptKey ? field("Script signing code", code) : "", err],
     [closeButton(), el("button", { type: "button", class: "primary", onclick: async () => {
       if (!name.value.trim() || !text.value.trim()) { err.textContent = "A script needs a name and some commands."; return; }
+      if (!scriptKey) { err.textContent = "The Owner sets up script signing first (above the list)."; return; }
+      if (needCode) {
+        const s2 = await signerFrom(code.value);
+        if (s2.pub !== scriptKey) { err.textContent = "That isn't your organisation's script signing code."; return; }
+        signer = s2;
+      }
+      const body = normalScript(text.value);
       try {
         await api({ op: x ? "edit-script" : "add-script", ...(x ? { script_id: x.id } : { organisation_id: $("org").value }),
-                    name: name.value.trim(), description: about.value.trim(), body: text.value });
+                    name: name.value.trim(), description: about.value.trim(), body, signature: await signer.script(body) });
         $("dlg").close();
         await loadScripts();
       } catch (e) { err.textContent = e.message; }
     } }, "Save")]);
   name.focus();
 }
+async function signScript(x) {
+  if (!(await codeFirst())) return;
+  if (x.body === null) {
+    await loadScripts();
+    x = scripts.find((y) => y.id === x.id);
+    if (!x || x.body === null) return;
+  }
+  const s2 = await askSigningCode(`Sign ${x.name} so the computers run it. Check what it says first.`);
+  if (!s2) return;
+  try {
+    await api({ op: "sign-script", script_id: x.id, signature: await s2.script(x.body) });
+    $("app-msg").textContent = `${x.name} is signed.`;
+    await loadScripts();
+  } catch (e) { $("app-msg").textContent = e.message; }
+}
 $("add-script").addEventListener("click", () => editScript(null));
 $("scripts-allow").addEventListener("change", async () => {
   const want = $("scripts-allow").checked;
-  if (want && !confirm("Allow scripts? Admins who sign in with their authenticator app can then run any command as root on this organisation's computers. Every script and every run is in the activity log.")) {
+  if (want && !scriptKey) { $("scripts-allow").checked = false; $("app-msg").textContent = "Set up script signing first."; return; }
+  if (want && !confirm("Allow scripts? Admins who sign in with their authenticator app can then run the scripts signed with your script signing code, as root, on this organisation's computers. Every script and every run is in the activity log.")) {
     $("scripts-allow").checked = false;
     return;
   }

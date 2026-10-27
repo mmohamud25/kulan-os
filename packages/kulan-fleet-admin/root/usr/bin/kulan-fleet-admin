@@ -22,6 +22,7 @@ they type it and choose their own password straight away.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -367,6 +368,44 @@ class Session:
                 pass
         self.access_token = self.refresh_token = None
         keyring_set(None)
+
+
+# --- script signing (2.10) -------------------------------------------------------------------
+# Computers run only scripts the Owner's script signing key signed. The key comes from a code only
+# the Owner holds (never sent): SHA-256 of it is the Ed25519 seed, as in the web dashboard.
+SIGN_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def normal_signing_code(code: str) -> str:
+    plain = re.sub(r"[^A-Z0-9]", "", code.upper())
+    return "-".join(plain[i:i + 5] for i in range(0, len(plain), 5))
+
+
+def new_signing_code() -> str:
+    return normal_signing_code("".join(secrets.choice(SIGN_LETTERS) for _ in range(20)))
+
+
+def key_fingerprint(key: str) -> str:
+    digest = hashlib.sha256(base64.b64decode(key)).hexdigest()[:16].upper()
+    return " ".join(digest[i:i + 4] for i in range(0, 16, 4))
+
+
+class ScriptSigner:
+    def __init__(self, code: str) -> None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        seed = hashlib.sha256(f"kulan-fleet-script-key v1\n{normal_signing_code(code)}".encode()).digest()
+        self._key = Ed25519PrivateKey.from_private_bytes(seed)
+        self.pub = base64.b64encode(self._key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
+
+    def sign(self, message: str) -> str:
+        return base64.b64encode(self._key.sign(message.encode())).decode()
+
+    def script(self, body: str) -> str:
+        return self.sign(f"kulan-fleet-script v1\n{hashlib.sha256(body.encode()).hexdigest()}\n")
+
+    def endorse(self, key: str) -> str:
+        return self.sign(f"kulan-fleet-script-key v1\n{key}\n")
 
 
 # --- setup codes -----------------------------------------------------------------------
@@ -2873,8 +2912,9 @@ class FleetWindow(Adw.ApplicationWindow):
         if not (out or {}).get("allowed"):
             self.toast("The Owner hasn't allowed scripts for this organisation")
             return None
+        scripts = [x for x in scripts if x.get("signed")]
         if not scripts:
-            self.toast("No scripts yet. Add one under Scripts first")
+            self.toast("No signed scripts yet. Add or sign one under Scripts first")
             return None
         dialog = Adw.AlertDialog(heading=f"Run a script on {where}", body="It runs as root at the next report, for up to "
                                  "10 minutes. The computer checks that it's this exact script before running it, and "
@@ -2964,11 +3004,23 @@ class FleetWindow(Adw.ApplicationWindow):
                 group.set_description(error)
                 return
             allowed, scripts = bool((out or {}).get("allowed")), (out or {}).get("scripts") or []
+            self.script_key = (out or {}).get("script_key")
             group.set_description("Your organisation's own scripts, run as root on the computers you choose, with their "
-                                  "output shown here. Adding, changing and running them needs your authenticator app's code."
+                                  "output shown here. Adding, changing and running them needs your authenticator app's "
+                                  "code; computers run only those signed with the Owner's script signing code."
                                   if allowed else "Off. Only the Owner can allow your organisation's own scripts on its "
                                   "computers. Kulan's fixes work either way.")
             add.set_visible(allowed)
+            signing = Adw.ActionRow(title="Script signing", subtitle_lines=0, subtitle=(
+                f"Key {key_fingerprint(self.script_key)}. Computers run only scripts signed with the Owner's script "
+                "signing code." if self.script_key else "Not set up. Computers run only scripts signed with the "
+                "Owner's script signing code, so scripts need it first."))
+            signing.add_prefix(Gtk.Image(icon_name="security-high-symbolic"))
+            if (out or {}).get("is_owner"):
+                change = Gtk.Button(label="Change the code…" if self.script_key else "Set up…", valign=Gtk.Align.CENTER)
+                change.connect("clicked", lambda _b: self.code_first(lambda: self.setup_signing(org, bool(self.script_key))))
+                signing.add_suffix(change)
+            group.add(signing)
             if (out or {}).get("is_owner"):
                 switch = Adw.SwitchRow(title="Allow scripts on this organisation's computers", subtitle_lines=0,
                                        subtitle="Every script and every run is in the activity log", active=allowed)
@@ -2981,6 +3033,11 @@ class FleetWindow(Adw.ApplicationWindow):
                                     subtitle=GLib.markup_escape_text(" · ".join(y for y in (
                                         x.get("description"), f"changed {ago(x.get('updated_at'))} by {x.get('updated_by') or '–'}") if y)))
                 row.add_prefix(Gtk.Image(icon_name="text-x-script-symbolic"))
+                if not x.get("signed"):
+                    row.add_suffix(tag("not signed", "warn"))
+                    sign = Gtk.Button(label="Sign…", valign=Gtk.Align.CENTER)
+                    sign.connect("clicked", lambda _b, s=x: self.sign_script(org, s))
+                    row.add_suffix(sign)
                 row.add_suffix(Gtk.Image(icon_name="document-edit-symbolic"))
                 row.connect("activated", lambda _r, s=x: self.script_dialog(org, s))
                 group.add(row)
@@ -3013,9 +3070,13 @@ class FleetWindow(Adw.ApplicationWindow):
         if not want:
             go()
             return None
+        if not getattr(self, "script_key", None):
+            put_back()
+            self.toast("Set up script signing first")
+            return None
         dialog = Adw.AlertDialog(heading="Allow scripts?", body="Admins who sign in with their authenticator app can "
-                                 "then run any command as root on this organisation's computers. Every script and every "
-                                 "run is in the activity log.")
+                                 "then run the scripts signed with your script signing code, as root, on this "
+                                 "organisation's computers. Every script and every run is in the activity log.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("allow", "Allow scripts")
         dialog.set_response_appearance("allow", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -3023,6 +3084,101 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog.connect("response", lambda _d, r: self.code_first(go) if r == "allow" else put_back())
         dialog.present(self)
         return dialog
+
+    def signer_ok(self) -> bool:
+        signer = getattr(self, "signer", None)
+        return bool(signer and signer.pub == getattr(self, "script_key", None))
+
+    def ask_signing_code(self, why: str, then) -> Adw.AlertDialog:
+        """The organisation's signer: the code typed, checked against its key, kept until the app closes."""
+        dialog = Adw.AlertDialog(heading="Script signing code", body=f"{why} Type the script signing code the Owner "
+                                 "wrote down when they set up script signing.")
+        entry = Adw.PasswordEntryRow(title="Script signing code")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        box.append(entry)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("ok", "Continue")
+        dialog.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("cancel")
+
+        def answered(_d, r):
+            if r != "ok":
+                then(None)
+                return
+            signer = ScriptSigner(entry.get_text())
+            if signer.pub != getattr(self, "script_key", None):
+                self.toast("That isn't your organisation's script signing code")
+                then(None)
+                return
+            self.signer = signer
+            then(signer)
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
+
+    def setup_signing(self, org: dict, change: bool):
+        def make(old) -> Adw.AlertDialog:
+            reset = change and old is None
+            code = new_signing_code()
+            signer = ScriptSigner(code)
+            dialog = Adw.AlertDialog(heading="A new script signing code" if change else "Set up script signing",
+                                     body="Computers run only scripts signed with this code. Write it down and keep it "
+                                          "with your recovery code. Kulan doesn't keep it, so nobody, not even someone "
+                                          "who breaks into Kulan Fleet, can run a script on your computers without it."
+                                          + (" Every computer then refuses scripts until someone with its administrator "
+                                             "password runs “sudo kulan-fleet trust-script-key” on it." if reset else ""))
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+            box.append(Gtk.Label(label=code, selectable=True, xalign=0, css_classes=["fleet-code"]))
+            written = Gtk.CheckButton(label="I've written it down")
+            box.append(written)
+            dialog.set_extra_child(box)
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("save", "Save")
+            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_response_enabled("save", False)
+            dialog.set_close_response("cancel")
+            written.connect("toggled", lambda b: dialog.set_response_enabled("save", b.get_active()))
+
+            def saved(r, error):
+                if error:
+                    self.toast(error)
+                    return
+                self.signer = signer
+                self.toast("New code set up. Sign your scripts again" if change else "Script signing is set up")
+                self.open_scripts(org)
+            dialog.connect("response", lambda _d, r: r == "save" and self.call(
+                {"op": "set-script-key", "organisation_id": org["id"], "public_key": signer.pub,
+                 **({"endorsement": old.endorse(signer.pub)} if old else {}), **({"reset": True} if reset else {})},
+                saved, {"reset": reset}))
+            dialog.present(self)
+            self.signing_dialog = dialog  # for the self-test
+            return dialog
+        if not change:
+            return make(None)
+        return self.ask_signing_code("To change the code, the current one signs the new one, so the computers move "
+                                     "to it by themselves. Lost it? Cancel to start again with a new one.", make)
+
+    def sign_script(self, org: dict, script: dict) -> None:
+        def with_body(x):
+            def signed(signer):
+                if signer is None:
+                    return
+                self.call({"op": "sign-script", "script_id": x["id"], "signature": signer.script(x["body"])},
+                          lambda _r, error: self.toast(error) if error else (self.toast(f"{x['name']} is signed"),
+                                                                             self.open_scripts(org)))
+            if self.signer_ok():
+                signed(self.signer)
+            else:
+                self.ask_signing_code(f"Sign {x['name']} so the computers run it. Check what it says first.", signed)
+
+        def ready() -> None:
+            if script.get("body") is not None:
+                with_body(script)
+                return
+            self.load_scripts(org, lambda out, error: self.toast(error) if error else with_body(
+                next((x for x in (out or {}).get("scripts") or [] if x["id"] == script["id"]), script)))
+        self.code_first(ready)
 
     def script_dialog(self, org: dict, script: dict | None) -> None:
         def ready() -> None:
@@ -3051,8 +3207,12 @@ class FleetWindow(Adw.ApplicationWindow):
         about = Adw.EntryRow(title="What it does (for other admins)", text=(script or {}).get("description", ""))
         rows.append(name)
         rows.append(about)
+        # Signed when it's saved: the Owner's script signing code, unless the app has it already.
+        code = Adw.PasswordEntryRow(title="Script signing code", visible=not self.signer_ok())
+        rows.append(code)
         box.append(rows)
-        box.append(Gtk.Label(label="Bash, run as root with a 10-minute limit. Only the first 64 KB of what it prints is kept.",
+        box.append(Gtk.Label(label="Bash, run as root with a 10-minute limit. Only the first 64 KB of what it prints is "
+                                   "kept. Computers run it only once it's signed with the Owner's script signing code.",
                              wrap=True, xalign=0, css_classes=["dim-label"]))
         text = Gtk.TextView(monospace=True, top_margin=10, bottom_margin=10, left_margin=12, right_margin=12)
         text.update_property([Gtk.AccessibleProperty.LABEL], ["Script"])
@@ -3087,11 +3247,21 @@ class FleetWindow(Adw.ApplicationWindow):
             self.open_scripts(org)
 
         def do_save(_b) -> None:
+            if not getattr(self, "script_key", None):
+                note.set_label("The Owner sets up script signing first.")
+                return
+            if not self.signer_ok():
+                signer = ScriptSigner(code.get_text())
+                if signer.pub != self.script_key:
+                    note.set_label("That isn't your organisation's script signing code.")
+                    return
+                self.signer = signer
             save.set_sensitive(False)
+            body = body_text().replace("\r\n", "\n")
             which = {"op": "edit-script", "script_id": script["id"]} if script else \
                 {"op": "add-script", "organisation_id": org["id"]}
             self.call({**which, "name": name.get_text().strip(), "description": about.get_text().strip(),
-                       "body": body_text()}, saved)
+                       "body": body, "signature": self.signer.script(body)}, saved)
         save.connect("clicked", do_save)
         dialog.present(self)
         return dialog
@@ -4347,9 +4517,13 @@ def sample() -> dict:
                              "screenshot": SAMPLE_PNG, "screenshot_type": "image/png"}],
             "sample_output": {"output": "== Disk errors in the last 7 days\nnone", "exit_code": 0, "status": "done",
                               "type": "run-fix"},
-            "sample_scripts": {"allowed": True, "is_owner": True, "scripts": [
+            "sample_scripts": {"allowed": True, "is_owner": True, "script_key": ScriptSigner("AAAAA-BBBBB-CCCCC-DDDDD").pub,
+                               "scripts": [
                 {"id": "s1", "name": "Clear the print queue", "description": "Cancels every waiting print job",
-                 "body": "cancel -a\n", "sha256": "ab" * 32, "updated_at": iso(3600), "updated_by": "admin@kulan.example"}]},
+                 "body": "cancel -a\n", "sha256": "ab" * 32, "updated_at": iso(3600), "updated_by": "admin@kulan.example",
+                 "signed": True},
+                {"id": "s2", "name": "Restart Wi-Fi", "body": "nmcli radio wifi off; nmcli radio wifi on\n",
+                 "sha256": "cd" * 32, "updated_at": iso(7200), "updated_by": "helper@kulan.example", "signed": False}]},
             "sample_people": [
                 {"id": "p1", "username": "amina", "full_name": "Amina Yusuf", "email": "amina@kulan.example",
                  "mailbox": "amina@kulan.example", "mailbox_state": "active", "mailbox_todo": "rename",
@@ -4662,6 +4836,16 @@ class FleetApp(Adw.Application):
                     win.open_output(win.data["actions"][2], "kca-laptop-01")
                     win.nav.pop()
                     win.open_scripts(org)
+                    # Script signing (2.10): the same key as the web dashboard's from the same code; a new code.
+                    assert win.script_key == ScriptSigner("aaaaa bbbbb ccccc ddddd").pub
+                    assert re.fullmatch(r"[A-Z2-9]{5}(-[A-Z2-9]{5}){3}", new_signing_code())
+                    win.setup_signing(org, False)
+                    win.signing_dialog.force_close()
+                    win.ask_signing_code("Test.", lambda _s: None).force_close()
+                    ran = win.script_run_dialog("x", {}, win.data["sample_scripts"])
+                    assert ran is not None and ran.get_extra_child().get_first_child().get_row_at_index(0).get_model().get_n_items() == 1, \
+                        "only signed scripts can be run"
+                    ran.force_close()
                     win.script_editor(org, win.data["sample_scripts"]["scripts"][0]).force_close()
                     win.script_editor(org, None).force_close()
                     win.remove_script(org, win.data["sample_scripts"]["scripts"][0]).force_close()

@@ -56,6 +56,12 @@
 // Wi-Fi networks ("networks", passwords opened only for this) and printers
 // ("printers") its groups give it.
 //
+// Signed scripts (2.10): each reply's policy carries the Owner's public script
+// key ("script_key", and "script_key_endorsement", the old key's signature of
+// it, after the Owner changed their code), and a run-script request carries
+// the Owner's signature of the script's SHA-256 ("signature"). The computer
+// runs only what that key signed (kulan-fleet's scriptkey.py).
+//
 // Get help (2.9c): someone at the computer writes what's wrong in Kulan
 // Settings, and may add a screenshot they saw first (base64 JPEG or PNG, 360
 // KB at most); it reaches the organisation's admins (fleet-admin). Each
@@ -592,9 +598,13 @@ Deno.serve(async (req: Request) => {
                                                   state: h.state, reply: h.reply, created_at: h.created_at, done_at: h.done_at }));
       if (!dev.approved) {
         // Waiting for the Owner: its policy (no scripts, no USB drive list), its help requests, its wake topic.
-        const [o] = await sql`select policy from fleet.organisations where id = ${dev.organisation_id}`;
+        const [o] = await sql`select policy, script_key, script_key_endorsement from fleet.organisations
+                              where id = ${dev.organisation_id}`;
         const { policy } = mergePolicies([o?.policy ?? {}]);
-        return reply(200, { pending: true, actions: [], policy, help_requests: helpList, wake: wakeInfo(wake_topic) });
+        const sentPending: Record<string, unknown> = { ...policy };
+        if (o?.script_key) sentPending.script_key = o.script_key;
+        if (o?.script_key && o.script_key_endorsement) sentPending.script_key_endorsement = o.script_key_endorsement;
+        return reply(200, { pending: true, actions: [], policy: sentPending, help_requests: helpList, wake: wakeInfo(wake_topic) });
       }
       // A fix or script handed to the computer but never answered (it was switched off mid-run, say)
       // expires after a day: its script can't be fetched any more.
@@ -613,12 +623,16 @@ Deno.serve(async (req: Request) => {
                                   returning id, type, payload, created_at)
                                 select id, type, payload from sent order by created_at`;
       // This computer's policy: the organisation's and its groups', the stricter rule winning.
-      const [org] = await sql`select policy, allow_scripts from fleet.organisations where id = ${dev.organisation_id}`;
+      const [org] = await sql`select policy, allow_scripts, script_key, script_key_endorsement from fleet.organisations
+                              where id = ${dev.organisation_id}`;
       const groups = await sql`select g.policy from fleet.groups g join fleet.group_devices gd on gd.group_id = g.id
                                where gd.device_id = ${dev.id}`;
       const { policy } = mergePolicies([org?.policy ?? {}, ...groups.map((g) => g.policy)]);
       const sent: Record<string, unknown> = { ...policy };
       if (org?.allow_scripts) sent.scripts = true;
+      // The Owner's public key for scripts (the computer keeps the first it's told; 2.10).
+      if (org?.script_key) sent.script_key = org.script_key;
+      if (org?.script_key && org.script_key_endorsement) sent.script_key_endorsement = org.script_key_endorsement;
       // Wi-Fi networks and printers from this computer's groups (passwords opened only to send them here).
       const nets = await sql`select distinct on (n.ssid) n.id, n.group_id, n.ssid, n.security, n.secret, n.hidden
                              from fleet.group_networks n join fleet.group_devices gd on gd.group_id = n.group_id

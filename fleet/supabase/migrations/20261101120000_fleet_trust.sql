@@ -48,3 +48,13 @@ begin
 end;
 $$;
 revoke all on function fleet.new_join_code(uuid, integer, integer, boolean, text) from public, anon, authenticated;
+
+-- Scripts the Owner signed: the public half of the Owner's script signing key
+-- (its private half comes from a code only the Owner holds, never sent here),
+-- the old key's signature of it when the Owner changed their code, and each
+-- script's signature. Computers run only signed scripts (kulan-fleet's scriptkey.py).
+alter table fleet.organisations
+  add column if not exists script_key text,
+  add column if not exists script_key_endorsement text,
+  add column if not exists script_key_set_at timestamptz;
+alter table fleet.scripts add column if not exists signature text;

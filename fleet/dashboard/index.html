@@ -384,6 +384,7 @@ dialog.help[open] { display: flex; flex-direction: column; }
         <button id="add-script" class="primary hidden">Add a script</button>
       </div>
       <section class="panel">
+        <ul id="signing" class="list" style="margin-bottom: 8px"></ul>
         <label class="row hidden" id="scripts-allow-row" style="margin-bottom: 8px"><input type="checkbox" id="scripts-allow"> Allow scripts on this organisation's computers</label>
         <ul id="scripts" class="list"></ul>
       </section>
@@ -524,6 +525,8 @@ dialog.help[open] { display: flex; flex-direction: column; }
 
 <!-- supabase-js 2.49.4 (MIT), kept next to this page rather than loaded from a CDN. -->
 <script src="supabase-js-2.49.4.js"></script>
+<!-- tweetnacl 1.0.3 (public domain): signing scripts with the Owner's script signing code. -->
+<script src="tweetnacl-1.0.3.min.js"></script>
 <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -2,7 +2,17 @@
 // by a stand-in, every flow clicked through (2.8b to 2.9c), in the 2.10 Console layout.
 //   node dashboard.test.cjs ../dashboard     (needs playwright and its Chromium)
 const { chromium } = require("playwright");
-const path = require("path"), http = require("http"), fs = require("fs");
+const path = require("path"), http = require("http"), fs = require("fs"), nodeCrypto = require("crypto");
+// The Owner's script signing key from a code, as the dashboard makes it (2.10).
+const signingKey = (code) => {
+  const seed = nodeCrypto.createHash("sha256").update(`kulan-fleet-script-key v1\n${code}`).digest();
+  const priv = nodeCrypto.createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
+  return nodeCrypto.createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
+};
+const signedBy = (key, sig, message) => nodeCrypto.verify(null, Buffer.from(message),
+  nodeCrypto.createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(key, "base64")]), format: "der", type: "spki" }),
+  Buffer.from(sig || "", "base64"));
+const sha256 = (t) => nodeCrypto.createHash("sha256").update(t).digest("hex");
 const root = path.resolve(process.argv[2] || path.join(__dirname, "../dashboard"));
 const srv = http.createServer((q, r) => { const f = path.join(root, q.url.split("?")[0] === "/" ? "index.html" : q.url.split("?")[0]);
   fs.readFile(f, (e, b) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { "content-type": f.endsWith(".js") ? "text/javascript" : "text/html" }); r.end(b); }); });
@@ -40,9 +50,11 @@ function reply(b) {
     case "revoke-code": state.revoked = true; return {};
     case "new-code": return { code: "ABCD-EFGH-JKLM", hours: 72, uses: 1, approved: true };
     case "action-output": return { output: "== Disk errors in the last 7 days\nnone", exit_code: 0, status: "done", type: "run-fix" };
-    case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true };
+    case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true, script_key: state.scriptKey || null };
+    case "set-script-key": state.scriptKey = b.public_key; return {};
     case "set-scripts-allowed": state.allowScripts = b.allowed; return {};
-    case "add-script": state.scripts.push({ id: "s1", name: b.name, description: b.description, body: b.body, sha256: "ab".repeat(32),
+    case "add-script": state.scripts.push({ id: "s1", name: b.name, description: b.description, body: b.body, sha256: sha256(b.body),
+                                             signed: signedBy(state.scriptKey, b.signature, `kulan-fleet-script v1\n${sha256(b.body)}\n`),
                                              updated_at: "2026-10-26T09:00:00Z", updated_by: "a@x" }); return { id: "s1" };
     case "add-network": state.groups[0].networks = [{ id: "n1", ssid: b.ssid, security: b.security, hidden: b.hidden }]; return { id: "n1" };
     case "add-printer": state.groups[0].printers = [{ id: "pr1", name: b.name, uri: b.uri }]; return { id: "pr1" };
@@ -298,6 +310,22 @@ function reply(b) {
   await page.click("#dlg-actions >> text=Close");
   await view("scripts");
   if (!(await page.textContent("#scripts-sub")).startsWith("Off.") || !(await page.isHidden("#add-script"))) throw "scripts shown as allowed";
+  // Script signing first (2.10): a code made here, shown once; only its public key is sent.
+  await page.click("#scripts-allow");
+  await page.waitForSelector("#app-msg:has-text('Set up script signing first')");
+  if (await page.isChecked("#scripts-allow")) throw "the switch stayed on";
+  if (last("set-scripts-allowed")) throw "scripts allowed before script signing was set up";
+  await page.click("#signing >> button:has-text('Set up…')");
+  await page.waitForSelector("#dlg-title:has-text('Set up script signing')");
+  const signingCode = (await page.textContent("#dlg .code")).trim();
+  if (!/^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/.test(signingCode)) throw "signing code " + signingCode;
+  if (!(await page.isDisabled("#dlg-actions >> text=Save"))) throw "saved before it was written down";
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/script-signing.png` });
+  await page.check("#dlg input[type=checkbox]");
+  await page.click("#dlg-actions >> text=Save");
+  await page.waitForSelector("#signing >> text=Change the code…");
+  if (last("set-script-key")?.public_key !== signingKey(signingCode)) throw "set-script-key " + JSON.stringify(last("set-script-key"));
+  if (JSON.stringify(state.calls).includes(signingCode)) throw "the signing code was sent";
   await page.check("#scripts-allow");
   await page.waitForSelector("#add-script:not(.hidden)");
   if (last("set-scripts-allowed")?.allowed !== true) throw "set-scripts-allowed " + JSON.stringify(last("set-scripts-allowed"));
@@ -307,6 +335,7 @@ function reply(b) {
   await page.click("#dlg-actions >> text=Save");
   await page.waitForSelector("#scripts >> text=Clear the print queue");
   if (last("add-script")?.body !== "cancel -a\n" || last("add-script").organisation_id !== org) throw "add-script " + JSON.stringify(last("add-script"));
+  if (!state.scripts[0].signed) throw "the script wasn't signed with the Owner's key " + JSON.stringify(last("add-script"));
   await view("computers");
   await page.selectOption("#detail select", "run-script");
   await page.waitForSelector("#dlg-title:has-text('Run a script on laptop-a')");

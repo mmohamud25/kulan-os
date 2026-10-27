@@ -199,6 +199,17 @@ const call = async (fn, route, body, token) => {
 };
 const admin = (who, body, aal = "aal1") => call("fleet-admin", "", body, tokenFor(who, aal));
 const computer = (c, route, body = {}) => call("fleet", route, { device_id: c.device_id, ...body }, c.token);
+// The Owner's script signing key from a signing code, as the dashboard makes it (2.10).
+const nodeCrypto = await import("node:crypto");
+const scriptSigner = (code) => {
+  const seed = nodeCrypto.createHash("sha256").update(`kulan-fleet-script-key v1\n${code}`).digest();
+  const priv = nodeCrypto.createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]),
+                                             format: "der", type: "pkcs8" });
+  const pub = nodeCrypto.createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
+  const sign = (msg) => nodeCrypto.sign(null, Buffer.from(msg), priv).toString("base64");
+  return { pub, sign, script: (text) => sign(`kulan-fleet-script v1\n${nodeCrypto.createHash("sha256").update(text).digest("hex")}\n`),
+           endorse: (key) => sign(`kulan-fleet-script-key v1\n${key}\n`) };
+};
 // A well-formed SHA-512 crypt hash standing in for each password (crypt's alphabet only).
 const HASH = (s) => `$6$saltsalt$${s.replace(/[^A-Za-z0-9]/g, ".").padEnd(20, "x")}`;
 
@@ -1057,6 +1068,17 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: true });
   ok(r.status === 403 && r.body.two_step, "the Owner needs the authenticator code to allow them", r);
   r = await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: true }, "aal2");
+  ok(r.status === 400 && /signing/.test(r.body.error), "not before script signing is set up", r);
+  const owner1 = scriptSigner("AAAAA-BBBBB-CCCCC-DDDDD");
+  r = await admin(HELPER, { op: "set-script-key", organisation_id: org, public_key: owner1.pub }, "aal2");
+  ok(r.status === 403, "only the Owner sets up script signing", r);
+  r = await admin(NEWOWNER, { op: "set-script-key", organisation_id: org, public_key: owner1.pub });
+  ok(r.status === 403 && r.body.two_step, "with the authenticator code", r);
+  r = await admin(NEWOWNER, { op: "set-script-key", organisation_id: org, public_key: "short" }, "aal2");
+  ok(r.status === 400, "a key that isn't one", r);
+  r = await admin(NEWOWNER, { op: "set-script-key", organisation_id: org, public_key: owner1.pub }, "aal2");
+  ok(r.status === 200, "the Owner sets up script signing", r);
+  r = await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: true }, "aal2");
   ok(r.status === 200, "the Owner allows scripts", r);
   r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", body: "echo hi" });
   ok(r.status === 403 && r.body.two_step, "writing a script needs the code", r);
@@ -1065,15 +1087,24 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", body: "x".repeat(65537) }, "aal2");
   ok(r.status === 400, "64 KB at most", r);
   r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", description: "Says hi", body: "echo hi\r\n" }, "aal2");
-  ok(r.status === 200 && /^[0-9a-f]{64}$/.test(r.body.sha256), "a script added", r);
+  ok(r.status === 400 && /signing code/.test(r.body.error), "not without the Owner's signature", r);
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", description: "Says hi", body: "echo hi\r\n",
+                            signature: scriptSigner("WRONG-CODE").script("echo hi\n") }, "aal2");
+  ok(r.status === 400, "nor with another key's", r);
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "Hello", description: "Says hi", body: "echo hi\r\n",
+                            signature: owner1.script("echo hi\n") }, "aal2");
+  ok(r.status === 200 && /^[0-9a-f]{64}$/.test(r.body.sha256), "a script added, signed (line endings made plain first)", r);
   const scriptId = r.body.id, sha1 = r.body.sha256;
-  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "hello", body: "echo again" }, "aal2");
+  r = await admin(HELPER, { op: "add-script", organisation_id: org, name: "hello", body: "echo again",
+                            signature: owner1.script("echo again") }, "aal2");
   ok(r.status === 409, "names are unique", r);
   r = await admin(HELPER, { op: "scripts", organisation_id: org });
   ok(r.body.allowed === true && r.body.scripts.length === 1 && r.body.scripts[0].body === null && r.body.bodies === false,
      "listed without the code: names only, not what they say", r.body);
   r = await admin(HELPER, { op: "scripts", organisation_id: org }, "aal2");
   ok(r.body.scripts[0].body === "echo hi\n" && r.body.bodies === true, "with the code: what they say, line endings made plain", r.body);
+  ok(r.body.scripts[0].signed === true && r.body.scripts[0].signature === undefined && r.body.script_key === owner1.pub,
+     "signed, and the organisation's key", r.body);
   r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } });
   ok(r.status === 403 && r.body.two_step, "running a script needs the code", r);
   r = await admin(HELPER, { op: "action", device_id: C.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
@@ -1083,15 +1114,21 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   const runId = r.body.id;
   rep = await report(B);
   const runReq = rep.body.actions.find((a) => a.type === "run-script");
-  ok(runReq?.payload.sha256 === sha1 && runReq.payload.name === "Hello" && rep.body.policy.scripts === true,
-     "the request carries the script's hash; the policy says scripts are allowed", { runReq, policy: rep.body.policy });
+  ok(runReq?.payload.sha256 === sha1 && runReq.payload.name === "Hello" && rep.body.policy.scripts === true &&
+     runReq.payload.signature === owner1.script("echo hi\n") && rep.body.policy.script_key === owner1.pub,
+     "the request carries the script's hash and the Owner's signature; the policy says scripts are allowed, with the key",
+     { runReq, policy: rep.body.policy });
   r = await computer(B, `/v1/scripts/${runId}`);
   ok(r.status === 200 && r.body.body === "echo hi\n" && r.body.sha256 === sha1, "the computer fetches the script it was asked to run", r);
   r = await computer(A, `/v1/scripts/${runId}`);
   ok(r.status === 404 || r.status === 401, "another computer can't", r);
   r = await call("fleet", `/v1/scripts/${runId}`, { device_id: B.device_id });
   ok(r.status === 401, "nor anyone without the computer's key", r);
-  await admin(HELPER, { op: "edit-script", script_id: scriptId, name: "Hello", body: "echo changed" }, "aal2");
+  r = await admin(HELPER, { op: "edit-script", script_id: scriptId, name: "Hello", body: "echo changed",
+                            signature: owner1.script("echo hi\n") }, "aal2");
+  ok(r.status === 400, "a changed script needs a new signature", r);
+  await admin(HELPER, { op: "edit-script", script_id: scriptId, name: "Hello", body: "echo changed",
+                        signature: owner1.script("echo changed") }, "aal2");
   r = await computer(B, `/v1/scripts/${runId}`);
   ok(r.status === 404, "changed after it was asked for: not given out", r);
   await computer(B, `/v1/actions/${runId}`, { status: "failed", detail: "the script changed", exit_code: -1 });
@@ -1123,6 +1160,34 @@ for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}
   for (const want of ["allowed scripts on the computers", "added script Hello", "changed script Hello", "asked: run-script",
                       "stopped scripts on the computers"]) ok(sl.includes(want), `in the activity log: ${want}`, sl);
   ok(!JSON.stringify(r.body.entries).includes("echo"), "the script's text isn't in the log");
+  // A new signing code: signed by the old one (computers move to it), or a fresh start; scripts are signed again.
+  await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: true }, "aal2");
+  const owner2 = scriptSigner("EEEEE-FFFFF-GGGGG-HHHHH");
+  r = await admin(NEWOWNER, { op: "set-script-key", organisation_id: org, public_key: owner2.pub }, "aal2");
+  ok(r.status === 400, "changing it needs the current code (or a fresh start)", r);
+  r = await admin(NEWOWNER, { op: "set-script-key", organisation_id: org, public_key: owner2.pub, endorsement: owner1.endorse(owner2.pub) }, "aal2");
+  ok(r.status === 200 && r.body.reset === false, "changed with the current code", r);
+  rep = await report(B);
+  ok(rep.body.policy.script_key === owner2.pub && rep.body.policy.script_key_endorsement === owner1.endorse(owner2.pub),
+     "computers get the new key and the old key's signature of it", rep.body.policy);
+  r = await admin(HELPER, { op: "scripts", organisation_id: org }, "aal2");
+  ok(r.body.scripts[0].signed === false, "scripts signed with the old key: to sign again", r.body.scripts);
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  ok(r.status === 400 && /signed/.test(r.body.error), "an unsigned script isn't sent", r);
+  r = await admin(HELPER, { op: "sign-script", script_id: scriptId, signature: owner1.script("echo changed") }, "aal2");
+  ok(r.status === 400, "not with the old code", r);
+  r = await admin(HELPER, { op: "sign-script", script_id: scriptId, signature: owner2.script("echo changed") }, "aal2");
+  ok(r.status === 200, "signed again", r);
+  r = await admin(HELPER, { op: "action", device_id: B.device_id, type: "run-script", payload: { script_id: scriptId } }, "aal2");
+  ok(r.status === 200, "and it can run", r);
+  const owner3 = scriptSigner("JJJJJ-KKKKK-LLLLL-MMMMM");
+  r = await admin(NEWOWNER, { op: "set-script-key", organisation_id: org, public_key: owner3.pub, reset: true }, "aal2");
+  ok(r.status === 200 && r.body.reset === true, "a fresh start (the code was lost)", r);
+  ok((await db`select status from fleet.actions where id = ${r.body.id ?? null} or (type = 'run-script' and status = 'pending')`).length === 0,
+     "requests waiting are cancelled");
+  rep = await report(B);
+  ok(rep.body.policy.script_key === owner3.pub && rep.body.policy.script_key_endorsement === undefined, "no endorsement after a fresh start");
+  await admin(NEWOWNER, { op: "set-scripts-allowed", organisation_id: org, allowed: false });
   r = await admin(HELPER, { op: "remove-script", script_id: scriptId });
   ok(r.status === 403 && r.body.two_step, "removing a script needs the code", r);
   r = await admin(HELPER, { op: "remove-script", script_id: scriptId }, "aal2");
