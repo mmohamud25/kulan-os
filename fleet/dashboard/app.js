@@ -32,7 +32,7 @@ const SCREEN_LOCK = [[0, "Not set"], [2, "After 2 minutes"], [5, "After 5 minute
                      [15, "After 15 minutes"], [30, "After 30 minutes"]];
 const USB = [["", "Any USB drive works"], ["approved", "Approved drives only"], ["block", "Blocked"]];
 const SOURCE = { debian: "Debian package", flatpak: "Flathub app" };
-const DEBIAN_NAME = /^[a-z0-9][a-z0-9+.-]{1,62}$/;
+const DEBIAN_NAME = /^[a-z0-9][a-z0-9+.-]{0,61}[a-z0-9+.]$/;
 const FLATPAK_ID = /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}$/;
 // Never blocked (the server refuses these too): Kulan OS and what it can't run without.
 const PROTECTED = /^(kulan|linux-|systemd|gnome-shell|gnome-session|gdm3|mutter|apt|dpkg|libc6|bash|coreutils|sudo|login|passwd|network-manager|flatpak|gnome-software|packagekit|firmware-|grub|shim|plymouth|xdg-|dbus|polkitd|udev|init)/;

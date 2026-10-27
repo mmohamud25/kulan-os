@@ -99,7 +99,7 @@ USB_CHOICES = [(None, "Not set", "Any USB drive works"),
                ("block", "Blocked", "No USB drive works")]
 # (keyboards, mice, phones charging and the rest always work)
 SOURCE_LABEL = {"debian": "Debian package", "flatpak": "Flathub app"}
-DEBIAN_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]{1,62}$")
+DEBIAN_NAME = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,61}[a-z0-9+.]$")
 FLATPAK_ID = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}$")
 # Never blocked (the server refuses these too): Kulan OS and what it can't run without.
 PROTECTED = re.compile(r"^(kulan|linux-|systemd|gnome-shell|gnome-session|gdm3|mutter|apt|dpkg|libc6|bash|coreutils|"

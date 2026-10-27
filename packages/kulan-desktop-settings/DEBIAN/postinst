@@ -79,7 +79,12 @@ account_picture() {
 	[ -f "${SKEL_FACE}.debian" ] || return 0
 	for FACE in /home/*/.face; do
 		if [ -f "${FACE}" ] && [ ! -L "${FACE}" ] && cmp -s "${FACE}" "${SKEL_FACE}.debian"; then
-			cat "${KULAN_FACE}" > "${FACE}" # keeps its owner
+			# Written as its owner, never as root: a link put in its place can't
+			# point the write at a file only root may change.
+			OWNER="$(stat -c %U -- "${FACE}")"
+			if [ -n "${OWNER}" ] && [ "${OWNER}" != root ] && [ "${OWNER}" != UNKNOWN ]; then
+				runuser -u "${OWNER}" -- cp --no-preserve=all -- "${KULAN_FACE}" "${FACE}" || true
+			fi
 		fi
 	done
 	return 0

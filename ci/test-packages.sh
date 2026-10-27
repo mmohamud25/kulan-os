@@ -417,6 +417,11 @@ m.handle("Killed " + base + "app-gnome-org.gnome.Nautilus-17.scope due to memory
 m.handle("Killed /system.slice/foo.service due to memory pressure", {})
 assert sent and sent[0][0] == 1000 and ("Files" in sent[0][1] or "Nautilus" in sent[0][1]), sent
 assert len(sent) == 1, sent
+# The id comes from a unit name its user chose: never a path, never a pipe that would hang root.
+import os, tempfile
+home = tempfile.mkdtemp(); os.makedirs(home + "/.local/share/applications")
+os.mkfifo(home + "/.local/share/applications/hang.desktop")
+assert m.desktop_name("../../../etc/passwd", home) is None and m.desktop_name("hang", home) is None
 print(sent[0][1])
 PY
 check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"

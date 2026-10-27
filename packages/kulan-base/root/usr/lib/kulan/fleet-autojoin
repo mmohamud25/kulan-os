@@ -46,9 +46,11 @@ def main() -> int:
     if tries >= GIVE_UP:
         return done("Couldn't join the organisation for 14 days: stopped trying. Join in Kulan Settings › About")
     settings["tries"] = tries + 1
+    # Written 0600 from the start (the code must never be readable by others, even for a moment).
     tmp = JOIN.with_suffix(".new")
-    tmp.write_text(json.dumps(settings))
-    os.chmod(tmp, 0o600)
+    tmp.unlink(missing_ok=True)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w") as fh:
+        fh.write(json.dumps(settings))
     tmp.replace(JOIN)
     try:
         out = subprocess.run(["/usr/bin/kulan-fleet", "join", server], input=code + "\n", text=True,

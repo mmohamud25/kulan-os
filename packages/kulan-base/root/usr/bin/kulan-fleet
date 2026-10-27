@@ -164,9 +164,9 @@ MAX_APPS = 3000
 TIMEOUT = 30
 
 
-def run(argv: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
+def run(argv: list[str], timeout: int = 60, input: str | None = None) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False,
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, input=input,
                               env={**os.environ, "LC_ALL": "C.UTF-8"})
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(argv, 127, "", str(e))
@@ -191,7 +191,8 @@ def read_json(path: Path, default):
 def write_json(path: Path, data: dict, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".kulan-new")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    tmp.unlink(missing_ok=True)  # a leftover could have another mode: always a new file, never through a link
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     with os.fdopen(fd, "w") as fh:
         fh.write(json.dumps(data, indent=2) + "\n")
     os.chmod(tmp, mode)
@@ -210,13 +211,22 @@ def check_server(server: str) -> str:
     return server
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an error: the computer's key is never sent anywhere else."""
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def post(server: str, path: str, body: dict, token: str | None = None) -> dict:
     headers = {"Content-Type": "application/json", "User-Agent": f"kulan-fleet/1 ({kulan_version()})"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(server + path, data=json.dumps(body).encode(), headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
+        with OPENER.open(request, timeout=TIMEOUT) as reply:
             text = reply.read(1_000_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"the server said {e.code} {e.reason}") from e
@@ -585,7 +595,8 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
     if kind == "erase":
         return erase()
     if kind in ("restart", "shutdown"):
-        org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
+        # The message never starts with "-" (shutdown would read it as an option).
+        org = (read_json(CONFIG, {}).get("organisation") or "").lstrip("- ") or "Your organisation"
         if kind == "restart":
             argv = ["shutdown", "-r", "+5", f"{org} is restarting this computer in 5 minutes to finish updates."]
         else:
@@ -645,7 +656,9 @@ def run_job(kind: str, payload, action_id: str, config: dict) -> tuple[bool, str
     body = got.get("body")
     if not isinstance(body, str):
         return False, "couldn't get the script", {}
-    notify_users(f"{org} is running a script", "".join(c for c in name if c.isprintable())[:80])
+    # Shown as written: GNOME's notifications read a little markup.
+    shown = "".join(c for c in name if c.isprintable())[:80].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    notify_users(f"{org} is running a script", shown)
     ok, detail, output, code = fixes.run_script(body, sha, allowed)
     return ok, detail, {"output": output, "exit_code": code}
 

@@ -138,7 +138,7 @@ def _set_role(run, user: str, role: str) -> None:
 
 def _set_hash(run, user: str, pw: str | None, must_change: bool) -> None:
     if pw:
-        run(["usermod", "-p", pw, user])
+        run(["chpasswd", "-e"], input=f"{user}:{pw}\n")  # on stdin: a command line is readable by everyone
         if must_change:
             run(["chage", "-d", "0", user])  # the setup code: a new password at first sign-in
     else:

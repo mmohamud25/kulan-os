@@ -233,6 +233,8 @@ def check_plan(plan: dict) -> dict:
         raise Failure("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
     if not user.get("password"):
         raise Failure("Choose a password for the account")
+    if any(c in str(user["password"]) for c in "\r\n\0"):  # chpasswd reads one account per line
+        raise Failure("A password can't have a line break in it")
     if plan.get("encrypt") and len(plan.get("password", "")) < 8:
         raise Failure("The disk password must be at least 8 characters")
     if not HOST_RULE.match(plan.get("hostname", "")):

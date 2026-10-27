@@ -63,6 +63,15 @@ def sessions_now(run) -> list[dict]:
 
 
 # --- the server -----------------------------------------------------------------------
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an error: the session's key is never sent anywhere else."""
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 class ServerError(Exception):
     def __init__(self, status: int, message: str):
         super().__init__(message)
@@ -77,7 +86,7 @@ def call(server: str, session_id: str, token: str, body: dict, timeout: float = 
                                      headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}",
                                               "User-Agent": "kulan-remote-help/1"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as reply:
+        with OPENER.open(request, timeout=timeout) as reply:
             text = reply.read(1_000_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         try:

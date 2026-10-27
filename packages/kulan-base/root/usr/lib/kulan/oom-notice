@@ -16,6 +16,7 @@ import json
 import os
 import pwd
 import re
+import stat
 import subprocess
 import sys
 import time
@@ -33,7 +34,24 @@ def unescape(name: str) -> str:
     return re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), name)
 
 
+SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,250}$")
+
+
+def read_small(path: str, limit: int = 65536) -> str:
+    """A regular file's text (at most limit bytes), never through a link, never waiting on a pipe:
+    this runs as root, and the folders in a home belong to its user."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        return os.read(fd, limit).decode("utf-8")
+    finally:
+        os.close(fd)
+
+
 def desktop_name(app_id: str, home: str) -> str | None:
+    if not SAFE_ID.match(app_id):  # from a unit name its user chose: never a path
+        return None
     dirs = [
         os.path.join(home, ".local/share/applications"),
         os.path.join(home, ".local/share/flatpak/exports/share/applications"),
@@ -46,8 +64,7 @@ def desktop_name(app_id: str, home: str) -> str | None:
         parser = configparser.RawConfigParser(strict=False, interpolation=None)
         parser.optionxform = str
         try:
-            with open(path, encoding="utf-8") as fh:
-                parser.read_file(fh)
+            parser.read_string(read_small(path))
             name = parser.get("Desktop Entry", "Name", fallback="").strip()
         except (OSError, configparser.Error, UnicodeDecodeError):
             continue

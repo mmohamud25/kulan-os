@@ -109,8 +109,9 @@ def collect(run, state_path: Path = STATE, lastlog2: Path = LASTLOG2, is_person=
     keep = dict(sorted(last.items(), key=lambda kv: -kv[1])[:MAX])
     state_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = state_path.with_name(state_path.name + ".kulan-new")
-    tmp.write_text(json.dumps({"last": keep, "read_until": int(now)}))
-    os.chmod(tmp, 0o600)
+    tmp.unlink(missing_ok=True)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w") as fh:
+        fh.write(json.dumps({"last": keep, "read_until": int(now)}))
     os.replace(tmp, state_path)
     return [{"username": u, "last": t, "now": u in current} for u, t in keep.items()]
 

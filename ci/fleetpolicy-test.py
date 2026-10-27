@@ -111,6 +111,10 @@ with tempfile.TemporaryDirectory() as tmp:
     apps_in = [{"source": "debian", "id": "vlc"}, {"source": "flatpak", "id": "org.mozilla.firefox"},
                {"source": "debian", "id": "../../etc"}, {"source": "snap", "id": "x"}, {"source": "flatpak", "id": "nodots"}]
     check("apps cleaned", fp.clean_apps(apps_in) == apps_in[:2], str(fp.clean_apps(apps_in)))
+    # A trailing "-" asks apt-get install to remove the package: never taken.
+    check("a name ending in - is refused", fp.clean_apps([{"source": "debian", "id": "gdm3-"}, {"source": "debian", "id": "kulan-base-"},
+                                                          {"source": "debian", "id": "g++"}]) == [{"source": "debian", "id": "g++"}],
+          str(fp.clean_apps([{"source": "debian", "id": "gdm3-"}])))
 
     # The rule.
     check("no rule without a policy", fp.usb_rules(None, approved) == "" and fp.usb_rules("maybe", []) == "")
