@@ -282,6 +282,9 @@ mod platform {
         Ok(target)
     }
     pub fn finish(drive: &drives::Drive) {
+        if cfg!(feature = "test-devices") {
+            return; // (a test reads the stand-in stick back afterwards; ejecting a RAM disk removes it)
+        }
         let _ = std::process::Command::new("/usr/sbin/diskutil").args(["eject", &format!("/dev/{}", drive.id)]).output();
     }
 }
