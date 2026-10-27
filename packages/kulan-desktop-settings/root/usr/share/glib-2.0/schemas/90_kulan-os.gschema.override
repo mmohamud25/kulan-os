@@ -79,6 +79,10 @@ switch-input-source-backward=['<Shift>XF86Keyboard', '<Shift><Control><Alt>space
 # /etc/dconf/db/local.d/20-kulan-shortcuts.
 [org.gnome.settings-daemon.plugins.media-keys]
 custom-keybindings=['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/kulan-emoji/']
+# Two keys GNOME can't bind on most keyboards, failing at every sign-in:
+# hibernating (Kulan OS doesn't hibernate) and a media player's "repeat".
+hibernate-static=@as []
+playback-repeat-static=@as []
 
 # Files: large icons, folders first, "Delete permanently" and "Create link"
 # in the menu, readable dates such as "Yesterday 14:05".
@@ -162,6 +166,10 @@ remove-old-temp-files=true
 old-files-age=uint32 30
 report-technical-problems=false
 send-software-usage-stats=false
+# GNOME's USB protection needs USBGuard, which Kulan OS doesn't use (Kulan
+# Fleet's USB drive policy does that job): off, so GNOME doesn't warn at
+# every sign-in that it can't work.
+usb-protection=false
 
 # The Kulan OS welcome app replaces GNOME's own first-login tour popup.
 [org.gnome.shell]

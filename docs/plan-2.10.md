@@ -30,6 +30,22 @@ when this list is empty.
     that change each time, so Kulan's firewall blocks them. Give them fixed
     ports the firewall allows from local networks, then put their switches
     on the Sharing page.
+  - Status (27 Oct 2026):
+    - Fixed: file and media sharing are on the Sharing page, per network,
+      on ports 30301 and 30302 (gnome-user-share rebuilt to take a fixed
+      port, ci/build-user-share.sh; Rygel's RYGEL_PORT), let in from local
+      networks only; the Public folder always needs a password to change
+      files (GNOME's default let anyone on the network change them).
+    - Fixed: app folders list their apps by name, so apps installed later
+      stay loose in the grid (they fell into Utilities by category); Files
+      and Ask Kulan out of Utilities; htop, btop, Vim and Lynis hidden.
+    - Fixed: GNOME's USB protection off; the hibernate and repeat keys
+      no longer bound.
+    - lsb_release -d: the 2.9c ISO says "Kulan OS 2.9c"; now checked in
+      verify-iso.
+    - Still to check by hand on the ThinkPad and in a VM (they need a real
+      session): global shortcuts, the line under fields in libadwaita forms,
+      and that no gnome-settings-daemon notification is left.
 - Kulan Fleet sign-in emails from kulangroup.com through our own mail
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.
