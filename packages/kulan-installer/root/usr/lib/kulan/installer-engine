@@ -43,6 +43,7 @@ the key at the first restart); GRUB starts the computer until then.
 """
 from __future__ import annotations
 
+import configparser
 import hashlib
 import json
 import os
@@ -200,6 +201,25 @@ def partition_table(disk: str) -> dict:
         return {}
 
 
+LINUX_FS = {"ext2", "ext3", "ext4", "btrfs", "xfs", "f2fs", "jfs", "reiserfs", "crypto_LUKS", "LVM2_member"}
+
+
+def systems_on(children: list[dict]) -> list[str]:
+    """What a disk holds, in the words people use: Windows, macOS, another Linux
+    system or files (never partition labels or format names)."""
+    kinds = {c.get("fstype") or "" for c in children} - {""}
+    found = []
+    if "ntfs" in kinds:
+        found.append("Windows")
+    if kinds & {"apfs", "hfsplus"}:
+        found.append("macOS")
+    if kinds & LINUX_FS:
+        found.append("another Linux system")
+    if not found and kinds - {"swap"}:
+        found.append("files")
+    return found
+
+
 def disks() -> list[dict]:
     """Disks Kulan OS could go on, with what's on them now."""
     out = subprocess.run(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MODEL,TRAN,RM,RO,FSTYPE,LABEL"],
@@ -212,7 +232,7 @@ def disks() -> list[dict]:
         if dev["path"].startswith(("/dev/zram", "/dev/loop", "/dev/sr", "/dev/ram")):
             continue
         children = dev.get("children") or []
-        systems = sorted({c.get("label") or c.get("fstype") for c in children if c.get("fstype")} - {None})
+        systems = systems_on(children)
         table = partition_table(dev["path"]) if children else {}
         free = free_areas(dev["path"]) if table.get("label") == "gpt" else []
         found.append({
@@ -533,6 +553,34 @@ def configure(plan: dict, target: Path, parts: dict, disk_info: dict) -> None:
     write(target / "etc/machine-id", "", 0o444)
 
 
+NM_CONNECTIONS = Path("/etc/NetworkManager/system-connections")
+
+
+def carry_wifi(target: Path) -> None:
+    """The Wi-Fi networks joined in the live session, so the new system is online at once
+    (its add-ons and updates need it). Any user may use them, as on the live system."""
+    dest = target / "etc/NetworkManager/system-connections"
+    try:
+        found = sorted(NM_CONNECTIONS.glob("*.nmconnection"))
+    except OSError:
+        return
+    for path in found:
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        parser.optionxform = str  # keys are case-sensitive
+        try:
+            parser.read(path, encoding="utf-8")
+        except (OSError, configparser.Error):
+            continue
+        if parser.get("connection", "type", fallback="") not in ("wifi", "802-11-wireless"):
+            continue
+        parser.remove_option("connection", "permissions")  # the live user's only
+        dest.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(dest / path.name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            parser.write(out, space_around_delimiters=False)
+        log(f"Wi-Fi network carried over: {parser.get('wifi', 'ssid', fallback='?')}")
+
+
 def make_user(chroot: Chroot, plan: dict) -> None:
     user = plan["user"]
     target = chroot.target
@@ -713,6 +761,7 @@ def install(plan: dict) -> None:
         copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
         at("configure", 0, "Setting the language, keyboard and time zone…")
         configure(plan, target, parts, disk_info)
+        carry_wifi(target)
         org = stick_settings(plan.get("stick")) if plan.get("join_organisation", True) else None
         if org:  # joined once online, by kulan-fleet-autojoin
             write(target / "var/lib/kulan/fleet-join.json", json.dumps(org) + "\n", 0o600)

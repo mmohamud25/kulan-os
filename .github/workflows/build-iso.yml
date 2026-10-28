@@ -525,6 +525,15 @@ jobs:
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
           ci/boot-test.sh out/*.iso boot-test
 
+      # The stick's start menu as a person sees it (UEFI, Secure Boot, 1920x1080).
+      - name: Boot menu test
+        if: matrix.arch == 'amd64'
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          sudo apt-get install -y -q ovmf
+          ci/boot-menu-test.sh out/*.iso boot-menu-test
+
       # The same on a small computer: 2 GB of memory and one processor.
       - name: Low-end boot test
         if: matrix.arch == 'amd64'
@@ -640,6 +649,15 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      - name: Upload boot menu test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: boot-menu-test-amd64
+          path: boot-menu-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload boot test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
@@ -740,7 +758,7 @@ jobs:
         id: tests
         continue-on-error: true
         with:
-          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test,signed-start-test}-amd64"
+          pattern: "{boot-test,boot-menu-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test,signed-start-test}-amd64"
           path: tests/
       - name: Commit to ci-diagnostics
         if: steps.tests.outcome == 'success'

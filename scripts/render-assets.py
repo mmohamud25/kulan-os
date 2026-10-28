@@ -97,7 +97,6 @@ def main() -> int:
         return 1
     conf = read_conf()
     name = esc(conf["KULAN_NAME"])
-    version = esc(conf.get("KULAN_VERSION_LABEL") or conf["KULAN_VERSION"])
     logo_svg = (ASSETS / "logo.svg").read_text()
 
     print("Rendering Kulan OS assets...")
@@ -426,12 +425,12 @@ def main() -> int:
         opaque=True,
     )
 
-    # Installer welcome image (457x300 matches Debian's original slot).
+    # Installer welcome image (457 wide, Debian's slot). No version in it:
+    # Calamares' title above it says the version, and a picture never updates.
     render(
-        f'''<svg xmlns="http://www.w3.org/2000/svg" width="457" height="300" viewBox="0 0 457 300">
+        f'''<svg xmlns="http://www.w3.org/2000/svg" width="457" height="205" viewBox="0 0 457 205">
   {logo_group(168, 20, 120)}
   <text x="228.5" y="190" text-anchor="middle" font-family="{FONT}" font-size="40" font-weight="700" fill="#0B2A4A">{name}</text>
-  <text x="228.5" y="226" text-anchor="middle" font-family="{FONT}" font-size="18" fill="#3B5873">Version {version} · based on Debian</text>
 </svg>''',
         CHROOT / "usr/share/kulan/calamares/welcome.png",
     )

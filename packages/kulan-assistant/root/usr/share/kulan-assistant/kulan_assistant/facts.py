@@ -52,6 +52,18 @@ def plain(name: str, limit: int = 40) -> str:
     return re.sub(r"[^\w .()+-]", "", name)[:limit].strip()
 
 
+# This assistant's own engine: named for what it is, so the answer doesn't
+# blame an unknown "llama-server" (it stops by itself when not in use).
+ENGINE = "llama-server"
+ENGINE_NAME = "Ask Kulan's engine (this assistant, stops by itself a few minutes after the last question)"
+
+
+def memory_state(total: int, available: int) -> str:
+    """How full memory is, in words (small models misjudge the bare numbers)."""
+    free = available * 100 // max(total, 1)
+    return "plenty free" if free >= 25 else "getting full" if free >= 10 else "nearly full"
+
+
 def top_apps(count: int = 3) -> list[tuple[str, int]]:
     """The programs using the most memory, added up by name (Firefox's many
     processes count as one)."""
@@ -62,7 +74,7 @@ def top_apps(count: int = 3) -> list[tuple[str, int]]:
             name = plain(parts[1])
             name = {"Isolated Web Co": "firefox-esr", "Web Content": "firefox-esr", "WebExtensions": "firefox-esr",
                     "RDD Process": "firefox-esr", "Socket Process": "firefox-esr", "Privileged Cont": "firefox-esr",
-                    "Utility Process": "firefox-esr"}.get(name, name)
+                    "Utility Process": "firefox-esr", ENGINE: ENGINE_NAME}.get(name, name)
             totals[name] = totals.get(name, 0) + int(parts[0]) * 1024
     return sorted(totals.items(), key=lambda kv: -kv[1])[:count]
 
@@ -76,7 +88,8 @@ def busiest(count: int = 3) -> list[tuple[str, float]]:
             pid, pct, name = int(parts[0]), float(parts[1]), plain(parts[2])
         except (IndexError, ValueError):
             continue
-        if pid != os.getpid() and pct >= 5:
+        # Not this program, nor the engine (busy because it's answering now).
+        if pid != os.getpid() and name != ENGINE and pct >= 5:
             rows.append((name, pct))
         if len(rows) >= count:
             break
@@ -148,7 +161,8 @@ def snapshot() -> str:
     total, available = memory()
     if total:
         apps = ", ".join(f"{name} {gb(size)}" for name, size in top_apps() if size >= 100 * 1024 ** 2)
-        lines.append(f"Memory: {gb(total - available)} used of {gb(total)}" + (f"; most used by {apps}" if apps else ""))
+        lines.append(f"Memory: {gb(total - available)} used of {gb(total)}, {memory_state(total, available)}"
+                     + (f"; most used by {apps}" if apps else ""))
     cpu = busiest()
     lines.append("Busiest programs: " + (", ".join(f"{name} {pct:.0f}% of one core" for name, pct in cpu)
                                          if cpu else "nothing is using the processor much"))

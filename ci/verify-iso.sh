@@ -102,6 +102,7 @@ FILES=(
 	etc/pam.d/common-auth
 	etc/group
 	usr/sbin/grub-install
+	usr/share/kulan/xdg/applications/torbrowser.desktop
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -230,14 +231,16 @@ else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
 fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
+check "Tor Browser offline" "Tor Browser opens through Kulan's start script, which says when its first download needs the internet" bash -c "grep -q '^Exec=/usr/lib/kulan/torbrowser-start' '${R}/usr/share/kulan/xdg/applications/torbrowser.desktop' && grep -q 'squashfs-root/usr/lib/kulan/torbrowser-start\$' '${WORK}/listing'"
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "kulan command" "/usr/bin/kulan present (info, update, doctor, ask)" has_path usr/bin/kulan
 kulan_installer() {
 	test -x "${R}/usr/bin/kulan-installer" && test -x "${R}/usr/lib/kulan/installer-engine" &&
 		grep -qF "favorite-apps=['org.kulan.Installer.desktop'" "${R}/usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override" &&
-		grep -qx 'Name=Advanced install' "${R}/usr/share/applications/calamares-install-debian.desktop"
+		grep -qx 'Name=Advanced install' "${R}/usr/share/applications/calamares-install-debian.desktop" &&
+		grep -qx 'NoDisplay=true' "${R}/usr/share/applications/calamares-install-debian.desktop"
 }
-check "Kulan Installer" "Install Kulan OS (Kulan Installer) first in the dock; Calamares is Advanced install" kulan_installer
+check "Kulan Installer" "Install Kulan OS (Kulan Installer) first in the dock; Calamares is Advanced install, only from its More choices" kulan_installer
 POOL="$(xorriso -indev "${ISO}" -find /pool -name '*.deb' 2>/dev/null | tr -d "'")"
 if [[ "${ARCH}" == amd64 ]]; then POOL_NEED=(grub-efi-amd64_ grub-efi-amd64-signed_ shim-signed_ grub-pc_ cryptsetup-initramfs_); else POOL_NEED=(grub-efi-arm64_ cryptsetup-initramfs_); fi
 # Signed start-up's tools (kulan-signed-start), for installing without internet.

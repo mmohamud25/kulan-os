@@ -86,6 +86,21 @@ repair_dpkg() {
 	fi
 }
 
+# The package lists, fresh. apt only warns when it can't reach a server and
+# then carries on with no or old lists ("has no installation candidate"):
+# say what's wrong in plain words instead, for the two common causes.
+refresh_lists() {
+	local out
+	out="$(apt-get -q "${APT_LOCK[@]}" update 2>&1)" || { echo "${out}" >&2; die "Couldn't check for software. Try again in a few minutes."; }
+	echo "${out}" >&2
+	if grep -qE "Temporary failure resolving|Could not resolve|Network is unreachable|No route to host" <<<"${out}"; then
+		die "Not connected to the internet. Connect to Wi-Fi or a cable, then try again."
+	fi
+	if grep -qE "is not valid yet|is no longer valid|has expired" <<<"${out}"; then
+		die "This computer's date or time is wrong, so the software servers can't be checked. Correct it in Kulan Settings › Date and time, then try again."
+	fi
+}
+
 # Room to download and install the updates (and to work), on the disks apt
 # uses. Says how much is needed when there isn't enough.
 check_space() {
@@ -218,7 +233,7 @@ case "${1:-}" in
 		[[ $# -eq 1 ]] || die "usage: update-run check"
 		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
 		firmware_list
-		apt-get -q "${APT_LOCK[@]}" update 1>&2
+		refresh_lists
 		/usr/lib/kulan/update-status refresh || true
 		;;
 	install)
@@ -282,13 +297,13 @@ case "${1:-}" in
 	install-devkit)
 		[[ $# -eq 1 ]] || die "usage: update-run install-devkit"
 		repair_dpkg
-		apt-get -q "${APT_LOCK[@]}" update 1>&2
+		refresh_lists
 		run_apt install kulan-devkit
 		;;
 	install-apps)
 		[[ $# -eq 1 ]] || die "usage: update-run install-apps"
 		repair_dpkg
-		apt-get -q "${APT_LOCK[@]}" update 1>&2
+		refresh_lists
 		run_apt install kulan-apps
 		;;
 	addon-install | addon-remove)
@@ -309,7 +324,7 @@ case "${1:-}" in
 		if [[ "$1" == addon-install ]]; then
 			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
 				repair_dpkg
-				apt-get -q "${APT_LOCK[@]}" update 1>&2
+				refresh_lists
 				check_space install "${PACKAGES[@]}"
 				run_apt install "${PACKAGES[@]}"
 			fi
@@ -570,7 +585,7 @@ PY
 				;;
 			quad9 | adblock | family)
 				if ! command -v resolvectl >/dev/null 2>&1; then
-					apt-get -q "${APT_LOCK[@]}" update 1>&2
+					refresh_lists
 					run_apt install systemd-resolved
 				fi
 				if [[ "$2" == quad9 ]]; then

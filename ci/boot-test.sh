@@ -90,6 +90,8 @@ qemu-system-x86_64 "${ACCEL[@]}" -m "${MEMORY}" -smp "${CPUS}" \
 	-vga virtio -display none \
 	-serial "file:${OUT}/serial.log" \
 	-qmp "unix:${WORK}/qmp.sock,server=on,wait=off" \
+	-device virtio-serial-pci -chardev "socket,path=${WORK}/qga.sock,server=on,wait=off,id=qga0" \
+	-device virtserialport,chardev=qga0,name=org.qemu.guest_agent.0 \
 	-netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
 	-device virtio-rng-pci -no-reboot &
 QEMU_PID=$!
@@ -162,6 +164,11 @@ else
 fi
 result info "Startup time" "$(field time)"
 result info "Memory in use" "$(field memory)"
+if [[ "$(field timezone)" == America/New_York ]]; then
+	result pass "Time zone" "the live session uses the installer's guess (America/New_York), not UTC"
+else
+	result fail "Time zone" "the live session's time zone is $(field timezone), not America/New_York"
+fi
 
 SWAP="$(field swap)"
 if [[ "${SWAP}" == *zram* ]]; then
@@ -247,6 +254,51 @@ case "$(field needs_update)" in
 esac
 result info "Slowest to start" "$(field blame | head -n 5 | tr -s ' ' | paste -sd ';' -)"
 result info "Login screen waited on" "$(field chain | head -n 6 | tr -s ' ' | paste -sd ';' -)"
+
+# Restart, as the installer's last page and the top-right menu do: the live
+# system must shut down by itself (nothing waiting for a key behind the
+# splash). QEMU runs with -no-reboot, so it ends when the computer restarts.
+python3 - "${WORK}/qga.sock" <<'PY'
+import json, socket, sys
+sock = socket.socket(socket.AF_UNIX)
+sock.settimeout(30)
+sock.connect(sys.argv[1])
+f = sock.makefile("rw")
+f.write(json.dumps({"execute": "guest-sync", "arguments": {"id": 7}}) + "\n"); f.flush()
+while json.loads(f.readline()).get("return") != 7:
+    pass
+f.write(json.dumps({"execute": "guest-shutdown", "arguments": {"mode": "reboot"}}) + "\n"); f.flush()
+PY
+QGA=$?
+ASKED=$(date +%s)
+while (( QGA == 0 )) && kill -0 "${QEMU_PID}" 2>/dev/null && (( $(date +%s) - ASKED < 120 )); do
+	sleep 2
+done
+if (( QGA != 0 )); then
+	result fail "Restart" "couldn't ask the live system to restart (the QEMU guest agent didn't answer)"
+elif kill -0 "${QEMU_PID}" 2>/dev/null; then
+	python3 - "${WORK}/qmp.sock" "${OUT}/restart.ppm" <<'PY' || true
+import json, socket, sys
+sock = socket.socket(socket.AF_UNIX)
+sock.settimeout(20)
+sock.connect(sys.argv[1])
+f = sock.makefile("rw")
+json.loads(f.readline())
+for cmd in ({"execute": "qmp_capabilities"}, {"execute": "screendump", "arguments": {"filename": sys.argv[2]}}):
+    f.write(json.dumps(cmd) + "\n"); f.flush()
+    while True:
+        reply = json.loads(f.readline())
+        if "return" in reply or "error" in reply:
+            break
+PY
+	python3 -c "from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2])" \
+		"${OUT}/restart.ppm" "${OUT}/restart.png" 2>/dev/null && rm -f "${OUT}/restart.ppm"
+	tail -n 15 "${OUT}/serial.log" 2>/dev/null | annotate_lines "Last serial console lines at restart"
+	result fail "Restart" "the live system was asked to restart and was still running 2 minutes later (restart.png)"
+else
+	result pass "Restart" "the live system restarted by itself in $(( $(date +%s) - ASKED )) s"
+fi
+QEMU_PID=""
 
 summary
 exit "${FAILED}"

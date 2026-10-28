@@ -150,6 +150,13 @@ for SRC in "${ROOT}"/packages/*/; do
 	if [[ "${NAME}" == kulan-base ]]; then
 		generate_kulan_base "${STAGE}"
 	fi
+	# Word changes for other programs' texts: po/<domain>.<language>.po.
+	for PO in "${SRC}"/po/*.po; do
+		[[ -f "${PO}" ]] || continue
+		BASE="$(basename "${PO}" .po)"
+		install -d "${STAGE}/usr/share/locale/${BASE##*.}/LC_MESSAGES"
+		python3 "${ROOT}/packages/po2mo.py" "${PO}" "${STAGE}/usr/share/locale/${BASE##*.}/LC_MESSAGES/${BASE%.*}.mo"
+	done
 
 	render_template "${SRC}/DEBIAN/control.in" > "${STAGE}/DEBIAN/control"
 	for SCRIPT in preinst postinst prerm postrm triggers; do

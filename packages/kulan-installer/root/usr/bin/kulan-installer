@@ -5,8 +5,8 @@ Where (the free space next to Windows or another system when there is room,
 else a whole disk), your name and one password, and Install. The password
 signs you in and unlocks the encrypted disk. Language, keyboard and time zone
 are guessed from the live session, and can be changed under More choices,
-with the user name, the computer's name and encryption. For manual partitions,
-Advanced install (Calamares) is in the app grid. The work itself is done by
+with the user name, the computer's name and encryption, and Advanced install
+(Calamares) for choosing partitions by hand. The work itself is done by
 /usr/lib/kulan/installer-engine, as root, through pkexec.
 
     kulan-installer              # the app
@@ -36,6 +36,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "org.kulan.Installer"
+ADVANCED_INSTALL = "calamares-install-debian.desktop"  # Calamares, hidden from the app grid
 ENGINE = "/usr/lib/kulan/installer-engine"
 LOG = Path(GLib.get_user_cache_dir()) / "kulan-installer.log"
 EVDEV = Path("/usr/share/X11/xkb/rules/evdev.xml")
@@ -276,6 +277,17 @@ class Installer(Adw.ApplicationWindow):
         for row in (self.language_row, self.layout_row, test, self.zone_row, self.username, self.hostname,
                     self.encrypt_row, self.autologin):
             self.more.add_row(row)
+        # Calamares, for choosing partitions by hand: only here, not in the app grid.
+        try:
+            advanced = Gio.DesktopAppInfo.new(ADVANCED_INSTALL) if not self.demo else None
+        except TypeError:  # not installed
+            advanced = None
+        if advanced is not None or self.self_test:
+            row = Adw.ActionRow(title="Advanced install", activatable=True,
+                                subtitle="Choose the partitions yourself, in the classic installer")
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r: self.advanced_install(advanced))
+            self.more.add_row(row)
         box.append(more)
         box.append(Gtk.Label(label="To keep trying Kulan OS instead, close this window. Nothing changes on this "
                                    "computer until you press Install.", wrap=True, xalign=0, css_classes=["dim-label"]))
@@ -311,6 +323,17 @@ class Installer(Adw.ApplicationWindow):
                          next_label="Install", on_next=self.confirm)
         page.view.next_button.set_sensitive(False)
         return page
+
+    def advanced_install(self, app_info) -> None:
+        """Calamares instead of this window (both changing the disk at once would clash)."""
+        if app_info is None:
+            return
+        try:
+            app_info.launch([], None)
+        except GLib.Error:
+            self.toast("Couldn’t open Advanced install")
+            return
+        self.close()
 
     @staticmethod
     def titled(text: str, content: Gtk.Widget) -> Gtk.Box:
@@ -449,7 +472,8 @@ class Installer(Adw.ApplicationWindow):
                     title = f"The whole of {name}" if disk["empty"] else f"Erase {name}"
                     sub = f"{size_text(disk['size'])} · " + ("Empty" if disk["empty"] else f"Deletes everything on it ({what})")
                 else:
-                    title = f"Next to {', '.join(disk['contents']) or 'what’s there'} on {name}"
+                    systems = [c for c in disk["contents"] if c != "files"]
+                    title = f"Next to {', '.join(systems)} on {name}" if systems else f"In the free space on {name}"
                     sub = f"Uses {size_text(disk['largest_free'])} of free space. Nothing is deleted. Choose " \
                           "a system each time the computer starts"
                 if disk["removable"]:
@@ -464,7 +488,7 @@ class Installer(Adw.ApplicationWindow):
                 self.disk_buttons.append((check, disk, mode))
         # Another system there, but no room next to it: say how to make room.
         for disk in disks:
-            if disk["empty"] or not disk["contents"] or disk["largest_free"] >= 20 * GB:
+            if disk["empty"] or disk["contents"] in ([], ["files"]) or disk["largest_free"] >= 20 * GB:
                 continue
             other = ", ".join(disk["contents"])
             if disk["table"] != "gpt":
@@ -717,12 +741,34 @@ class Installer(Adw.ApplicationWindow):
         self.load_disks()
 
     def restart(self) -> None:
-        try:
-            Gio.DBus.system.call_sync("org.freedesktop.login1", "/org/freedesktop/login1",
-                                      "org.freedesktop.login1.Manager", "Reboot", GLib.Variant("(b)", (True,)), None,
-                                      Gio.DBusCallFlags.NONE, 10000, None)
-        except GLib.Error:
-            self.toast("Couldn’t restart. Use the menu at the top right.")
+        """Through GNOME's session (as the top-right menu does), else systemd directly. Never
+        waits on the reply: the window stays responsive, and says so if neither works."""
+        button = self.nav.get_visible_page().view.next_button
+        button.set_sensitive(False)
+        button.set_label("Restarting…")
+
+        def failed() -> None:
+            button.set_sensitive(True)
+            button.set_label("Restart now")
+            self.toast("Couldn’t restart. Use the menu at the top right: the power button, then Restart.")
+
+        def by_systemd() -> None:
+            def done(bus, result) -> None:
+                try:
+                    bus.call_finish(result)
+                except GLib.Error:
+                    failed()
+            Gio.DBus.system.call("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                                 "Reboot", GLib.Variant("(b)", (True,)), None, Gio.DBusCallFlags.NONE, 60000, None,
+                                 done)
+
+        def by_session(bus, result) -> None:
+            try:
+                bus.call_finish(result)
+            except GLib.Error:
+                by_systemd()
+        Gio.DBus.session.call("org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager",
+                              "RequestReboot", None, None, Gio.DBusCallFlags.NONE, 60000, None, by_session)
 
 
 class App(Adw.Application):

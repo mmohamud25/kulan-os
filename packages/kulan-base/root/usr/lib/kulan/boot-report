@@ -39,6 +39,7 @@ sleep 5 # let the session settle
 	# What the login screen waited on (the slowest chain to it).
 	systemd-analyze critical-chain --no-pager display-manager.service 2>/dev/null | grep -v '^The time' | grep -v '^$' | head -n 10 | sed 's/^[^a-zA-Z0-9]*/chain=/'
 	echo "memory=$(free -m | awk '/^Mem:/ {print $3 " MB used of " $2 " MB"}')"
+	echo "timezone=$(readlink /etc/localtime 2>/dev/null | sed "s|.*/zoneinfo/||")"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
 	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
 	# Kernel loading switched off (1) on PCs; left on (0) with fast restart

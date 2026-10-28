@@ -251,6 +251,15 @@ check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/
 check "Interrupted update finished" "update-run install first finishes a package an earlier update left half-installed" bash -c 'd=$(mktemp -d); cd "$d" && apt-get download -q hello >/dev/null 2>&1 && dpkg --unpack hello_*.deb >/dev/null 2>&1 && dpkg --audit | grep -q hello && out="$(/usr/lib/kulan/update-run install 2>&1)"; echo "$out" | grep -i "interrupted" | head -n 2; ok=0; dpkg-query -W -f="\${Status}" hello 2>/dev/null | grep -qx "install ok installed" && test -z "$(dpkg --audit)" && ok=1; dpkg --purge hello >/dev/null 2>&1; [ "$ok" = 1 ]'
 check "Restore point before automatic updates" "apt hook present; outside an automatic update it does nothing" bash -c 'apt-config dump | grep -q "restore-points before-auto-update" && rm -f /var/lib/kulan/auto-update-restore-point && /usr/lib/kulan/restore-points before-auto-update && test ! -e /var/lib/kulan/auto-update-restore-point'
 check "Restart after automatic updates" "a new kernel from automatic updates shows as restart needed" bash -c 'mkdir -p /run && echo linux-image-test > /run/reboot-required.pkgs && touch /run/reboot-required && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); assert \"linux-image-test\" in d[\"restart_required\"], d[\"restart_required\"]"; ok=$?; rm -f /run/reboot-required /run/reboot-required.pkgs; /usr/lib/kulan/update-status refresh; exit $ok'
+check "Wi-Fi password words" "GNOME Shell's network password box says it in Kulan's words in English (the texts it replaces are GNOME Shell's own)" python3 -I - <<'PY'
+import gettext
+ours = gettext.GNUTranslations(open("/usr/share/locale/en/LC_MESSAGES/gnome-shell.mo", "rb"))
+gnome = gettext.GNUTranslations(open("/usr/share/locale/en_GB/LC_MESSAGES/gnome-shell.mo", "rb"))
+for msgid in [k for k in ours._catalog if k]:
+    assert msgid in gnome._catalog, f"not one of GNOME Shell's texts: {msgid!r}"
+used = gettext.translation("gnome-shell", "/usr/share/locale", languages=["en_US"])
+assert used.gettext("Authentication required") == "Password needed"
+PY
 check "A failing setup step can't block updates" "when one of Kulan's desktop setup steps fails, kulan-desktop-settings still configures (a warning, not a failure)" bash -c 'h=/usr/lib/kulan/boot-splash-setup; cp -p "$h" /tmp/splash.bak && printf "#!/bin/sh\necho simulated failure >&2\nexit 1\n" > "$h"; out="$(/var/lib/dpkg/info/kulan-desktop-settings.postinst configure 2>&1)"; rc=$?; cp -p /tmp/splash.bak "$h"; /var/lib/dpkg/info/kulan-desktop-settings.postinst configure >/dev/null 2>&1; echo "$out" | grep "^W: kulan-desktop-settings" | head -n 2; echo "postinst exit: $rc"; [ "$rc" -eq 0 ] && echo "$out" | grep -q "boot-splash-setup.* runs again at the next update"'
 check "Firmware updates" "device firmware from fwupd shows in Software Update" bash -c 'printf "{\"Devices\": [{\"Name\": \"Test Dock\", \"DeviceId\": \"abc\", \"Version\": \"1.0\", \"Releases\": [{\"Version\": \"1.1\", \"Summary\": \"Fixes\"}]}]}" > /var/lib/kulan/firmware-updates.json && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); f = [u for u in d[\"available\"] if u.get(\"kind\") == \"firmware\"]; assert f and f[0][\"name\"] == \"Test Dock\" and f[0][\"to\"] == \"1.1\", f"; ok=$?; rm -f /var/lib/kulan/firmware-updates.json; /usr/lib/kulan/update-status refresh; exit $ok'
 check "Anonymous count" "countme's own tests: exactly version, PC or Mac, and rough age; once a week; off means nothing is sent" /usr/lib/kulan/countme self-test
@@ -1163,6 +1172,29 @@ check "Kulan Installer demo" "--demo summary opens without asking for root; an u
 check "Installer engine lists disks" "JSON with the firmware and disks" bash -c '/usr/lib/kulan/installer-engine disks | python3 -c "import json,sys; d=json.load(sys.stdin); assert d[\"firmware\"] in (\"uefi\",\"bios\") and isinstance(d[\"disks\"], list), d"'
 check "Installer engine stays in the live session" "through pkexec, it refuses to run on an installed system" bash -c 'PKEXEC_UID=1000 /usr/lib/kulan/installer-engine disks | grep -q "only runs from the Kulan OS USB stick"'
 check "Installer engine checks plans" "a plan without a disk is refused, nothing touched" bash -c "echo '{}' | /usr/lib/kulan/installer-engine install | grep -q 'Choose a disk'"
+# shellcheck disable=SC2016  # expanded by Python
+check "Installer words and Wi-Fi" "what's on a disk said as Windows, macOS or another Linux system (never labels or formats); the live session's Wi-Fi carried over for any user" python3 -I - <<'PY'
+import importlib.machinery, importlib.util, os, pathlib, tempfile
+loader = importlib.machinery.SourceFileLoader("engine", "/usr/lib/kulan/installer-engine")
+spec = importlib.util.spec_from_loader("engine", loader)
+m = importlib.util.module_from_spec(spec)
+loader.exec_module(m)
+win = [{"fstype": "vfat", "label": "SYSTEM"}, {"fstype": "ntfs", "label": "KULANOS C: 10/28/2026"}]
+assert m.systems_on(win) == ["Windows"], m.systems_on(win)
+assert m.systems_on([{"fstype": "ext4", "label": "root"}]) == ["another Linux system"]
+assert m.systems_on([{"fstype": "exfat", "label": "PHOTOS"}]) == ["files"]
+t = pathlib.Path(tempfile.mkdtemp())
+(t / "src").mkdir()
+(t / "src/home.nmconnection").write_text("[connection]\nid=Home\ntype=wifi\npermissions=user:kulan;\n\n[wifi]\nssid=Home\n\n[wifi-security]\nkey-mgmt=wpa-psk\npsk=x\n")
+(t / "src/cable.nmconnection").write_text("[connection]\nid=Cable\ntype=ethernet\n")
+m.NM_CONNECTIONS = t / "src"
+m.carry_wifi(t / "target")
+out = t / "target/etc/NetworkManager/system-connections"
+assert sorted(p.name for p in out.iterdir()) == ["home.nmconnection"]
+text = (out / "home.nmconnection").read_text()
+assert "psk=x" in text and "permissions" not in text, text
+assert oct(os.stat(out / "home.nmconnection").st_mode & 0o777) == "0o600"
+PY
 dpkg --purge kulan-installer >/dev/null 2>&1
 
 # --- Compliance mode ------------------------------------------------------------------
