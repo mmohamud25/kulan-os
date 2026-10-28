@@ -1,0 +1,39 @@
+kulan-signed-test login: KULAN-BOOT-REPORT-BEGIN
+state=running
+desktop_user=kulan
+time=Startup finished in 779ms (kernel) + 2.923s (initrd) + 27.725s (userspace) = 31.428s 
+blame=22.238s plymouth-quit-wait.service
+blame=5.037s dev-lp0.device
+blame=5.037s sys-devices-pnp0-00:02-printer-lp0.device
+blame=4.759s sys-devices-pci0000:00-0000:00:1f.0-MSFT0101:00-tpmrm-tpmrm0.device
+blame=4.758s dev-tpmrm0.device
+blame=4.745s dev-disk-by\x2ddiskseq-1.device
+blame=4.745s dev-zram0.device
+blame=4.745s sys-devices-virtual-block-zram0.device
+chain=gdm.service +375ms
+chain=fwupd.service @21.151s +2.744s
+chain=dbus.service @3.781s +298ms
+chain=basic.target @3.755s
+chain=systemd-pcrphase-sysinit.service @3.590s +164ms
+chain=sysinit.target @3.551s
+chain=apparmor.service @2.979s +553ms
+chain=local-fs.target @2.971s
+chain=run-user-1000-doc.mount @14.561s
+chain=run-user-1000.mount @5.787s
+memory=1287 MB used of 3883 MB
+swap=/dev/zram0 3.8G;
+oomd=active active
+kexec=1 no x86_64
+needs_update=no
+unlock=
+boot_id=3a43dd91-b290-42bd-bf34-3ca7f18ebc20
+tail: /sys/firmware/efi/efivars/LoaderImageIdentifier-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f: cannot seek to relative offset 4: Illegal seek
+tail: /sys/firmware/efi/efivars/StubInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f: cannot seek to relative offset 4: Illegal seek
+loader= stub= secureboot=1 signedstart=Signed start-up on
+statusservice=success 1793184450
+kulanshell='state': <1.0> 'error': <''> 
+lighter=on success search_nice=19 mem_kib=3977192
+appsandbox=0 
+appupdates=ok
+KULAN-BOOT-REPORT-END
+===
