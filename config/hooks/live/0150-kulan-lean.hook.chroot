@@ -41,11 +41,15 @@ purge_if_alone tor
 #   udev rule), not at every start.
 # - openvpn.service: an empty placeholder; VPNs from Settings run OpenVPN themselves.
 # - tor.service, if tor stayed: Tor Browser has its own.
-# (deb-systemd-helper, so the packages' own updates keep them as they are.)
+# (systemctl here: deb-systemd-helper only works inside a package's scripts.
+# The packages' own updates keep a unit that's off as it is.)
 for UNIT in cups.service ModemManager.service openvpn.service tor.service; do
-	deb-systemd-helper disable "${UNIT}" >/dev/null 2>&1 || true
+	[ -e "/usr/lib/systemd/system/${UNIT}" ] || continue
+	systemctl disable "${UNIT}"
 done
-deb-systemd-helper enable cups.socket >/dev/null 2>&1 || true
+if [ -e /usr/lib/systemd/system/cups.socket ]; then
+	systemctl enable cups.socket
+fi
 
 # English formats ready in the live session (live-config then only checks).
 if [ -f /etc/locale.gen ] && command -v locale-gen >/dev/null 2>&1; then
