@@ -619,7 +619,7 @@ jobs:
         if: matrix.arch == 'amd64'
         timeout-minutes: 90
         run: |
-          sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk python3-pil
+          sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk python3-pil tesseract-ocr
           ci/signed-start-test.sh out/*.iso signed-start-test
 
       - name: Upload signed start-up test

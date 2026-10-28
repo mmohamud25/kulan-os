@@ -349,6 +349,12 @@ def install_loader() -> None:
     for f in ("shim", "mm", "fb"):
         copy_if_changed(Path(f"/usr/lib/shim/{f}{x64}.efi.signed"), here / f"{f}{x64}.efi")
     copy_if_changed(Path(f"/usr/lib/systemd/boot/efi/systemd-boot{x64}.efi.signed"), here / f"systemd-boot{x64}.efi")
+    # Until the switch, GRUB's shim starts the computer: it needs its key manager next to
+    # it to show the blue screen that enrolls the key (grub-install doesn't always put it there).
+    for other in ("BOOT", "debian"):
+        folder = ESP / "EFI" / other
+        if (folder / f"grub{x64}.efi").exists() and not (folder / f"mm{x64}.efi").exists():
+            copy_if_changed(Path(f"/usr/lib/shim/mm{x64}.efi.signed"), folder / f"mm{x64}.efi")
     # For shim's fallback (fb), should the firmware forget the entry.
     csv = f"shim{x64}.efi,{LABEL},\\EFI\\{VENDOR}\\systemd-boot{x64}.efi \\0,{LABEL}\n"
     (here / f"BOOT{X64}.CSV").write_bytes(csv.encode("utf-16-le"))
@@ -442,8 +448,10 @@ def mok_requested() -> bool:
 
 
 def request_enroll(state: dict) -> None:
-    """Ask shim to enroll the key at the next start, with a new one-time code."""
-    code = "".join(secrets.choice("0123456789") for _ in range(8))
+    """Ask shim to enroll the key at the next start. The same code each time it's asked
+    again (the screen was skipped), so what the installer showed stays right."""
+    code = state.get("code") if re.fullmatch(r"[0-9]{8}", str(state.get("code") or "")) else \
+        "".join(secrets.choice("0123456789") for _ in range(8))
     with tempfile.NamedTemporaryFile("w", dir=STATE_DIR, delete=False) as fh:
         hash_file = Path(fh.name)
     try:

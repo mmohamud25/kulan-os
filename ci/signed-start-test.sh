@@ -185,6 +185,11 @@ case "\${PHASE}" in
 		;;
 	*)
 		say "waiting (\${PHASE}): \$(kulan-signed-start status | tr '\n' ' ')"
+		say "requested=\$(mokutil --list-new 2>&1 | grep -ciE 'fingerprint|kulan') enrolled=\$(mokutil --test-key /var/lib/kulan/signed-start/kulan.der 2>&1 | tr '\n' ' ')"
+		say "esp_boot=\$(ls /boot/efi/EFI/BOOT 2>&1 | tr '\n' ' ')"
+		journalctl -b -u kulan-signed-start.service -o cat --no-pager 2>/dev/null | tail -n 4 | sed 's/^/KULAN-SIGNED-TEST service: /'
+		if [ "\$(cat /var/lib/kulan-signed-test-waits 2>/dev/null || echo 0)" -ge 4 ]; then say "giving up"; exit 0; fi
+		echo \$(( \$(cat /var/lib/kulan-signed-test-waits 2>/dev/null || echo 0) + 1 )) > /var/lib/kulan-signed-test-waits
 		restart
 		;;
 esac
@@ -292,20 +297,37 @@ enroll() {
 	qmp "keys('ret')"
 }
 
-# Each time shim's MOK manager comes up (it writes to the serial console too),
-# enroll with the newest code (a skipped screen is asked again with a new one).
+# After each restart that follows a code, watch the screen (read with
+# tesseract) for shim's MOK manager, and enroll with the newest code (a skipped
+# screen is asked again with a new one).
+screen_text() {
+	qmp "call('screendump', filename='${WORK}/watch.ppm')"
+	[[ -s "${WORK}/watch.ppm" ]] || return 0
+	tesseract "${WORK}/watch.ppm" - 2>/dev/null | tr '\n' ' '
+	rm -f "${WORK}/watch.ppm"
+}
 ENROLLED=0
+WATCHED=0
 while (( $(date +%s) - START < WAIT_S )); do
 	kill -0 "${QEMU_PID}" 2>/dev/null || break
 	LOG_NOW="$(serial)"
-	grep -q 'KULAN-SIGNED-TEST done' <<<"${LOG_NOW}" && break
-	SCREENS="$(grep -c 'perform MOK management' <<<"${LOG_NOW}")"
-	if (( SCREENS > ENROLLED )) && (( ENROLLED < 3 )); then
-		CODE_NOW="$(grep -oE '(code=|code )[0-9]{8}' <<<"${LOG_NOW}" | tail -n 1 | grep -oE '[0-9]{8}')"
-		if [[ -n "${CODE_NOW}" ]]; then
-			enroll "${CODE_NOW}"
-			ENROLLED=$((ENROLLED + 1))
-		fi
+	grep -q 'KULAN-SIGNED-TEST \(done\|giving up\)' <<<"${LOG_NOW}" && break
+	CODE_NOW="$(grep -oE '(code=|code )[0-9]{8}' <<<"${LOG_NOW}" | tail -n 1 | grep -oE '[0-9]{8}')"
+	RESTARTS="$(grep -c 'reboot: Restarting system' <<<"${LOG_NOW}")"
+	if [[ -n "${CODE_NOW}" ]] && (( RESTARTS > WATCHED )) && (( ENROLLED < 3 )); then
+		WATCHED="${RESTARTS}"
+		# The next 60 seconds: the firmware, then shim (its screen waits 10 seconds).
+		for i in $(seq 1 60); do
+			TEXT="$(screen_text)"
+			if grep -qiE 'MOK management|Press any key|Shim UEFI' <<<"${TEXT}"; then
+				echo "MOK screen after ${i} s: ${TEXT:0:200}" >> "${OUT}/watch.log"
+				enroll "${CODE_NOW}"
+				ENROLLED=$((ENROLLED + 1))
+				break
+			fi
+			(( i % 10 == 1 )) && echo "${i} s: ${TEXT:0:160}" >> "${OUT}/watch.log"
+			sleep 0.5
+		done
 	fi
 	sleep 2
 done
@@ -313,6 +335,19 @@ ELAPSED=$(( $(date +%s) - START ))
 shot last-screen
 
 # --- Results ------------------------------------------------------------------------
+# The test step's log from /boot (every line, even ones the console lost), and
+# the firmware and shim lines of the console.
+BOOT_LOOP="$(sudo losetup -fP --show "${WORK}/disk.img" 2>/dev/null || true)"
+if [[ -n "${BOOT_LOOP}" ]]; then
+	sudo mkdir -p "${WORK}/bootpart"
+	if sudo mount -o ro "${BOOT_LOOP}p2" "${WORK}/bootpart" 2>/dev/null; then
+		# shellcheck disable=SC2024  # the copies belong to this user, on purpose
+		{ sudo cat "${WORK}/bootpart/kulan-signed-test.log"; echo "--- on.err"; sudo cat "${WORK}/bootpart/kulan-signed-on.err"; } > "${OUT}/test-step.log" 2>/dev/null || true
+		sudo umount "${WORK}/bootpart"
+	fi
+	sudo losetup -d "${BOOT_LOOP}"
+fi
+serial | grep -aiE 'shim|mok|mmx64|security violation|verification|BdsDxe|systemd-boot|Failed to' | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | head -n 200 > "${OUT}/firmware.log"
 LOG="$(serial)"
 STEPS="$(grep -a 'KULAN-SIGNED-TEST' <<<"${LOG}" | sed 's/.*KULAN-SIGNED-TEST //')"
 printf '%s\n' "${STEPS}" > "${OUT}/steps.log"
