@@ -11,8 +11,9 @@ jobs:
     container: debian:trixie
     steps:
       - name: Look at the packages
+        shell: bash
         run: |
-          set -x
+          set +e
           apt-get update -q
           apt-get install -y -q --no-install-recommends git ca-certificates >/dev/null
           mkdir -p /out /w && cd /w
@@ -36,6 +37,8 @@ jobs:
           ukify --help > /out/ukify-help.txt 2>&1 || true
           ls /usr/lib/systemd/boot/efi /usr/lib/shim 2>&1 > /out/efi-binaries.txt
       - name: Push the output back
+        if: always()
+        shell: bash
         run: |
           cd /w && git clone -q --depth 1 --branch probe/signed-start "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
           cd repo && mkdir -p out && cp /out/* out/ && git add out
