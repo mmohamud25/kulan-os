@@ -1,0 +1,44 @@
+name: Probe (Debian 13 boot packages)
+on:
+  push:
+    branches: ["probe/signed-start"]
+permissions:
+  contents: write
+jobs:
+  probe:
+    if: "!contains(github.event.head_commit.message, 'probe output')"
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Look at the packages
+        run: |
+          set -x
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends git ca-certificates >/dev/null
+          mkdir -p /out /w && cd /w
+          PKGS="systemd-boot systemd-boot-efi systemd-boot-efi-amd64-signed systemd-ukify shim-signed shim-helpers-amd64-signed shim-unsigned dracut dracut-core mokutil sbsigntool systemd linux-image-amd64 grub-efi-amd64-signed"
+          for P in $PKGS; do
+            apt-cache policy $P > /out/policy-$P.txt 2>&1 || true
+            apt-cache show $P > /out/show-$P.txt 2>&1 || true
+          done
+          for P in systemd-boot systemd-boot-efi systemd-boot-efi-amd64-signed systemd-ukify shim-signed shim-helpers-amd64-signed dracut dracut-core mokutil sbsigntool systemd; do
+            apt-get download -q $P || continue
+            D=$(ls ${P}_*.deb | head -1)
+            dpkg-deb -c $D > /out/files-$P.txt
+            mkdir -p ctl-$P && dpkg-deb -e $D ctl-$P
+            for F in ctl-$P/*; do echo "=== $F"; cat "$F"; done > /out/control-$P.txt 2>&1
+          done
+          # The kernel's hooks and kernel-install plugins, as installed.
+          apt-get install -y -q --no-install-recommends systemd-boot systemd-ukify dracut >/out/install-log.txt 2>&1 || true
+          { ls -la /etc/kernel /etc/kernel/*.d /usr/lib/kernel/install.d 2>&1; for F in /etc/kernel/postinst.d/* /etc/kernel/postrm.d/* /usr/lib/kernel/install.d/*; do echo "=== $F"; cat "$F"; done; } > /out/kernel-hooks.txt 2>&1
+          cat /etc/kernel/install.conf /usr/lib/kernel/install.conf > /out/install-conf.txt 2>&1 || true
+          bootctl --version > /out/bootctl-version.txt 2>&1 || true
+          ukify --help > /out/ukify-help.txt 2>&1 || true
+          ls /usr/lib/systemd/boot/efi /usr/lib/shim 2>&1 > /out/efi-binaries.txt
+      - name: Push the output back
+        run: |
+          cd /w && git clone -q --depth 1 --branch probe/signed-start "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo && mkdir -p out && cp /out/* out/ && git add out
+          git -c user.name=probe -c user.email=probe@localhost commit -q -m "probe output" && git push -q origin probe/signed-start
+        env:
+          TOKEN: ${{ github.token }}
