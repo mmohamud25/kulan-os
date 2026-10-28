@@ -128,8 +128,16 @@ stick, press the boot key, click Install.
     the signing key for main only, a locked backup and a yearly subkey
     (docs/signing-key.md; three steps for you to run on the Mac).
   - Smaller fixes on the computer, in the build and in Ask Kulan.
-  - Still to do: signed start-up files (unified kernel images); the steps in
-    docs/signing-key.md and protecting main on GitHub (yours).
+  - Signed start-up (agreed 28 Oct 2026, "signed, with one screen"): each
+    computer's own key signs its start-up files (kernel, start-up image and
+    options in one file); shim enrolls the key on a blue screen at the first
+    restart, with a code the installer shows; then Debian's signed
+    systemd-boot starts only the signed file, GRUB is removed, and TPM unlock
+    is tied to it. New encrypted UEFI installs get it; others in Kulan
+    Settings › Security. About 3 MB of tools, only where it's on. Not where
+    the EFI partition is too small (some laptops shared with Windows).
+  - Still to do: the steps in docs/signing-key.md and protecting main on
+    GitHub (yours).
 
 ## 3. Reliability
 - Sleep and wake; installing next to Windows; restoring a restore point;
