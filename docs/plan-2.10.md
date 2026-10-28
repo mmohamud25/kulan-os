@@ -54,6 +54,19 @@ when this list is empty.
     keys are required…", the WPS line).
   - The clock was wrong when the desktop came up and wrong again after Wi-Fi
     connected (1:24 PM, then 8:31 PM).
+  - Calamares sits in the app grid as "Advanced install" next to Install
+    Kulan OS, and was the one opened; its welcome picture says "Version 2.8a"
+    (drawn into welcome.png).
+  - Install Kulan OS names Windows by its partition labels and formats
+    ("KULANOS C: 10/28/2026, ntfs, vfat"); the Windows check looks for
+    "Windows" in those names, so the Disk Management advice never shows.
+  - "Restart now" on the last page didn't restart.
+  - The installed system doesn't have the Wi-Fi network joined in the live
+    session, and nothing says so.
+  - An add-on install with no internet carried on after the package lists
+    failed and showed apt's "Package 'whois' has no installation candidate".
+  - Tor Browser's first start: its own old-style window and "Are you connected
+    to the internet?" with no Kulan wording.
 - Kulan Fleet sign-in emails from kulangroup.com through our own mail
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.
