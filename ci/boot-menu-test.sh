@@ -81,6 +81,8 @@ PY
 kill "${QEMU_PID}" 2>/dev/null
 QEMU_PID=""
 
+# "Kulan OS Live", allowing for Tesseract reading OS as 0S or 08.
+ENTRY='Kulan [O0][S58] Live'
 BEST="" BEST_TEXT=""
 for PPM in "${WORK}"/menu-*.ppm; do
 	[[ -s "${PPM}" ]] || continue
@@ -88,7 +90,7 @@ for PPM in "${WORK}"/menu-*.ppm; do
 	python3 -c "from PIL import Image; import sys; Image.open(sys.argv[1]).save(sys.argv[2])" "${PPM}" "${PNG}" 2>/dev/null || continue
 	TEXT="$(tesseract "${PNG}" - 2>/dev/null | tr -s '[:space:]' ' ')"
 	echo "$(basename "${PNG}"): ${TEXT}" >>"${OUT}/screens.txt"
-	if [[ "${TEXT}" == *"automatically"* || "${TEXT}" == *"Live"* ]] && [[ -z "${BEST}" || "${TEXT}" == *"Kulan OS Live"* ]]; then
+	if [[ "${TEXT}" == *"automatically"* || "${TEXT}" == *"Live"* ]] && [[ -z "${BEST}" || "${TEXT}" =~ ${ENTRY} ]]; then
 		BEST="${PNG}" BEST_TEXT="${TEXT}"
 	fi
 done
@@ -98,7 +100,9 @@ if [[ -z "${BEST}" ]]; then
 fi
 cp "${BEST}" "${OUT}/boot-menu.png"
 result info "Menu shown" "${BEST_TEXT:0:300}"
-if [[ "${BEST_TEXT}" == *"Kulan OS Live"* ]]; then
+SIZE="$(python3 -c "from PIL import Image; import sys; print('%dx%d' % Image.open(sys.argv[1]).size)" "${BEST}" 2>/dev/null)"
+result info "Screen size" "${SIZE} (the computer's own size, as on a laptop's screen)"
+if [[ "${BEST_TEXT}" =~ ${ENTRY} ]]; then
 	result pass "Entries readable" "\"Kulan OS Live\" can be read in the menu (boot-menu.png)"
 else
 	result fail "Entries readable" "the menu is shown but \"Kulan OS Live\" can't be read in it (boot-menu.png)"
