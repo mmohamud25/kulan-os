@@ -95,6 +95,18 @@ case "$1" in
 			touch "${MARK}"
 		fi
 
+		# Lighter starts (2.10): services that run only when they're used. Once,
+		# so someone who turns one back on keeps it (see the live hook 0150).
+		MARK=/var/lib/kulan/lean-services-2.10
+		if [ ! -e "${MARK}" ]; then
+			for UNIT in cups.service ModemManager.service openvpn.service tor.service; do
+				deb-systemd-helper disable "${UNIT}" >/dev/null 2>&1 || true
+			done
+			deb-systemd-helper enable cups.socket >/dev/null 2>&1 || true
+			mkdir -p /var/lib/kulan
+			touch "${MARK}"
+		fi
+
 		# Kulan Fleet two-step sign-in (2.8d): the group and the PAM profile.
 		# Nobody is asked for a second step until they set one up in a
 		# Fleet organisation, so this changes nothing on its own.

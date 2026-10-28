@@ -173,10 +173,17 @@ check "Restart in ARM VMs" "kexec-tools, fast-restart generator, and the kexec h
 check "Disk password" "a mistyped disk password asks again (installer writes tries=0 to crypttab)" grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${R}/etc/calamares/modules/fstab.conf"
 check "Store apps' look" "Flatpak apps may read the GTK settings folders, for Kulan's window buttons" bash -c "grep -q 'xdg-config/gtk-4.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'xdg-config/gtk-3.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'QT_QPA_PLATFORM=xcb;wayland' '${R}/var/lib/flatpak/overrides/global'"
 check "Boot report" "kulan-boot-report.service enabled, for the boot test" has_path etc/systemd/system/multi-user.target.wants/kulan-boot-report.service
-if installed cups-browsed; then
-	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"
+LEAN_PROBLEMS=()
+installed cups-browsed && LEAN_PROBLEMS+=("cups-browsed is in the ISO")
+for UNIT in cups.service ModemManager.service openvpn.service tor.service; do
+	has_path "etc/systemd/system/multi-user.target.wants/${UNIT}" && LEAN_PROBLEMS+=("${UNIT} starts at every start")
+done
+has_path etc/systemd/system/sockets.target.wants/cups.socket || LEAN_PROBLEMS+=("printing can't start when it's needed (cups.socket off)")
+has_path usr/lib/udev/rules.d/90-kulan-modemmanager.rules || LEAN_PROBLEMS+=("no rule to start ModemManager for a modem")
+if [[ ${#LEAN_PROBLEMS[@]} -eq 0 ]]; then
+	result pass "Lean services" "cups-browsed left out; printing, mobile data, VPN and Tor start only when used"
 else
-	result pass "Lean services" "cups-browsed left out"
+	result fail "Lean services" "$(IFS=';'; echo "${LEAN_PROBLEMS[*]}")"
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter

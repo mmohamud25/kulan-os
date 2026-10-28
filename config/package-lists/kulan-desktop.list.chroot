@@ -135,7 +135,7 @@ kexec-tools
 sudo
 curl
 wget
-git
+# (git comes with the Developer tools add-on, kulan-devkit)
 nano
 htop
 
