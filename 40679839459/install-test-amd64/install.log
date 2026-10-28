@@ -1,0 +1,624 @@
++ blockdev --getsize64 /dev/loop0
+25769803776
++ lsblk -lnpo NAME,MOUNTPOINT /dev/loop0
+/dev/loop0
++ wipefs -a /dev/loop0
++ sfdisk --wipe always --wipe-partitions always /dev/loop0
+Checking that no-one is using this disk right now ... OK
+
+Disk /dev/loop0: 24 GiB, 25769803776 bytes, 50331648 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+
+>>> Script header accepted.
+>>> Created a new GPT disklabel (GUID: A0E9F2F4-0ADA-4752-BE9C-E39945584494).
+/dev/loop0p1: Created a new partition 1 of type 'EFI System' and of size 512 MiB.
+/dev/loop0p2: Created a new partition 2 of type 'Linux filesystem' and of size 23.5 GiB.
+/dev/loop0p3: Done.
+
+New situation:
+Disklabel type: gpt
+Disk identifier: A0E9F2F4-0ADA-4752-BE9C-E39945584494
+
+Device         Start      End  Sectors  Size Type
+/dev/loop0p1    2048  1050623  1048576  512M EFI System
+/dev/loop0p2 1050624 50329599 49278976 23.5G Linux filesystem
+
+The partition table has been altered.
+Calling ioctl() to re-read partition table.
+Syncing disks.
++ partprobe /dev/loop0
++ udevadm settle
++ mkfs.vfat -F 32 -n EFI /dev/loop0p1
+mkfs.fat 4.2 (2021-01-31)
++ mkfs.ext4 -q -F -L kulan /dev/loop0p2
++ mount /dev/loop0p2 /tmp/kulan-target-0e9q72wd
++ unsquashfs -f -percentage -d /tmp/kulan-target-0e9q72wd /tmp/tmp.RSRuOoYTVY/fs.squashfs
++ blkid -s UUID -o value /dev/loop0p2
+616abf83-c7db-4158-b258-6264ed9bf4a2
++ blkid -s UUID -o value /dev/loop0p1
+8C84-B11B
++ mount /dev/loop0p1 /tmp/kulan-target-0e9q72wd/boot/efi
++ mount --bind /dev /tmp/kulan-target-0e9q72wd/dev
++ mount --bind /dev/pts /tmp/kulan-target-0e9q72wd/dev/pts
++ mount --bind /proc /tmp/kulan-target-0e9q72wd/proc
++ mount --bind /sys /tmp/kulan-target-0e9q72wd/sys
++ mount --bind /run /tmp/kulan-target-0e9q72wd/run
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root systemd-machine-id-setup
+Initializing machine ID from random generator.
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root locale-gen
+Generating locales (this might take a while)...
+  en_US.UTF-8... done
+Generation complete.
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root dpkg-query -W -f=${Package}\n
+inentry-gnome3
+pipewire
+pipewire-alsa
+pipewire-audio
+pipewire-bin
+pipewire-pulse
+pkexec
+plasma-activities-bin
+plymouth
+plymouth-label
+plymouth-themes
+polkitd
+poppler-data
+poppler-utils
+power-profiles-daemon
+ppp
+procps
+psmisc
+ptyxis
+publicsuffix
+python-apt-common
+python3
+python3-apt
+python3-autocommand
+python3-bcrypt
+python3-blinker
+python3-brlapi
+python3-bs4
+python3-cairo
+python3-certifi
+python3-cffi-backend
+python3-chardet
+python3-charset-normalizer
+python3-cryptography
+python3-cssselect
+python3-cups
+python3-cupshelpers
+python3-dbus
+python3-distro
+python3-distro-info
+python3-fasteners
+python3-gi
+python3-gi-cairo
+python3-gpg
+python3-html5lib
+python3-httplib2
+python3-ibus-1.0
+python3-idna
+python3-inflect
+python3-invoke
+python3-jaraco.context
+python3-jaraco.functools
+python3-jwt
+python3-louis
+python3-lxml
+python3-minimal
+python3-monotonic
+python3-more-itertools
+python3-mutagen
+python3-nacl
+python3-nautilus
+python3-oauthlib
+python3-packaging
+python3-paramiko
+python3-pexpect
+python3-pkg-resources
+python3-psutil
+python3-ptyprocess
+python3-pyparsing
+python3-pyqt5
+python3-pyqt5.sip
+python3-requests
+python3-setproctitle
+python3-smbc
+python3-socks
+python3-soupsieve
+python3-speechd
+python3-typeguard
+python3-typing-extensions
+python3-uno
+python3-urllib3
+python3-webencodings
+python3-xdg
+python3-yaml
+python3.13
+python3.13-minimal
+qemu-guest-agent
+qml-module-qtquick-window2
+qml-module-qtquick2
+qml6-module-org-kde-kirigami
+qml6-module-qtqml
+qml6-module-qtqml-models
+qml6-module-qtqml-workerscript
+qml6-module-qtquick
+qml6-module-qtquick-controls
+qml6-module-qtquick-layouts
+qml6-module-qtquick-shapes
+qml6-module-qtquick-templates
+qml6-module-qtquick-window
+qrencode
+qt5-gtk-platformtheme
+qt6-gtk-platformtheme
+qt6-qpa-plugins
+qt6-svg-plugins
+qt6-translations-l10n
+qt6-wayland
+qttranslations5-l10n
+qtwayland5
+readline-common
+realmd
+ripgrep
+rsync
+rtkit
+runit-helper
+rygel
+rygel-playbin
+rygel-tracker
+samba-libs
+sane-airscan
+sane-utils
+sed
+sensible-utils
+sgml-base
+sgml-data
+shared-mime-info
+simple-scan
+sound-icons
+sound-theme-freedesktop
+speech-dispatcher
+speech-dispatcher-audio-plugins
+speech-dispatcher-espeak-ng
+spice-vdagent
+squashfs-tools
+sqv
+ssl-cert
+sudo
+switcheroo-control
+system-config-printer-common
+system-config-printer-udev
+systemd
+systemd-oomd
+systemd-sysv
+systemd-timesyncd
+systemd-zram-generator
+systemsettings
+sysvinit-utils
+tar
+tecla
+tesseract-ocr
+tesseract-ocr-ara
+tesseract-ocr-eng
+tesseract-ocr-osd
+timeshift
+timgm6mb-soundfont
+tinysparql
+tor
+tor-geoipdb
+torbrowser-launcher
+torsocks
+totem
+totem-common
+totem-plugins
+tpm-udev
+tracker-extract
+tracker-miner-fs
+tree
+tzdata
+ucf
+udev
+udisks2
+ufw
+unattended-upgrades
+uno-libs-private
+unzip
+update-inetd
+upower
+ure
+usb-modeswitch
+usb-modeswitch-data
+usb.ids
+usbmuxd
+usbutils
+user-session-migration
+user-setup
+util-linux
+uuid-runtime
+va-driver-all
+vdpau-driver-all
+vim-common
+vim-tiny
+vlc
+vlc-bin
+vlc-data
+vlc-plugin-access-extra
+vlc-plugin-base
+vlc-plugin-notify
+vlc-plugin-qt
+vlc-plugin-samba
+vlc-plugin-skins2
+vlc-plugin-video-output
+vlc-plugin-video-splitter
+vlc-plugin-visualization
+wamerican
+webp-pixbuf-loader
+wget
+whiptail
+wireless-regdb
+wireplumber
+wpasupplicant
+x11-common
+x11-utils
+x11-xkb-utils
+x11-xserver-utils
+xapp-sn-watcher
+xapps-common
+xauth
+xbrlapi
+xcvt
+xdg-dbus-proxy
+xdg-desktop-portal
+xdg-desktop-portal-gnome
+xdg-desktop-portal-gtk
+xdg-terminal-exec
+xdg-user-dirs
+xdg-user-dirs-gtk
+xdg-utils
+xfonts-base
+xfonts-encodings
+xfonts-utils
+xkb-data
+xkbset
+xml-core
+xserver-common
+xserver-xephyr
+xserver-xorg
+xserver-xorg-core
+xserver-xorg-input-all
+xserver-xorg-input-libinput
+xserver-xorg-input-wacom
+xserver-xorg-legacy
+xserver-xorg-video-all
+xserver-xorg-video-amdgpu
+xserver-xorg-video-ati
+xserver-xorg-video-fbdev
+xserver-xorg-video-intel
+xserver-xorg-video-nouveau
+xserver-xorg-video-qxl
+xserver-xorg-video-radeon
+xserver-xorg-video-vesa
+xserver-xorg-video-vmware
+xwayland
+xz-utils
+yelp
+yelp-xsl
+zenity
+zenity-common
+zerofree
+zlib1g
+zoxide
+zsh
+zsh-autosuggestions
+zsh-common
+zsh-syntax-highlighting
+zstd
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root apt-get purge -y -q live-boot live-boot-initramfs-tools live-config live-config-systemd live-tools calamares calamares-settings-debian kulan-installer
+e REMOVED:
+  calamares* calamares-settings-debian* kulan-installer* live-boot*
+  live-boot-initramfs-tools* live-config* live-config-systemd* live-tools*
+0 upgraded, 0 newly installed, 8 to remove and 0 not upgraded.
+After this operation, 12.1 MB disk space will be freed.
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 125100 files and directories currently installed.)
+Removing calamares-settings-debian (13.0.13-1) ...
+Removing calamares (3.3.14-1) ...
+Removing kulan-installer (2.9.202610281125) ...
+Removing live-boot (1:20250815~deb13u1) ...
+Removing live-boot-initramfs-tools (1:20250815~deb13u1) ...
+update-initramfs: deferring update (trigger activated)
+Removing live-config (11.0.5) ...
+Removing live-config-systemd (11.0.5) ...
+Running in chroot, ignoring command 'stop'
+Running in chroot, ignoring command 'daemon-reload'
+Removing live-tools (1:20240525) ...
+Processing triggers for desktop-file-utils (0.28-1) ...
+Processing triggers for initramfs-tools (0.148.4) ...
+update-initramfs: Generating /boot/initrd.img-6.12.113+deb13-amd64
+Processing triggers for hicolor-icon-theme (0.18-2) ...
+Processing triggers for gnome-menus (3.36.0-3) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+Processing triggers for man-db (2.13.1-1) ...
+Processing triggers for libglib2.0-0t64:amd64 (2.84.4-3~deb13u5) ...
+No such key “deployment-featured” in schema “org.gnome.software” as specified in override file “/usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override”; ignoring override for this key.
+Processing triggers for mailcap (3.74) ...
+Processing triggers for kulan-desktop-settings (2.9.202610281125) ...
+W: optional GNOME extension for 'phone' not found; skipping
+No such key “deployment-featured” in schema “org.gnome.software” as specified in override file “/usr/share/glib-2.0/schemas/91_kulan-os-software.gschema.override”; ignoring override for this key.
+I: Kulan OS desktop defaults applied (extensions: 'dash-to-dock@micxgx.gmail.com', 'blur-my-shell@aunetx', 'kulan-shell@kulangroup.com', 'ubuntu-appindicators@ubuntu.com', 'tiling-assistant@leleat-on-github', 'ding@rastersoft.com')
+(Reading database ... 
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 124505 files and directories currently installed.)
+Purging configuration files for calamares-settings-debian (13.0.13-1) ...
+dpkg: warning: while removing calamares-settings-debian, directory '/etc/calamares/modules' not empty so not removed
+dpkg: warning: while removing calamares-settings-debian, directory '/etc/calamares/branding' not empty so not removed
+Purging configuration files for live-config (11.0.5) ...
+Purging configuration files for live-boot (1:20250815~deb13u1) ...
+Purging configuration files for live-tools (1:20240525) ...
+Running in chroot, ignoring command 'daemon-reload'
+Purging configuration files for live-config-systemd (11.0.5) ...
+Running in chroot, ignoring command 'daemon-reload'
+Purging configuration files for live-boot-initramfs-tools (1:20250815~deb13u1) ...
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root apt-get autoremove -y -q
+) ...
+Removing libkf6jobwidgets-data (6.13.0-1) ...
+Removing libkf6kcmutilscore6:amd64 (6.13.0-2) ...
+Removing libkf6kcmutils-data (6.13.0-2) ...
+Removing libkf6notifications6:amd64 (6.13.0-1) ...
+Removing libkf6notifications-data (6.13.0-1) ...
+Removing libkf6parts-data (6.13.0-1) ...
+Removing libkf6service-data (6.13.0-1) ...
+Removing libkf6solid6:amd64 (6.13.0-1) ...
+Removing libkf6solid-data (6.13.0-1) ...
+Removing libkf6wallet-data (6.13.0-1) ...
+Removing libkf6widgetsaddons6:amd64 (6.13.0-1) ...
+Removing libkf6widgetsaddons-data (6.13.0-1) ...
+Removing libkf6windowsystem6:amd64 (6.13.0-2) ...
+Removing libkf6windowsystem-data (6.13.0-2) ...
+Removing libkf6xmlgui-data (6.13.0-1) ...
+Removing qml6-module-org-kde-kirigami:amd64 (6.13.0-2) ...
+Removing libkirigami6:amd64 (6.13.0-2) ...
+Removing libkirigamiprivate6:amd64 (6.13.0-2) ...
+Removing libkirigamidelegates6:amd64 (6.13.0-2) ...
+Removing libkirigamidialogs6:amd64 (6.13.0-2) ...
+Removing libkirigamilayouts6:amd64 (6.13.0-2) ...
+Removing libkirigamiprimitives6:amd64 (6.13.0-2) ...
+Removing libkirigamiplatform6:amd64 (6.13.0-2) ...
+Removing plasma-activities-bin (6.3.4-1) ...
+Removing libplasmaactivities6:amd64 (6.3.4-1) ...
+Removing libpolkit-qt6-1-1:amd64 (0.200.0-4+b1) ...
+Removing libqca-qt6-plugins:amd64 (2.3.10-1) ...
+Removing libqca-qt6-2:amd64 (2.3.10-1) ...
+Removing qml-module-qtquick2:amd64 (5.15.15+dfsg-3) ...
+Removing libqt5qmlworkerscript5:amd64 (5.15.15+dfsg-3) ...
+Removing libqt6core5compat6:amd64 (6.8.2-3+b1) ...
+Removing libqt6printsupport6:amd64 (6.8.2+dfsg-9+deb13u2) ...
+Removing qml6-module-qtquick-controls:amd64 (6.8.2+dfsg-7) ...
+Removing libqt6quickcontrols2-6:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtquick-shapes:amd64 (6.8.2+dfsg-7) ...
+Removing libqt6quickshapes6:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtquick-templates:amd64 (6.8.2+dfsg-7) ...
+Removing libqt6quicktemplates2-6:amd64 (6.8.2+dfsg-7) ...
+Removing libqt6quickwidgets6:amd64 (6.8.2+dfsg-7) ...
+Removing libqt6sql6-sqlite:amd64 (6.8.2+dfsg-9+deb13u2) ...
+Removing libqt6sql6:amd64 (6.8.2+dfsg-9+deb13u2) ...
+Removing libqt6widgets6:amd64 (6.8.2+dfsg-9+deb13u2) ...
+Removing libqt6xml6:amd64 (6.8.2+dfsg-9+deb13u2) ...
+Removing libyaml-cpp0.8:amd64 (0.8.0+dfsg-7) ...
+Removing live-boot-doc (1:20250815~deb13u1) ...
+Removing live-config-doc (11.0.5) ...
+Removing media-player-info (26-1) ...
+Removing qml-module-qtquick-window2:amd64 (5.15.15+dfsg-3) ...
+Removing qml6-module-qtquick-window:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtquick-layouts:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtquick:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtqml:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtqml-models:amd64 (6.8.2+dfsg-7) ...
+Removing qml6-module-qtqml-workerscript:amd64 (6.8.2+dfsg-7) ...
+Removing user-setup (1.107) ...
+Removing libkf6iconthemes6:amd64 (6.13.0-2) ...
+Removing libkf6archive6:amd64 (6.13.0-2) ...
+Removing libkf6archive-data (6.13.0-2) ...
+Removing libkf6breezeicons6:amd64 (6.13.0-3) ...
+Removing libkf6colorscheme6:amd64 (6.13.0-1) ...
+Removing libkf6colorscheme-data (6.13.0-1) ...
+Removing libkf6configgui6:amd64 (6.13.0-2) ...
+Removing libkf6coreaddons6:amd64 (6.13.0-1) ...
+Removing libkf6coreaddons-data (6.13.0-1) ...
+Removing libkf6guiaddons6:amd64 (6.13.0-1) ...
+Removing libkf6guiaddons-data (6.13.0-1) ...
+Removing libkf6i18n6:amd64 (6.13.0-1) ...
+Removing libkf6i18n-data (6.13.0-1) ...
+Removing libkf6iconthemes-data (6.13.0-2) ...
+Removing libkirigami-data (6.13.0-2) ...
+Removing libkf6configcore6:amd64 (6.13.0-2) ...
+Removing libkf6config-data (6.13.0-2) ...
+Processing triggers for gnome-menus (3.36.0-3) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+Processing triggers for man-db (2.13.1-1) ...
+Processing triggers for dbus (1.16.2-2) ...
+Processing triggers for shared-mime-info (2.4-5+b2) ...
+Processing triggers for udev (257.13-1~deb13u1) ...
+Processing triggers for mailcap (3.74) ...
+Processing triggers for desktop-file-utils (0.28-1) ...
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root useradd -m -s /bin/zsh -G sudo,adm,cdrom,audio,dip,video,plugdev,netdev,lpadmin,scanner,bluetooth,users -c Kulan Test kulan
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root chpasswd
++ mount --bind /tmp/tmp.RSRuOoYTVY/medium /tmp/kulan-target-0e9q72wd/tmp/tmp.RSRuOoYTVY/medium
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root apt-get update -q -o Dir::Etc::SourceParts=/nonexistent -o Dir::Etc::SourceList=/etc/apt/sources.list.d/kulan-installer-media.list
+Ign:1 file:/tmp/tmp.RSRuOoYTVY/medium trixie InRelease
+Get:2 file:/tmp/tmp.RSRuOoYTVY/medium trixie Release [1557 B]
+Get:2 file:/tmp/tmp.RSRuOoYTVY/medium trixie Release [1557 B]
+Ign:3 file:/tmp/tmp.RSRuOoYTVY/medium trixie Release.gpg
+Get:4 file:/tmp/tmp.RSRuOoYTVY/medium trixie/main amd64 Packages [77.4 kB]
+Reading package lists...
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root apt-get install -y -q --no-install-recommends -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold -o Dir::Etc::SourceParts=/nonexistent -o Dir::Etc::SourceList=/etc/apt/sources.list.d/kulan-installer-media.list grub-efi-amd64 grub-efi-amd64-signed shim-signed efibootmgr os-prober
+ar1t64:amd64 (38-3.1+b1) ...
+Selecting previously unselected package mokutil.
+Preparing to unpack .../01-mokutil_0.7.2-1_amd64.deb ...
+Unpacking mokutil (0.7.2-1) ...
+Selecting previously unselected package shim-signed-common.
+Preparing to unpack .../02-shim-signed-common_1.51~1+deb13u1+16.1-2~deb13u1_all.deb ...
+Unpacking shim-signed-common (1.51~1+deb13u1+16.1-2~deb13u1) ...
+Selecting previously unselected package libefiboot1t64:amd64.
+Preparing to unpack .../03-libefiboot1t64_38-3.1+b1_amd64.deb ...
+Unpacking libefiboot1t64:amd64 (38-3.1+b1) ...
+Selecting previously unselected package grub-common.
+Preparing to unpack .../04-grub-common_2.12-9+deb13u2_amd64.deb ...
+Unpacking grub-common (2.12-9+deb13u2) ...
+Selecting previously unselected package grub-efi-amd64-unsigned.
+Preparing to unpack .../05-grub-efi-amd64-unsigned_2.12-9+deb13u2_amd64.deb ...
+Unpacking grub-efi-amd64-unsigned (2.12-9+deb13u2) ...
+Selecting previously unselected package grub-efi-amd64-bin.
+Preparing to unpack .../06-grub-efi-amd64-bin_2.12-9+deb13u2_amd64.deb ...
+Unpacking grub-efi-amd64-bin (2.12-9+deb13u2) ...
+Selecting previously unselected package shim-unsigned:amd64.
+Preparing to unpack .../07-shim-unsigned_16.1-2~deb13u1_amd64.deb ...
+Unpacking shim-unsigned:amd64 (16.1-2~deb13u1) ...
+Selecting previously unselected package shim-helpers-amd64-signed.
+Preparing to unpack .../08-shim-helpers-amd64-signed_1+16.1+2~deb13u1_amd64.deb ...
+Unpacking shim-helpers-amd64-signed (1+16.1+2~deb13u1) ...
+Selecting previously unselected package grub2-common.
+Preparing to unpack .../09-grub2-common_2.12-9+deb13u2_amd64.deb ...
+Unpacking grub2-common (2.12-9+deb13u2) ...
+Selecting previously unselected package shim-signed:amd64.
+Preparing to unpack .../10-shim-signed_1.51~1+deb13u1+16.1-2~deb13u1_amd64.deb ...
+shim-signed: checking if we can safely install /usr/lib/shim/shimx64.efi.signed
+  EFI variables are not supported on this system; assuming shim installation is safe.
+Unpacking shim-signed:amd64 (1.51~1+deb13u1+16.1-2~deb13u1) ...
+Selecting previously unselected package efibootmgr.
+Preparing to unpack .../11-efibootmgr_18-2_amd64.deb ...
+Unpacking efibootmgr (18-2) ...
+Selecting previously unselected package grub-efi-amd64.
+Preparing to unpack .../12-grub-efi-amd64_2.12-9+deb13u2_amd64.deb ...
+Unpacking grub-efi-amd64 (2.12-9+deb13u2) ...
+Selecting previously unselected package grub-efi-amd64-signed.
+Preparing to unpack .../13-grub-efi-amd64-signed_1+2.12+9+deb13u2_amd64.deb ...
+Unpacking grub-efi-amd64-signed (1+2.12+9+deb13u2) ...
+Selecting previously unselected package os-prober.
+Preparing to unpack .../14-os-prober_1.83_amd64.deb ...
+Unpacking os-prober (1.83) ...
+Setting up libefivar1t64:amd64 (38-3.1+b1) ...
+Setting up libefiboot1t64:amd64 (38-3.1+b1) ...
+Setting up shim-unsigned:amd64 (16.1-2~deb13u1) ...
+Setting up efibootmgr (18-2) ...
+Setting up mokutil (0.7.2-1) ...
+Setting up grub-common (2.12-9+deb13u2) ...
+Running in chroot, ignoring command 'daemon-reload'
+Running in chroot, ignoring command 'is-active'
+Running in chroot, ignoring command 'restart'
+Setting up os-prober (1.83) ...
+Setting up shim-signed-common (1.51~1+deb13u1+16.1-2~deb13u1) ...
+No DKMS packages installed: not changing Secure Boot validation state.
+Setting up shim-helpers-amd64-signed (1+16.1+2~deb13u1) ...
+Setting up grub-efi-amd64-signed (1+2.12+9+deb13u2) ...
+Setting up grub-efi-amd64-unsigned (2.12-9+deb13u2) ...
+Setting up grub2-common (2.12-9+deb13u2) ...
+Setting up grub-efi-amd64-bin (2.12-9+deb13u2) ...
+Setting up shim-signed:amd64 (1.51~1+deb13u1+16.1-2~deb13u1) ...
+No DKMS packages installed: not changing Secure Boot validation state.
+Setting up grub-efi-amd64 (2.12-9+deb13u2) ...
+Creating config file /etc/default/grub with new version
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+Processing triggers for man-db (2.13.1-1) ...
+Processing triggers for kulan-base (2.9.202610281125) ...
+Processing triggers for shim-signed:amd64 (1.51~1+deb13u1+16.1-2~deb13u1) ...
++ umount -l /tmp/kulan-target-0e9q72wd/tmp/tmp.RSRuOoYTVY/medium
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root apt-get update -q
+Ign:1 http://deb.debian.org/debian trixie InRelease
+Ign:2 http://security.debian.org trixie-security InRelease
+Ign:3 https://os.kulangroup.com/apt ./ InRelease
+Ign:4 http://deb.debian.org/debian trixie-updates InRelease
+Ign:2 http://security.debian.org trixie-security InRelease
+Ign:3 https://os.kulangroup.com/apt ./ InRelease
+Ign:4 http://deb.debian.org/debian trixie-updates InRelease
+Ign:1 http://deb.debian.org/debian trixie InRelease
+Ign:1 http://deb.debian.org/debian trixie InRelease
+Ign:2 http://security.debian.org trixie-security InRelease
+Ign:3 https://os.kulangroup.com/apt ./ InRelease
+Ign:4 http://deb.debian.org/debian trixie-updates InRelease
+Err:4 http://deb.debian.org/debian trixie-updates InRelease
+  Temporary failure resolving 'deb.debian.org'
+Err:2 http://security.debian.org trixie-security InRelease
+  Temporary failure resolving 'security.debian.org'
+Err:3 https://os.kulangroup.com/apt ./ InRelease
+  Temporary failure resolving 'os.kulangroup.com'
+Err:1 http://deb.debian.org/debian trixie InRelease
+  Temporary failure resolving 'deb.debian.org'
+Reading package lists...
+W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease  Temporary failure resolving 'deb.debian.org'
+W: Failed to fetch http://security.debian.org/dists/trixie-security/InRelease  Temporary failure resolving 'security.debian.org'
+W: Failed to fetch http://deb.debian.org/debian/dists/trixie-updates/InRelease  Temporary failure resolving 'deb.debian.org'
+W: Failed to fetch https://os.kulangroup.com/apt/./InRelease  Temporary failure resolving 'os.kulangroup.com'
+W: Some index files failed to download. They have been ignored, or old ones used instead.
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root update-initramfs -u -k all
+update-initramfs: Generating /boot/initrd.img-6.12.113+deb13-amd64
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --recheck --uefi-secure-boot --no-nvram
+Installing for x86_64-efi platform.
+Installation finished. No error reported.
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --uefi-secure-boot --no-nvram --removable --no-nvram
+Installing for x86_64-efi platform.
+Installation finished. No error reported.
++ chroot /tmp/kulan-target-0e9q72wd /usr/bin/env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin DEBIAN_FRONTEND=noninteractive LC_ALL=C.UTF-8 HOME=/root update-grub
+Generating grub configuration file ...
+Found background: /usr/share/kulan/grub-background.png
+Found background image: /usr/share/kulan/grub-background.png
+Found linux image: /boot/vmlinuz-6.12.113+deb13-amd64
+Found initrd image: /boot/initrd.img-6.12.113+deb13-amd64
+Warning: os-prober will be executed to detect other bootable partitions.
+Its output will be used to detect bootable binaries on them and create new boot entries.
+Found Ubuntu 24.04.5 LTS (24.04) on /dev/nvme0n1p1
+Adding boot menu entry for UEFI Firmware Settings ...
+done
++ blkid -s UUID -o value /dev/loop0p2
+616abf83-c7db-4158-b258-6264ed9bf4a2
++ umount -l /tmp/kulan-target-0e9q72wd/run
++ umount -l /tmp/kulan-target-0e9q72wd/sys
++ umount -l /tmp/kulan-target-0e9q72wd/proc
++ umount -l /tmp/kulan-target-0e9q72wd/dev/pts
++ umount -l /tmp/kulan-target-0e9q72wd/dev
++ umount -l /tmp/kulan-target-0e9q72wd/boot/efi
++ sync
++ umount -l /tmp/kulan-target-0e9q72wd
+installed in 92 s
