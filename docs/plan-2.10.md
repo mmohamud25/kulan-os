@@ -46,6 +46,14 @@ when this list is empty.
     - Still to check by hand on the ThinkPad and in a VM (they need a real
       session): global shortcuts, the line under fields in libadwaita forms,
       and that no gnome-settings-daemon notification is left.
+- Found on the ThinkPad T490 (28 Oct 2026, live session; Wi-Fi, sound,
+  keys, touchpad, TrackPoint, camera and sleep all work):
+  - The stick's start menu: the entries can't be seen in their box, and the
+    countdown line is drawn over the Kulan OS logo.
+  - The Wi-Fi password box uses GNOME's stock words ("Passwords or encryption
+    keys are required…", the WPS line).
+  - The clock was wrong when the desktop came up and wrong again after Wi-Fi
+    connected (1:24 PM, then 8:31 PM).
 - Kulan Fleet sign-in emails from kulangroup.com through our own mail
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.
