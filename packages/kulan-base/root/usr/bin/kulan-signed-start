@@ -570,10 +570,22 @@ def remove_grub() -> None:
     for number in grub_entries():
         run(["efibootmgr", "-q", "--delete-bootnum", "--bootnum", number])
     x64, X64, grub_arch = names()
-    r = run(["apt-get", "purge", *APT_OPTS, f"grub-efi-{arch()}-signed", f"grub-efi-{arch()}"],
-            env=APT_ENV, timeout=1800, input_text="")
-    if r.returncode != 0:
-        say("GRUB's packages couldn't be removed now: " + r.stderr.strip()[-200:])
+    # GRUB's packages go too, but only if nothing else would go with them (some
+    # other package may need them); either way GRUB's files leave the EFI
+    # partition, and its updates only put them back where they still are.
+    grub = [f"grub-efi-{arch()}-signed", f"grub-efi-{arch()}"]
+    grub = [p for p in grub if "ok installed" in run(["dpkg-query", "-W", "-f=${Status}", p]).stdout]
+    if grub:
+        plan = run(["apt-get", "-s", "purge", *grub], env=APT_ENV)
+        going = sorted({line.split()[1] for line in plan.stdout.splitlines() if line.startswith(("Purg ", "Remv "))})
+        if plan.returncode == 0 and set(going) <= set(grub):
+            r = run(["apt-get", "purge", *APT_OPTS, *grub], env=APT_ENV, timeout=1800, input_text="")
+            if r.returncode != 0:
+                say("GRUB's packages couldn't be removed now: " + r.stderr.strip()[-200:])
+        else:
+            say("GRUB's packages stay (removing them would also remove " +
+                (", ".join(p for p in going if p not in grub) or plan.stderr.strip()[-200:]) +
+                "); GRUB can't start the computer any more")
     shutil.rmtree(ESP / "EFI/debian", ignore_errors=True)
     shutil.rmtree("/boot/grub", ignore_errors=True)
     # The fallback path some firmware starts from, if it was GRUB's (never another

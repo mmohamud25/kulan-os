@@ -152,7 +152,7 @@ say() { echo "KULAN-SIGNED-TEST \$*"; echo "KULAN-SIGNED-TEST \$*" >/dev/ttyS0; 
 efitext() { [ -r "\$1" ] && cat "\$1" | tail -c +5 | tr -d '\\000' | tr -c '[:print:]' ' '; }
 how() {
 	V=/sys/firmware/efi/efivars; G=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
-	say "loader=\$(efitext \$V/LoaderImageIdentifier-\$G) stub=\$(efitext \$V/StubInfo-\$G | cut -c1-30) unlock=\$(journalctl -b -o cat 2>/dev/null | grep -m1 -iE 'TPM2 token|tpm2' | cut -c1-120)"
+	say "loader=\$(efitext \$V/LoaderImageIdentifier-\$G) stub=\$(efitext \$V/StubInfo-\$G | cut -c1-30) unlock=\$(journalctl -b -o cat -t systemd-cryptsetup 2>/dev/null | grep -m1 -iE 'tpm2|token' | cut -c1-120)"
 }
 restart() { sync; sleep 2; systemctl reboot --check-inhibitors=no || systemctl reboot --force; }
 STATUS="\$(kulan-signed-start status --json)"
@@ -185,6 +185,9 @@ case "\${PHASE}" in
 		say "grub_left=\$(ls /boot/efi/EFI/debian 2>/dev/null | wc -l) grub_pkg=\$(dpkg -l grub-efi-amd64-signed grub-efi-amd64 2>/dev/null | grep -c '^ii')"
 		journalctl -b -u kulan-signed-start.service -o cat --no-pager 2>/dev/null | tail -n 6 | sed 's/^/KULAN-SIGNED-TEST service: /' | tee /dev/ttyS0
 		say "fallback=\$(cmp -s /boot/efi/EFI/BOOT/BOOTX64.EFI /usr/lib/shim/shimx64.efi.signed && echo shim || echo other)"
+		# GRUB's and shim's own updates (their maintainer scripts) mustn't bring GRUB back.
+		dpkg-reconfigure -fnoninteractive shim-signed grub-efi-amd64-signed grub-efi-amd64 >/dev/null 2>&1
+		say "after_grub_update=\$(ls /boot/efi/EFI/debian 2>/dev/null | wc -l) first=\$(efibootmgr | sed -n 's/^BootOrder: //p' | cut -d, -f1) kulan=\$(efibootmgr | sed -n 's/^Boot\([0-9A-F]*\)\*\{0,1\} Kulan OS.*/\1/p')"
 		head -n 1 /root/kulan-test-password | kulan-tpm on; say "tpm_on_exit=\$?"
 		sed -i 's#^\(kulan_crypt [^ ]*\) /etc/kulan-test.key #\1 none #' /etc/crypttab
 		cryptsetup luksRemoveKey "\$(blkid -t UUID=${LUKS_UUID} -o device)" /etc/kulan-test.key; say "key_removed=\$?"
@@ -389,10 +392,16 @@ if [[ -n "${SIGNED}" ]]; then
 else
 	result fail "Started signed" "no start through shim, systemd-boot and a signed start-up file: $(grep '^loader=' "${OUT}/reports.log" | tail -n 2 | tr '\n' ' ' | cut -c1-300)"
 fi
-if grep -q '^grub_left=0 grub_pkg=0' <<<"${STEPS}"; then
+if grep -q '^grub_left=0 ' <<<"${STEPS}" && grep -q '^fallback=shim' <<<"${STEPS}"; then
 	result pass "GRUB removed" "$(grep '^grub_left=' <<<"${STEPS}" | head -n 1); $(grep '^fallback=' <<<"${STEPS}" | head -n 1)"
 else
 	result fail "GRUB removed" "$(grep -E '^(grub_left|fallback)=' <<<"${STEPS}" | tr '\n' ' ')"
+fi
+AFTER="$(grep '^after_grub_update=' <<<"${STEPS}" | head -n 1)"
+if [[ "${AFTER}" =~ ^after_grub_update=0\ first=([0-9A-F]+)\ kulan=([0-9A-F]+)$ ]] && [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
+	result pass "GRUB's updates" "running GRUB's and shim's update scripts again didn't bring GRUB back; Kulan OS still starts first"
+else
+	result fail "GRUB's updates" "${AFTER:-not checked}"
 fi
 if grep -qx 'tpm_on_exit=0' <<<"${STEPS}" && grep -qx 'key_removed=0' <<<"${STEPS}" && grep -qx 'rebuilt=0' <<<"${STEPS}"; then
 	result pass "TPM unlock on" "with the signed start-up (PCR 7), test key removed, start-up files signed again"
