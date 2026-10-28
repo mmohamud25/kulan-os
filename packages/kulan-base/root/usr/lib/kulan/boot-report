@@ -55,7 +55,7 @@ sleep 5 # let the session settle
 	# word (a signed start-up file), Secure Boot, and kulan-signed-start's step.
 	V=/sys/firmware/efi/efivars
 	G=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
-	efitext() { [ -r "$1" ] && tail -c +5 "$1" | tr -d '\000' | tr -c '[:print:]' ' '; }
+	efitext() { [ -r "$1" ] && cat "$1" | tail -c +5 | tr -d '\000' | tr -c '[:print:]' ' '; }
 	echo "loader=$(efitext "${V}/LoaderImageIdentifier-${G}") stub=$(efitext "${V}/StubInfo-${G}" | cut -c1-40) secureboot=$(od -An -tu1 "${V}/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c" 2>/dev/null | awk '{print $NF}') signedstart=$(kulan-signed-start status 2>/dev/null | head -n 1 | cut -c1-80)"
 	# Kulan's sandboxed services still do their job: the status service
 	# itself, and app updates' lookup under the same sandbox settings (the

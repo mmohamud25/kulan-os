@@ -145,8 +145,15 @@ printf '[daemon]\nAutomaticLoginEnable=true\nAutomaticLogin=kulan\n' | sudo tee 
 # and to /boot/kulan-signed-test.log.
 sudo tee "${MNT}/usr/local/sbin/kulan-signed-test-step" >/dev/null <<EOF
 #!/bin/bash
-exec > >(tee -a /boot/kulan-signed-test.log >/dev/ttyS0) 2>&1
-say() { echo "KULAN-SIGNED-TEST \$*"; }
+# Everything to /boot's log (a pipe to the console can lose the last lines when
+# the step ends); its own lines to the console too.
+exec >>/boot/kulan-signed-test.log 2>&1
+say() { echo "KULAN-SIGNED-TEST \$*"; echo "KULAN-SIGNED-TEST \$*" >/dev/ttyS0; sync; }
+efitext() { [ -r "\$1" ] && cat "\$1" | tail -c +5 | tr -d '\\000' | tr -c '[:print:]' ' '; }
+how() {
+	V=/sys/firmware/efi/efivars; G=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+	say "loader=\$(efitext \$V/LoaderImageIdentifier-\$G) stub=\$(efitext \$V/StubInfo-\$G | cut -c1-30) unlock=\$(journalctl -b -o cat 2>/dev/null | grep -m1 -iE 'TPM2 token|tpm2' | cut -c1-120)"
+}
 restart() { sync; sleep 2; systemctl reboot --check-inhibitors=no || systemctl reboot --force; }
 STATUS="\$(kulan-signed-start status --json)"
 PHASE="\$(python3 -c 'import json,sys; print(json.load(sys.stdin)["phase"])' <<<"\${STATUS}")"
@@ -169,12 +176,14 @@ case "\${PHASE}" in
 		restart
 		;;
 	on)
+		how
 		if [ -e /var/lib/kulan-signed-test-tpm ]; then
 			say "done"
 			exit 0
 		fi
 		touch /var/lib/kulan-signed-test-tpm
-		say "grub_left=\$(ls /boot/efi/EFI/debian 2>/dev/null | wc -l) grub_pkg=\$(dpkg-query -W -f='\\\${Status}' grub-efi-amd64-signed 2>/dev/null)"
+		say "grub_left=\$(ls /boot/efi/EFI/debian 2>/dev/null | wc -l) grub_pkg=\$(dpkg -l grub-efi-amd64-signed grub-efi-amd64 2>/dev/null | grep -c '^ii')"
+		journalctl -b -u kulan-signed-start.service -o cat --no-pager 2>/dev/null | tail -n 6 | sed 's/^/KULAN-SIGNED-TEST service: /' | tee /dev/ttyS0
 		say "fallback=\$(cmp -s /boot/efi/EFI/BOOT/BOOTX64.EFI /usr/lib/shim/shimx64.efi.signed && echo shim || echo other)"
 		head -n 1 /root/kulan-test-password | kulan-tpm on; say "tpm_on_exit=\$?"
 		sed -i 's#^\(kulan_crypt [^ ]*\) /etc/kulan-test.key #\1 none #' /etc/crypttab
@@ -349,7 +358,12 @@ if [[ -n "${BOOT_LOOP}" ]]; then
 fi
 serial | grep -aiE 'shim|mok|mmx64|security violation|verification|BdsDxe|systemd-boot|Failed to' | sed 's/\x1b\[[0-9;]*[A-Za-z]//g' | head -n 200 > "${OUT}/firmware.log"
 LOG="$(serial)"
-STEPS="$(grep -a 'KULAN-SIGNED-TEST' <<<"${LOG}" | sed 's/.*KULAN-SIGNED-TEST //')"
+# The step's own log on /boot has every line; the console's copy, if that couldn't be read.
+if grep -q 'KULAN-SIGNED-TEST' "${OUT}/test-step.log" 2>/dev/null; then
+	STEPS="$(grep -a 'KULAN-SIGNED-TEST' "${OUT}/test-step.log" | sed 's/.*KULAN-SIGNED-TEST //')"
+else
+	STEPS="$(grep -a 'KULAN-SIGNED-TEST' <<<"${LOG}" | sed 's/.*KULAN-SIGNED-TEST //')"
+fi
 printf '%s\n' "${STEPS}" > "${OUT}/steps.log"
 reports() { awk '/KULAN-BOOT-REPORT-BEGIN/ {r=1; buf=""} r {buf=buf $0 "\n"} r && /KULAN-BOOT-REPORT-END/ {printf "%s===\n", buf; r=0}' <<<"${LOG}"; }
 reports > "${OUT}/reports.log"
@@ -369,13 +383,13 @@ if grep -q '^bootorder=' <<<"${STEPS}"; then
 else
 	result fail "Key enrolled" "kulan-signed-start never got to the switch: $(grep '^phase=\|^waiting' <<<"${STEPS}" | tail -n 3 | tr '\n' ' ')"
 fi
-SIGNED="$(awk '/^loader=/ && /kulan/ && /systemd-boot/ && !/stub= / {print; exit}' "${OUT}/reports.log")"
+SIGNED="$(awk '/^loader=/ && /kulan/ && /systemd-boot/ && !/stub= / {print; exit}' <<<"${STEPS}")"
 if [[ -n "${SIGNED}" ]]; then
 	result pass "Started signed" "${SIGNED:0:220}"
 else
 	result fail "Started signed" "no start through shim, systemd-boot and a signed start-up file: $(grep '^loader=' "${OUT}/reports.log" | tail -n 2 | tr '\n' ' ' | cut -c1-300)"
 fi
-if grep -q '^grub_left=0 ' <<<"${STEPS}"; then
+if grep -q '^grub_left=0 grub_pkg=0' <<<"${STEPS}"; then
 	result pass "GRUB removed" "$(grep '^grub_left=' <<<"${STEPS}" | head -n 1); $(grep '^fallback=' <<<"${STEPS}" | head -n 1)"
 else
 	result fail "GRUB removed" "$(grep -E '^(grub_left|fallback)=' <<<"${STEPS}" | tr '\n' ' ')"
@@ -385,11 +399,11 @@ if grep -qx 'tpm_on_exit=0' <<<"${STEPS}" && grep -qx 'key_removed=0' <<<"${STEP
 else
 	result fail "TPM unlock on" "$(grep -E '^(tpm_on_exit|key_removed|rebuilt)=' <<<"${STEPS}" | tr '\n' ' ')"
 fi
-LAST="$(awk 'BEGIN {RS="===\n"} NF {last=$0} END {print last}' "${OUT}/reports.log")"
-if grep -q '^KULAN-SIGNED-TEST done' <<<"${LOG}" || grep -qx 'done' <<<"${STEPS}"; then
-	UNLOCK="$(sed -n 's/^unlock=//p' <<<"${LAST}")"
-	LOADER="$(sed -n 's/^loader=//p' <<<"${LAST}")"
-	if [[ "${LOADER}" == *kulan* && "${UNLOCK}" == *TPM2* ]]; then
+if grep -qx 'done' <<<"${STEPS}"; then
+	LAST="$(grep '^loader=' <<<"${STEPS}" | tail -n 1)"
+	UNLOCK="${LAST#*unlock=}"
+	LOADER="${LAST%% stub=*}"
+	if [[ "${LOADER}" == *kulan* && "${UNLOCK,,}" == *tpm2* ]]; then
 		result pass "Signed start, TPM unlock" "the signed start-up file started, the TPM opened the disk, the desktop came up (${ELAPSED} s for all starts)"
 	elif [[ "${LOADER}" == *kulan* ]]; then
 		result info "Signed start, TPM unlock" "signed start reached the desktop; the log didn't say how the disk was opened: ${UNLOCK:-nothing}"
