@@ -231,6 +231,9 @@ kulan_installer() {
 check "Kulan Installer" "Install Kulan OS (Kulan Installer) first in the dock; Calamares is Advanced install" kulan_installer
 POOL="$(xorriso -indev "${ISO}" -find /pool -name '*.deb' 2>/dev/null | tr -d "'")"
 if [[ "${ARCH}" == amd64 ]]; then POOL_NEED=(grub-efi-amd64_ grub-efi-amd64-signed_ shim-signed_ grub-pc_ cryptsetup-initramfs_); else POOL_NEED=(grub-efi-arm64_ cryptsetup-initramfs_); fi
+# Signed start-up's tools (kulan-signed-start), for installing without internet.
+POOL_NEED+=(dracut_ dracut-core_ systemd-cryptsetup_ systemd-boot-efi_ "systemd-boot-efi-${ARCH}-signed_" "shim-helpers-${ARCH}-signed_"
+	systemd-ukify_ python3-pefile_ sbsigntool_ mokutil_)
 POOL_MISSING=()
 for P in "${POOL_NEED[@]}"; do grep -q "/${P}" <<<"${POOL}" || POOL_MISSING+=("${P%_}"); done
 if [[ ${#POOL_MISSING[@]} -eq 0 ]] && xorriso -indev "${ISO}" -find /dists -name Packages\* 2>/dev/null | grep -q Packages; then

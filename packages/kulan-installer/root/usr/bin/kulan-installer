@@ -11,10 +11,11 @@ Advanced install (Calamares) is in the app grid. The work itself is done by
 
     kulan-installer              # the app
     kulan-installer --self-test  # build every page, then quit (for CI)
-    kulan-installer --demo [welcome|filled]
+    kulan-installer --demo [welcome|filled|done]
                                  # a sample Windows disk, and with filled,
-                                 # sample answers; never installs (for the
-                                 # website's screenshots and guides)
+                                 # sample answers; done: the last screen, with
+                                 # signed start-up's code; never installs (for
+                                 # the website's screenshots and guides)
 """
 from __future__ import annotations
 
@@ -618,6 +619,8 @@ class Installer(Adw.ApplicationWindow):
         if "progress" in data:
             self.bar.set_fraction(float(data["progress"]))
             self.status.set_label(data.get("text", ""))
+        if isinstance(data.get("signed_start_code"), str) and data["signed_start_code"].isdigit():
+            self.signed_code = data["signed_start_code"]
         if "error" in data or "done" in data:
             self.result = data
         stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self.on_line)
@@ -654,6 +657,9 @@ class Installer(Adw.ApplicationWindow):
         if ok:
             box.append(Gtk.Label(label="Remove the USB stick when the screen goes dark.",
                                  wrap=True, xalign=0))
+            code = getattr(self, "signed_code", None)
+            if code:
+                box.append(self.signed_start_steps(code))
             page = self.page("done", "Done", "Done", "Kulan OS is installed", None, box, next_label="Restart now",
                              on_next=self.restart)
         else:
@@ -676,6 +682,24 @@ class Installer(Adw.ApplicationWindow):
             return
         page.set_can_pop(False)
         self.nav.replace([page])
+
+    def signed_start_steps(self, code: str) -> Gtk.Widget:
+        """Signed start-up: what to do on the blue screen at the first restart."""
+        group = Adw.PreferencesGroup(title="At the first restart", description=(
+            "This computer now has its own start-up key, so nobody can change how it starts without you "
+            "knowing. A blue screen asks once to enroll it:"))
+        steps = Gtk.Label(xalign=0, wrap=True, label="1. Press any key\n2. Choose Enroll MOK, then Continue, then Yes\n"
+                          "3. Type the eight digits below and press Enter\n4. Choose Reboot")
+        group.add(steps)
+        shown = Gtk.Label(label=f"{code[:4]} {code[4:]}", selectable=True, xalign=0, css_classes=["title-1"],
+                          margin_top=6)
+        shown.update_property([Gtk.AccessibleProperty.LABEL], [f"Code {' '.join(code)}"])
+        group.add(shown)
+        group.add(Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"], margin_top=6,
+                            label="Missed it? Kulan OS starts as usual and asks again at the next restart. "
+                                  "The code is also in Kulan Settings › Security."))
+        self.signed_code_label = shown  # for the self-test
+        return group
 
     def try_again(self) -> None:
         """Back to the screen, with every answer kept, and a fresh look at the
@@ -718,6 +742,10 @@ class App(Adw.Application):
 
     def show_step(self, window: Installer) -> bool:
         """Demo: the screen filled in with sample answers, More choices open (nothing is installed)."""
+        if self.demo == "done":
+            window.signed_code = "48207165"
+            window.finished(True, "")
+            return GLib.SOURCE_REMOVE
         window.full_name.set_text("Amina Yusuf")
         window.password.set_text("demo-password")
         window.password2.set_text("demo-password")
@@ -761,7 +789,9 @@ class App(Adw.Application):
             window.start(window.plan())
             window.finished(False, "sample error")
             window.try_again()
+            window.signed_code = "12345678"
             window.finished(True, "")
+            assert window.signed_code_label.get_label() == "1234 5678", "the signed start-up code is shown"
             print("Kulan Installer: every step built")
         except Exception as exc:  # noqa: BLE001 - report, then fail
             print(f"FAIL {exc!r}", file=sys.stderr)
@@ -777,7 +807,7 @@ def main(argv: list[str]) -> int:
     if "--demo" in argv:
         i = argv.index("--demo")
         demo = argv[i + 1] if i + 1 < len(argv) else "welcome"
-        if demo not in ("welcome", "filled", "disk", "account", "summary"):  # (the last three: older names for filled)
+        if demo not in ("welcome", "filled", "done", "disk", "account", "summary"):  # (the last three: older names for filled)
             print("Usage: kulan-installer --demo [welcome|filled]", file=sys.stderr)
             return 2
     if not self_test and not demo and not Path("/run/live/medium").is_dir() \

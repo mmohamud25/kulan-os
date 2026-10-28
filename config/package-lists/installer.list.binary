@@ -10,14 +10,27 @@
 grub-efi-amd64
 grub-efi-amd64-signed
 shim-signed
+shim-helpers-amd64-signed
+systemd-boot-efi-amd64-signed
 #endif
 #if ARCHITECTURES arm64
 grub-efi-arm64
 grub-efi-arm64-signed
 shim-signed
+shim-helpers-arm64-signed
+systemd-boot-efi-arm64-signed
 #endif
 efibootmgr
 os-prober
 cryptsetup
 cryptsetup-initramfs
 keyutils
+# Signed start-up (kulan-signed-start): the computer's own key signs its
+# start-up files, made with ukify (dracut is in installer-dracut.list.binary).
+systemd-boot-efi
+systemd-ukify
+python3-pefile
+python3-zstandard
+sbsigntool
+mokutil
+openssl

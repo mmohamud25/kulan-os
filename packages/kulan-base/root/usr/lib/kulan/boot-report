@@ -51,6 +51,12 @@ sleep 5 # let the session settle
 	# How an encrypted disk was opened (TPM unlock test): systemd-cryptsetup's own words.
 	echo "unlock=$(journalctl -b -o cat -t systemd-cryptsetup 2>/dev/null | grep -m1 -iE 'tpm2|token' | cut -c1-200)"
 	echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+	# How it started (signed start-up test): systemd-boot's image, systemd-stub's
+	# word (a signed start-up file), Secure Boot, and kulan-signed-start's step.
+	V=/sys/firmware/efi/efivars
+	G=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+	efitext() { [ -r "$1" ] && tail -c +5 "$1" | tr -d '\000' | tr -c '[:print:]' ' '; }
+	echo "loader=$(efitext "${V}/LoaderImageIdentifier-${G}") stub=$(efitext "${V}/StubInfo-${G}" | cut -c1-40) secureboot=$(od -An -tu1 "${V}/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c" 2>/dev/null | awk '{print $NF}') signedstart=$(kulan-signed-start status 2>/dev/null | head -n 1 | cut -c1-80)"
 	# Kulan's sandboxed services still do their job: the status service
 	# itself, and app updates' lookup under the same sandbox settings (the
 	# service skips the live session, so it's run through systemd-run).

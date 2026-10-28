@@ -612,6 +612,25 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      # Signed start-up: turn it on, enroll the key on shim's blue screen (the
+      # test presses the keys), start through the signed start-up files, then
+      # TPM unlock tied to them.
+      - name: Signed start-up test
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 90
+        run: |
+          sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk python3-pil
+          ci/signed-start-test.sh out/*.iso signed-start-test
+
+      - name: Upload signed start-up test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: signed-start-test-amd64
+          path: signed-start-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload install test
         if: always() && matrix.arch == 'amd64'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
@@ -721,7 +740,7 @@ jobs:
         id: tests
         continue-on-error: true
         with:
-          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test}-amd64"
+          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test,signed-start-test}-amd64"
           path: tests/
       - name: Commit to ci-diagnostics
         if: steps.tests.outcome == 'success'

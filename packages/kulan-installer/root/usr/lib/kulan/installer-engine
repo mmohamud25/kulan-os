@@ -14,6 +14,8 @@ The plan (JSON on standard input):
     timezone    "America/New_York";  hostname "amina-laptop"
     join_organisation  false: don't join the organisation of the USB stick
                 (Kulan USB Maker's settings on it); default true
+    signed_start  false: leave signed start-up off (kulan-signed-start); default
+                true, on UEFI computers with an encrypted disk
     user        {"full_name", "username", "password", "autologin"}
   For tests only:
     source      the live system's squashfs (default: the one the live session runs)
@@ -23,7 +25,9 @@ The plan (JSON on standard input):
     require_pool  fail rather than fetch the boot loader from the internet
 
 Progress lines: {"progress": 0.0-1.0, "text": "..."}; the last line is
-{"done": true} or {"error": "what went wrong, in plain words"}.
+{"done": true} or {"error": "what went wrong, in plain words"}. With signed
+start-up, a line {"signed_start_code": "12345678"} comes first: the code to
+type at the first restart, on the blue screen that enrolls the computer's key.
 
 What it does, in order: checks the plan; partitions (erase: GPT with an EFI
 partition, a BIOS boot partition on PCs, /boot when encrypted, then the
@@ -32,7 +36,10 @@ that's already there); formats (LUKS2 + ext4 when encrypted); copies the live
 system's files; writes fstab, crypttab, host name, language, keyboard and
 time zone; removes the live session's packages; makes the account; installs
 GRUB (with Secure Boot's shim on PCs) from the package pool on the Kulan OS
-USB stick, so no internet is needed; rebuilds the start-up image.
+USB stick, so no internet is needed; rebuilds the start-up image. On UEFI
+computers with an encrypted disk, also signed start-up (kulan-signed-start:
+the computer's own key, signed start-up files, and shim's request to enroll
+the key at the first restart); GRUB starts the computer until then.
 """
 from __future__ import annotations
 
@@ -557,13 +564,25 @@ def pool_source(medium: str) -> tuple[str, str] | None:
     return None
 
 
-def boot_packages(encrypt: bool) -> list[str]:
+def signed_start_wanted(plan: dict) -> bool:
+    return (firmware() == "uefi" and bool(plan.get("encrypt")) and plan.get("signed_start", True) is not False
+            and not plan.get("no_nvram"))
+
+
+def boot_packages(plan: dict) -> list[str]:
     machine = arch()
+    encrypt = bool(plan.get("encrypt"))
     if firmware() == "uefi":
         packages = [f"grub-efi-{machine}", f"grub-efi-{machine}-signed", "shim-signed", "efibootmgr"]
     else:
         packages = ["grub-pc"]
-    if encrypt:
+    if signed_start_wanted(plan):
+        # Signed start-up's tools, and dracut's start-up image (systemd-cryptsetup
+        # unlocks the disk, as TPM unlock needs too) instead of initramfs-tools'.
+        packages += ["cryptsetup", "keyutils", "dracut", "systemd-cryptsetup", "systemd-boot-efi",
+                     f"systemd-boot-efi-{machine}-signed", f"shim-helpers-{machine}-signed", "systemd-ukify",
+                     "sbsigntool", "mokutil", "openssl"]
+    elif encrypt:
         packages += ["cryptsetup-initramfs", "cryptsetup", "keyutils"]
     return packages + ["os-prober"]
 
@@ -589,7 +608,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
         result = chroot.run(["apt-get", "install", "-y", "-q", "--no-install-recommends",
                              "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
                              *(MEDIA_ONLY if pool else []),
-                             *boot_packages(bool(plan.get("encrypt")))], check=False)
+                             *boot_packages(plan)], check=False)
         if result.returncode != 0:
             raise Failure("Couldn’t install the boot loader"
                           + ("" if pool else ". The USB stick doesn’t have it, and there’s no internet "
@@ -610,7 +629,12 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     write(grub_d / "60-kulan-installer.cfg", "\n".join(settings) + "\n")
 
     progress(0.45, "Preparing start-up files…")
-    chroot.run(["update-initramfs", "-u", "-k", "all"])
+    if signed_start_wanted(plan):
+        # dracut made the images when it was installed; signed start-up makes them again with its settings.
+        if not any((target / "boot").glob("initrd.img-*")):
+            chroot.run(["dracut", "--force", "--regenerate-all"], timeout=1800)
+    else:
+        chroot.run(["update-initramfs", "-u", "-k", "all"])
     progress(0.75, "Making the disk start Kulan OS…")
     if firmware() == "uefi":
         target_name = {"amd64": "x86_64-efi", "arm64": "arm64-efi"}.get(arch(), f"{arch()}-efi")
@@ -631,7 +655,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
             chroot.run([a for a in argv if a != "--recheck"] + ["--removable", "--no-nvram"])
     else:
         chroot.run(["grub-install", "--target=i386-pc", "--recheck", plan["disk"]])
-    progress(0.9, "Adding Kulan OS to the start-up menu…")
+    progress(0.85, "Adding Kulan OS to the start-up menu…")
     chroot.run(["update-grub"])
     # GRUB names a loop device (tests) by its path, which won't exist at start-up.
     root_dev = disk_info.get("root_dev", "")
@@ -639,6 +663,21 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     if root_dev.startswith("/dev/loop") and config.exists():
         text = config.read_text()
         config.write_text(re.sub(rf"root={re.escape(root_dev)}(?=\s)", f"root=UUID={uuid_of(root_dev)}", text))
+    if signed_start_wanted(plan):
+        progress(0.9, "Signing the start-up files…")
+        signed_start(chroot)
+
+
+def signed_start(chroot: Chroot) -> None:
+    """The computer's own start-up key and signed start-up files; shim asks to enroll
+    the key at the first restart. Never fails the install: GRUB starts the
+    computer until then, and Kulan Settings can turn it on later."""
+    result = chroot.run(["kulan-signed-start", "on"], check=False, timeout=3600)
+    code = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    if result.returncode == 0 and re.fullmatch(r"[0-9]{8}", code):
+        emit(signed_start_code=code)
+    else:
+        log("signed start-up left off: " + (result.stderr or result.stdout).strip()[-300:])
 
 
 # --- the install ----------------------------------------------------------------------

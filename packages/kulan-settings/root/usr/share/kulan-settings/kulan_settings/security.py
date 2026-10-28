@@ -15,6 +15,7 @@ CHECKUP_FILE = Path("/var/lib/kulan/security-checkup.json")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 COMPLIANCE = "/usr/bin/kulan-compliance"
 TPM = "/usr/bin/kulan-tpm"
+SIGNED_START = "/usr/bin/kulan-signed-start"
 
 
 def kulan_tpm_pin_min() -> int:
@@ -84,12 +85,19 @@ class SecurityPage(Page):
 
         self.tpm_group = self.add_group(
             "Start-up",
-            "The security chip unlocks the encrypted disk, so you type a short PIN at start-up instead of "
-            "the disk password. The disk password still works if the chip refuses.")
+            "Signed start-up makes sure nobody changed how this computer starts. The security chip unlocks "
+            "the encrypted disk, so you type a short PIN at start-up instead of the disk password.")
+        self.signed_row = Adw.ActionRow(title="Signed start-up", subtitle="Checking…", subtitle_lines=0)
+        self.signed_button = Gtk.Button(valign=Gtk.Align.CENTER, visible=False)
+        self.signed_button.connect("clicked", lambda _b: self.on_signed_button())
+        self.signed_row.add_suffix(self.signed_button)
+        self.signed_row.set_visible(Path(SIGNED_START).exists())
+        self.tpm_group.add(self.signed_row)
+        self.signed_phase = "off"
         self.tpm_switch = Adw.SwitchRow(title="Unlock with this computer’s security chip", subtitle="Checking…")
         self.tpm_handler = self.tpm_switch.connect("notify::active", self.on_tpm_switch)
         self.tpm_group.add(self.tpm_switch)
-        self.tpm_group.set_visible(Path(TPM).exists())
+        self.tpm_group.set_visible(Path(TPM).exists() or Path(SIGNED_START).exists())
 
         self.compliance_group = self.add_group(
             "Compliance mode",
@@ -206,6 +214,7 @@ class SecurityPage(Page):
         self.render_passwords()
         self.load_compliance()
         self.load_tpm()
+        self.load_signed_start()
 
     # --- TPM unlock -------------------------------------------------------------------
     def load_tpm(self) -> None:
@@ -246,6 +255,91 @@ class SecurityPage(Page):
                 self.tpm_switch.set_subtitle("Off. The disk password is needed at every start")
 
         proc.communicate_utf8_async(None, None, done)
+
+    # --- signed start-up -------------------------------------------------------------
+    def load_signed_start(self) -> None:
+        if not Path(SIGNED_START).exists() or is_live():
+            self.signed_row.set_visible(False)
+            return
+        try:
+            proc = Gio.Subprocess.new([SIGNED_START, "status", "--json"],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            return
+
+        def done(p, result) -> None:
+            if self.torn_down:
+                return
+            try:
+                _ok, stdout, _err = p.communicate_utf8_finish(result)
+                data = json.loads(stdout or "")
+            except (GLib.Error, ValueError):
+                self.signed_row.set_subtitle("Couldn’t check")
+                return
+            self.render_signed_start(data)
+
+        proc.communicate_utf8_async(None, None, done)
+
+    def render_signed_start(self, data: dict) -> None:
+        phase = data.get("phase") or "off"
+        self.signed_phase = phase
+        code = str(data.get("code") or "")
+        problem = data.get("problem")
+        reasons = data.get("reasons") or []
+        texts = {
+            "on": "On. This computer starts only with start-up files signed with its own key",
+            "switch": "Almost done. The next start goes through the signed start-up files",
+            "enroll": (f"At the next restart, a blue screen asks to enroll this computer’s key: press any key, "
+                       f"choose Enroll MOK, Continue, Yes, type {code} and choose Reboot"),
+        }
+        text = texts.get(phase) or (reasons[0] if reasons else
+                                    "Off. Someone alone with this computer could change how it starts, to record "
+                                    "the disk password")
+        if phase != "off" and not data.get("secure_boot"):
+            text += ". Secure Boot is off in the firmware settings: turn it on for this to protect anything"
+        if problem:
+            text += f". {problem}"
+        self.signed_row.set_subtitle(GLib.markup_escape_text(text))
+        busy = self.window.helper.busy
+        if phase == "off":
+            self.signed_button.set_label("Turn On…")
+            self.signed_button.set_visible(True)
+            self.signed_button.set_sensitive(bool(data.get("possible")) and not busy)
+        elif phase == "on":
+            self.signed_button.set_visible(False)
+        else:
+            self.signed_button.set_label("Restart")
+            self.signed_button.set_visible(True)
+            self.signed_button.set_sensitive(not busy)
+
+    def on_signed_button(self) -> Adw.AlertDialog | None:
+        if self.signed_phase in ("enroll", "switch"):
+            try:
+                Gio.DBus.system.call_sync("org.freedesktop.login1", "/org/freedesktop/login1",
+                                          "org.freedesktop.login1.Manager", "Reboot", GLib.Variant("(b)", (True,)),
+                                          None, Gio.DBusCallFlags.NONE, 10000, None)
+            except GLib.Error:
+                self.toast("Couldn’t restart. Use the menu at the top right")
+            return None
+        dialog = Adw.AlertDialog(heading="Turn on signed start-up?", body=(
+            "This computer gets its own start-up key, and its start-up files are signed with it, so nobody can "
+            "change how it starts without you knowing. At the next restart, a blue screen asks once to enroll "
+            "the key, with a code shown here. It takes a few minutes."))
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("on", "Turn On")
+        dialog.set_response_appearance("on", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_close_response("cancel")
+
+        def answered(_d, response: str) -> None:
+            if response != "on":
+                return
+            self.signed_row.set_subtitle("Signing the start-up files. This takes a few minutes…")
+            self.signed_button.set_sensitive(False)
+            self.window.helper.run(["signed-start-on"], "Signed start-up: restart to finish",
+                                   on_done=lambda _ok: self.shown())
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+        return dialog
 
     def on_tpm_switch(self, row: Adw.SwitchRow, _pspec) -> None:
         turning_on = row.get_active()

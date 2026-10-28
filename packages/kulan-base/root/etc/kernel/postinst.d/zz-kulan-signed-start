@@ -1,0 +1,7 @@
+#!/bin/sh
+# Kulan OS signed start-up: sign the new kernel's start-up file (after
+# dracut made its start-up image). Does nothing unless signed start-up is on.
+# A failure is reported (kulan-signed-start status) but never stops the update:
+# the computer keeps starting the kernel it has.
+[ -x /usr/bin/kulan-signed-start ] || exit 0
+/usr/bin/kulan-signed-start rebuild "$1" || true

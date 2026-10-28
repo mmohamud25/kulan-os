@@ -25,6 +25,7 @@
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
+#   update-run signed-start-on|signed-start-off  signed start-up (kulan-signed-start)
 #   update-run fleet-join <server> [--allow-erase]|fleet-leave  join or leave an organisation (one-time code on stdin)
 #   update-run fleet-allow-erase on|off   let the organisation erase this computer if it's lost
 #   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
@@ -440,6 +441,11 @@ PY
 		[[ -x /usr/bin/kulan-tpm ]] || die "TPM unlock isn't installed."
 		exec /usr/bin/kulan-tpm "${1#tpm-}"
 		;;
+	signed-start-on|signed-start-off)
+		[[ $# -eq 1 ]] || die "usage: update-run signed-start-on|signed-start-off"
+		[[ -x /usr/bin/kulan-signed-start ]] || die "Signed start-up isn't installed."
+		exec /usr/bin/kulan-signed-start "${1#signed-start-}"
+		;;
 	tpm-on-pin)
 		[[ $# -eq 1 ]] || die "usage: update-run tpm-on-pin (disk password, then the new PIN, on stdin)"
 		[[ -x /usr/bin/kulan-tpm ]] || die "TPM unlock isn't installed."
@@ -632,6 +638,6 @@ PY
 		fi
 		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-on-pin|tpm-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-on-pin|tpm-off|signed-start-on|signed-start-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
 		;;
 esac

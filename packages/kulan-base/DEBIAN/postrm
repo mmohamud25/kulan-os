@@ -18,6 +18,7 @@ case "$1" in
 		deb-systemd-helper purge kulan-kexec-guard.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fleet-autojoin.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fast-restart.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-signed-start.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fleet.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fleet-listen.service >/dev/null 2>&1 || true
 		rm -f /etc/kulan/fleet.json

@@ -1,0 +1,13 @@
+[Unit]
+Description=Signed start-up: the next step after a restart (Kulan OS)
+ConditionPathExists=/var/lib/kulan/signed-start/state.json
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kulan-signed-start finish
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
