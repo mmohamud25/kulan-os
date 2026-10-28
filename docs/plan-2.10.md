@@ -136,6 +136,10 @@ stick, press the boot key, click Install.
     is tied to it. New encrypted UEFI installs get it; others in Kulan
     Settings › Security. About 3 MB of tools, only where it's on. Not where
     the EFI partition is too small (some laptops shared with Windows).
+    Tested end to end in a VM (enrolling, starting signed, TPM unlock, GRUB's
+    updates). That test found GRUB's updates installing themselves in
+    EFI/kulan (named after "Kulan OS") and taking over; Kulan's grub-install
+    now keeps them in EFI/debian, and away while signed start-up is on.
   - Still to do: the steps in docs/signing-key.md and protecting main on
     GitHub (yours).
 
