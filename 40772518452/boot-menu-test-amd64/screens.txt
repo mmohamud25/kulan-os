@@ -1,0 +1,25 @@
+menu-00.png: 
+menu-01.png: BdsDxe: loading Boot0001 “UEFI QEMU QEMU USB HARDDRIVE 1-00060:60:62.6-1" from Pc iRoot (0x0) /Pci (Ox2.Ox0) /USB (Ox0.0x0) BdsDxe: starting Boot0001 “UEFI QEMU QEMU USB HARDDRIVE 1-0000:606:62.6-1" from P ciRoot (0x0) /Pci (Ox2.Ox0) /USB (Ox0,0x0) Tiano 
+menu-02.png: Kulan 08 Live (amd64) Kulan 08 Live (amd64 fail-safe mode) Utilities... 
+menu-03.png: Kulan 08 Live (amd64) Kulan 08 Live (amd64 fail-safe mode) Utilities... 
+menu-04.png: Kulan 08 Live (amd64) Kulan 08 Live (amd64 fail-safe mode) Utilities... 
+menu-05.png: Kulan 08 Live (amd64) Kulan 08 Live (amd64 fail-safe mode) Utilities... 
+menu-06.png: Kulan 08 Live (amd64) Kulan 08 Live (amd64 fail-safe mode) Utilities... 
+menu-07.png: try will lly in ¢s. enter: boot, “e': options, “c': cmd-line 
+menu-08.png: try will lly in ¢s. enter: boot, “e': options, “c': cmd-line 
+menu-09.png: 
+menu-10.png: 
+menu-11.png: 
+menu-12.png: 
+menu-13.png: 
+menu-14.png: Kulan OS 
+menu-15.png: Kulan OS 
+menu-16.png: Kulan OS 
+menu-17.png: Kulan OS 
+menu-18.png: Kulan OS 
+menu-19.png: Kulan OS 
+menu-20.png: Kulan OS 
+menu-21.png: Kulan OS 
+menu-22.png: Kulan OS 
+menu-23.png: Kulan OS 
+menu-24.png: Kulan OS 
