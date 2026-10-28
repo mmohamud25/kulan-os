@@ -36,6 +36,12 @@ case "$1" in
 			dpkg-divert --package kulan-base --remove --rename \
 				--divert "${OS_RELEASE}.debian" "${OS_RELEASE}"
 		fi
+		for GRUB_INSTALL in /usr/sbin/grub-install /sbin/grub-install; do
+			if dpkg-divert --list "${GRUB_INSTALL}" | grep -q 'by kulan-base$'; then
+				dpkg-divert --package kulan-base --remove --rename \
+					--divert "${GRUB_INSTALL}.debian" "${GRUB_INSTALL}"
+			fi
+		done
 		;;
 esac
 

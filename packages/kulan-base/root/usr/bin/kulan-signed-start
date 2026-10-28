@@ -376,13 +376,13 @@ def esp_disk() -> tuple[str, str] | None:
     return disk, number
 
 
-def boot_entries() -> list[tuple[str, str]]:
-    """(number, line) of each firmware start-up entry."""
+def boot_entries() -> list[tuple[str, str, str]]:
+    """(number, label, line) of each firmware start-up entry."""
     out = []
     for line in run(["efibootmgr", "-v"]).stdout.splitlines():
         m = re.match(r"^Boot([0-9A-Fa-f]{4})\*? ", line)
         if m:
-            out.append((m.group(1).upper(), line))
+            out.append((m.group(1).upper(), line[m.end():].split("\t")[0].strip(), line))
     return out
 
 
@@ -395,15 +395,18 @@ def order() -> list[str]:
 
 def kulan_entry() -> str | None:
     x64 = names()[0]
-    for number, line in boot_entries():
-        if f"\\EFI\\{VENDOR}\\shim{x64}.efi".lower() in line.lower():
+    for number, label, line in boot_entries():
+        if label == LABEL and f"\\EFI\\{VENDOR}\\shim{x64}.efi".lower() in line.lower():
             return number
     return None
 
 
 def grub_entries() -> list[str]:
+    """GRUB's entries: in EFI/debian, or in EFI/kulan where GRUB's updates put it before
+    2.10 (named "kulan" after the system, not "Kulan OS")."""
     x64 = names()[0]
-    return [n for n, line in boot_entries() if f"\\EFI\\debian\\".lower() in line.lower()
+    return [n for n, label, line in boot_entries() if label != LABEL
+            and any(f"\\EFI\\{d}\\".lower() in line.lower() for d in ("debian", VENDOR))
             and (f"shim{x64}.efi" in line.lower() or f"grub{x64}.efi" in line.lower())]
 
 
@@ -578,7 +581,11 @@ def remove_grub() -> None:
     if grub:
         plan = run(["apt-get", "-s", "purge", *grub], env=APT_ENV)
         going = sorted({line.split()[1] for line in plan.stdout.splitlines() if line.startswith(("Purg ", "Remv "))})
-        if plan.returncode == 0 and set(going) <= set(grub):
+        if "essential" in plan.stdout.lower():
+            # Debian marks its signed GRUB as needed to start the computer; it stays,
+            # and Kulan's grub-install keeps its updates off the EFI partition.
+            say("GRUB's packages stay (Debian marks them as needed); GRUB can't start the computer any more")
+        elif plan.returncode == 0 and set(going) <= set(grub):
             r = run(["apt-get", "purge", *APT_OPTS, *grub], env=APT_ENV, timeout=1800, input_text="")
             if r.returncode != 0:
                 say("GRUB's packages couldn't be removed now: " + r.stderr.strip()[-200:])
@@ -587,6 +594,8 @@ def remove_grub() -> None:
                 (", ".join(p for p in going if p not in grub) or plan.stderr.strip()[-200:]) +
                 "); GRUB can't start the computer any more")
     shutil.rmtree(ESP / "EFI/debian", ignore_errors=True)
+    for name in (f"grub{x64}.efi", "grub.cfg"):  # GRUB's, from updates before 2.10
+        (ESP / "EFI" / VENDOR / name).unlink(missing_ok=True)
     shutil.rmtree("/boot/grub", ignore_errors=True)
     # The fallback path some firmware starts from, if it was GRUB's (never another
     # system's): shim, which recreates the entry from EFI/kulan/BOOT*.CSV.
@@ -656,7 +665,10 @@ def turn_off() -> int:
     if r.returncode != 0:
         say("GRUB couldn't be installed. Check the internet connection: " + r.stderr.strip()[-300:])
         return 1
-    argv = ["grub-install", f"--target={grub_arch}-efi", f"--efi-directory={ESP}", "--bootloader-id=debian"]
+    # GRUB's own installer: Kulan's (grub-install) leaves GRUB out while signed start-up is on.
+    real = "/usr/sbin/grub-install.debian"
+    argv = [real if os.path.exists(real) else "grub-install",
+            f"--target={grub_arch}-efi", f"--efi-directory={ESP}", "--bootloader-id=debian"]
     if arch() == "amd64":
         argv.append("--uefi-secure-boot")
     r = run(argv)

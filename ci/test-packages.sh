@@ -799,6 +799,20 @@ check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Signed start-up" "kulan-signed-start says why it can't be used here, takes only its commands, and its hooks, service and update-run commands are in place" bash -c 'kulan-signed-start status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"phase\"] == \"off\" and d[\"possible\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])" && kulan-signed-start nope 2>/dev/null; [ $? -eq 64 ] && kulan-signed-start rebuild && kulan-signed-start finish && test -x /etc/kernel/postinst.d/zz-kulan-signed-start && test -x /etc/kernel/postrm.d/zz-kulan-signed-start && test -x /etc/initramfs/post-update.d/zz-kulan-signed-start && systemctl is-enabled kulan-signed-start.service && grep -q "signed-start-on|signed-start-off)" /usr/lib/kulan/update-run && grep -q "interest-noawait /usr/lib/shim" /var/lib/dpkg/info/kulan-base.triggers'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "GRUB's installer" "Kulan's grub-install puts GRUB in EFI/debian (the system's name would give EFI/kulan) and leaves it out while signed start-up is on" bash -c '
+	set -e
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends grub2-common >/dev/null
+	dpkg-divert --list /usr/sbin/grub-install | grep -q "by kulan-base\$"
+	test -x /usr/sbin/grub-install.debian
+	grep -q "bootloader-id=debian" /usr/sbin/grub-install
+	grub-install --version | grep -qi grub
+	SAVED=$(cat /var/lib/kulan/signed-start.json 2>/dev/null || true)
+	echo "{\"phase\": \"on\"}" >/var/lib/kulan/signed-start.json
+	OUT=$(grub-install --target=x86_64-efi --efi-directory=/nowhere 2>&1) && RC=0 || RC=$?
+	if [ -n "${SAVED}" ]; then echo "${SAVED}" >/var/lib/kulan/signed-start.json; else rm -f /var/lib/kulan/signed-start.json; fi
+	echo "${OUT}"
+	[ "${RC}" -eq 0 ] && echo "${OUT}" | grep -q "signed start-up is on"'
 check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
 check "TPM unlock PIN" "status says whether a PIN is needed; the helper takes on, on --pin and off only" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"pin\"] is False, d" && kulan-tpm on --nope 2>/dev/null; [ $? -eq 64 ] && grep -q "tpm-on-pin)" /usr/lib/kulan/update-run && grep -q "exec /usr/bin/kulan-tpm on --pin" /usr/lib/kulan/update-run'
 # --- Fleet management (the computer's side, against a stand-in server) ----------------

@@ -186,8 +186,10 @@ case "\${PHASE}" in
 		journalctl -b -u kulan-signed-start.service -o cat --no-pager 2>/dev/null | tail -n 6 | sed 's/^/KULAN-SIGNED-TEST service: /' | tee /dev/ttyS0
 		say "fallback=\$(cmp -s /boot/efi/EFI/BOOT/BOOTX64.EFI /usr/lib/shim/shimx64.efi.signed && echo shim || echo other)"
 		# GRUB's and shim's own updates (their maintainer scripts) mustn't bring GRUB back.
+		# Nor GRUB's installer, which those scripts run.
 		dpkg-reconfigure -fnoninteractive shim-signed grub-efi-amd64-signed grub-efi-amd64 >/dev/null 2>&1
-		say "after_grub_update=\$(ls /boot/efi/EFI/debian 2>/dev/null | wc -l) first=\$(efibootmgr | sed -n 's/^BootOrder: //p' | cut -d, -f1) kulan=\$(efibootmgr | sed -n 's/^Boot\([0-9A-F]*\)\*\{0,1\} Kulan OS.*/\1/p')"
+		grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot >/dev/null 2>&1
+		say "after_grub_update=\$(( \$(ls /boot/efi/EFI/debian 2>/dev/null | wc -l) + \$(ls /boot/efi/EFI/kulan | grep -ci grub) )) first=\$(efibootmgr | sed -n 's/^BootOrder: //p' | cut -d, -f1) kulan=\$(efibootmgr | sed -n 's/^Boot\([0-9A-F]*\)\*\{0,1\} Kulan OS.*/\1/p')"
 		head -n 1 /root/kulan-test-password | kulan-tpm on; say "tpm_on_exit=\$?"
 		sed -i 's#^\(kulan_crypt [^ ]*\) /etc/kulan-test.key #\1 none #' /etc/crypttab
 		cryptsetup luksRemoveKey "\$(blkid -t UUID=${LUKS_UUID} -o device)" /etc/kulan-test.key; say "key_removed=\$?"
@@ -399,7 +401,7 @@ else
 fi
 AFTER="$(grep '^after_grub_update=' <<<"${STEPS}" | head -n 1)"
 if [[ "${AFTER}" =~ ^after_grub_update=0\ first=([0-9A-F]+)\ kulan=([0-9A-F]+)$ ]] && [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]; then
-	result pass "GRUB's updates" "running GRUB's and shim's update scripts again didn't bring GRUB back; Kulan OS still starts first"
+	result pass "GRUB's updates" "GRUB's and shim's update scripts and grub-install didn't bring GRUB back; Kulan OS still starts first"
 else
 	result fail "GRUB's updates" "${AFTER:-not checked}"
 fi

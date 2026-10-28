@@ -1,0 +1,20 @@
+#!/bin/sh
+# Kulan OS: GRUB's installer (Debian's is grub-install.debian), with two changes.
+# - GRUB's updates name its EFI folder after the system ("Kulan OS" gives
+#   EFI/kulan, which is signed start-up's), but Debian's signed GRUB belongs in
+#   EFI/debian: that's where Kulan's installer puts it, so updates go there too.
+# - With signed start-up on, GRUB no longer starts the computer and isn't put
+#   back by its updates (kulan-signed-start off brings it back).
+REAL=/usr/sbin/grub-install.debian
+if [ ! -x "${REAL}" ]; then
+	echo "grub-install: GRUB isn't installed" >&2
+	exit 127
+fi
+if grep -qs '"phase": "on"' /var/lib/kulan/signed-start.json; then
+	echo "grub-install: signed start-up is on, so GRUB isn't installed (kulan-signed-start off puts it back)" >&2
+	exit 0
+fi
+case " $* " in
+	*" --bootloader-id"*) exec "${REAL}" "$@" ;;
+esac
+exec "${REAL}" --bootloader-id=debian "$@"
