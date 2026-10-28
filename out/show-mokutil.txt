@@ -1,0 +1,16 @@
+Package: mokutil
+Version: 0.7.2-1
+Installed-Size: 79
+Maintainer: Debian UEFI Maintainers <debian-efi@lists.debian.org>
+Architecture: amd64
+Depends: libc6 (>= 2.34), libcrypt1 (>= 1:4.1.0), libefivar1t64 (>= 38), libkeyutils1 (>= 1.5.9), libssl3t64 (>= 3.0.0)
+Description: tools for manipulating machine owner keys
+Description-md5: 1f2830b85d41721be416d1513db0c537
+Multi-Arch: foreign
+Section: admin
+Priority: optional
+Filename: pool/main/m/mokutil/mokutil_0.7.2-1_amd64.deb
+Size: 26744
+MD5sum: 8e13e95826286e49a36d052541a5a534
+SHA256: 1918fd2775b06e35429a06c59586d548bcccd6c544684799a22ae532a8bb83e4
+

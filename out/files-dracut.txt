@@ -1,0 +1,14 @@
+drwxr-xr-x root/root         0 2025-04-11 11:34 ./
+drwxr-xr-x root/root         0 2025-04-11 11:34 ./etc/
+drwxr-xr-x root/root         0 2025-04-11 09:17 ./etc/kernel/
+drwxr-xr-x root/root         0 2025-04-11 09:17 ./etc/kernel/postinst.d/
+-rwxr-xr-x root/root       989 2025-04-11 09:17 ./etc/kernel/postinst.d/dracut
+drwxr-xr-x root/root         0 2025-04-11 09:17 ./etc/kernel/postrm.d/
+-rwxr-xr-x root/root       500 2025-04-11 09:17 ./etc/kernel/postrm.d/dracut
+drwxr-xr-x root/root         0 2025-04-11 11:34 ./usr/
+drwxr-xr-x root/root         0 2025-04-11 11:34 ./usr/share/
+drwxr-xr-x root/root         0 2025-04-11 11:34 ./usr/share/doc/
+drwxr-xr-x root/root         0 2025-04-11 11:34 ./usr/share/doc/dracut/
+-rw-r--r-- root/root       158 2025-04-11 11:34 ./usr/share/doc/dracut/NEWS.Debian.gz
+-rw-r--r-- root/root      4737 2025-04-11 11:34 ./usr/share/doc/dracut/changelog.Debian.gz
+-rw-r--r-- root/root      3871 2025-04-11 09:17 ./usr/share/doc/dracut/copyright

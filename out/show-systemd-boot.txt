@@ -1,0 +1,20 @@
+Package: systemd-boot
+Source: systemd
+Version: 257.13-1~deb13u1
+Installed-Size: 196
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Architecture: amd64
+Depends: libc6 (>= 2.34), libsystemd-shared (= 257.13-1~deb13u1), systemd (= 257.13-1~deb13u1), systemd-boot-tools (= 257.13-1~deb13u1), systemd-boot-efi-signed (>= 257.13-1~deb13u1) | systemd-boot-efi (= 257.13-1~deb13u1)
+Recommends: efibootmgr, shim-signed
+Suggests: systemd-ukify
+Conflicts: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~)
+Description: simple UEFI boot manager - integration and services
+Description-md5: 0df90775ace126cb973183972b57f509
+Homepage: https://systemd.io
+Section: admin
+Priority: optional
+Filename: pool/main/s/systemd/systemd-boot_257.13-1~deb13u1_amd64.deb
+Size: 98864
+MD5sum: 5771f9072238be6a66abf46dce94b419
+SHA256: e8ebf9c51e141b89deda2aacc08332b35f9ef00722a5e187191e08b881ed04ed
+

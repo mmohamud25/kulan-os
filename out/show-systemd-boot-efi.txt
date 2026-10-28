@@ -1,0 +1,19 @@
+Package: systemd-boot-efi
+Source: systemd
+Version: 257.13-1~deb13u1
+Installed-Size: 290
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Architecture: amd64
+Replaces: systemd (<< 251.2-3~)
+Breaks: systemd (<< 251.2-3~)
+Description: simple UEFI boot manager - EFI binaries
+Description-md5: 1a28c616cc5e8559e958ebd9ceb453da
+Multi-Arch: same
+Homepage: https://systemd.io
+Section: admin
+Priority: optional
+Filename: pool/main/s/systemd/systemd-boot-efi_257.13-1~deb13u1_amd64.deb
+Size: 135912
+MD5sum: 2c4b24133b4cc546358e8338d728ebef
+SHA256: 390ecdcef9bbb753f51bb6d8f696bdae2f1dbedde7239c49ccb2512f137a8933
+

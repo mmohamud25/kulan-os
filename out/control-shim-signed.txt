@@ -1,0 +1,423 @@
+=== ctl-shim-signed/control
+Package: shim-signed
+Source: shim-signed (1.51~1+deb13u1)
+Version: 1.51~1+deb13u1+16.1-2~deb13u1
+Architecture: amd64
+Maintainer: Debian EFI Team <debian-efi@lists.debian.org>
+Installed-Size: 1043
+Pre-Depends: debconf
+Depends: debconf (>= 0.5) | debconf-2.0, mokutil, shim-signed-common (>= 1.51~1+deb13u1), grub-efi-amd64-bin | systemd-boot, shim-helpers-amd64-signed (>= 1+15.8+1), grub2-common (>= 2.06-6) | systemd-boot
+Built-Using: shim (= 16.1-2~deb13u1)
+Section: utils
+Priority: optional
+Multi-Arch: same
+Description: Secure Boot chain-loading bootloader (Microsoft-signed binary)
+ This package provides a minimalist boot loader which allows verifying
+ signatures of other UEFI binaries against either the Secure Boot DB/DBX or
+ against a built-in signature database.  Its purpose is to allow a small,
+ infrequently-changing binary to be signed by the UEFI CA, while allowing
+ an OS distributor to revision their main bootloader independently of the CA.
+ .
+ This package contains the version of the bootloader binary signed by the
+ Microsoft UEFI CA(s).
+=== ctl-shim-signed/md5sums
+887305fc474435b937fb4d20f2c9e436  usr/lib/shim/shimx64.efi.signed
+569dd89c367ec1aa3494be3b275357d1  usr/share/doc/shim-signed/changelog.gz
+aed2d2db4a3162546355f5eb15bcaf8a  usr/share/doc/shim-signed/copyright
+=== ctl-shim-signed/postinst
+#! /bin/sh
+set -e
+
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper symlink_to_dir /usr/share/doc/shim-signed shim-signed-common 1.36\~ shim-signed -- "$@"
+# End automatically added section
+
+
+# If we're not on an EFI system, do nothing else
+if [ ! -d /sys/firmware/efi ]; then
+    exit 0
+fi
+
+# Must load the confmodule for our template to be installed correctly.
+. /usr/share/debconf/confmodule
+
+# Select the right target architecture for grub-install
+ARCH=$(dpkg --print-architecture)
+case ${ARCH} in
+    i386|amd64)
+	FW_SIZE=$(cat /sys/firmware/efi/fw_platform_size)
+	if [ "$FW_SIZE"x = "32"x ]; then
+	    GRUB_EFI_TARGET="i386-efi"
+	elif [ "$FW_SIZE"x = "64"x ]; then
+	    GRUB_EFI_TARGET="x86_64-efi"
+	else
+	    echo "Unable to read a valid value from fw_platform_size, ABORT"
+	    exit 1
+	fi
+	;;
+    arm64)
+	GRUB_EFI_TARGET="arm64-efi"
+	;;
+    *)
+	echo "Unsupported dpkg architecture ${ARCH} in $0. ABORT"
+	exit 1
+	;;
+esac
+
+# Pull out a config value from /etc/default/grub
+config_item ()
+{
+    if [ -f /etc/default/grub ]; then
+	. /etc/default/grub || return
+	for x in /etc/default/grub.d/*.cfg; do
+	    if [ -e "$x" ]; then
+		# Lose any output here so we don't confuse our
+		# caller. The xen packages echo stuff here, Aargh!
+		. "$x" > /dev/null
+	    fi
+	done
+    fi
+    eval echo "\$$1"
+}
+
+# Call grub-install but don't fail on errors. Let's not break upgrades
+run_grub_install()
+{
+    if ! grub-install $@ ; then
+        echo "Failed: grub-install $@" >&2
+        echo "WARNING: Bootloader is not properly installed, system may not be bootable" >&2
+    fi
+}
+
+case $1 in
+    configure)
+	bootloader_id="$(config_item GRUB_DISTRIBUTOR | tr A-Z a-z | \
+			 cut -d' ' -f1)"
+	case $bootloader_id in
+	    kubuntu) bootloader_id=ubuntu ;;
+	esac
+
+	# Call grub-install to make sure we're added to the ESP as
+	# needed
+	if [ "$bootloader_id" ] && \
+	   [ -d "/boot/efi/EFI/$bootloader_id" ] && \
+	   which grub-install >/dev/null 2>&1
+	then
+	    # Check for some of the options that matter, so we can
+	    # call grub-install safely without dropping them
+	    OPTIONS=""
+
+	    db_get grub2/force_efi_extra_removable || RET=false
+	    if [ "$RET" = true ]; then
+		OPTIONS="$OPTIONS --force-extra-removable"
+	    fi
+
+	    db_get grub2/update_nvram || RET=true
+	    if [ "$RET" = false ]; then
+		OPTIONS="$OPTIONS --no-nvram"
+	    fi
+
+	    run_grub_install --target=${GRUB_EFI_TARGET} $OPTIONS
+
+            if dpkg --compare-versions "$2" lt-nl "1.22~"; then
+                rm -f /boot/efi/EFI/ubuntu/MokManager.efi
+            fi
+	fi
+
+	# Finally, trigger the policy script from the -common package
+	if which update-secureboot-policy >/dev/null 2>&1; then
+	    SHIM_NOTRIGGER=y update-secureboot-policy
+	fi
+	;;
+esac
+
+exit 0
+
+=== ctl-shim-signed/postrm
+#! /bin/sh
+set -e
+
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper symlink_to_dir /usr/share/doc/shim-signed shim-signed-common 1.36\~ shim-signed -- "$@"
+# End automatically added section
+# Automatically added by dh_installdebconf/13.24.2
+if [ "$1" = purge ] && [ -e /usr/share/debconf/confmodule ]; then
+	. /usr/share/debconf/confmodule
+	db_purge
+fi
+# End automatically added section
+
+
+# If we're not on an EFI system, do nothing else
+if [ ! -d /sys/firmware/efi ]; then
+    exit 0
+fi
+
+# Must load the confmodule for our template to be installed correctly.
+. /usr/share/debconf/confmodule
+
+# Select the right target architecture for grub-install
+ARCH=$(dpkg --print-architecture)
+case ${ARCH} in
+    i386|amd64)
+	FW_SIZE=$(cat /sys/firmware/efi/fw_platform_size)
+	if [ "$FW_SIZE"x = "32"x ]; then
+	    SHIM_REMOVE="shimia32.efi"
+	    GRUB_EFI_TARGET="i386-efi"
+	elif [ "$FW_SIZE"x = "64"x ]; then
+	    GRUB_EFI_TARGET="x86_64-efi"
+	    SHIM_REMOVE="shimx64.efi"
+	else
+	    echo "Unable to read a valid value from fw_platform_size, ABORT"
+	    exit 1
+	fi
+	;;
+    arm64)
+	SHIM_REMOVE="shimaa64.efi"
+	GRUB_EFI_TARGET="arm64-efi"
+	;;
+    *)
+	echo "Unsupported dpkg architecture ${ARCH} in $0. ABORT"
+	exit 1
+	;;
+esac
+
+# Pull out a config value from /etc/default/grub
+config_item ()
+{
+    if [ -f /etc/default/grub ]; then
+	. /etc/default/grub || return
+	for x in /etc/default/grub.d/*.cfg; do
+	    if [ -e "$x" ]; then
+		# Lose any output here so we don't confuse our
+		# caller. The xen packages echo stuff here, Aargh!
+		. "$x" > /dev/null
+	    fi
+	done
+    fi
+    eval echo "\$$1"
+}
+
+# Call grub-install but don't fail on errors. Let's not break upgrades
+run_grub_install()
+{
+    if ! grub-install $@ ; then
+        echo "Failed: grub-install $@" >&2
+        echo "WARNING: Bootloader is not properly installed, system may not be bootable" >&2
+    fi
+}
+
+case $1 in
+    remove|purge)
+	bootloader_id="$(config_item GRUB_DISTRIBUTOR | tr A-Z a-z | \
+			 cut -d' ' -f1)"
+	case $bootloader_id in
+	    kubuntu) bootloader_id=ubuntu ;;
+	esac
+
+	# If we're being removed, try to call grub-install to drop us
+	# from the boot chain in the ESP
+	if [ "$bootloader_id" ] && \
+	   [ -d "/boot/efi/EFI/$bootloader_id" ] && \
+	   which grub-install >/dev/null 2>&1
+	then
+	    # Check for some of the options that matter, so we can
+	    # call grub-install without dropping them
+	    OPTIONS=""
+
+	    db_get grub2/force_efi_extra_removable || RET=false
+	    if [ "$RET" = true ]; then
+		OPTIONS="$OPTIONS --force-extra-removable"
+	    fi
+
+	    db_get grub2/update_nvram || RET=true
+	    if [ "$RET" = false ]; then
+		OPTIONS="$OPTIONS --no-nvram"
+	    fi
+
+	    run_grub_install --target=${GRUB_EFI_TARGET} $OPTIONS
+
+            if dpkg --compare-versions "$2" lt-nl "1.22~"; then
+                rm -f /boot/efi/EFI/ubuntu/MokManager.efi
+            fi
+
+	    # Now remove the signed shim binary that was copied into
+	    # the ESP; grub-install doesn't clean that up for us.
+	    rm -f "/boot/efi/EFI/$bootloader_id/$SHIM_REMOVE"
+	fi
+
+	if which update-secureboot-policy >/dev/null 2>&1; then
+	    SHIM_NOTRIGGER=y update-secureboot-policy
+	fi
+	;;
+esac
+
+exit 0
+=== ctl-shim-signed/preinst
+#! /bin/sh
+
+set -e
+
+type=$1
+
+. /usr/share/debconf/confmodule
+
+# Only change LC_ALL after loading debconf to ensure any debconf templates
+# are properly localized.
+export LC_ALL=C
+
+# Select the right target architecture for grub-install
+ARCH=$(dpkg --print-architecture)
+case ${ARCH} in
+    amd64)
+        EFI_ARCH="x64";;
+    i386)
+        EFI_ARCH="ia32";;
+    arm64)
+        EFI_ARCH="aa64";;
+    *)
+        echo "Unsupported dpkg architecture ${ARCH} in $0. ABORT"
+        exit 1
+        ;;
+esac
+
+SHIM="/usr/lib/shim/shim${EFI_ARCH}.efi.signed"
+SHIM_SIGS=" 46:de:f6:3b:5c:e6:1c:f8:ba:0d:e2:e6:63:9c:10:19:d0:ed:14:f3 b5:ee:b4:a6:70:60:48:07:3f:0e:d2:96:e7:f5:80:a7:90:b5:9e:aa"
+
+# Known error possibilities
+ERR_NONE=0
+ERR_NO_VALID_SIG=1
+ERR_REVOKED=2
+
+# Set the default error - no sigs found yet
+SB_BOOT_ERROR=$ERR_NO_VALID_SIG
+
+case "$type" in
+    install|upgrade)
+
+        echo "shim-signed: checking if we can safely install $SHIM"
+
+        if ! type mokutil > /dev/null 2>&1; then
+            echo "  Mokutil is not installed, assuming things will be OK."
+            SB_BOOT_ERROR=$ERR_NONE
+        else
+            # Check that we can safely boot this shim.
+	    # We don't care if the platform is in setup mode.
+            SB_STATE=$(mokutil --sb-state 2>&1 | grep -v \
+                       -e "Platform is in Setup Mode" \
+                       -e "SecureBoot validation is disabled in shim")
+            # If SB is not enabled (etc.) then this shim is fine
+	    case "${SB_STATE}" in
+                "SecureBoot disabled"|"This system doesn't support Secure Boot")
+		    echo "  ${SB_STATE}; shim installation is safe."
+		    SB_BOOT_ERROR=$ERR_NONE
+		    ;;
+                "EFI variables are not supported on this system"|"Cannot determine secure boot state")
+		    echo "  ${SB_STATE}; assuming shim installation is safe."
+		    SB_BOOT_ERROR=$ERR_NONE
+		    ;;
+		"SecureBoot enabled")
+		    echo "  ${SB_STATE}; need to check for signatures."
+		    SB_BOOT_ERROR=$ERR_NO_VALID_SIG
+		    ;;
+		*)
+		    echo "Unexpected output from mokutil:"
+		    echo '"""'
+		    echo "${SB_STATE}"
+		    echo '"""'
+		    echo "Please report this as a bug agsinst shim-signed, including the above information."
+		    exit 1
+		    ;;
+	    esac
+        fi
+
+        if [ $SB_BOOT_ERROR != $ERR_NONE ]; then
+            echo "Checking shim signatures on $SHIM:"
+
+            # Secure Boot is enabled - we need to check that our shim
+            # is signed by a key in the DB list.
+
+            # Check against all the keys in the DB list
+            for dbkey in $(mokutil --db | awk '/^SHA1 Fingerprint:/ {print $3}'); do
+                for sig in ${SHIM_SIGS}; do
+                    if [ "$dbkey" = "$sig" ]; then
+                        echo "- signed by DB key $dbkey, should boot OK"
+                        SB_BOOT_ERROR=$ERR_NONE
+                    fi
+                done
+            done
+
+            # Next, check against the blacklisted keys in DBX - any
+            # blacklisted sig will block boot of a shim signed with
+            # that sig.
+            for dbxkey in $(mokutil --dbx | awk '/^SHA1 Fingerprint:/ {print $3}'); do
+                for sig in ${SHIM_SIGS}; do
+                    if [ "$dbxkey" = "$sig" ]; then
+                        echo "- signed by DBX key $dbxkey, will be blocked from booting"
+                        SB_BOOT_ERROR=$ERR_REVOKED
+                    fi
+                done
+            done
+        fi
+
+        if [ $SB_BOOT_ERROR != $ERR_NONE ]; then
+            if [ $SB_BOOT_ERROR = $ERR_NO_VALID_SIG ]; then
+                TEMPLATENAME=shim-signed/no-valid-sigs
+	    elif [ $SB_BOOT_ERROR = $ERR_REVOKED ]; then
+		TEMPLATENAME=shim-signed/revoked-sig
+	    fi
+
+            db_version 2.0
+            db_fset "$TEMPLATENAME" seen false
+            db_reset "$TEMPLATENAME"
+            db_input critical "$TEMPLATENAME" || true
+            db_go
+            db_stop
+            exit 1
+	fi
+esac
+
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper symlink_to_dir /usr/share/doc/shim-signed shim-signed-common 1.36\~ shim-signed -- "$@"
+# End automatically added section
+
+
+exit 0
+=== ctl-shim-signed/prerm
+#!/bin/sh
+set -e
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper symlink_to_dir /usr/share/doc/shim-signed shim-signed-common 1.36\~ shim-signed -- "$@"
+# End automatically added section
+=== ctl-shim-signed/templates
+Template: shim-signed/no-valid-sigs
+Type: error
+Description: No valid UEFI Secure Boot signatures found
+ UEFI Secure Boot is enabled on your system, but the signed shim
+ binary in this package is not signed with a key that your system
+ trusts. This is a FATAL ERROR - your system will not currently
+ boot with this signed shim installed.
+ .
+ To fix this error, you probably need to update the trusted
+ certificates list (DB) on your system. See
+ .
+ https://wiki.debian.org/SecureBoot/CAChanges
+ .
+ for more information about how to do this.
+
+Template: shim-signed/revoked-sig
+Type: error
+Description: Shim signed with a revoked key
+ UEFI Secure Boot is enabled on your system, but the signed shim
+ binary in this package is signed by a key that has been revoked on
+ your system. This is a FATAL ERROR - your system will not currently
+ boot with this shim installed.
+ .
+ To fix this error, you probably need to update the trusted
+ certificates revocation list (DBX) on your system. See
+ .
+ https://wiki.debian.org/SecureBoot/CAChanges
+ .
+ for more information about how to do this.
+=== ctl-shim-signed/triggers
+interest-noawait shim-secureboot-policy

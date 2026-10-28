@@ -1,0 +1,15 @@
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/boot/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/boot/efi/
+-rwxr-xr-x root/root    125912 2026-04-13 19:38 ./usr/lib/systemd/boot/efi/systemd-bootx64.efi.signed
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi-amd64-signed/
+-rw-r--r-- root/root       608 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi-amd64-signed/changelog.gz
+-rw-r--r-- root/root      1444 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi-amd64-signed/copyright
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/lintian/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/lintian/overrides/
+-rw-r--r-- root/root        81 2026-04-13 19:38 ./usr/share/lintian/overrides/systemd-boot-efi-amd64-signed

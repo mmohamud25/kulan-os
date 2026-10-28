@@ -1,0 +1,16 @@
+Package: sbsigntool
+Version: 0.9.4-3.2+deb13u1
+Installed-Size: 402
+Maintainer: Debian EFI Team <debian-efi@lists.debian.org>
+Architecture: amd64
+Depends: libc6 (>= 2.38), libssl3t64 (>= 3.0.0), libuuid1 (>= 2.16)
+Description: Tools to manipulate signatures on UEFI binaries and drivers
+Description-md5: b5da2b0c168c6526248ffce6dabe35b7
+Multi-Arch: foreign
+Section: utils
+Priority: optional
+Filename: pool/main/s/sbsigntool/sbsigntool_0.9.4-3.2+deb13u1_amd64.deb
+Size: 67676
+MD5sum: a1d4e1af5607917e20350003de712c8f
+SHA256: b5390c50b1970a98bd5dab6a4a8bba124e41708792da9ea62bb75c0522dd714f
+

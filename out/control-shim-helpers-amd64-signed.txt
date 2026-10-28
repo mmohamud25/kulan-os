@@ -1,0 +1,179 @@
+=== ctl-shim-helpers-amd64-signed/control
+Package: shim-helpers-amd64-signed
+Version: 1+16.1+2~deb13u1
+Architecture: amd64
+Maintainer: Debian EFI team <debian-efi@lists.debian.org>
+Installed-Size: 987
+Depends: shim-unsigned (>= 16.1-2~deb13u1)
+Conflicts: shim (<< 15+1533136590.3beb971-3~)
+Breaks: shim-signed (<< 1.29)
+Replaces: shim (<< 15+1533136590.3beb971-3~), shim-signed (<< 1.29)
+Built-Using: shim (= 16.1-2~deb13u1)
+Section: admin
+Priority: optional
+Description: boot loader to chain-load signed boot loaders (signed by Debian)
+ This package provides a minimalist boot loader which allows verifying
+ signatures of other UEFI binaries against either the Secure Boot DB/DBX or
+ against a built-in signature database.  Its purpose is to allow a small,
+ infrequently-changing binary to be signed by the UEFI CA, while allowing
+ an OS distributor to revision their main bootloader independently of the CA.
+ .
+ This package contains the MOK manager and fall-back manager signed by the
+ Debian UEFI CA to be used by shim-signed.
+=== ctl-shim-helpers-amd64-signed/md5sums
+3d1570896ff635db9c79049c0027d1d3  usr/lib/shim/fbx64.efi.signed
+d0d4f6dd194d208349613c6bff4d4c5c  usr/lib/shim/mmx64.efi.signed
+ea54c0db279f9b9cdf8d2c2e193d50c8  usr/share/doc/shim-helpers-amd64-signed/changelog.gz
+f4349af9711129b1279c0431975d350e  usr/share/doc/shim-helpers-amd64-signed/copyright
+=== ctl-shim-helpers-amd64-signed/postinst
+#! /bin/sh
+set -e
+
+# If we're not on an EFI system, do nothing
+if [ ! -d /sys/firmware/efi ]; then
+    exit 0
+fi
+
+# Must load the confmodule for our template to be installed correctly.
+. /usr/share/debconf/confmodule
+
+# Select the right target architecture for grub-install
+ARCH=amd64
+case ${ARCH} in
+    i386|amd64)
+	FW_SIZE=$(cat /sys/firmware/efi/fw_platform_size)
+	if [ "$FW_SIZE"x = "32"x ]; then
+	    GRUB_EFI_TARGET="i386-efi"
+	elif [ "$FW_SIZE"x = "64"x ]; then
+	    GRUB_EFI_TARGET="x86_64-efi"
+	else
+	    echo "Unable to read a valid value from fw_platform_size, ABORT"
+	    exit 1
+	fi
+	;;
+    arm64)
+	GRUB_EFI_TARGET="arm64-efi"
+	;;
+    *)
+	echo "Unsupported dpkg architecture ${ARCH} in $0. ABORT"
+	exit 1
+	;;
+esac
+
+# Pull out a config value from /etc/default/grub
+config_item ()
+{
+    if [ -f /etc/default/grub ]; then
+	. /etc/default/grub || return
+	for x in /etc/default/grub.d/*.cfg; do
+	    if [ -e "$x" ]; then
+		. "$x"
+	    fi
+	done
+    fi
+    eval echo "\$$1"
+}
+
+run_grub_install()
+{
+    if ! grub-install $@ ; then
+        echo "Failed: grub-install $@" >&2
+        echo "WARNING: Bootloader is not properly installed, system may not be bootable" >&2
+    fi
+}
+
+case $1 in
+    configure)
+	bootloader_id="$(config_item GRUB_DISTRIBUTOR | tr A-Z a-z | \
+			 cut -d' ' -f1)"
+	case $bootloader_id in
+	    kubuntu) bootloader_id=ubuntu ;;
+	esac
+
+	# Call grub-install to make sure we're added to the ESP as
+	# needed
+	if [ "$bootloader_id" ] && \
+	   [ -d "/boot/efi/EFI/$bootloader_id" ] && \
+	   which grub-install >/dev/null 2>&1
+	then
+	    # Check for some of the options that matter, so we can
+	    # call grub-install safely without dropping them
+	    OPTIONS=""
+
+	    db_get grub2/force_efi_extra_removable || RET=false
+	    if [ "$RET" = true ]; then
+		OPTIONS="$OPTIONS --force-extra-removable"
+	    fi
+
+	    db_get grub2/update_nvram || RET=true
+	    if [ "$RET" = false ]; then
+		OPTIONS="$OPTIONS --no-nvram"
+	    fi
+
+	    run_grub_install --target=${GRUB_EFI_TARGET} $OPTIONS
+	fi
+	;;
+esac
+
+
+
+exit 0
+
+=== ctl-shim-helpers-amd64-signed/postrm
+#! /bin/sh
+set -e
+
+# If we're not on an EFI system, do nothing
+if [ ! -d /sys/firmware/efi ]; then
+    exit 0
+fi
+
+case amd64 in
+    i386)
+	SHIM_REMOVE="mmia32.efi fbia32.efi";;
+    amd64)
+	SHIM_REMOVE="mmx64.efi fbx64.efi";;
+    arm64)
+	SHIM_REMOVE="mmaa64.efi fbaa64.efi";;
+    *)
+	echo "Unsupported dpkg architecture amd64 in $0. ABORT"
+	exit 1
+	;;
+esac
+
+# Pull out a config value from /etc/default/grub
+config_item ()
+{
+    if [ -f /etc/default/grub ]; then
+	. /etc/default/grub || return
+	for x in /etc/default/grub.d/*.cfg; do
+	    if [ -e "$x" ]; then
+		. "$x"
+	    fi
+	done
+    fi
+    eval echo "\$$1"
+}
+
+case $1 in
+    remove|purge)
+	bootloader_id="$(config_item GRUB_DISTRIBUTOR | tr A-Z a-z | \
+			 cut -d' ' -f1)"
+	case $bootloader_id in
+	    kubuntu) bootloader_id=ubuntu ;;
+	esac
+
+	# If we're being removed, remove the copies installed in the
+	# ESP. grub-install doesn't clean those up for us.
+	if [ "$bootloader_id" ] && \
+	   [ -d "/boot/efi/EFI/$bootloader_id" ]; then
+
+	    cd /boot/efi/EFI/$bootloader_id
+	    rm -f $SHIM_REMOVE
+	fi
+	;;
+esac
+
+
+
+exit 0

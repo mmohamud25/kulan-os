@@ -1,0 +1,8 @@
+linux-image-amd64:
+  Installed: (none)
+  Candidate: 6.12.113-1
+  Version table:
+     6.12.113-1 500
+        500 http://deb.debian.org/debian-security trixie-security/main amd64 Packages
+     6.12.107-1 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages

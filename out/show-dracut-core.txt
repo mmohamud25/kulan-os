@@ -1,0 +1,21 @@
+Package: dracut-core
+Source: dracut
+Version: 106-6
+Installed-Size: 1187
+Maintainer: Thomas Lange <lange@debian.org>
+Architecture: amd64
+Replaces: dracut-live (<< 059-2), dracut-network (<< 057+157-2)
+Depends: cpio, dracut-install, e2fsprogs, kmod, udev, libc6 (>= 2.38)
+Recommends: binutils, console-setup, cryptsetup, dmsetup, kpartx, lvm2, mdadm, systemd, systemd-cryptsetup, systemd-sysv, zstd
+Breaks: dracut-live (<< 059-2), dracut-network (<< 057+157-2)
+Description: dracut is an event driven initramfs infrastructure (core tools)
+Description-md5: e406aeff68e5d5052162d2536e974a68
+Multi-Arch: foreign
+Homepage: https://github.com/dracut-ng/dracut-ng/wiki
+Section: utils
+Priority: optional
+Filename: pool/main/d/dracut/dracut-core_106-6_amd64.deb
+Size: 296368
+MD5sum: 29e995d9bbe36a1342ee90892eeba936
+SHA256: 3d42a242f2a1d6a8dcef15a66ddbb1263050695b2cff544b57a7a12d88338686
+

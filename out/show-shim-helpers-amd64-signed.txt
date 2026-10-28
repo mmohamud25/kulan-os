@@ -1,0 +1,19 @@
+Package: shim-helpers-amd64-signed
+Version: 1+16.1+2~deb13u1
+Installed-Size: 987
+Maintainer: Debian EFI team <debian-efi@lists.debian.org>
+Architecture: amd64
+Replaces: shim (<< 15+1533136590.3beb971-3~), shim-signed (<< 1.29)
+Depends: shim-unsigned (>= 16.1-2~deb13u1)
+Conflicts: shim (<< 15+1533136590.3beb971-3~)
+Breaks: shim-signed (<< 1.29)
+Description: boot loader to chain-load signed boot loaders (signed by Debian)
+Description-md5: 3be5fdcae9944c70315b6b6afbd43ee1
+Built-Using: shim (= 16.1-2~deb13u1)
+Section: admin
+Priority: optional
+Filename: pool/main/s/shim-helpers-amd64-signed/shim-helpers-amd64-signed_1+16.1+2~deb13u1_amd64.deb
+Size: 301476
+MD5sum: 1434cc65ab6de7c9b7819e356384d478
+SHA256: 7e950d75d5a40ecc0a99f727452ce35780b47a04d9a2cc3b1ff7c2bb316c033e
+

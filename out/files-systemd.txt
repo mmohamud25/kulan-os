@@ -1,0 +1,1051 @@
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/binfmt.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/credstore/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/credstore.encrypted/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/kernel/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/kernel/install.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/modules-load.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/profile.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/security/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/security/limits.d/
+-rw-r--r-- root/root       182 2026-04-13 19:38 ./etc/security/limits.d/10-coredump-debian.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/ssh/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/ssh/ssh_config.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/systemd/
+-rw-r--r-- root/root      1429 2026-03-13 18:36 ./etc/systemd/journald.conf
+-rw-r--r-- root/root      1785 2026-04-13 19:38 ./etc/systemd/logind.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/systemd/network/
+-rw-r--r-- root/root      1213 2026-03-13 18:36 ./etc/systemd/networkd.conf
+-rw-r--r-- root/root       879 2026-03-13 18:36 ./etc/systemd/pstore.conf
+-rw-r--r-- root/root      1102 2026-03-13 18:36 ./etc/systemd/sleep.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/systemd/system/
+-rw-r--r-- root/root      2342 2026-04-13 19:38 ./etc/systemd/system.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/systemd/user/
+-rw-r--r-- root/root      1768 2026-04-13 19:38 ./etc/systemd/user.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/tmpfiles.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/xdg/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/xdg/systemd/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/bin/
+-rwxr-xr-x root/root    100888 2026-04-13 19:38 ./usr/bin/busctl
+-rwxr-xr-x root/root     31112 2026-04-13 19:38 ./usr/bin/hostnamectl
+-rwxr-xr-x root/root     93296 2026-04-13 19:38 ./usr/bin/journalctl
+-rwxr-xr-x root/root     55944 2026-04-13 19:38 ./usr/bin/kernel-install
+-rwxr-xr-x root/root     27008 2026-04-13 19:38 ./usr/bin/localectl
+-rwxr-xr-x root/root     68112 2026-04-13 19:38 ./usr/bin/loginctl
+-rwxr-xr-x root/root    129544 2026-04-13 19:38 ./usr/bin/networkctl
+-rwxr-xr-x root/root    297904 2026-04-13 19:38 ./usr/bin/systemctl
+-rwxr-xr-x root/root     14712 2026-04-13 19:38 ./usr/bin/systemd-ac-power
+-rwxr-xr-x root/root    219944 2026-04-13 19:38 ./usr/bin/systemd-analyze
+-rwxr-xr-x root/root     18952 2026-04-13 19:38 ./usr/bin/systemd-ask-password
+-rwxr-xr-x root/root     18816 2026-04-13 19:38 ./usr/bin/systemd-cat
+-rwxr-xr-x root/root     23032 2026-04-13 19:38 ./usr/bin/systemd-cgls
+-rwxr-xr-x root/root     39320 2026-04-13 19:38 ./usr/bin/systemd-cgtop
+-rwxr-xr-x root/root     51880 2026-04-13 19:38 ./usr/bin/systemd-creds
+-rwxr-xr-x root/root     27008 2026-04-13 19:38 ./usr/bin/systemd-delta
+-rwxr-xr-x root/root     18808 2026-04-13 19:38 ./usr/bin/systemd-detect-virt
+-rwxr-xr-x root/root     18808 2026-04-13 19:38 ./usr/bin/systemd-escape
+-rwxr-xr-x root/root     56120 2026-04-13 19:38 ./usr/bin/systemd-firstboot
+-rwxr-xr-x root/root     27008 2026-04-13 19:38 ./usr/bin/systemd-id128
+-rwxr-xr-x root/root     22928 2026-04-13 19:38 ./usr/bin/systemd-inhibit
+-rwxr-xr-x root/root     18992 2026-04-13 19:38 ./usr/bin/systemd-machine-id-setup
+-rwxr-xr-x root/root     56024 2026-04-13 19:38 ./usr/bin/systemd-mount
+-rwxr-xr-x root/root     27288 2026-04-13 19:38 ./usr/bin/systemd-notify
+-rwxr-xr-x root/root     18808 2026-04-13 19:38 ./usr/bin/systemd-path
+-rwxr-xr-x root/root     84872 2026-04-13 19:38 ./usr/bin/systemd-run
+-rwxr-xr-x root/root     27008 2026-04-13 19:38 ./usr/bin/systemd-socket-activate
+-rwxr-xr-x root/root     18816 2026-04-13 19:38 ./usr/bin/systemd-stdio-bridge
+-rwxr-xr-x root/root     76360 2026-04-13 19:38 ./usr/bin/systemd-sysext
+-rwxr-xr-x root/root     68144 2026-04-13 19:38 ./usr/bin/systemd-sysusers
+-rwxr-xr-x root/root    121464 2026-04-13 19:38 ./usr/bin/systemd-tmpfiles
+-rwxr-xr-x root/root     35200 2026-04-13 19:38 ./usr/bin/systemd-tty-ask-password-agent
+-rwxr-xr-x root/root     27200 2026-04-13 19:38 ./usr/bin/systemd-vpick
+-rwxr-xr-x root/root     47480 2026-04-13 19:38 ./usr/bin/timedatectl
+-rwxr-xr-x root/root     39416 2026-04-13 19:38 ./usr/bin/varlinkctl
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/environment.d/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/kernel/
+-rw-r--r-- root/root       407 2026-03-13 18:36 ./usr/lib/kernel/install.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/kernel/install.d/
+-rwxr-xr-x root/root      2096 2026-03-13 18:36 ./usr/lib/kernel/install.d/50-depmod.install
+-rwxr-xr-x root/root       711 2026-04-13 19:38 ./usr/lib/kernel/install.d/55-initrd.install
+-rwxr-xr-x root/root      8078 2026-04-13 19:38 ./usr/lib/kernel/install.d/90-loaderentry.install
+-rwxr-xr-x root/root      3843 2026-03-13 18:36 ./usr/lib/kernel/install.d/90-uki-copy.install
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/lsb/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/lsb/init-functions.d/
+-rw-r--r-- root/root      3251 2026-04-13 19:38 ./usr/lib/lsb/init-functions.d/40-systemd
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/modprobe.d/
+-rw-r--r-- root/root       821 2026-03-13 18:36 ./usr/lib/modprobe.d/systemd.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/pam.d/
+-rw-r--r-- root/root       364 2026-04-13 19:38 ./usr/lib/pam.d/systemd-user
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/pcrlock.d/
+-rw-r--r-- root/root       494 2026-03-13 18:36 ./usr/lib/pcrlock.d/350-action-efi-application.pcrlock
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/pcrlock.d/400-secureboot-separator.pcrlock.d/
+-rw-r--r-- root/root       494 2026-03-13 18:36 ./usr/lib/pcrlock.d/400-secureboot-separator.pcrlock.d/300-0x00000000.pcrlock
+-rw-r--r-- root/root       494 2026-03-13 18:36 ./usr/lib/pcrlock.d/400-secureboot-separator.pcrlock.d/600-0xffffffff.pcrlock
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/pcrlock.d/500-separator.pcrlock.d/
+-rw-r--r-- root/root      3374 2026-03-13 18:36 ./usr/lib/pcrlock.d/500-separator.pcrlock.d/300-0x00000000.pcrlock
+-rw-r--r-- root/root      3374 2026-03-13 18:36 ./usr/lib/pcrlock.d/500-separator.pcrlock.d/600-0xffffffff.pcrlock
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/pcrlock.d/700-action-efi-exit-boot-services.pcrlock.d/
+-rw-r--r-- root/root       974 2026-03-13 18:36 ./usr/lib/pcrlock.d/700-action-efi-exit-boot-services.pcrlock.d/300-present.pcrlock
+-rw-r--r-- root/root        15 2026-03-13 18:36 ./usr/lib/pcrlock.d/700-action-efi-exit-boot-services.pcrlock.d/600-absent.pcrlock
+-rw-r--r-- root/root       495 2026-03-13 18:36 ./usr/lib/pcrlock.d/750-enter-initrd.pcrlock
+-rw-r--r-- root/root       495 2026-03-13 18:36 ./usr/lib/pcrlock.d/800-leave-initrd.pcrlock
+-rw-r--r-- root/root       495 2026-03-13 18:36 ./usr/lib/pcrlock.d/850-sysinit.pcrlock
+-rw-r--r-- root/root       495 2026-03-13 18:36 ./usr/lib/pcrlock.d/900-ready.pcrlock
+-rw-r--r-- root/root       495 2026-03-13 18:36 ./usr/lib/pcrlock.d/950-shutdown.pcrlock
+-rw-r--r-- root/root       495 2026-03-13 18:36 ./usr/lib/pcrlock.d/990-final.pcrlock
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/sysctl.d/
+-rw-r--r-- root/root        25 2026-04-13 19:38 ./usr/lib/sysctl.d/10-coredump-debian.conf
+-rw-r--r-- root/root       649 2026-03-13 18:36 ./usr/lib/sysctl.d/50-pid-max.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/catalog/
+-rw-r--r-- root/root     12764 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.be.catalog
+-rw-r--r-- root/root      9773 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.be@latin.catalog
+-rw-r--r-- root/root     28703 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.bg.catalog
+-rw-r--r-- root/root     29368 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.catalog
+-rw-r--r-- root/root      7663 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.da.catalog
+-rw-r--r-- root/root       688 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.de.catalog
+-rw-r--r-- root/root     12934 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.fr.catalog
+-rw-r--r-- root/root      9890 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.hr.catalog
+-rw-r--r-- root/root      8062 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.hu.catalog
+-rw-r--r-- root/root     15571 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.it.catalog
+-rw-r--r-- root/root     10863 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.ko.catalog
+-rw-r--r-- root/root     32902 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.pl.catalog
+-rw-r--r-- root/root      8092 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.pt_BR.catalog
+-rw-r--r-- root/root     19947 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.ru.catalog
+-rw-r--r-- root/root     10410 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.sr.catalog
+-rw-r--r-- root/root      7076 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.zh_CN.catalog
+-rw-r--r-- root/root      7035 2026-04-13 19:38 ./usr/lib/systemd/catalog/systemd.zh_TW.catalog
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/journald.conf.d/
+-rw-r--r-- root/root       177 2026-04-13 19:38 ./usr/lib/systemd/journald.conf.d/syslog.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/network/
+-rw-r--r-- root/root       569 2026-03-13 18:36 ./usr/lib/systemd/network/80-6rd-tunnel.link
+-rw-r--r-- root/root       542 2026-03-13 18:36 ./usr/lib/systemd/network/80-6rd-tunnel.network
+-rw-r--r-- root/root       741 2026-03-13 18:36 ./usr/lib/systemd/network/80-auto-link-local.network.example
+-rw-r--r-- root/root       601 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-host0-tun.network
+-rw-r--r-- root/root       664 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-host0.network
+-rw-r--r-- root/root       656 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-vb.link
+-rw-r--r-- root/root       663 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-vb.network
+-rw-r--r-- root/root       607 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-ve.link
+-rw-r--r-- root/root       758 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-ve.network
+-rw-r--r-- root/root       586 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-vz.link
+-rw-r--r-- root/root       743 2026-03-13 18:36 ./usr/lib/systemd/network/80-container-vz.network
+-rw-r--r-- root/root       555 2026-03-13 18:36 ./usr/lib/systemd/network/80-vm-vt.link
+-rw-r--r-- root/root       711 2026-03-13 18:36 ./usr/lib/systemd/network/80-vm-vt.network
+-rw-r--r-- root/root       452 2026-03-13 18:36 ./usr/lib/systemd/network/80-wifi-adhoc.network
+-rw-r--r-- root/root       664 2026-03-13 18:36 ./usr/lib/systemd/network/80-wifi-ap.network.example
+-rw-r--r-- root/root       602 2026-03-13 18:36 ./usr/lib/systemd/network/80-wifi-station.network.example
+-rw-r--r-- root/root       636 2026-03-13 18:36 ./usr/lib/systemd/network/89-ethernet.network.example
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/profile.d/
+-rw-r--r-- root/root       855 2026-03-13 18:36 ./usr/lib/systemd/profile.d/70-systemd-shell-extra.sh
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/ssh_config.d/
+-rw-r--r-- root/root       758 2026-04-13 19:38 ./usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/
+-rw-r--r-- root/root       927 2026-03-13 18:36 ./usr/lib/systemd/system/basic.target
+-rw-r--r-- root/root       519 2026-03-13 18:36 ./usr/lib/systemd/system/blockdev@.target
+-rw-r--r-- root/root       435 2026-03-13 18:36 ./usr/lib/systemd/system/bluetooth.target
+-rw-r--r-- root/root       463 2026-03-13 18:36 ./usr/lib/systemd/system/boot-complete.target
+-rw-r--r-- root/root       431 2026-03-13 18:36 ./usr/lib/systemd/system/capsule.slice
+-rw-r--r-- root/root      1129 2026-04-13 19:38 ./usr/lib/systemd/system/capsule@.service
+-rw-r--r-- root/root      1231 2026-04-13 19:38 ./usr/lib/systemd/system/console-getty.service
+-rw-r--r-- root/root      1387 2026-04-13 19:38 ./usr/lib/systemd/system/container-getty@.service
+-rw-r--r-- root/root      1106 2026-04-13 19:38 ./usr/lib/systemd/system/debug-shell.service
+-rw-r--r-- root/root       746 2026-03-13 18:36 ./usr/lib/systemd/system/dev-hugepages.mount
+-rw-r--r-- root/root       672 2026-03-13 18:36 ./usr/lib/systemd/system/dev-mqueue.mount
+-rw-r--r-- root/root       804 2026-04-13 19:38 ./usr/lib/systemd/system/emergency.service
+-rw-r--r-- root/root       479 2026-03-13 18:36 ./usr/lib/systemd/system/emergency.target
+-rw-r--r-- root/root       597 2026-03-13 18:36 ./usr/lib/systemd/system/exit.target
+-rw-r--r-- root/root       410 2026-03-13 18:36 ./usr/lib/systemd/system/factory-reset.target
+-rw-r--r-- root/root       500 2026-03-13 18:36 ./usr/lib/systemd/system/final.target
+-rw-r--r-- root/root       461 2026-03-13 18:36 ./usr/lib/systemd/system/first-boot-complete.target
+-rw-r--r-- root/root       518 2026-03-13 18:36 ./usr/lib/systemd/system/getty-pre.target
+-rw-r--r-- root/root       366 2026-04-13 19:38 ./usr/lib/systemd/system/getty-static.service
+-rw-r--r-- root/root       509 2026-03-13 18:36 ./usr/lib/systemd/system/getty.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/getty.target.wants/
+-rw-r--r-- root/root      2090 2026-04-13 19:38 ./usr/lib/systemd/system/getty@.service
+-rw-r--r-- root/root       606 2026-03-13 18:36 ./usr/lib/systemd/system/graphical.target
+-rw-r--r-- root/root       590 2026-03-13 18:36 ./usr/lib/systemd/system/halt.target
+-rw-r--r-- root/root       526 2026-03-13 18:36 ./usr/lib/systemd/system/hibernate.target
+-rw-r--r-- root/root       538 2026-03-13 18:36 ./usr/lib/systemd/system/hybrid-sleep.target
+-rw-r--r-- root/root       697 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-cleanup.service
+-rw-r--r-- root/root       598 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-fs.target
+-rw-r--r-- root/root      1116 2026-04-13 19:38 ./usr/lib/systemd/system/initrd-parse-etc.service
+-rw-r--r-- root/root       566 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-root-device.target
+-rw-r--r-- root/root       571 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-root-fs.target
+-rw-r--r-- root/root       614 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-switch-root.service
+-rw-r--r-- root/root       779 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-switch-root.target
+-rw-r--r-- root/root       823 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-udevadm-cleanup-db.service
+-rw-r--r-- root/root       571 2026-03-13 18:36 ./usr/lib/systemd/system/initrd-usr-fs.target
+-rw-r--r-- root/root       810 2026-03-13 18:36 ./usr/lib/systemd/system/initrd.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/initrd.target.wants/
+-rw-r--r-- root/root       598 2026-03-13 18:36 ./usr/lib/systemd/system/kexec.target
+-rw-r--r-- root/root       745 2026-04-13 19:38 ./usr/lib/systemd/system/kmod-static-nodes.service
+-rw-r--r-- root/root       952 2026-03-13 18:36 ./usr/lib/systemd/system/ldconfig.service
+-rw-r--r-- root/root       453 2026-03-13 18:36 ./usr/lib/systemd/system/local-fs-pre.target
+-rw-r--r-- root/root       556 2026-03-13 18:36 ./usr/lib/systemd/system/local-fs.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/local-fs.target.wants/
+-rw-r--r-- root/root       453 2026-03-13 18:36 ./usr/lib/systemd/system/machine.slice
+-rw-r--r-- root/root       573 2026-03-13 18:36 ./usr/lib/systemd/system/modprobe@.service
+-rw-r--r-- root/root       540 2026-03-13 18:36 ./usr/lib/systemd/system/multi-user.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/multi-user.target.wants/
+-rw-r--r-- root/root       483 2026-03-13 18:36 ./usr/lib/systemd/system/network-online.target
+-rw-r--r-- root/root       490 2026-03-13 18:36 ./usr/lib/systemd/system/network-pre.target
+-rw-r--r-- root/root       499 2026-03-13 18:36 ./usr/lib/systemd/system/network.target
+-rw-r--r-- root/root       562 2026-03-13 18:36 ./usr/lib/systemd/system/nss-lookup.target
+-rw-r--r-- root/root       521 2026-03-13 18:36 ./usr/lib/systemd/system/nss-user-lookup.target
+-rw-r--r-- root/root       407 2026-03-13 18:36 ./usr/lib/systemd/system/paths.target
+-rw-r--r-- root/root       607 2026-03-13 18:36 ./usr/lib/systemd/system/poweroff.target
+-rw-r--r-- root/root       433 2026-03-13 18:36 ./usr/lib/systemd/system/printer.target
+-rw-r--r-- root/root       760 2026-03-13 18:36 ./usr/lib/systemd/system/proc-sys-fs-binfmt_misc.automount
+-rw-r--r-- root/root       682 2026-03-13 18:36 ./usr/lib/systemd/system/proc-sys-fs-binfmt_misc.mount
+-rw-r--r-- root/root       666 2026-04-13 19:38 ./usr/lib/systemd/system/quotaon-root.service
+-rw-r--r-- root/root       708 2026-04-13 19:38 ./usr/lib/systemd/system/quotaon@.service
+-rw-r--r-- root/root       731 2026-04-13 19:38 ./usr/lib/systemd/system/rc-local.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/rc-local.service.d/
+-rw-r--r-- root/root       290 2026-04-13 19:38 ./usr/lib/systemd/system/rc-local.service.d/debian.conf
+-rw-r--r-- root/root       598 2026-03-13 18:36 ./usr/lib/systemd/system/reboot.target
+-rw-r--r-- root/root       454 2026-03-13 18:36 ./usr/lib/systemd/system/remote-fs-pre.target
+-rw-r--r-- root/root       530 2026-03-13 18:36 ./usr/lib/systemd/system/remote-fs.target
+-rw-r--r-- root/root       795 2026-04-13 19:38 ./usr/lib/systemd/system/rescue.service
+-rw-r--r-- root/root       500 2026-03-13 18:36 ./usr/lib/systemd/system/rescue.target
+-rw-r--r-- root/root       548 2026-03-13 18:36 ./usr/lib/systemd/system/rpcbind.target
+-rw-r--r-- root/root       270 2026-04-13 19:38 ./usr/lib/systemd/system/run-lock.mount
+-rw-r--r-- root/root      1655 2026-04-13 19:38 ./usr/lib/systemd/system/serial-getty@.service
+-rw-r--r-- root/root       457 2026-03-13 18:36 ./usr/lib/systemd/system/shutdown.target
+-rw-r--r-- root/root       410 2026-03-13 18:36 ./usr/lib/systemd/system/sigpwr.target
+-rw-r--r-- root/root       468 2026-03-13 18:36 ./usr/lib/systemd/system/sleep.target
+-rw-r--r-- root/root       462 2026-03-13 18:36 ./usr/lib/systemd/system/slices.target
+-rw-r--r-- root/root       428 2026-03-13 18:36 ./usr/lib/systemd/system/smartcard.target
+-rw-r--r-- root/root       409 2026-03-13 18:36 ./usr/lib/systemd/system/sockets.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/
+-rw-r--r-- root/root       586 2026-03-13 18:36 ./usr/lib/systemd/system/soft-reboot.target
+-rw-r--r-- root/root       428 2026-03-13 18:36 ./usr/lib/systemd/system/sound.target
+-rw-r--r-- root/root       438 2026-03-13 18:36 ./usr/lib/systemd/system/ssh-access.target
+-rw-r--r-- root/root       943 2026-03-13 18:36 ./usr/lib/systemd/system/storage-target-mode.target
+-rw-r--r-- root/root       585 2026-03-13 18:36 ./usr/lib/systemd/system/suspend-then-hibernate.target
+-rw-r--r-- root/root       511 2026-03-13 18:36 ./usr/lib/systemd/system/suspend.target
+-rw-r--r-- root/root       402 2026-03-13 18:36 ./usr/lib/systemd/system/swap.target
+-rw-r--r-- root/root      1117 2026-03-13 18:36 ./usr/lib/systemd/system/sys-fs-fuse-connections.mount
+-rw-r--r-- root/root      1082 2026-03-13 18:36 ./usr/lib/systemd/system/sys-kernel-config.mount
+-rw-r--r-- root/root       701 2026-03-13 18:36 ./usr/lib/systemd/system/sys-kernel-debug.mount
+-rw-r--r-- root/root       727 2026-03-13 18:36 ./usr/lib/systemd/system/sys-kernel-tracing.mount
+-rw-r--r-- root/root       574 2026-03-13 18:36 ./usr/lib/systemd/system/sysinit.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/
+-rw-r--r-- root/root      1353 2026-03-13 18:36 ./usr/lib/systemd/system/syslog.socket
+-rw-r--r-- root/root      1525 2026-03-13 18:36 ./usr/lib/systemd/system/system-update-cleanup.service
+-rw-r--r-- root/root       551 2026-03-13 18:36 ./usr/lib/systemd/system/system-update-pre.target
+-rw-r--r-- root/root       625 2026-03-13 18:36 ./usr/lib/systemd/system/system-update.target
+-rw-r--r-- root/root       771 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-ask-password-console.path
+-rw-r--r-- root/root       834 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-ask-password-console.service
+-rw-r--r-- root/root       695 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-ask-password-wall.path
+-rw-r--r-- root/root       747 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-ask-password-wall.service
+-rw-r--r-- root/root       777 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-backlight@.service
+-rw-r--r-- root/root       908 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-battery-check.service
+-rw-r--r-- root/root      1184 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-binfmt.service
+-rw-r--r-- root/root       681 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-boot-check-no-failures.service
+-rw-r--r-- root/root       672 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-bsod.service
+-rw-r--r-- root/root      1089 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-confext.service
+-rw-r--r-- root/root       612 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-creds.socket
+-rw-r--r-- root/root       587 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-creds@.service
+-rw-r--r-- root/root       564 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-exit.service
+-rw-r--r-- root/root      1552 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-firstboot.service
+-rw-r--r-- root/root       724 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-fsck-root.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-fsck-root.service.d/
+-rw-r--r-- root/root        53 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-fsck-root.service.d/10-skip-fsck-initramfs.conf
+-rw-r--r-- root/root       771 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-fsck@.service
+-rw-r--r-- root/root       667 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-growfs-root.service
+-rw-r--r-- root/root       664 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-growfs@.service
+-rw-r--r-- root/root       562 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-halt.service
+-rw-r--r-- root/root       782 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-hibernate-clear.service
+-rw-r--r-- root/root       666 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-hibernate-resume.service
+-rw-r--r-- root/root       562 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-hibernate.service
+-rw-r--r-- root/root      1224 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-hostnamed.service
+-rw-r--r-- root/root       593 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-hostnamed.socket
+-rw-r--r-- root/root       583 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-hybrid-sleep.service
+-rw-r--r-- root/root       578 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-initctl.service
+-rw-r--r-- root/root       553 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-initctl.socket
+-rw-r--r-- root/root       750 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journal-catalog-update.service
+-rw-r--r-- root/root       943 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journal-flush.service
+-rw-r--r-- root/root       724 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journald-audit.socket
+-rw-r--r-- root/root      1182 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journald-dev-log.socket
+-rw-r--r-- root/root       880 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journald-sync@.service
+-rw-r--r-- root/root       605 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journald-varlink@.socket
+-rw-r--r-- root/root      2833 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-journald.service
+-rw-r--r-- root/root       935 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journald.socket
+-rw-r--r-- root/root      1458 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-journald@.service
+-rw-r--r-- root/root       782 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-journald@.socket
+-rw-r--r-- root/root       569 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-kexec.service
+-rw-r--r-- root/root      1225 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-localed.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-localed.service.d/
+-rw-r--r-- root/root       203 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-localed.service.d/x11-keyboard.conf
+-rw-r--r-- root/root      2088 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-logind.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-logind.service.d/
+-rw-r--r-- root/root       371 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-logind.service.d/dbus.conf
+-rw-r--r-- root/root       744 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-machine-id-commit.service
+-rw-r--r-- root/root      1104 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-modules-load.service
+-rw-r--r-- root/root       893 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-network-generator.service
+-rw-r--r-- root/root       857 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-networkd-persistent-storage.service
+-rw-r--r-- root/root       785 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-networkd-wait-online.service
+-rw-r--r-- root/root       804 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-networkd-wait-online@.service
+-rw-r--r-- root/root      2557 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-networkd.service
+-rw-r--r-- root/root       682 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-networkd.socket
+-rw-r--r-- root/root       686 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-pcrextend.socket
+-rw-r--r-- root/root       625 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrextend@.service
+-rw-r--r-- root/root       749 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrfs-root.service
+-rw-r--r-- root/root       773 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrfs@.service
+-rw-r--r-- root/root       809 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-file-system.service
+-rw-r--r-- root/root       839 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-firmware-code.service
+-rw-r--r-- root/root       850 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-firmware-config.service
+-rw-r--r-- root/root       806 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-machine-id.service
+-rw-r--r-- root/root       800 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-make-policy.service
+-rw-r--r-- root/root       864 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-secureboot-authority.service
+-rw-r--r-- root/root       858 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock-secureboot-policy.service
+-rw-r--r-- root/root       619 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-pcrlock.socket
+-rw-r--r-- root/root       648 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrlock@.service
+-rw-r--r-- root/root       728 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrmachine.service
+-rw-r--r-- root/root       909 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrphase-initrd.service
+-rw-r--r-- root/root       805 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrphase-sysinit.service
+-rw-r--r-- root/root       767 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pcrphase.service
+-rw-r--r-- root/root       575 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-poweroff.service
+-rw-r--r-- root/root       815 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-pstore.service
+-rw-r--r-- root/root       712 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-quotacheck-root.service
+-rw-r--r-- root/root       732 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-quotacheck@.service
+-rw-r--r-- root/root      1187 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-random-seed.service
+-rw-r--r-- root/root       568 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-reboot.service
+-rw-r--r-- root/root       758 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-remount-fs.service
+-rw-r--r-- root/root       771 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-rfkill.service
+-rw-r--r-- root/root       776 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-rfkill.socket
+-rw-r--r-- root/root       588 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-soft-reboot.service
+-rw-r--r-- root/root       920 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-storagetm.service
+-rw-r--r-- root/root       601 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-suspend-then-hibernate.service
+-rw-r--r-- root/root       556 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-suspend.service
+-rw-r--r-- root/root       731 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-sysctl.service
+-rw-r--r-- root/root      1046 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-sysext.service
+-rw-r--r-- root/root       700 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-sysext.socket
+-rw-r--r-- root/root       612 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-sysext@.service
+-rw-r--r-- root/root      1310 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-sysusers.service
+-rw-r--r-- root/root      1174 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-timedated.service
+-rw-r--r-- root/root       747 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-tmpfiles-clean.service
+-rw-r--r-- root/root       539 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-tmpfiles-clean.timer
+-rw-r--r-- root/root       852 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-tmpfiles-setup-dev-early.service
+-rw-r--r-- root/root       877 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-tmpfiles-setup-dev.service
+-rw-r--r-- root/root      1003 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-tmpfiles-setup.service
+-rw-r--r-- root/root       902 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-tpm2-setup-early.service
+-rw-r--r-- root/root       954 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-tpm2-setup.service
+-rw-r--r-- root/root       682 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-update-done.service
+-rw-r--r-- root/root       655 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-user-sessions.service
+-rw-r--r-- root/root       743 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-volatile-root.service
+-rw-r--r-- root/root       434 2026-03-13 18:36 ./usr/lib/systemd/system/time-set.target
+-rw-r--r-- root/root       487 2026-03-13 18:36 ./usr/lib/systemd/system/time-sync.target
+-rw-r--r-- root/root       458 2026-03-13 18:36 ./usr/lib/systemd/system/timers.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/timers.target.wants/
+-rw-r--r-- root/root       769 2026-03-13 18:36 ./usr/lib/systemd/system/tmp.mount
+-rw-r--r-- root/root       535 2026-03-13 18:36 ./usr/lib/systemd/system/tpm2.target
+-rw-r--r-- root/root       465 2026-03-13 18:36 ./usr/lib/systemd/system/umount.target
+-rw-r--r-- root/root       426 2026-03-13 18:36 ./usr/lib/systemd/system/usb-gadget.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/user-.slice.d/
+-rw-r--r-- root/root       458 2026-03-13 18:36 ./usr/lib/systemd/system/user-.slice.d/10-defaults.conf
+-rw-r--r-- root/root       676 2026-04-13 19:38 ./usr/lib/systemd/system/user-runtime-dir@.service
+-rw-r--r-- root/root       440 2026-03-13 18:36 ./usr/lib/systemd/system/user.slice
+-rw-r--r-- root/root      1039 2026-04-13 19:38 ./usr/lib/systemd/system/user@.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/user@.service.d/
+-rw-r--r-- root/root       605 2026-03-13 18:36 ./usr/lib/systemd/system/user@.service.d/10-login-barrier.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/user@0.service.d/
+-rw-r--r-- root/root       548 2026-03-13 18:36 ./usr/lib/systemd/system/user@0.service.d/10-login-barrier.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system-generators/
+-rwxr-xr-x root/root     23080 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-debug-generator
+-rwxr-xr-x root/root     51976 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-fstab-generator
+-rwxr-xr-x root/root     22904 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-getty-generator
+-rwxr-xr-x root/root     31288 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-gpt-auto-generator
+-rwxr-xr-x root/root     27152 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-hibernate-resume-generator
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-rc-local-generator
+-rwxr-xr-x root/root     14824 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-run-generator
+-rwxr-xr-x root/root     27056 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-ssh-generator
+-rwxr-xr-x root/root     14712 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-system-update-generator
+-rwxr-xr-x root/root     31096 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-sysv-generator
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-tpm2-generator
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system-preset/
+-rw-r--r-- root/root      1562 2026-03-13 18:36 ./usr/lib/systemd/system-preset/90-systemd.preset
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system.conf.d/
+-rw-r--r-- root/root        38 2026-04-13 19:38 ./usr/lib/systemd/system.conf.d/10-coredump-debian.conf
+-rwxr-xr-x root/root    133504 2026-04-13 19:38 ./usr/lib/systemd/systemd
+-rwxr-xr-x root/root     31096 2026-04-13 19:38 ./usr/lib/systemd/systemd-backlight
+-rwxr-xr-x root/root     18808 2026-04-13 19:38 ./usr/lib/systemd/systemd-battery-check
+-rwxr-xr-x root/root     22904 2026-04-13 19:38 ./usr/lib/systemd/systemd-binfmt
+-rwxr-xr-x root/root     14712 2026-04-13 19:38 ./usr/lib/systemd/systemd-boot-check-no-failures
+-rwxr-xr-x root/root     23024 2026-04-13 19:38 ./usr/lib/systemd/systemd-bsod
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/systemd-cgroups-agent
+-rwxr-xr-x root/root    150000 2026-04-13 19:38 ./usr/lib/systemd/systemd-executor
+-rwxr-xr-x root/root     26936 2026-04-13 19:38 ./usr/lib/systemd/systemd-fsck
+-rwxr-xr-x root/root     27000 2026-04-13 19:38 ./usr/lib/systemd/systemd-growfs
+-rwxr-xr-x root/root     27120 2026-04-13 19:38 ./usr/lib/systemd/systemd-hibernate-resume
+-rwxr-xr-x root/root     55696 2026-04-13 19:38 ./usr/lib/systemd/systemd-hostnamed
+-rwxr-xr-x root/root     22904 2026-04-13 19:38 ./usr/lib/systemd/systemd-initctl
+-rwxr-xr-x root/root    206000 2026-04-13 19:38 ./usr/lib/systemd/systemd-journald
+-rwxr-xr-x root/root     51600 2026-04-13 19:38 ./usr/lib/systemd/systemd-localed
+-rwxr-xr-x root/root    309768 2026-04-13 19:38 ./usr/lib/systemd/systemd-logind
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/systemd-makefs
+-rwxr-xr-x root/root     47896 2026-04-13 19:38 ./usr/lib/systemd/systemd-measure
+-rwxr-xr-x root/root     14832 2026-04-13 19:38 ./usr/lib/systemd/systemd-modules-load
+-rwxr-xr-x root/root     47480 2026-04-13 19:38 ./usr/lib/systemd/systemd-network-generator
+-rwxr-xr-x root/root   1862304 2026-04-13 19:38 ./usr/lib/systemd/systemd-networkd
+-rwxr-xr-x root/root     31264 2026-04-13 19:38 ./usr/lib/systemd/systemd-networkd-wait-online
+-rwxr-xr-x root/root     27192 2026-04-13 19:38 ./usr/lib/systemd/systemd-pcrextend
+-rwxr-xr-x root/root    142016 2026-04-13 19:38 ./usr/lib/systemd/systemd-pcrlock
+-rwxr-xr-x root/root     22928 2026-04-13 19:38 ./usr/lib/systemd/systemd-pstore
+-rwxr-xr-x root/root     14760 2026-04-13 19:38 ./usr/lib/systemd/systemd-quotacheck
+-rwxr-xr-x root/root     27008 2026-04-13 19:38 ./usr/lib/systemd/systemd-random-seed
+-rwxr-xr-x root/root     18736 2026-04-13 19:38 ./usr/lib/systemd/systemd-remount-fs
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/systemd-reply-password
+-rwxr-xr-x root/root     22904 2026-04-13 19:38 ./usr/lib/systemd/systemd-rfkill
+-rwxr-xr-x root/root     59776 2026-04-13 19:38 ./usr/lib/systemd/systemd-shutdown
+-rwxr-xr-x root/root     47488 2026-04-13 19:38 ./usr/lib/systemd/systemd-sleep
+-rwxr-xr-x root/root     31112 2026-04-13 19:38 ./usr/lib/systemd/systemd-socket-proxyd
+-rwxr-xr-x root/root     22904 2026-04-13 19:38 ./usr/lib/systemd/systemd-ssh-proxy
+-rwxr-xr-x root/root     51728 2026-04-13 19:38 ./usr/lib/systemd/systemd-storagetm
+-rwxr-xr-x root/root     18736 2026-04-13 19:38 ./usr/lib/systemd/systemd-sulogin-shell
+-rwxr-xr-x root/root     27120 2026-04-13 19:38 ./usr/lib/systemd/systemd-sysctl
+-rwxr-xr-x root/root      1360 2026-04-13 19:38 ./usr/lib/systemd/systemd-sysv-install
+-rwxr-xr-x root/root     43408 2026-04-13 19:38 ./usr/lib/systemd/systemd-timedated
+-rwxr-xr-x root/root     27120 2026-04-13 19:38 ./usr/lib/systemd/systemd-tpm2-setup
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/systemd-update-done
+-rwxr-xr-x root/root     22904 2026-04-13 19:38 ./usr/lib/systemd/systemd-user-runtime-dir
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/systemd-user-sessions
+-rwxr-xr-x root/root     22832 2026-04-13 19:38 ./usr/lib/systemd/systemd-volatile-root
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/systemd-xdg-autostart-condition
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/user/
+-rw-r--r-- root/root       442 2026-03-13 18:36 ./usr/lib/systemd/user/app.slice
+-rw-r--r-- root/root       446 2026-03-13 18:36 ./usr/lib/systemd/user/background.slice
+-rw-r--r-- root/root       505 2026-03-13 18:36 ./usr/lib/systemd/user/basic.target
+-rw-r--r-- root/root       427 2026-03-13 18:36 ./usr/lib/systemd/user/bluetooth.target
+-rw-r--r-- root/root       481 2026-03-13 18:36 ./usr/lib/systemd/user/capsule@.target
+-rw-r--r-- root/root       471 2026-03-13 18:36 ./usr/lib/systemd/user/default.target
+-rw-r--r-- root/root       510 2026-03-13 18:36 ./usr/lib/systemd/user/exit.target
+-rw-r--r-- root/root       576 2026-03-13 18:36 ./usr/lib/systemd/user/graphical-session-pre.target
+-rw-r--r-- root/root       492 2026-03-13 18:36 ./usr/lib/systemd/user/graphical-session.target
+-rw-r--r-- root/root       402 2026-03-13 18:36 ./usr/lib/systemd/user/paths.target
+-rw-r--r-- root/root       425 2026-03-13 18:36 ./usr/lib/systemd/user/printer.target
+-rw-r--r-- root/root       443 2026-03-13 18:36 ./usr/lib/systemd/user/session.slice
+-rw-r--r-- root/root       450 2026-03-13 18:36 ./usr/lib/systemd/user/shutdown.target
+-rw-r--r-- root/root       428 2026-03-13 18:36 ./usr/lib/systemd/user/smartcard.target
+-rw-r--r-- root/root       404 2026-03-13 18:36 ./usr/lib/systemd/user/sockets.target
+-rw-r--r-- root/root       428 2026-03-13 18:36 ./usr/lib/systemd/user/sound.target
+-rw-r--r-- root/root       598 2026-03-13 18:36 ./usr/lib/systemd/user/systemd-exit.service
+-rw-r--r-- root/root       688 2026-03-13 18:36 ./usr/lib/systemd/user/systemd-tmpfiles-clean.service
+-rw-r--r-- root/root       541 2026-03-13 18:36 ./usr/lib/systemd/user/systemd-tmpfiles-clean.timer
+-rw-r--r-- root/root       717 2026-03-13 18:36 ./usr/lib/systemd/user/systemd-tmpfiles-setup.service
+-rw-r--r-- root/root       453 2026-03-13 18:36 ./usr/lib/systemd/user/timers.target
+-rw-r--r-- root/root       477 2026-03-13 18:36 ./usr/lib/systemd/user/xdg-desktop-autostart.target
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/user-environment-generators/
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/user-environment-generators/30-systemd-environment-d-generator
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/user-generators/
+-rwxr-xr-x root/root     31096 2026-04-13 19:38 ./usr/lib/systemd/user-generators/systemd-xdg-autostart-generator
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/user-preset/
+-rw-r--r-- root/root       580 2026-03-13 18:36 ./usr/lib/systemd/user-preset/90-systemd.preset
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/user.conf.d/
+-rw-r--r-- root/root        38 2026-04-13 19:38 ./usr/lib/systemd/user.conf.d/10-coredump-debian.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/sysusers.d/
+-rw-r--r-- root/root      1693 2026-04-13 19:38 ./usr/lib/sysusers.d/basic.conf
+-rw-r--r-- root/root       314 2026-04-13 19:38 ./usr/lib/sysusers.d/systemd-journal.conf
+-rw-r--r-- root/root       342 2026-04-13 19:38 ./usr/lib/sysusers.d/systemd-network.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/tmpfiles.d/
+-rw-r--r-- root/root       431 2026-04-13 19:38 ./usr/lib/tmpfiles.d/20-systemd-shell-extra.conf
+-rw-r--r-- root/root       458 2026-04-13 19:38 ./usr/lib/tmpfiles.d/20-systemd-ssh-generator.conf
+-rw-r--r-- root/root       779 2026-04-13 19:38 ./usr/lib/tmpfiles.d/20-systemd-stub.conf
+-rw-r--r-- root/root       474 2026-03-13 18:36 ./usr/lib/tmpfiles.d/credstore.conf
+-rw-r--r-- root/root       651 2026-04-13 19:38 ./usr/lib/tmpfiles.d/debian.conf
+-rw-r--r-- root/root       363 2026-03-13 18:36 ./usr/lib/tmpfiles.d/home.conf
+-rw-r--r-- root/root      1097 2026-03-13 18:36 ./usr/lib/tmpfiles.d/journal-nocow.conf
+-rw-r--r-- root/root      1044 2026-04-13 19:38 ./usr/lib/tmpfiles.d/legacy.conf
+-rw-r--r-- root/root       852 2026-03-13 18:36 ./usr/lib/tmpfiles.d/provision.conf
+-rw-r--r-- root/root       598 2026-03-13 18:36 ./usr/lib/tmpfiles.d/systemd-network.conf
+-rw-r--r-- root/root       538 2026-03-13 18:36 ./usr/lib/tmpfiles.d/systemd-nologin.conf
+-rw-r--r-- root/root      1512 2026-03-13 18:36 ./usr/lib/tmpfiles.d/systemd-pstore.conf
+-rw-r--r-- root/root       824 2026-03-13 18:36 ./usr/lib/tmpfiles.d/systemd-tmp.conf
+-rw-r--r-- root/root      1740 2026-04-13 19:38 ./usr/lib/tmpfiles.d/systemd.conf
+-rw-r--r-- root/root       450 2026-03-13 18:36 ./usr/lib/tmpfiles.d/tmp.conf
+-rw-r--r-- root/root       467 2026-04-13 19:38 ./usr/lib/tmpfiles.d/var.conf
+-rw-r--r-- root/root       618 2026-03-13 18:36 ./usr/lib/tmpfiles.d/x11.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/udev/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/udev/rules.d/
+-rw-r--r-- root/root      4991 2026-04-13 19:38 ./usr/lib/udev/rules.d/70-uaccess.rules
+-rw-r--r-- root/root      3870 2026-04-13 19:38 ./usr/lib/udev/rules.d/71-seat.rules
+-rw-r--r-- root/root       643 2026-04-13 19:38 ./usr/lib/udev/rules.d/73-seat-late.rules
+-rw-r--r-- root/root      5451 2026-04-13 19:38 ./usr/lib/udev/rules.d/99-systemd.rules
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/bash-completion/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/bash-completion/completions/
+-rw-r--r-- root/root      8077 2026-03-13 18:36 ./usr/share/bash-completion/completions/busctl
+-rw-r--r-- root/root      2779 2026-03-13 18:36 ./usr/share/bash-completion/completions/hostnamectl
+-rw-r--r-- root/root      6561 2026-03-13 18:36 ./usr/share/bash-completion/completions/journalctl
+-rw-r--r-- root/root      1712 2026-03-13 18:36 ./usr/share/bash-completion/completions/kernel-install
+-rw-r--r-- root/root      3360 2026-03-13 18:36 ./usr/share/bash-completion/completions/localectl
+-rw-r--r-- root/root      4280 2026-03-13 18:36 ./usr/share/bash-completion/completions/loginctl
+-rw-r--r-- root/root      3197 2026-03-13 18:36 ./usr/share/bash-completion/completions/networkctl
+-rw-r--r-- root/root      4334 2026-03-13 18:36 ./usr/share/bash-completion/completions/run0
+-rw-r--r-- root/root     16144 2026-04-13 19:38 ./usr/share/bash-completion/completions/systemctl
+-rw-r--r-- root/root      8317 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-analyze
+-rw-r--r-- root/root      1914 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-cat
+-rw-r--r-- root/root      2387 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-cgls
+-rw-r--r-- root/root      2265 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-cgtop
+-rw-r--r-- root/root      2707 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-confext
+-rw-r--r-- root/root      5410 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-creds
+-rw-r--r-- root/root      1814 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-delta
+-rw-r--r-- root/root      1377 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-detect-virt
+-rw-r--r-- root/root      3890 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-dissect
+-rw-r--r-- root/root      2533 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-id128
+-rw-r--r-- root/root      1765 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-path
+-rw-r--r-- root/root      5629 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-run
+-rw-r--r-- root/root      2468 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-sysext
+-rw-r--r-- root/root      1819 2026-03-13 18:36 ./usr/share/bash-completion/completions/systemd-vpick
+-rw-r--r-- root/root      3040 2026-03-13 18:36 ./usr/share/bash-completion/completions/timedatectl
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/bug/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/bug/systemd/
+-rw-r--r-- root/root        92 2026-04-13 19:38 ./usr/share/bug/systemd/control
+-rw-r--r-- root/root       448 2026-04-13 19:38 ./usr/share/bug/systemd/presubj
+-rwxr-xr-x root/root      1682 2026-04-13 19:38 ./usr/share/bug/systemd/script
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/dbus-1/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/dbus-1/services/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/dbus-1/system-services/
+-rw-r--r-- root/root       432 2026-03-13 18:36 ./usr/share/dbus-1/system-services/org.freedesktop.hostname1.service
+-rw-r--r-- root/root       463 2026-03-13 18:36 ./usr/share/dbus-1/system-services/org.freedesktop.locale1.service
+-rw-r--r-- root/root       461 2026-03-13 18:36 ./usr/share/dbus-1/system-services/org.freedesktop.login1.service
+-rw-r--r-- root/root       465 2026-03-13 18:36 ./usr/share/dbus-1/system-services/org.freedesktop.network1.service
+-rw-r--r-- root/root       412 2026-03-13 18:36 ./usr/share/dbus-1/system-services/org.freedesktop.systemd1.service
+-rw-r--r-- root/root       467 2026-03-13 18:36 ./usr/share/dbus-1/system-services/org.freedesktop.timedate1.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/dbus-1/system.d/
+-rw-r--r-- root/root       994 2026-03-13 18:36 ./usr/share/dbus-1/system.d/org.freedesktop.hostname1.conf
+-rw-r--r-- root/root       984 2026-03-13 18:36 ./usr/share/dbus-1/system.d/org.freedesktop.locale1.conf
+-rw-r--r-- root/root     17553 2026-03-13 18:36 ./usr/share/dbus-1/system.d/org.freedesktop.login1.conf
+-rw-r--r-- root/root       954 2026-03-13 18:36 ./usr/share/dbus-1/system.d/org.freedesktop.network1.conf
+-rw-r--r-- root/root     22014 2026-03-13 18:36 ./usr/share/dbus-1/system.d/org.freedesktop.systemd1.conf
+-rw-r--r-- root/root       994 2026-03-13 18:36 ./usr/share/dbus-1/system.d/org.freedesktop.timedate1.conf
+-rw-r--r-- root/root      1384 2026-04-13 19:38 ./usr/share/dbus-1/system.d/systemd-localed-read-only.conf
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/systemd/
+-rw-r--r-- root/root     14336 2026-03-13 18:36 ./usr/share/doc/systemd/CODING_STYLE.md.gz
+-rw-r--r-- root/root      3338 2026-03-13 18:36 ./usr/share/doc/systemd/DISTRO_PORTING.md
+-rw-r--r-- root/root     13157 2026-03-13 18:36 ./usr/share/doc/systemd/ENVIRONMENT.md.gz
+-rw-r--r-- root/root      6880 2026-03-13 18:36 ./usr/share/doc/systemd/HACKING.md.gz
+-rw-r--r-- root/root      3292 2026-04-13 19:38 ./usr/share/doc/systemd/NEWS.Debian.gz
+-rw-r--r-- root/root    336182 2026-03-13 18:36 ./usr/share/doc/systemd/NEWS.gz
+-rw-r--r-- root/root      2109 2026-04-13 19:38 ./usr/share/doc/systemd/README.Debian.gz
+-rw-r--r-- root/root      7740 2026-03-13 18:36 ./usr/share/doc/systemd/README.gz
+-rw-r--r-- root/root      1041 2026-03-13 18:36 ./usr/share/doc/systemd/README.logs
+-rw-r--r-- root/root      3169 2026-03-13 18:36 ./usr/share/doc/systemd/TRANSIENT-SETTINGS.md.gz
+-rw-r--r-- root/root      2416 2026-03-13 18:36 ./usr/share/doc/systemd/TRANSLATORS.md
+-rw-r--r-- root/root      6877 2026-03-13 18:36 ./usr/share/doc/systemd/UIDS-GIDS.md.gz
+-rw-r--r-- root/root     49262 2026-04-13 19:38 ./usr/share/doc/systemd/changelog.Debian.gz
+-rw-r--r-- root/root     12521 2026-04-13 19:38 ./usr/share/doc/systemd/copyright
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/lintian/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/lintian/overrides/
+-rw-r--r-- root/root       589 2026-04-13 19:38 ./usr/share/lintian/overrides/systemd
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/be/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/be/LC_MESSAGES/
+-rw-r--r-- root/root     34330 2026-04-13 19:38 ./usr/share/locale/be/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/be@latin/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/be@latin/LC_MESSAGES/
+-rw-r--r-- root/root     15962 2026-04-13 19:38 ./usr/share/locale/be@latin/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/bg/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/bg/LC_MESSAGES/
+-rw-r--r-- root/root     35860 2026-04-13 19:38 ./usr/share/locale/bg/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ca/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ca/LC_MESSAGES/
+-rw-r--r-- root/root     16908 2026-04-13 19:38 ./usr/share/locale/ca/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/cs/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/cs/LC_MESSAGES/
+-rw-r--r-- root/root     30142 2026-04-13 19:38 ./usr/share/locale/cs/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/da/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/da/LC_MESSAGES/
+-rw-r--r-- root/root     24232 2026-04-13 19:38 ./usr/share/locale/da/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/de/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/de/LC_MESSAGES/
+-rw-r--r-- root/root     34496 2026-04-13 19:38 ./usr/share/locale/de/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/el/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/el/LC_MESSAGES/
+-rw-r--r-- root/root     18705 2026-04-13 19:38 ./usr/share/locale/el/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/es/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/es/LC_MESSAGES/
+-rw-r--r-- root/root     22032 2026-04-13 19:38 ./usr/share/locale/es/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/et/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/et/LC_MESSAGES/
+-rw-r--r-- root/root     16373 2026-04-13 19:38 ./usr/share/locale/et/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/eu/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/eu/LC_MESSAGES/
+-rw-r--r-- root/root      4532 2026-04-13 19:38 ./usr/share/locale/eu/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/fi/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/fi/LC_MESSAGES/
+-rw-r--r-- root/root     33753 2026-04-13 19:38 ./usr/share/locale/fi/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/fr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/fr/LC_MESSAGES/
+-rw-r--r-- root/root     36529 2026-04-13 19:38 ./usr/share/locale/fr/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/gl/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/gl/LC_MESSAGES/
+-rw-r--r-- root/root     25730 2026-04-13 19:38 ./usr/share/locale/gl/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/he/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/he/LC_MESSAGES/
+-rw-r--r-- root/root     36850 2026-04-13 19:38 ./usr/share/locale/he/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/hi/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/hi/LC_MESSAGES/
+-rw-r--r-- root/root     49860 2026-04-13 19:38 ./usr/share/locale/hi/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/hr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/hr/LC_MESSAGES/
+-rw-r--r-- root/root     25559 2026-04-13 19:38 ./usr/share/locale/hr/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/hu/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/hu/LC_MESSAGES/
+-rw-r--r-- root/root     31932 2026-04-13 19:38 ./usr/share/locale/hu/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/id/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/id/LC_MESSAGES/
+-rw-r--r-- root/root     33070 2026-04-13 19:38 ./usr/share/locale/id/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/it/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/it/LC_MESSAGES/
+-rw-r--r-- root/root     30569 2026-04-13 19:38 ./usr/share/locale/it/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ja/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ja/LC_MESSAGES/
+-rw-r--r-- root/root     37264 2026-04-13 19:38 ./usr/share/locale/ja/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ka/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ka/LC_MESSAGES/
+-rw-r--r-- root/root     56841 2026-04-13 19:38 ./usr/share/locale/ka/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/kab/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/kab/LC_MESSAGES/
+-rw-r--r-- root/root       944 2026-04-13 19:38 ./usr/share/locale/kab/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ko/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ko/LC_MESSAGES/
+-rw-r--r-- root/root     35190 2026-04-13 19:38 ./usr/share/locale/ko/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/lt/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/lt/LC_MESSAGES/
+-rw-r--r-- root/root     21366 2026-04-13 19:38 ./usr/share/locale/lt/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/nl/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/nl/LC_MESSAGES/
+-rw-r--r-- root/root     33180 2026-04-13 19:38 ./usr/share/locale/nl/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pa/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pa/LC_MESSAGES/
+-rw-r--r-- root/root     12452 2026-04-13 19:38 ./usr/share/locale/pa/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pl/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pl/LC_MESSAGES/
+-rw-r--r-- root/root     35355 2026-04-13 19:38 ./usr/share/locale/pl/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pt/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pt/LC_MESSAGES/
+-rw-r--r-- root/root     31309 2026-04-13 19:38 ./usr/share/locale/pt/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pt_BR/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/pt_BR/LC_MESSAGES/
+-rw-r--r-- root/root     35308 2026-04-13 19:38 ./usr/share/locale/pt_BR/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ro/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ro/LC_MESSAGES/
+-rw-r--r-- root/root     25786 2026-04-13 19:38 ./usr/share/locale/ro/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ru/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/ru/LC_MESSAGES/
+-rw-r--r-- root/root     51027 2026-04-13 19:38 ./usr/share/locale/ru/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/si/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/si/LC_MESSAGES/
+-rw-r--r-- root/root       524 2026-04-13 19:38 ./usr/share/locale/si/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sk/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sk/LC_MESSAGES/
+-rw-r--r-- root/root      7118 2026-04-13 19:38 ./usr/share/locale/sk/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sl/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sl/LC_MESSAGES/
+-rw-r--r-- root/root     34968 2026-04-13 19:38 ./usr/share/locale/sl/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sr/LC_MESSAGES/
+-rw-r--r-- root/root     24271 2026-04-13 19:38 ./usr/share/locale/sr/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sv/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/sv/LC_MESSAGES/
+-rw-r--r-- root/root     33958 2026-04-13 19:38 ./usr/share/locale/sv/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/tr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/tr/LC_MESSAGES/
+-rw-r--r-- root/root     35810 2026-04-13 19:38 ./usr/share/locale/tr/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/uk/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/uk/LC_MESSAGES/
+-rw-r--r-- root/root     48281 2026-04-13 19:38 ./usr/share/locale/uk/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/zh_CN/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/zh_CN/LC_MESSAGES/
+-rw-r--r-- root/root     28786 2026-04-13 19:38 ./usr/share/locale/zh_CN/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/zh_TW/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/locale/zh_TW/LC_MESSAGES/
+-rw-r--r-- root/root     25622 2026-04-13 19:38 ./usr/share/locale/zh_TW/LC_MESSAGES/systemd.mo
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man1/
+-rw-r--r-- root/root      5414 2026-04-13 19:38 ./usr/share/man/man1/busctl.1.gz
+-rw-r--r-- root/root      3050 2026-04-13 19:38 ./usr/share/man/man1/hostnamectl.1.gz
+-rw-r--r-- root/root     14358 2026-04-13 19:38 ./usr/share/man/man1/journalctl.1.gz
+-rw-r--r-- root/root      5364 2026-04-13 19:38 ./usr/share/man/man1/localectl.1.gz
+-rw-r--r-- root/root      6941 2026-04-13 19:38 ./usr/share/man/man1/loginctl.1.gz
+-rw-r--r-- root/root      4837 2026-04-13 19:38 ./usr/share/man/man1/networkctl.1.gz
+-rw-r--r-- root/root      3316 2026-04-13 19:38 ./usr/share/man/man1/run0.1.gz
+-rw-r--r-- root/root     30549 2026-04-13 19:38 ./usr/share/man/man1/systemctl.1.gz
+-rw-r--r-- root/root       905 2026-04-13 19:38 ./usr/share/man/man1/systemd-ac-power.1.gz
+-rw-r--r-- root/root     19000 2026-04-13 19:38 ./usr/share/man/man1/systemd-analyze.1.gz
+-rw-r--r-- root/root      3281 2026-04-13 19:38 ./usr/share/man/man1/systemd-ask-password.1.gz
+-rw-r--r-- root/root      1912 2026-04-13 19:38 ./usr/share/man/man1/systemd-cat.1.gz
+-rw-r--r-- root/root      1225 2026-04-13 19:38 ./usr/share/man/man1/systemd-cgls.1.gz
+-rw-r--r-- root/root      2749 2026-04-13 19:38 ./usr/share/man/man1/systemd-cgtop.1.gz
+-rw-r--r-- root/root      6884 2026-04-13 19:38 ./usr/share/man/man1/systemd-creds.1.gz
+-rw-r--r-- root/root      1639 2026-04-13 19:38 ./usr/share/man/man1/systemd-delta.1.gz
+-rw-r--r-- root/root      2874 2026-04-13 19:38 ./usr/share/man/man1/systemd-detect-virt.1.gz
+-rw-r--r-- root/root      1881 2026-04-13 19:38 ./usr/share/man/man1/systemd-escape.1.gz
+-rw-r--r-- root/root      4158 2026-04-13 19:38 ./usr/share/man/man1/systemd-firstboot.1.gz
+-rw-r--r-- root/root      2402 2026-04-13 19:38 ./usr/share/man/man1/systemd-id128.1.gz
+-rw-r--r-- root/root      4622 2026-04-13 19:38 ./usr/share/man/man1/systemd-inhibit.1.gz
+-rw-r--r-- root/root      2089 2026-04-13 19:38 ./usr/share/man/man1/systemd-machine-id-setup.1.gz
+-rw-r--r-- root/root      5543 2026-04-13 19:38 ./usr/share/man/man1/systemd-measure.1.gz
+-rw-r--r-- root/root      4829 2026-04-13 19:38 ./usr/share/man/man1/systemd-mount.1.gz
+-rw-r--r-- root/root      3574 2026-04-13 19:38 ./usr/share/man/man1/systemd-notify.1.gz
+-rw-r--r-- root/root      1022 2026-04-13 19:38 ./usr/share/man/man1/systemd-path.1.gz
+-rw-r--r-- root/root      8016 2026-04-13 19:38 ./usr/share/man/man1/systemd-run.1.gz
+-rw-r--r-- root/root      1837 2026-04-13 19:38 ./usr/share/man/man1/systemd-socket-activate.1.gz
+-rw-r--r-- root/root      1594 2026-04-13 19:38 ./usr/share/man/man1/systemd-ssh-proxy.1.gz
+-rw-r--r-- root/root      1486 2026-04-13 19:38 ./usr/share/man/man1/systemd-stdio-bridge.1.gz
+-rw-r--r-- root/root      1131 2026-04-13 19:38 ./usr/share/man/man1/systemd-tty-ask-password-agent.1.gz
+-rw-r--r-- root/root      2129 2026-04-13 19:38 ./usr/share/man/man1/systemd-vpick.1.gz
+-rw-r--r-- root/root     17587 2026-04-13 19:38 ./usr/share/man/man1/systemd.1.gz
+-rw-r--r-- root/root      6408 2026-04-13 19:38 ./usr/share/man/man1/timedatectl.1.gz
+-rw-r--r-- root/root      4031 2026-04-13 19:38 ./usr/share/man/man1/varlinkctl.1.gz
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man5/
+-rw-r--r-- root/root      1832 2026-04-13 19:38 ./usr/share/man/man5/binfmt.d.5.gz
+-rw-r--r-- root/root      1843 2026-04-13 19:38 ./usr/share/man/man5/capsule@.service.5.gz
+-rw-r--r-- root/root      2818 2026-04-13 19:38 ./usr/share/man/man5/environment.d.5.gz
+-rw-r--r-- root/root      1754 2026-04-13 19:38 ./usr/share/man/man5/hostname.5.gz
+-rw-r--r-- root/root      2256 2026-04-13 19:38 ./usr/share/man/man5/iocost.conf.5.gz
+-rw-r--r-- root/root      8612 2026-04-13 19:38 ./usr/share/man/man5/journald.conf.5.gz
+-rw-r--r-- root/root      1368 2026-04-13 19:38 ./usr/share/man/man5/locale.conf.5.gz
+-rw-r--r-- root/root       935 2026-04-13 19:38 ./usr/share/man/man5/localtime.5.gz
+-rw-r--r-- root/root      5910 2026-04-13 19:38 ./usr/share/man/man5/logind.conf.5.gz
+-rw-r--r-- root/root      3385 2026-04-13 19:38 ./usr/share/man/man5/machine-id.5.gz
+-rw-r--r-- root/root      1993 2026-04-13 19:38 ./usr/share/man/man5/machine-info.5.gz
+-rw-r--r-- root/root      1804 2026-04-13 19:38 ./usr/share/man/man5/modules-load.d.5.gz
+-rw-r--r-- root/root      4433 2026-04-13 19:38 ./usr/share/man/man5/networkd.conf.5.gz
+-rw-r--r-- root/root      3810 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.LogControl1.5.gz
+-rw-r--r-- root/root      5614 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.hostname1.5.gz
+-rw-r--r-- root/root      2118 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.locale1.5.gz
+-rw-r--r-- root/root     12612 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.login1.5.gz
+-rw-r--r-- root/root      5971 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.machine1.5.gz
+-rw-r--r-- root/root      1898 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.network1.5.gz
+-rw-r--r-- root/root      4196 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.portable1.5.gz
+-rw-r--r-- root/root     38956 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.systemd1.5.gz
+-rw-r--r-- root/root      2492 2026-04-13 19:38 ./usr/share/man/man5/org.freedesktop.timedate1.5.gz
+-rw-r--r-- root/root      9294 2026-04-13 19:38 ./usr/share/man/man5/os-release.5.gz
+-rw-r--r-- root/root      2218 2026-04-13 19:38 ./usr/share/man/man5/pstore.conf.5.gz
+-rw-r--r-- root/root      3291 2026-04-13 19:38 ./usr/share/man/man5/sysctl.d.5.gz
+-rw-r--r-- root/root      3633 2026-04-13 19:38 ./usr/share/man/man5/systemd-sleep.conf.5.gz
+-rw-r--r-- root/root      9451 2026-04-13 19:38 ./usr/share/man/man5/systemd-system.conf.5.gz
+-rw-r--r-- root/root      2321 2026-04-13 19:38 ./usr/share/man/man5/systemd.automount.5.gz
+-rw-r--r-- root/root      2290 2026-04-13 19:38 ./usr/share/man/man5/systemd.device.5.gz
+-rw-r--r-- root/root     55717 2026-04-13 19:38 ./usr/share/man/man5/systemd.exec.5.gz
+-rw-r--r-- root/root      2335 2026-04-13 19:38 ./usr/share/man/man5/systemd.kill.5.gz
+-rw-r--r-- root/root      6427 2026-04-13 19:38 ./usr/share/man/man5/systemd.mount.5.gz
+-rw-r--r-- root/root     19555 2026-04-13 19:38 ./usr/share/man/man5/systemd.netdev.5.gz
+-rw-r--r-- root/root     46875 2026-04-13 19:38 ./usr/share/man/man5/systemd.network.5.gz
+-rw-r--r-- root/root      3011 2026-04-13 19:38 ./usr/share/man/man5/systemd.path.5.gz
+-rw-r--r-- root/root      2423 2026-04-13 19:38 ./usr/share/man/man5/systemd.pcrlock.5.gz
+-rw-r--r-- root/root      3288 2026-04-13 19:38 ./usr/share/man/man5/systemd.preset.5.gz
+-rw-r--r-- root/root     17667 2026-04-13 19:38 ./usr/share/man/man5/systemd.resource-control.5.gz
+-rw-r--r-- root/root      2697 2026-04-13 19:38 ./usr/share/man/man5/systemd.scope.5.gz
+-rw-r--r-- root/root     21813 2026-04-13 19:38 ./usr/share/man/man5/systemd.service.5.gz
+-rw-r--r-- root/root      1713 2026-04-13 19:38 ./usr/share/man/man5/systemd.slice.5.gz
+-rw-r--r-- root/root     10788 2026-04-13 19:38 ./usr/share/man/man5/systemd.socket.5.gz
+-rw-r--r-- root/root      2944 2026-04-13 19:38 ./usr/share/man/man5/systemd.swap.5.gz
+-rw-r--r-- root/root      1988 2026-04-13 19:38 ./usr/share/man/man5/systemd.target.5.gz
+-rw-r--r-- root/root      5927 2026-04-13 19:38 ./usr/share/man/man5/systemd.timer.5.gz
+-rw-r--r-- root/root     28287 2026-04-13 19:38 ./usr/share/man/man5/systemd.unit.5.gz
+-rw-r--r-- root/root      4316 2026-04-13 19:38 ./usr/share/man/man5/sysusers.d.5.gz
+-rw-r--r-- root/root     11412 2026-04-13 19:38 ./usr/share/man/man5/tmpfiles.d.5.gz
+-rw-r--r-- root/root      2475 2026-04-13 19:38 ./usr/share/man/man5/user@.service.5.gz
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man7/
+-rw-r--r-- root/root      4705 2026-04-13 19:38 ./usr/share/man/man7/bootup.7.gz
+-rw-r--r-- root/root     10119 2026-04-13 19:38 ./usr/share/man/man7/daemon.7.gz
+-rw-r--r-- root/root       890 2026-04-13 19:38 ./usr/share/man/man7/file-hierarchy.7.gz
+-rw-r--r-- root/root      5534 2026-04-13 19:38 ./usr/share/man/man7/kernel-command-line.7.gz
+-rw-r--r-- root/root      1082 2026-04-13 19:38 ./usr/share/man/man7/smbios-type-11.7.gz
+-rw-r--r-- root/root     58169 2026-04-13 19:38 ./usr/share/man/man7/systemd.directives.7.gz
+-rw-r--r-- root/root      2566 2026-04-13 19:38 ./usr/share/man/man7/systemd.environment-generator.7.gz
+-rw-r--r-- root/root      5417 2026-04-13 19:38 ./usr/share/man/man7/systemd.generator.7.gz
+-rw-r--r-- root/root      2995 2026-04-13 19:38 ./usr/share/man/man7/systemd.image-policy.7.gz
+-rw-r--r-- root/root     15059 2026-04-13 19:38 ./usr/share/man/man7/systemd.index.7.gz
+-rw-r--r-- root/root      5669 2026-04-13 19:38 ./usr/share/man/man7/systemd.journal-fields.7.gz
+-rw-r--r-- root/root      6764 2026-04-13 19:38 ./usr/share/man/man7/systemd.net-naming-scheme.7.gz
+-rw-r--r-- root/root      2702 2026-04-13 19:38 ./usr/share/man/man7/systemd.offline-updates.7.gz
+-rw-r--r-- root/root     12685 2026-04-13 19:38 ./usr/share/man/man7/systemd.special.7.gz
+-rw-r--r-- root/root      2630 2026-04-13 19:38 ./usr/share/man/man7/systemd.syntax.7.gz
+-rw-r--r-- root/root      3311 2026-04-13 19:38 ./usr/share/man/man7/systemd.system-credentials.7.gz
+-rw-r--r-- root/root      4636 2026-04-13 19:38 ./usr/share/man/man7/systemd.time.7.gz
+-rw-r--r-- root/root      2519 2026-04-13 19:38 ./usr/share/man/man7/systemd.v.7.gz
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man8/
+-rw-r--r-- root/root      7649 2026-04-13 19:38 ./usr/share/man/man8/kernel-install.8.gz
+-rw-r--r-- root/root      1497 2026-04-13 19:38 ./usr/share/man/man8/pam_systemd_loadkey.8.gz
+-rw-r--r-- root/root       888 2026-04-13 19:38 ./usr/share/man/man8/systemd-ask-password-console.service.8.gz
+-rw-r--r-- root/root      1035 2026-04-13 19:38 ./usr/share/man/man8/systemd-backlight@.service.8.gz
+-rw-r--r-- root/root      1076 2026-04-13 19:38 ./usr/share/man/man8/systemd-battery-check.service.8.gz
+-rw-r--r-- root/root       856 2026-04-13 19:38 ./usr/share/man/man8/systemd-binfmt.service.8.gz
+-rw-r--r-- root/root       779 2026-04-13 19:38 ./usr/share/man/man8/systemd-boot-check-no-failures.service.8.gz
+-rw-r--r-- root/root       985 2026-04-13 19:38 ./usr/share/man/man8/systemd-bsod.service.8.gz
+-rw-r--r-- root/root      1494 2026-04-13 19:38 ./usr/share/man/man8/systemd-debug-generator.8.gz
+-rw-r--r-- root/root       570 2026-04-13 19:38 ./usr/share/man/man8/systemd-environment-d-generator.8.gz
+-rw-r--r-- root/root      1465 2026-04-13 19:38 ./usr/share/man/man8/systemd-fsck@.service.8.gz
+-rw-r--r-- root/root      3483 2026-04-13 19:38 ./usr/share/man/man8/systemd-fstab-generator.8.gz
+-rw-r--r-- root/root      1531 2026-04-13 19:38 ./usr/share/man/man8/systemd-getty-generator.8.gz
+-rw-r--r-- root/root      4221 2026-04-13 19:38 ./usr/share/man/man8/systemd-gpt-auto-generator.8.gz
+-rw-r--r-- root/root       950 2026-04-13 19:38 ./usr/share/man/man8/systemd-hibernate-resume-generator.8.gz
+-rw-r--r-- root/root       995 2026-04-13 19:38 ./usr/share/man/man8/systemd-hibernate-resume.service.8.gz
+-rw-r--r-- root/root       978 2026-04-13 19:38 ./usr/share/man/man8/systemd-hostnamed.service.8.gz
+-rw-r--r-- root/root       569 2026-04-13 19:38 ./usr/share/man/man8/systemd-initctl.service.8.gz
+-rw-r--r-- root/root      5232 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald.service.8.gz
+-rw-r--r-- root/root       691 2026-04-13 19:38 ./usr/share/man/man8/systemd-localed.service.8.gz
+-rw-r--r-- root/root      1529 2026-04-13 19:38 ./usr/share/man/man8/systemd-logind.service.8.gz
+-rw-r--r-- root/root       947 2026-04-13 19:38 ./usr/share/man/man8/systemd-machine-id-commit.service.8.gz
+-rw-r--r-- root/root      1220 2026-04-13 19:38 ./usr/share/man/man8/systemd-makefs@.service.8.gz
+-rw-r--r-- root/root       790 2026-04-13 19:38 ./usr/share/man/man8/systemd-modules-load.service.8.gz
+-rw-r--r-- root/root      1423 2026-04-13 19:38 ./usr/share/man/man8/systemd-network-generator.service.8.gz
+-rw-r--r-- root/root      1883 2026-04-13 19:38 ./usr/share/man/man8/systemd-networkd-wait-online.service.8.gz
+-rw-r--r-- root/root      1368 2026-04-13 19:38 ./usr/share/man/man8/systemd-networkd.service.8.gz
+-rw-r--r-- root/root      6520 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock.8.gz
+-rw-r--r-- root/root      3414 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrphase.service.8.gz
+-rw-r--r-- root/root      1512 2026-04-13 19:38 ./usr/share/man/man8/systemd-poweroff.service.8.gz
+-rw-r--r-- root/root      1712 2026-04-13 19:38 ./usr/share/man/man8/systemd-pstore.service.8.gz
+-rw-r--r-- root/root       776 2026-04-13 19:38 ./usr/share/man/man8/systemd-quotacheck.service.8.gz
+-rw-r--r-- root/root      1766 2026-04-13 19:38 ./usr/share/man/man8/systemd-random-seed.service.8.gz
+-rw-r--r-- root/root      1219 2026-04-13 19:38 ./usr/share/man/man8/systemd-rc-local-generator.8.gz
+-rw-r--r-- root/root      1097 2026-04-13 19:38 ./usr/share/man/man8/systemd-remount-fs.service.8.gz
+-rw-r--r-- root/root       736 2026-04-13 19:38 ./usr/share/man/man8/systemd-rfkill.service.8.gz
+-rw-r--r-- root/root      1361 2026-04-13 19:38 ./usr/share/man/man8/systemd-run-generator.8.gz
+-rw-r--r-- root/root      1919 2026-04-13 19:38 ./usr/share/man/man8/systemd-socket-proxyd.8.gz
+-rw-r--r-- root/root      5904 2026-04-13 19:38 ./usr/share/man/man8/systemd-soft-reboot.service.8.gz
+-rw-r--r-- root/root      2019 2026-04-13 19:38 ./usr/share/man/man8/systemd-ssh-generator.8.gz
+-rw-r--r-- root/root      1841 2026-04-13 19:38 ./usr/share/man/man8/systemd-storagetm.service.8.gz
+-rw-r--r-- root/root      1785 2026-04-13 19:38 ./usr/share/man/man8/systemd-suspend.service.8.gz
+-rw-r--r-- root/root      1851 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysctl.service.8.gz
+-rw-r--r-- root/root      6761 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysext.8.gz
+-rw-r--r-- root/root       591 2026-04-13 19:38 ./usr/share/man/man8/systemd-system-update-generator.8.gz
+-rw-r--r-- root/root      3279 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysusers.8.gz
+-rw-r--r-- root/root      1226 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysv-generator.8.gz
+-rw-r--r-- root/root      1428 2026-04-13 19:38 ./usr/share/man/man8/systemd-timedated.service.8.gz
+-rw-r--r-- root/root      7402 2026-04-13 19:38 ./usr/share/man/man8/systemd-tmpfiles.8.gz
+-rw-r--r-- root/root       889 2026-04-13 19:38 ./usr/share/man/man8/systemd-tpm2-generator.8.gz
+-rw-r--r-- root/root       862 2026-04-13 19:38 ./usr/share/man/man8/systemd-tpm2-setup.service.8.gz
+-rw-r--r-- root/root       941 2026-04-13 19:38 ./usr/share/man/man8/systemd-udev-settle.service.8.gz
+-rw-r--r-- root/root      1009 2026-04-13 19:38 ./usr/share/man/man8/systemd-update-done.service.8.gz
+-rw-r--r-- root/root       608 2026-04-13 19:38 ./usr/share/man/man8/systemd-user-sessions.service.8.gz
+-rw-r--r-- root/root       862 2026-04-13 19:38 ./usr/share/man/man8/systemd-volatile-root.service.8.gz
+-rw-r--r-- root/root      1286 2026-04-13 19:38 ./usr/share/man/man8/systemd-xdg-autostart-generator.8.gz
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/mime/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/mime/packages/
+-rw-r--r-- root/root      1903 2026-03-13 18:36 ./usr/share/mime/packages/io.systemd.xml
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/polkit-1/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/polkit-1/actions/
+-rw-r--r-- root/root      1872 2026-03-13 18:36 ./usr/share/polkit-1/actions/io.systemd.credentials.policy
+-rw-r--r-- root/root      4160 2026-03-13 18:36 ./usr/share/polkit-1/actions/org.freedesktop.hostname1.policy
+-rw-r--r-- root/root      1902 2026-03-13 18:36 ./usr/share/polkit-1/actions/org.freedesktop.locale1.policy
+-rw-r--r-- root/root     25154 2026-03-13 18:36 ./usr/share/polkit-1/actions/org.freedesktop.login1.policy
+-rw-r--r-- root/root     10975 2026-03-13 18:36 ./usr/share/polkit-1/actions/org.freedesktop.network1.policy
+-rw-r--r-- root/root      4385 2026-04-13 19:38 ./usr/share/polkit-1/actions/org.freedesktop.systemd1.policy
+-rw-r--r-- root/root      3104 2026-03-13 18:36 ./usr/share/polkit-1/actions/org.freedesktop.timedate1.policy
+-rw-r--r-- root/root      1342 2026-03-13 18:36 ./usr/share/polkit-1/actions/org.freedesktop.timesync1.policy
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/polkit-1/rules.d/
+-rw-r--r-- root/root       527 2026-03-13 18:36 ./usr/share/polkit-1/rules.d/systemd-networkd.rules
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/systemd/
+-rw-r--r-- root/root      3854 2026-03-13 18:36 ./usr/share/systemd/kbd-model-map
+-rw-r--r-- root/root       218 2026-03-13 18:36 ./usr/share/systemd/language-fallback-map
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/zsh/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/zsh/vendor-completions/
+-rw-r--r-- root/root     10565 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_busctl
+-rw-r--r-- root/root      2835 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_hostnamectl
+-rw-r--r-- root/root      8080 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_journalctl
+-rw-r--r-- root/root       862 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_kernel-install
+-rw-r--r-- root/root      3875 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_localectl
+-rw-r--r-- root/root      6511 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_loginctl
+-rw-r--r-- root/root      2503 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_networkctl
+-rw-r--r-- root/root      2739 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_run0
+-rw-r--r-- root/root       128 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_sd_hosts_or_user_at_host
+-rw-r--r-- root/root       318 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_sd_outputmodes
+-rw-r--r-- root/root       263 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_sd_unit_files
+-rw-r--r-- root/root     21512 2026-04-13 19:38 ./usr/share/zsh/vendor-completions/_systemctl
+-rw-r--r-- root/root      4099 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd
+-rw-r--r-- root/root      5735 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd-analyze
+-rw-r--r-- root/root       645 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd-delta
+-rw-r--r-- root/root      1324 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd-inhibit
+-rw-r--r-- root/root       322 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd-path
+-rw-r--r-- root/root      4605 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd-run
+-rw-r--r-- root/root      1521 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_systemd-tmpfiles
+-rw-r--r-- root/root      2211 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_timedatectl
+-rw-r--r-- root/root      2267 2026-03-13 18:36 ./usr/share/zsh/vendor-completions/_varlinkctl
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./var/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./var/lib/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./var/lib/systemd/
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./etc/modules-load.d/modules.conf -> ../modules
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./etc/profile.d/70-systemd-shell-extra.sh -> /usr/lib/systemd/profile.d/70-systemd-shell-extra.sh
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf -> /usr/lib/systemd/ssh_config.d/20-systemd-ssh-proxy.conf
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./etc/xdg/systemd/user -> ../../systemd/user
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/bin/run0 -> systemd-run
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/bin/systemd-confext -> systemd-sysext
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/bin/systemd-umount -> systemd-mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/environment.d/99-environment.conf -> /etc/environment
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/autovt@.service -> getty@.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/cryptdisks-early.service -> /dev/null
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/cryptdisks.service -> /dev/null
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/ctrl-alt-del.target -> reboot.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/dbus-org.freedesktop.hostname1.service -> systemd-hostnamed.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/dbus-org.freedesktop.locale1.service -> systemd-localed.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/dbus-org.freedesktop.login1.service -> systemd-logind.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/dbus-org.freedesktop.timedate1.service -> systemd-timedated.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/default.target -> graphical.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/getty.target.wants/getty-static.service -> ../getty-static.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/hwclock.service -> /dev/null
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/initrd.target.wants/systemd-battery-check.service -> ../systemd-battery-check.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/initrd.target.wants/systemd-bsod.service -> ../systemd-bsod.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/initrd.target.wants/systemd-pcrphase-initrd.service -> ../systemd-pcrphase-initrd.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/kmod.service -> systemd-modules-load.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/local-fs.target.wants/run-lock.mount -> ../run-lock.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/local-fs.target.wants/tmp.mount -> ../tmp.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/multi-user.target.wants/getty.target -> ../getty.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/multi-user.target.wants/systemd-ask-password-wall.path -> ../systemd-ask-password-wall.path
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/multi-user.target.wants/systemd-logind.service -> ../systemd-logind.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/multi-user.target.wants/systemd-user-sessions.service -> ../systemd-user-sessions.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/procps.service -> systemd-sysctl.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel0.target -> poweroff.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel1.target -> rescue.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel2.target -> multi-user.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel3.target -> multi-user.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel4.target -> multi-user.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel5.target -> graphical.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/runlevel6.target -> reboot.target
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-creds.socket -> ../systemd-creds.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-hostnamed.socket -> ../systemd-hostnamed.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-initctl.socket -> ../systemd-initctl.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-journald-dev-log.socket -> ../systemd-journald-dev-log.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-journald.socket -> ../systemd-journald.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-pcrextend.socket -> ../systemd-pcrextend.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-pcrlock.socket -> ../systemd-pcrlock.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-sysext.socket -> ../systemd-sysext.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/dev-hugepages.mount -> ../dev-hugepages.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/dev-mqueue.mount -> ../dev-mqueue.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/kmod-static-nodes.service -> ../kmod-static-nodes.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/ldconfig.service -> ../ldconfig.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/proc-sys-fs-binfmt_misc.automount -> ../proc-sys-fs-binfmt_misc.automount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/sys-fs-fuse-connections.mount -> ../sys-fs-fuse-connections.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/sys-kernel-config.mount -> ../sys-kernel-config.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/sys-kernel-debug.mount -> ../sys-kernel-debug.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/sys-kernel-tracing.mount -> ../sys-kernel-tracing.mount
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-ask-password-console.path -> ../systemd-ask-password-console.path
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-binfmt.service -> ../systemd-binfmt.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-firstboot.service -> ../systemd-firstboot.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-hibernate-clear.service -> ../systemd-hibernate-clear.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-journal-catalog-update.service -> ../systemd-journal-catalog-update.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-journal-flush.service -> ../systemd-journal-flush.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-journald.service -> ../systemd-journald.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-machine-id-commit.service -> ../systemd-machine-id-commit.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-modules-load.service -> ../systemd-modules-load.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-pcrmachine.service -> ../systemd-pcrmachine.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase-sysinit.service -> ../systemd-pcrphase-sysinit.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-pcrphase.service -> ../systemd-pcrphase.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-random-seed.service -> ../systemd-random-seed.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-sysctl.service -> ../systemd-sysctl.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-sysusers.service -> ../systemd-sysusers.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup-dev-early.service -> ../systemd-tmpfiles-setup-dev-early.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup-dev.service -> ../systemd-tmpfiles-setup-dev.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup.service -> ../systemd-tmpfiles-setup.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup-early.service -> ../systemd-tpm2-setup-early.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-tpm2-setup.service -> ../systemd-tpm2-setup.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-update-done.service -> ../systemd-update-done.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/timers.target.wants/systemd-tmpfiles-clean.timer -> ../systemd-tmpfiles-clean.timer
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/x11-common.service -> /dev/null
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/systemd-sysroot-fstab-check -> system-generators/systemd-fstab-generator
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/dbus-1/services/org.freedesktop.systemd1.service -> ../system-services/org.freedesktop.systemd1.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man1/systemd-firstboot.service.1.gz -> systemd-firstboot.1.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man1/systemd-umount.1.gz -> systemd-mount.1.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/extension-release.5.gz -> os-release.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/initrd-release.5.gz -> os-release.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/journald.conf.d.5.gz -> journald.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/journald@.conf.5.gz -> journald.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/logind.conf.d.5.gz -> logind.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/networkd.conf.d.5.gz -> networkd.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/pstore.conf.d.5.gz -> pstore.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/sleep.conf.d.5.gz -> systemd-sleep.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/system.conf.d.5.gz -> systemd-system.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/systemd-user-runtime-dir.5.gz -> user@.service.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/systemd-user.conf.5.gz -> systemd-system.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/systemd.pcrlock.d.5.gz -> systemd.pcrlock.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/user-runtime-dir@.service.5.gz -> user@.service.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man5/user.conf.d.5.gz -> systemd-system.conf.5.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/30-systemd-environment-d-generator.8.gz -> systemd-environment-d-generator.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/rc-local.service.8.gz -> systemd-rc-local-generator.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-ask-password-console.path.8.gz -> systemd-ask-password-console.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-ask-password-wall.path.8.gz -> systemd-ask-password-console.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-ask-password-wall.service.8.gz -> systemd-ask-password-console.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-backlight.8.gz -> systemd-backlight@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-battery-check.8.gz -> systemd-battery-check.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-binfmt.8.gz -> systemd-binfmt.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-boot-check-no-failures.8.gz -> systemd-boot-check-no-failures.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-bsod.8.gz -> systemd-bsod.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-confext.8.gz -> systemd-sysext.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-confext.service.8.gz -> systemd-sysext.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-fsck-root.service.8.gz -> systemd-fsck@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-fsck-usr.service.8.gz -> systemd-fsck@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-fsck.8.gz -> systemd-fsck@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-growfs-root.service.8.gz -> systemd-makefs@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-growfs.8.gz -> systemd-makefs@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-growfs@.service.8.gz -> systemd-makefs@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-halt.service.8.gz -> systemd-poweroff.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-hibernate-clear.service.8.gz -> systemd-hibernate-resume.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-hibernate-resume.8.gz -> systemd-hibernate-resume.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-hibernate.service.8.gz -> systemd-suspend.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-hostnamed.8.gz -> systemd-hostnamed.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-hybrid-sleep.service.8.gz -> systemd-suspend.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-initctl.8.gz -> systemd-initctl.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-initctl.socket.8.gz -> systemd-initctl.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald-audit.socket.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald-dev-log.socket.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald-varlink@.socket.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald.socket.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald@.service.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-journald@.socket.8.gz -> systemd-journald.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-kexec.service.8.gz -> systemd-poweroff.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-localed.8.gz -> systemd-localed.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-logind.8.gz -> systemd-logind.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-makefs.8.gz -> systemd-makefs@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-mkswap@.service.8.gz -> systemd-makefs@.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-modules-load.8.gz -> systemd-modules-load.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-network-generator.8.gz -> systemd-network-generator.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-networkd-wait-online.8.gz -> systemd-networkd-wait-online.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-networkd-wait-online@.service.8.gz -> systemd-networkd-wait-online.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-networkd.8.gz -> systemd-networkd.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrextend.8.gz -> systemd-pcrphase.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrfs-root.service.8.gz -> systemd-pcrphase.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrfs@.service.8.gz -> systemd-pcrphase.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-file-system.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-firmware-code.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-firmware-config.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-machine-id.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-make-policy.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-secureboot-authority.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrlock-secureboot-policy.service.8.gz -> systemd-pcrlock.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrmachine.service.8.gz -> systemd-pcrphase.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrphase-initrd.service.8.gz -> systemd-pcrphase.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pcrphase-sysinit.service.8.gz -> systemd-pcrphase.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-pstore.8.gz -> systemd-pstore.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-quotacheck.8.gz -> systemd-quotacheck.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-random-seed.8.gz -> systemd-random-seed.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-reboot.service.8.gz -> systemd-poweroff.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-remount-fs.8.gz -> systemd-remount-fs.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-rfkill.8.gz -> systemd-rfkill.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-rfkill.socket.8.gz -> systemd-rfkill.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-shutdown.8.gz -> systemd-poweroff.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-sleep.8.gz -> systemd-suspend.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-storagetm.8.gz -> systemd-storagetm.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-suspend-then-hibernate.service.8.gz -> systemd-suspend.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysctl.8.gz -> systemd-sysctl.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysext.service.8.gz -> systemd-sysext.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-sysusers.service.8.gz -> systemd-sysusers.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-timedated.8.gz -> systemd-timedated.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tmpfiles-clean.service.8.gz -> systemd-tmpfiles.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tmpfiles-clean.timer.8.gz -> systemd-tmpfiles.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tmpfiles-setup-dev-early.service.8.gz -> systemd-tmpfiles.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tmpfiles-setup-dev.service.8.gz -> systemd-tmpfiles.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tmpfiles-setup.service.8.gz -> systemd-tmpfiles.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tpm2-setup-early.service.8.gz -> systemd-tpm2-setup.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-tpm2-setup.8.gz -> systemd-tpm2-setup.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-update-done.8.gz -> systemd-update-done.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-user-sessions.8.gz -> systemd-user-sessions.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-volatile-root.8.gz -> systemd-volatile-root.service.8.gz

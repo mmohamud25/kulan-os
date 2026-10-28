@@ -1,0 +1,21 @@
+Package: dracut
+Version: 106-6
+Installed-Size: 25
+Maintainer: Thomas Lange <lange@debian.org>
+Architecture: all
+Provides: linux-initramfs-tool
+Depends: dracut-core (<< 106-6+b+~), dracut-core (>= 106-6), linux-base
+Suggests: dracut-network
+Conflicts: initramfs-tools, live-tools
+Description: Initramfs generator using udev
+Description-md5: ff5d73107edf988d1308accca8de03f4
+Multi-Arch: foreign
+Homepage: https://github.com/dracut-ng/dracut-ng/wiki
+Tag: implemented-in::c
+Section: utils
+Priority: optional
+Filename: pool/main/d/dracut/dracut_106-6_all.deb
+Size: 8976
+MD5sum: 3f12edaf352445df7709eb3336bf4e28
+SHA256: 01d71791af2b8306296c48f22b3aef390df21c84eb1328ded174722f19e1d349
+

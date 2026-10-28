@@ -1,0 +1,27 @@
+=== ctl-systemd-ukify/control
+Package: systemd-ukify
+Source: systemd
+Version: 257.13-1~deb13u1
+Architecture: all
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Installed-Size: 175
+Depends: python3:any, python3-pefile, python3-zstandard
+Recommends: systemd, systemd-boot-efi, systemd-repart, python3-cryptography, python3-lz4, sbsigntool | pesign
+Conflicts: systemd (<< 255.1-1~)
+Replaces: systemd (<< 255.1-1~)
+Section: admin
+Priority: optional
+Multi-Arch: foreign
+Homepage: https://systemd.io
+Description: tool to build Unified Kernel Images
+ This package provides ukify, a script that combines a kernel image, an initrd,
+ with a command line, and possibly PCR measurements and other metadata, into a
+ Unified Kernel Image (UKI).
+=== ctl-systemd-ukify/md5sums
+72b0567b58d7d2415ea35c74a52dd5ac  usr/bin/ukify
+fc07923c42793dc76115480f61c63ae8  usr/lib/kernel/install.d/60-ukify.install
+0045aae035825831529c2a94ad965e82  usr/lib/kernel/uki.conf
+00d159afa7df88fea88b6f7e18caee1a  usr/share/doc/systemd-ukify/NEWS.Debian.gz
+b485f8c40f4b38c355c09db15e42b7b3  usr/share/doc/systemd-ukify/changelog.Debian.gz
+26ad924032ac9d520f57275eba26291d  usr/share/doc/systemd-ukify/copyright
+b078e04fb58a2387c7c51e7c5d351da9  usr/share/man/man1/ukify.1.gz

@@ -1,0 +1,6 @@
+systemd-boot:
+  Installed: (none)
+  Candidate: 257.13-1~deb13u1
+  Version table:
+     257.13-1~deb13u1 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages

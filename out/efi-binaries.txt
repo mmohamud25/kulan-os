@@ -1,0 +1,2 @@
+/usr/lib/systemd/boot/efi:
+systemd-bootx64.efi.signed

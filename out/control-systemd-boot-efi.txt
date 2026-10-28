@@ -1,0 +1,26 @@
+=== ctl-systemd-boot-efi/control
+Package: systemd-boot-efi
+Source: systemd
+Version: 257.13-1~deb13u1
+Architecture: amd64
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Installed-Size: 290
+Breaks: systemd (<< 251.2-3~)
+Replaces: systemd (<< 251.2-3~)
+Section: admin
+Priority: optional
+Multi-Arch: same
+Homepage: https://systemd.io
+Description: simple UEFI boot manager - EFI binaries
+ systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
+ textual menu to select the entry to boot and an editor for the kernel command
+ line. It supports systems with UEFI firmware only.
+ .
+ This package contains the EFI binaries.
+=== ctl-systemd-boot-efi/md5sums
+3036201fe3c77e99cdd76dd7bfe099cb  usr/lib/systemd/boot/efi/addonx64.efi.stub
+5cc1dc155e7b8d497ca94ef01e94120e  usr/lib/systemd/boot/efi/linuxx64.efi.stub
+49130f94165f5625e4c67ee0b285cfa0  usr/lib/systemd/boot/efi/systemd-bootx64.efi
+00d159afa7df88fea88b6f7e18caee1a  usr/share/doc/systemd-boot-efi/NEWS.Debian.gz
+4805d5f908d5d09050f4099742b1ca93  usr/share/doc/systemd-boot-efi/changelog.Debian.gz
+26ad924032ac9d520f57275eba26291d  usr/share/doc/systemd-boot-efi/copyright

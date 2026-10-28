@@ -1,0 +1,54 @@
+=== ctl-dracut/conffiles
+/etc/kernel/postinst.d/dracut
+/etc/kernel/postrm.d/dracut
+=== ctl-dracut/control
+Package: dracut
+Version: 106-6
+Architecture: all
+Maintainer: Thomas Lange <lange@debian.org>
+Installed-Size: 25
+Depends: dracut-core (<< 106-6+b+~), dracut-core (>= 106-6), linux-base
+Suggests: dracut-network
+Conflicts: initramfs-tools, live-tools
+Provides: linux-initramfs-tool
+Section: utils
+Priority: optional
+Multi-Arch: foreign
+Homepage: https://github.com/dracut-ng/dracut-ng/wiki
+Description: Initramfs generator using udev
+ This package builds a bootable initramfs for Linux kernel packages.  The
+ initramfs is loaded along with the kernel and is responsible for
+ mounting the root filesystem and starting the main init system.
+=== ctl-dracut/md5sums
+2167f788e8afbd5ecb48dc2f2f067884  usr/share/doc/dracut/NEWS.Debian.gz
+25d7b1a75c0a8a0f08de12c3c61dab9a  usr/share/doc/dracut/changelog.Debian.gz
+5521c71ea6c50b358884152e17f25d06  usr/share/doc/dracut/copyright
+=== ctl-dracut/postinst
+#!/bin/sh
+
+set -e
+
+
+mk_initrd() {
+    local latest_version
+    latest_version=$(linux-version list | linux-version sort | tail -n 1)
+    linux-version list | while read -r kversion; do
+        if test "$kversion" = "$latest_version" || ! test -e "/boot/initrd.img-$kversion"; then
+            /etc/kernel/postinst.d/dracut "$kversion"
+        fi
+    done
+}
+
+if [ "x$1" != xtriggered ]; then
+    # activate trigger
+    if dpkg-trigger --no-await update-initramfs; then
+        echo "update-initramfs: deferring update (trigger activated)"
+        exit 0
+    fi
+else
+    mk_initrd
+fi
+
+
+=== ctl-dracut/triggers
+interest-await update-initramfs

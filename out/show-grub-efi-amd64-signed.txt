@@ -1,0 +1,18 @@
+Package: grub-efi-amd64-signed
+Version: 1+2.12+9+deb13u2
+Installed-Size: 9492
+Maintainer: GRUB Maintainers <pkg-grub-devel@alioth-lists.debian.net>
+Architecture: amd64
+Depends: grub-common (= 2.12-9+deb13u2)
+Recommends: shim-signed
+Description: GRand Unified Bootloader, version 2 (amd64 UEFI signed by Debian)
+Description-md5: f8d7d130b6d73ff8f5f6d3b33d090327
+Built-Using: grub2 (= 2.12-9+deb13u2)
+Protected: yes
+Section: admin
+Priority: optional
+Filename: pool/main/g/grub-efi-amd64-signed/grub-efi-amd64-signed_1+2.12+9+deb13u2_amd64.deb
+Size: 1363392
+MD5sum: b0b86e251ec7ab7a7ee8db4b7ca07893
+SHA256: da8bb31308a3682a7d9343fc42bf7f603ad85bb5483eeb3ece23e2f1be2e9bbd
+

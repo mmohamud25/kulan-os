@@ -1,0 +1,11 @@
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./usr/
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./usr/lib/
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./usr/lib/shim/
+-rw-r--r-- root/root    118832 2026-04-03 16:18 ./usr/lib/shim/fbx64.efi.signed
+-rw-r--r-- root/root    873904 2026-04-03 16:18 ./usr/lib/shim/mmx64.efi.signed
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./usr/share/
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./usr/share/doc/
+drwxr-xr-x root/root         0 2026-04-03 16:18 ./usr/share/doc/shim-helpers-amd64-signed/
+-rw-r--r-- root/root       256 2026-04-03 16:18 ./usr/share/doc/shim-helpers-amd64-signed/changelog.gz
+-rw-r--r-- root/root      2290 2026-04-03 16:18 ./usr/share/doc/shim-helpers-amd64-signed/copyright

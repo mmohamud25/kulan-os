@@ -1,0 +1,51 @@
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/initramfs/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/initramfs/post-update.d/
+-rwxr-xr-x root/root       375 2026-04-13 19:38 ./etc/initramfs/post-update.d/systemd-boot
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/kernel/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/kernel/postinst.d/
+-rwxr-xr-x root/root       180 2026-04-13 19:38 ./etc/kernel/postinst.d/zz-systemd-boot
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./etc/kernel/postrm.d/
+-rwxr-xr-x root/root       178 2026-04-13 19:38 ./etc/kernel/postrm.d/zz-systemd-boot
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/
+-rw-r--r-- root/root       690 2026-04-13 19:38 ./usr/lib/systemd/system/systemd-bless-boot.service
+-rw-r--r-- root/root      1029 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-boot-random-seed.service
+-rw-r--r-- root/root       733 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-boot-update.service
+-rw-r--r-- root/root       596 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-bootctl.socket
+-rw-r--r-- root/root       532 2026-03-13 18:36 ./usr/lib/systemd/system/systemd-bootctl@.service
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system-generators/
+-rwxr-xr-x root/root     14640 2026-04-13 19:38 ./usr/lib/systemd/system-generators/systemd-bless-boot-generator
+-rwxr-xr-x root/root     31224 2026-04-13 19:38 ./usr/lib/systemd/systemd-bless-boot
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/systemd-boot/
+-rw-r--r-- root/root      3292 2026-04-13 19:38 ./usr/share/doc/systemd-boot/NEWS.Debian.gz
+-rw-r--r-- root/root     49264 2026-04-13 19:38 ./usr/share/doc/systemd-boot/changelog.Debian.gz
+-rw-r--r-- root/root     12521 2026-04-13 19:38 ./usr/share/doc/systemd-boot/copyright
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/lintian/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/lintian/overrides/
+-rw-r--r-- root/root        80 2026-04-13 19:38 ./usr/share/lintian/overrides/systemd-boot
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man5/
+-rw-r--r-- root/root      5284 2026-04-13 19:38 ./usr/share/man/man5/loader.conf.5.gz
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man7/
+-rw-r--r-- root/root      6984 2026-04-13 19:38 ./usr/share/man/man7/systemd-boot.7.gz
+-rw-r--r-- root/root      8768 2026-04-13 19:38 ./usr/share/man/man7/systemd-stub.7.gz
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/man/man8/
+-rw-r--r-- root/root       566 2026-04-13 19:38 ./usr/share/man/man8/systemd-bless-boot-generator.8.gz
+-rw-r--r-- root/root      1751 2026-04-13 19:38 ./usr/share/man/man8/systemd-bless-boot.service.8.gz
+-rw-r--r-- root/root      1812 2026-04-13 19:38 ./usr/share/man/man8/systemd-boot-random-seed.service.8.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sockets.target.wants/systemd-bootctl.socket -> ../systemd-bootctl.socket
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/lib/systemd/system/sysinit.target.wants/systemd-boot-random-seed.service -> ../systemd-boot-random-seed.service
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man7/linuxaa64.efi.stub.7.gz -> systemd-stub.7.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man7/linuxia32.efi.stub.7.gz -> systemd-stub.7.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man7/linuxx64.efi.stub.7.gz -> systemd-stub.7.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man7/sd-boot.7.gz -> systemd-boot.7.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man7/sd-stub.7.gz -> systemd-stub.7.gz
+lrwxrwxrwx root/root         0 2026-04-13 19:38 ./usr/share/man/man8/systemd-bless-boot.8.gz -> systemd-bless-boot.service.8.gz

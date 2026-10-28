@@ -1,0 +1,31 @@
+=== ctl-sbsigntool/control
+Package: sbsigntool
+Version: 0.9.4-3.2+deb13u1
+Architecture: amd64
+Maintainer: Debian EFI Team <debian-efi@lists.debian.org>
+Installed-Size: 402
+Depends: libc6 (>= 2.38), libssl3t64 (>= 3.0.0), libuuid1 (>= 2.16)
+Section: utils
+Priority: optional
+Multi-Arch: foreign
+Description: Tools to manipulate signatures on UEFI binaries and drivers
+ This package installs tools which can cryptographically sign EFI binaries and
+ drivers.
+=== ctl-sbsigntool/md5sums
+7fe5e96fa2b32f8c25ad96993e94fccc  usr/bin/sbattach
+15e6b20f8ac12a11fcb738166607797e  usr/bin/sbkeysync
+bfb0e52c6294f1f4be3cb4ddaefe8222  usr/bin/sbsiglist
+1d52a4bb15cd8cc2c5a5b6e0456f38a8  usr/bin/sbsign
+38c426131d9de3db82d02344b3c4bb5f  usr/bin/sbvarsign
+9a238bd0b6ce53774fd5487a0badea86  usr/bin/sbverify
+9429482b697fddf2e612e54854462366  usr/share/doc/sbsigntool/NEWS.gz
+ae9d14702fe32dd81acc37bdb9f71c20  usr/share/doc/sbsigntool/README
+99b9f4ae73e3464cabe5088bfad92be3  usr/share/doc/sbsigntool/changelog.Debian.gz
+1b7a90ebb6866e24cd2f93859c85081e  usr/share/doc/sbsigntool/changelog.gz
+4c9abb1c491e6d3c01c0d5d233056f9c  usr/share/doc/sbsigntool/copyright
+3b1af9a060c8cefaacdccfa3c3cdb192  usr/share/man/man1/sbattach.1.gz
+b197ba353190e3c9fc5c4c4e4915e790  usr/share/man/man1/sbkeysync.1.gz
+aaa2e997e088e1df1975081a1e52fc58  usr/share/man/man1/sbsiglist.1.gz
+765bb1cb12112c273485491d83164f47  usr/share/man/man1/sbsign.1.gz
+ffd9675ca4849a340074660d9ea8eecf  usr/share/man/man1/sbvarsign.1.gz
+27e4b78d9a7f48eda2111c8d0f03f5c9  usr/share/man/man1/sbverify.1.gz

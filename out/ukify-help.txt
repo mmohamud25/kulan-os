@@ -1,0 +1,117 @@
+usage: 
+  ukify build [--linux=LINUX] [--initrd=INITRD] [options…]
+  ukify genkey [options…]
+  ukify inspect FILE… [options…]
+
+Build and sign Unified Kernel Images
+
+options:
+  --version             show program's version number and exit
+  --summary             print parsed config and exit
+  --config, -c PATH     configuration file
+  --linux LINUX         vmlinuz file [.linux section]
+  --os-release TEXT|@PATH
+                        path to os-release file [.osrel section]
+  --cmdline TEXT|@PATH  kernel command line [.cmdline section]
+  --initrd INITRD       initrd file [part of .initrd section]
+  --microcode UCODE     microcode file [.ucode section]
+  --splash BMP          splash image bitmap file [.splash section]
+  --devicetree PATH     Device Tree file [.dtb section]
+  --devicetree-auto PATH
+                        DeviceTree file for automatic selection [.dtbauto
+                        section]
+  --hwids DIR           Directory with HWID text files [.hwids section]
+  --uname VERSION       "uname -r" information [.uname section]
+  --sbat TEXT|@PATH     SBAT policy [.sbat section]
+  --pcrpkey KEY         embedded public key to seal secrets to [.pcrpkey
+                        section]
+  --section NAME:TEXT|@PATH
+                        section as name and contents [NAME section] or section
+                        to print
+  --profile TEST|@PATH  Profile information [.profile section]
+  --join-profile PATH   A PE binary containing an additional profile to add to
+                        the UKI
+  --efi-arch ARCH       target EFI architecture
+  --stub STUB           path to the sd-stub file [.text,.data,… sections]
+  --pcr-banks BANK…
+  --signing-engine ENGINE
+                        OpenSSL engine to use for signing
+  --signing-provider PROVIDER
+                        OpenSSL provider to use for signing
+  --certificate-provider PROVIDER
+                        OpenSSL provider to load certificate from
+  --signtool {sbsign,pesign,systemd-sbsign}
+                        whether to use sbsign or pesign. It will also be
+                        inferred by the other parameters given: when using
+                        --secureboot-{private-key/certificate}, sbsign will be
+                        used, otherwise pesign will be used
+  --secureboot-private-key SB_KEY
+                        required by --signtool=sbsign|systemd-sbsign. Path to
+                        key file or engine/provider designation for SB signing
+  --secureboot-certificate SB_CERT
+                        required by --signtool=sbsign. sbsign needs a path to
+                        certificate file or engine-specific designation for SB
+                        signing
+  --secureboot-certificate-dir SB_CERTDIR
+                        required by --signtool=pesign. Path to nss certificate
+                        database directory for PE signing. Default is
+                        /etc/pki/pesign
+  --secureboot-certificate-name SB_CERT_NAME
+                        required by --signtool=pesign. pesign needs a
+                        certificate nickname of nss certificate database entry
+                        to use for PE signing
+  --secureboot-certificate-validity DAYS
+                        period of validity (in days) for a certificate created
+                        by 'genkey'
+  --sign-kernel, --no-sign-kernel
+                        Sign the embedded kernel
+  --pcr-private-key PCR_PRIVATE_KEYS
+                        private part of the keypair or engine/provider
+                        designation for signing PCR signatures
+  --pcr-public-key PATH
+                        public part of the keypair or engine/provider
+                        designation for signing PCR signatures
+  --phases PHASE-PATH…  phase-paths to create signatures for
+  --tools TOOLS         Directories to search for tools (systemd-measure, …)
+  --output, -o OUTPUT   output file path
+  --measure, --no-measure
+                        print systemd-measure output for the UKI
+  --json {pretty,short,off}
+                        generate JSON output
+  -j                    equivalent to --json=pretty
+  --all                 print all sections
+  -h, --help            show this help message and exit
+
+config file:
+  [UKI]
+  Linux = LINUX
+  OSRelease = TEXT|@PATH
+  Cmdline = TEXT|@PATH
+  Initrd = INITRD
+  Microcode = UCODE
+  Splash = BMP
+  DeviceTree = PATH
+  DeviceTreeAuto = PATH
+  HWIDs = DIR
+  Uname = VERSION
+  SBAT = TEXT|@PATH
+  PCRPKey = KEY
+  Profile = TEST|@PATH
+  EFIArch = ia32|x64|arm|aa64|riscv32|riscv64|loongarch32|loongarch64
+  Stub = STUB
+  PCRBanks = BANK…
+  SigningEngine = ENGINE
+  SigningProvider = PROVIDER
+  CertificateProvider = PROVIDER
+  SecureBootSigningTool = sbsign|pesign|systemd-sbsign
+  SecureBootPrivateKey = SB_KEY
+  SecureBootCertificate = SB_CERT
+  SecureBootCertificateDir = SB_CERTDIR
+  SecureBootCertificateName = SB_CERT_NAME
+  SecureBootCertificateValidity = DAYS
+  SignKernel = SIGN_KERNEL
+  
+  [PCRSignature:NAME]
+  PCRPrivateKey = PCR_PRIVATE_KEYS
+  PCRPublicKey = PATH
+  Phases = PHASE-PATH…

@@ -1,0 +1,1075 @@
+/etc/kernel:
+total 28
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 .
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 ..
+drwxr-xr-x 2 root root 4096 Apr 13  2026 install.d
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 postinst.d
+drwxr-xr-x 2 root root 4096 Oct 28 07:10 postrm.d
+
+/etc/kernel/install.d:
+total 12
+drwxr-xr-x 2 root root 4096 Apr 13  2026 .
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 ..
+
+/etc/kernel/postinst.d:
+total 20
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 .
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 ..
+-rwxr-xr-x 1 root root  989 Apr 11  2025 dracut
+-rwxr-xr-x 1 root root  180 Apr 13  2026 zz-systemd-boot
+
+/etc/kernel/postrm.d:
+total 20
+drwxr-xr-x 2 root root 4096 Oct 28 07:10 .
+drwxr-xr-x 1 root root 4096 Oct 28 07:10 ..
+-rwxr-xr-x 1 root root  500 Apr 11  2025 dracut
+-rwxr-xr-x 1 root root  178 Apr 13  2026 zz-systemd-boot
+
+/usr/lib/kernel/install.d:
+total 52
+drwxr-xr-x 2 root root 4096 Oct 28 07:10 .
+drwxr-xr-x 3 root root 4096 Oct 28 07:10 ..
+-rwxr-xr-x 1 root root 2096 Mar 13  2026 50-depmod.install
+-rwxr-xr-x 1 root root 2451 Apr 11  2025 50-dracut.install
+-rwxr-xr-x 1 root root 4924 Apr 11  2025 51-dracut-rescue.install
+-rwxr-xr-x 1 root root  711 Apr 13  2026 55-initrd.install
+-rwxr-xr-x 1 root root 8708 Apr 13  2026 60-ukify.install
+-rwxr-xr-x 1 root root 8078 Apr 13  2026 90-loaderentry.install
+-rwxr-xr-x 1 root root 3843 Mar 13  2026 90-uki-copy.install
+=== /etc/kernel/postinst.d/dracut
+#!/bin/sh
+
+version="$1"
+bootdir=/boot
+
+[ -x /usr/bin/dracut ] || exit 0
+
+# passing the kernel version is required
+[ -z "${version}" ] && exit 0
+
+# exit if custom kernel does not need an initramfs
+[ "$INITRD" = 'No' ] && exit 0
+
+# absolute file name of kernel image may be passed as a second argument;
+# create the initrd in the same directory
+if [ -n "$2" ]; then
+	bootdir=$(dirname "$2")
+fi
+
+# avoid running multiple times
+if [ -n "$DEB_MAINT_PARAMS" ]; then
+        eval set -- "$DEB_MAINT_PARAMS"
+        if [ -z "$1" ] || [ "$1" != "configure" ]; then
+                exit 0
+        fi
+fi
+
+# check if modules.dep already exists. If not create it
+# maybe this problem could also be solved via Debian triggers
+if [ ! -f $bootdir/../lib/modules/$version/modules.dep ]; then
+    depmod -a -F $bootdir/System.map-$version $version
+fi
+
+# we're good - create initramfs
+echo "dracut: Generating $bootdir/initrd.img-${version}"
+dracut -q --force $bootdir/initrd.img-${version} "${version}" >&2
+=== /etc/kernel/postinst.d/zz-systemd-boot
+#!/bin/sh
+
+set -e
+
+test -x /usr/bin/bootctl || exit 0
+
+bootctl is-installed --quiet || exit 0
+
+echo "Installing kernel version $1 in systemd-boot..."
+
+kernel-install add "$1" "$2"
+=== /etc/kernel/postrm.d/dracut
+#!/bin/sh
+
+version="$1"
+bootdir=/boot
+
+# passing the kernel version is required
+[ -z "${version}" ] && exit 0
+
+# absolute file name of kernel image may be passed as a second argument;
+# remove the initrd from the same directory
+if [ -n "$2" ]; then
+	bootdir=$(dirname "$2")
+fi
+
+# avoid running multiple times
+if [ -n "$DEB_MAINT_PARAMS" ]; then
+	eval set -- "$DEB_MAINT_PARAMS"
+	if [ -z "$1" ] || [ "$1" != "remove" ]; then
+		exit 0
+	fi
+fi
+
+
+# delete initramfs
+rm -f "$bootdir/initrd.img-${version}"
+=== /etc/kernel/postrm.d/zz-systemd-boot
+#!/bin/sh
+
+set -e
+
+test -x /usr/bin/bootctl || exit 0
+
+bootctl is-installed --quiet || exit 0
+
+echo "Removing kernel version $1 from systemd-boot..."
+
+kernel-install remove "$1"
+=== /usr/lib/kernel/install.d/50-depmod.install
+#!/bin/sh
+# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
+# ex: ts=8 sw=4 sts=4 et filetype=sh
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
+# This file is part of systemd.
+#
+# systemd is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# systemd is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with systemd; If not, see <https://www.gnu.org/licenses/>.
+
+set -e
+
+COMMAND="${1:?}"
+KERNEL_VERSION="${2:?}"
+
+[ -w "/lib/modules" ] || exit 0
+
+case "$COMMAND" in
+    add)
+        [ -d "/lib/modules/$KERNEL_VERSION/kernel" ] || exit 0
+        command -v depmod >/dev/null || exit 0
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "+depmod -a $KERNEL_VERSION"
+        exec depmod -a "$KERNEL_VERSION"
+        ;;
+    remove)
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing /lib/modules/${KERNEL_VERSION}/modules.dep and associated files"
+        exec rm -f \
+            "/lib/modules/$KERNEL_VERSION/modules.alias" \
+            "/lib/modules/$KERNEL_VERSION/modules.alias.bin" \
+            "/lib/modules/$KERNEL_VERSION/modules.builtin.bin" \
+            "/lib/modules/$KERNEL_VERSION/modules.builtin.alias.bin" \
+            "/lib/modules/$KERNEL_VERSION/modules.dep" \
+            "/lib/modules/$KERNEL_VERSION/modules.dep.bin" \
+            "/lib/modules/$KERNEL_VERSION/modules.devname" \
+            "/lib/modules/$KERNEL_VERSION/modules.softdep" \
+            "/lib/modules/$KERNEL_VERSION/modules.weakdep" \
+            "/lib/modules/$KERNEL_VERSION/modules.symbols" \
+            "/lib/modules/$KERNEL_VERSION/modules.symbols.bin"
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+=== /usr/lib/kernel/install.d/50-dracut.install
+#!/bin/bash
+
+COMMAND="${1:?}"
+KERNEL_VERSION="${2:?}"
+#shellcheck disable=SC2034
+BOOT_DIR_ABS="$3"
+KERNEL_IMAGE="$4"
+
+# If the initrd was provided on the kernel command line, we shouldn't generate our own.
+if [[ "$COMMAND" != "add" || "$#" -gt 4 ]]; then
+    exit 0
+fi
+
+# Do not attempt to create initramfs if the supplied image is already a UKI
+if [[ "$KERNEL_INSTALL_IMAGE_TYPE" = "uki" ]]; then
+    exit 0
+fi
+
+if [[ "${KERNEL_INSTALL_INITRD_GENERATOR:-dracut}" = "dracut" ]]; then
+    # We are the initrd generator
+    IMAGE="initrd"
+    UEFI_OPTS="--no-uefi"
+else
+    exit 0
+fi
+
+if [[ "$KERNEL_INSTALL_UKI_GENERATOR" = "dracut" ]]; then
+    # We are chosen to generate the UKI as well as initrd
+    IMAGE="uki.efi"
+    UEFI_OPTS="--uefi"
+fi
+
+if [[ -f ${KERNEL_IMAGE%/*}/$IMAGE ]]; then
+    # we found an initrd or uki.efi at the same place as the kernel
+    # use this and don't generate a new one
+    [[ $KERNEL_INSTALL_VERBOSE == 1 ]] && echo \
+        "There is an $IMAGE image at the same place as the kernel, skipping generating a new one"
+    cp --reflink=auto "${KERNEL_IMAGE%/*}/$IMAGE" "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" \
+        && chown root:root "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" \
+        && chmod 0600 "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" \
+        && exit 0
+fi
+
+if [ -n "$KERNEL_INSTALL_CONF_ROOT" ]; then
+    if [ -f "$KERNEL_INSTALL_CONF_ROOT/cmdline" ]; then
+        read -r -d '' -a BOOT_OPTIONS < "$KERNEL_INSTALL_CONF_ROOT/cmdline"
+    fi
+elif [[ -f /etc/kernel/cmdline ]]; then
+    read -r -d '' -a BOOT_OPTIONS < /etc/kernel/cmdline
+elif [[ -f /usr/lib/kernel/cmdline ]]; then
+    read -r -d '' -a BOOT_OPTIONS < /usr/lib/kernel/cmdline
+else
+    declare -a BOOT_OPTIONS
+
+    read -r -d '' -a line < /proc/cmdline
+    for i in "${line[@]}"; do
+        [[ ${i#initrd=*} != "$i" ]] && continue
+        BOOT_OPTIONS+=("$i")
+    done
+fi
+
+unset noimageifnotneeded
+
+for ((i = 0; i < "${#BOOT_OPTIONS[@]}"; i++)); do
+    # shellcheck disable=SC1001
+    if [[ ${BOOT_OPTIONS[$i]} == root\=PARTUUID\=* ]]; then
+        noimageifnotneeded="yes"
+        break
+    fi
+done
+
+# shellcheck disable=SC2046
+dracut -f \
+    --add-confdir hostonly \
+    ${noimageifnotneeded:+--noimageifnotneeded} \
+    $([[ $KERNEL_INSTALL_VERBOSE == 1 ]] && echo --verbose) \
+    $([[ -n $KERNEL_IMAGE ]] && echo --kernel-image "$KERNEL_IMAGE") \
+    "$UEFI_OPTS" \
+    --kver "$KERNEL_VERSION" \
+    "$KERNEL_INSTALL_STAGING_AREA/$IMAGE" || exit 1
+=== /usr/lib/kernel/install.d/51-dracut-rescue.install
+#!/bin/bash
+
+export LANG=C
+
+COMMAND="${1:?}"
+KERNEL_VERSION="${2:?}"
+BOOT_DIR_ABS="${3%/*}/0-rescue"
+KERNEL_IMAGE="$4"
+
+# If the initrd was provided on the kernel command line, we shouldn't generate our own.
+if [[ "$COMMAND" = "add" && "$#" -gt 4 ]]; then
+    exit 0
+fi
+
+# Do not attempt to create initramfs if the supplied image is already a UKI
+if [[ "$KERNEL_INSTALL_IMAGE_TYPE" = "uki" ]]; then
+    exit 0
+fi
+
+if [[ "$KERNEL_INSTALL_UKI_GENERATOR" = "dracut" ]]; then
+    # Rescue images currently not compatible with UKIs
+    exit 0
+elif [[ "${KERNEL_INSTALL_INITRD_GENERATOR:-dracut}" != "dracut" ]]; then
+    # We are not the initrd generator
+    exit 0
+fi
+
+dropindirs_sort() {
+    suffix=$1
+    shift
+    args=("$@")
+    files=$(
+        while (($# > 0)); do
+            for i in "${1}"/*"${suffix}"; do
+                [[ -f $i ]] && echo "${i##*/}"
+            done
+            shift
+        done | sort -Vu
+    )
+
+    for f in $files; do
+        for d in "${args[@]}"; do
+            if [[ -f "$d/$f" ]]; then
+                echo "$d/$f"
+                continue 2
+            fi
+        done
+    done
+}
+
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+elif [[ -f /usr/lib/os-release ]]; then
+    . /usr/lib/os-release
+fi
+
+[[ -n $PRETTY_NAME ]] || PRETTY_NAME="Linux $KERNEL_VERSION"
+
+if [[ ${KERNEL_INSTALL_MACHINE_ID+x} ]]; then
+    MACHINE_ID=$KERNEL_INSTALL_MACHINE_ID
+elif [[ -f /etc/machine-id ]]; then
+    read -r MACHINE_ID < /etc/machine-id
+fi
+
+if ! [[ $MACHINE_ID ]]; then
+    exit 0
+fi
+
+if [ -n "$KERNEL_INSTALL_CONF_ROOT" ]; then
+    if [ -f "$KERNEL_INSTALL_CONF_ROOT/cmdline" ]; then
+        read -r -d '' -a BOOT_OPTIONS < "$KERNEL_INSTALL_CONF_ROOT/cmdline"
+    fi
+elif [[ -f /etc/kernel/cmdline ]]; then
+    read -r -d '' -a BOOT_OPTIONS < /etc/kernel/cmdline
+elif [[ -f /usr/lib/kernel/cmdline ]]; then
+    read -r -d '' -a BOOT_OPTIONS < /usr/lib/kernel/cmdline
+else
+    declare -a BOOT_OPTIONS
+
+    read -r -d '' -a line < /proc/cmdline
+    for i in "${line[@]}"; do
+        [[ ${i#initrd=*} != "$i" ]] && continue
+        BOOT_OPTIONS+=("$i")
+    done
+fi
+
+if [[ -d ${BOOT_DIR_ABS%/*} ]]; then
+    BOOT_DIR="/${MACHINE_ID}/0-rescue"
+    BOOT_ROOT=${BOOT_DIR_ABS%"$BOOT_DIR"}
+    LOADER_ENTRY="$BOOT_ROOT/loader/entries/${MACHINE_ID}-0-rescue.conf"
+    KERNEL="linux"
+    INITRD="initrd"
+else
+    BLS_DIR="/boot/loader/entries"
+    BOOT_DIR_ABS="/boot"
+    LOADER_ENTRY="$BLS_DIR/${MACHINE_ID}-0-rescue.conf"
+    KERNEL="vmlinuz-0-rescue-${MACHINE_ID}"
+    INITRD="initramfs-0-rescue-${MACHINE_ID}.img"
+fi
+
+ret=0
+
+case "$COMMAND" in
+    add)
+        if [[ -f $LOADER_ENTRY ]] && [[ -f "$BOOT_DIR_ABS/$KERNEL" ]] \
+            && [[ -f "$BOOT_DIR_ABS/$INITRD" ]]; then
+            [[ $KERNEL_INSTALL_VERBOSE == 1 ]] \
+                && echo "Skipping, there is already a rescue image generated with the same input parameters"
+            exit 0
+        fi
+
+        # source our config dir
+        for f in $(dropindirs_sort ".conf" "/etc/dracut.conf.d" "/usr/lib/dracut/dracut.conf.d"); do
+            if [[ -e $f ]]; then
+                # shellcheck disable=SC1090
+                . "$f"
+            fi
+        done
+
+        if [[ $dracut_rescue_image != "yes" ]]; then
+            [[ $KERNEL_INSTALL_VERBOSE == 1 ]] \
+                && echo "Skipping, 'dracut_rescue_image' not set to 'yes' in any dracut configuration file"
+            exit 0
+        fi
+
+        [[ -d $BOOT_DIR_ABS ]] || mkdir -p "$BOOT_DIR_ABS"
+
+        if ! cp --reflink=auto "$KERNEL_IMAGE" "$BOOT_DIR_ABS/$KERNEL"; then
+            echo "Can't copy '$KERNEL_IMAGE to '$BOOT_DIR_ABS/$KERNEL'!" >&2
+        fi
+
+        if [[ ! -f "$BOOT_DIR_ABS/$INITRD" ]]; then
+            # shellcheck disable=SC2046
+            dracut -f \
+                --add-confdir rescue \
+                $([[ $KERNEL_INSTALL_VERBOSE == 1 ]] && echo --verbose) \
+                --kver "$KERNEL_VERSION" \
+                "$BOOT_DIR_ABS/$INITRD"
+            ((ret += $?))
+        fi
+
+        [[ $KERNEL_INSTALL_VERBOSE == 1 ]] && echo "Creating $LOADER_ENTRY"
+        if [[ ${BOOT_DIR_ABS} != "/boot" ]]; then
+            {
+                echo "title      $PRETTY_NAME - Rescue Image"
+                echo "version    $KERNEL_VERSION"
+                echo "machine-id $MACHINE_ID"
+                echo "options    ${BOOT_OPTIONS[*]}"
+                echo "linux      $BOOT_DIR/linux"
+                echo "initrd     $BOOT_DIR/initrd"
+            } > "$LOADER_ENTRY"
+        else
+            if [[ -e "${BLS_DIR}/${MACHINE_ID}-${KERNEL_VERSION}.conf" ]]; then
+                cp -aT "${BLS_DIR}/${MACHINE_ID}-${KERNEL_VERSION}.conf" "$LOADER_ENTRY"
+            else
+                cp -aT "${KERNEL_IMAGE%/*}/bls.conf" "$LOADER_ENTRY"
+            fi
+            sed -i "s/${KERNEL_VERSION}/0-rescue-${MACHINE_ID}/" "$LOADER_ENTRY"
+        fi
+
+        ((ret += $?))
+        ;;
+
+    remove)
+        exit 0
+        ;;
+
+esac
+
+exit $ret
+=== /usr/lib/kernel/install.d/55-initrd.install
+#!/bin/sh
+set -eu
+# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
+# ex: ts=8 sw=4 sts=4 et filetype=sh
+
+COMMAND="$1"
+KERNEL_VERSION="$2"
+
+INITRD_SRC="/boot/initrd.img-$KERNEL_VERSION"
+
+[ "$COMMAND" = add ] || exit 0
+
+if [ "$#" -ge 5 ]; then
+    # Explicit initrd paths were passed, fall through to default 90-loaderentry.install handling;
+    # we'd be either injecting an unwanted image or, worse, overriding a user-provided one
+    exit 0
+fi
+
+if [ -e "$INITRD_SRC" ]; then
+    [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "Installing '$INITRD_SRC'"
+    ln -fs "$INITRD_SRC" "$KERNEL_INSTALL_STAGING_AREA"
+else
+    echo "$INITRD_SRC does not exist, not installing an initrd"
+fi
+
+exit 0
+=== /usr/lib/kernel/install.d/60-ukify.install
+#!/usr/bin/env python3
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# -*- mode: python-mode -*-
+#
+# This file is part of systemd.
+#
+# systemd is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# systemd is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with systemd; If not, see <https://www.gnu.org/licenses/>.
+
+# pylint: disable=import-outside-toplevel,consider-using-with,disable=redefined-builtin
+
+import argparse
+import os
+import shlex
+import types
+from shutil import which
+from pathlib import Path
+from typing import Optional
+
+__version__ = '257 (257.13-1~deb13u1)'
+
+try:
+    VERBOSE = int(os.environ['KERNEL_INSTALL_VERBOSE']) > 0
+except (KeyError, ValueError):
+    VERBOSE = False
+
+# Override location of ukify and the boot stub for testing and debugging.
+UKIFY = os.getenv('KERNEL_INSTALL_UKIFY', which('ukify'))
+BOOT_STUB = os.getenv('KERNEL_INSTALL_BOOT_STUB')
+
+
+def shell_join(cmd):
+    # TODO: drop in favour of shlex.join once shlex.join supports pathlib.Path.
+    return ' '.join(shlex.quote(str(x)) for x in cmd)
+
+def log(*args, **kwargs):
+    if VERBOSE:
+        print(*args, **kwargs)
+
+def path_is_readable(p: Path, dir=False) -> None:
+    """Verify access to a file or directory."""
+    try:
+        p.open().close()
+    except IsADirectoryError:
+        if dir:
+            return
+        raise
+
+def mandatory_variable(name):
+    try:
+        return os.environ[name]
+    except KeyError as e:
+        raise KeyError(f'${name} must be set in the environment') from e
+
+def parse_args(args=None):
+    p = argparse.ArgumentParser(
+        description='kernel-install plugin to build a Unified Kernel Image',
+        allow_abbrev=False,
+        usage='60-ukify.install COMMAND KERNEL_VERSION ENTRY_DIR KERNEL_IMAGE INITRD…',
+    )
+
+    # Suppress printing of usage synopsis on errors
+    p.error = lambda message: p.exit(2, f'{p.prog}: error: {message}\n')
+
+    p.add_argument('command',
+                   metavar='COMMAND',
+                   help="The action to perform. Only 'add' is supported.")
+    p.add_argument('kernel_version',
+                   metavar='KERNEL_VERSION',
+                   help='Kernel version string')
+    p.add_argument('entry_dir',
+                   metavar='ENTRY_DIR',
+                   type=Path,
+                   nargs='?',
+                   help='Type#1 entry directory (ignored)')
+    p.add_argument('kernel_image',
+                   metavar='KERNEL_IMAGE',
+                   type=Path,
+                   nargs='?',
+                   help='Kernel binary')
+    p.add_argument('initrd',
+                   metavar='INITRD…',
+                   type=Path,
+                   nargs='*',
+                   help='Initrd files')
+    p.add_argument('--version',
+                   action='version',
+                   version=f'systemd {__version__}')
+
+    opts = p.parse_args(args)
+
+    if opts.command == 'add':
+        opts.staging_area = Path(mandatory_variable('KERNEL_INSTALL_STAGING_AREA'))
+        path_is_readable(opts.staging_area, dir=True)
+
+        opts.entry_token = mandatory_variable('KERNEL_INSTALL_ENTRY_TOKEN')
+        opts.machine_id = mandatory_variable('KERNEL_INSTALL_MACHINE_ID')
+
+    return opts
+
+def we_are_wanted() -> bool:
+    KERNEL_INSTALL_IMAGE_TYPE = os.getenv('KERNEL_INSTALL_IMAGE_TYPE')
+
+    if KERNEL_INSTALL_IMAGE_TYPE == 'uki':
+        log('The image being installed is already a UKI, quitting.')
+        return False
+
+    KERNEL_INSTALL_LAYOUT = os.getenv('KERNEL_INSTALL_LAYOUT')
+
+    if KERNEL_INSTALL_LAYOUT != 'uki':
+        log(f'{KERNEL_INSTALL_LAYOUT=}, quitting.')
+        return False
+
+    KERNEL_INSTALL_UKI_GENERATOR = os.getenv('KERNEL_INSTALL_UKI_GENERATOR') or 'ukify'
+
+    if KERNEL_INSTALL_UKI_GENERATOR != 'ukify':
+        log(f'{KERNEL_INSTALL_UKI_GENERATOR=}, quitting.')
+        return False
+
+    log('KERNEL_INSTALL_LAYOUT and KERNEL_INSTALL_UKI_GENERATOR are good')
+    return True
+
+
+def input_file_location(
+        filename: str,
+        *search_directories: str) -> Optional[Path]:
+
+    if root := os.getenv('KERNEL_INSTALL_CONF_ROOT'):
+        search_directories = (root,)
+    elif not search_directories:
+        # This is the default search path.
+        search_directories = ('/etc/kernel',
+                              '/usr/lib/kernel')
+
+    for dir in search_directories:
+        p = Path(dir) / filename
+        if p.exists():
+            return p
+    return None
+
+
+def uki_conf_location() -> Optional[Path]:
+    return input_file_location('uki.conf',
+                               '/etc/kernel',
+                               '/run/kernel',
+                               '/usr/local/lib/kernel',
+                               '/usr/lib/kernel')
+
+
+def devicetree_config_location() -> Optional[Path]:
+    return input_file_location('devicetree')
+
+
+def devicetree_file_location(opts) -> Optional[Path]:
+    # This mirrors the logic in 90-loaderentry.install. Keep in sync.
+    configfile = devicetree_config_location()
+    if configfile is None:
+        return None
+
+    devicetree = configfile.read_text().strip()
+    if not devicetree:
+        raise ValueError(f'{configfile!r} is empty')
+
+    path = input_file_location(
+        devicetree,
+        f'/usr/lib/firmware/{opts.kernel_version}/device-tree',
+        f'/usr/lib/linux-image-{opts.kernel_version}',
+        f'/usr/lib/modules/{opts.kernel_version}/dtb',
+    )
+    if path is None:
+        raise FileNotFoundError(f'DeviceTree file {devicetree} not found')
+    return path
+
+
+def kernel_cmdline_base() -> list[str]:
+    path = input_file_location('cmdline')
+    if path:
+        return path.read_text().split()
+
+    # If we read /proc/cmdline, we need to do some additional filtering.
+    options = Path('/proc/cmdline').read_text().split()
+    return [opt for opt in options
+            if not opt.startswith(('BOOT_IMAGE=', 'initrd='))]
+
+
+def kernel_cmdline(opts) -> str:
+    options = kernel_cmdline_base()
+
+    # If the boot entries are named after the machine ID, then suffix the kernel
+    # command line with the machine ID we use, so that the machine ID remains
+    # stable, even during factory reset, in the initrd (where the system's machine
+    # ID is not directly accessible yet), and if the root file system is volatile.
+    if (opts.entry_token == opts.machine_id and
+        not any(opt.startswith('systemd.machine_id=') for opt in options)):
+        options += [f'systemd.machine_id={opts.machine_id}']
+
+    # TODO: we unconditionally set the cmdline here, ignoring the setting in
+    #       the config file. Should we not do that?
+
+    # Prepend a space so that '@' does not get misinterpreted
+    return ' ' + ' '.join(options)
+
+
+def initrd_list(opts) -> list[Path]:
+    microcode = sorted(opts.staging_area.glob('microcode*'))
+    initrd = sorted(opts.staging_area.glob('initrd*'))
+
+    # Order taken from 90-loaderentry.install
+    return [*microcode, *opts.initrd, *initrd]
+
+
+def load_module(name: str, path: str) -> types.ModuleType:
+    module = types.ModuleType(name)
+    text = open(path).read()
+    exec(compile(text, path, 'exec'), module.__dict__)
+    return module
+
+
+def call_ukify(opts) -> None:
+    ukify = load_module('ukify', UKIFY)
+
+    # Create "empty" namespace. We want to override just a few settings, so it
+    # doesn't make sense to configure everything. We pretend to parse an empty
+    # argument set to prepopulate the namespace with the defaults.
+    opts2 = ukify.create_parser().parse_args(['build'])
+
+    opts2.config = uki_conf_location()
+    opts2.uname = opts.kernel_version
+    opts2.linux = opts.kernel_image
+    opts2.initrd = initrd_list(opts)
+    # Note that 'uki.efi' is the name required by 90-uki-copy.install.
+    opts2.output = opts.staging_area / 'uki.efi'
+
+    if devicetree := devicetree_file_location(opts):
+        opts2.devicetree = devicetree
+
+    opts2.cmdline = kernel_cmdline(opts)
+    if BOOT_STUB:
+        opts2.stub = BOOT_STUB
+
+    ukify.apply_config(opts2)
+    ukify.finalize_options(opts2)
+    ukify.check_inputs(opts2)
+    ukify.make_uki(opts2)
+
+    log(f'{opts2.output} has been created')
+
+
+def main():
+    opts = parse_args()
+    if opts.command != 'add':
+        return
+    if not we_are_wanted():
+        return
+
+    call_ukify(opts)
+
+
+if __name__ == '__main__':
+    main()
+=== /usr/lib/kernel/install.d/90-loaderentry.install
+#!/bin/sh
+# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
+# ex: ts=8 sw=4 sts=4 et filetype=sh
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
+# This file is part of systemd.
+#
+# systemd is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# systemd is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with systemd; If not, see <https://www.gnu.org/licenses/>.
+
+set -e
+
+COMMAND="${1:?}"
+KERNEL_VERSION="${2:?}"
+ENTRY_DIR_ABS="${3:?}"
+KERNEL_IMAGE="$4"
+INITRD_OPTIONS_SHIFT=4
+
+[ "$KERNEL_INSTALL_LAYOUT" = "bls" ] || exit 0
+
+MACHINE_ID="${KERNEL_INSTALL_MACHINE_ID:?}"
+ENTRY_TOKEN="${KERNEL_INSTALL_ENTRY_TOKEN:?}"
+BOOT_ROOT="${KERNEL_INSTALL_BOOT_ROOT:?}"
+
+[ -n "$BOOT_MNT" ] || BOOT_MNT="$(stat -c %m "$BOOT_ROOT")"
+if [ "$BOOT_MNT" = '/' ]; then
+    ENTRY_DIR="$ENTRY_DIR_ABS"
+else
+    ENTRY_DIR="${ENTRY_DIR_ABS#"$BOOT_MNT"}"
+fi
+
+KERNEL_DEST="$ENTRY_DIR_ABS/linux"
+KERNEL_ENTRY="$ENTRY_DIR/linux"
+LOADER_ENTRY="$BOOT_ROOT/loader/entries/$ENTRY_TOKEN-$KERNEL_VERSION.conf"
+
+case "$COMMAND" in
+    remove)
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing ${LOADER_ENTRY%.conf}*.conf"
+        exec rm -f \
+            "$LOADER_ENTRY" \
+            "${LOADER_ENTRY%.conf}"*".conf"
+        ;;
+    add)
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+if [ -f /etc/os-release ]; then
+    # shellcheck source=/dev/null
+    . /etc/os-release
+elif [ -f /usr/lib/os-release ]; then
+    # shellcheck source=/dev/null
+    . /usr/lib/os-release
+fi
+
+[ -n "$PRETTY_NAME" ] || PRETTY_NAME="Linux $KERNEL_VERSION"
+
+SORT_KEY="$IMAGE_ID"
+[ -z "$SORT_KEY" ] && SORT_KEY="$ID"
+
+if [ -n "$KERNEL_INSTALL_CONF_ROOT" ]; then
+    if [ -f "$KERNEL_INSTALL_CONF_ROOT/cmdline" ]; then
+        BOOT_OPTIONS="$(grep -Gv '^\s*#' "$KERNEL_INSTALL_CONF_ROOT/cmdline" | tr -s "$IFS" ' ')"
+    fi
+elif [ -f /etc/kernel/cmdline ]; then
+    BOOT_OPTIONS="$(grep -Gv '^\s*#' /etc/kernel/cmdline | tr -s "$IFS" ' ')"
+elif [ -f /usr/lib/kernel/cmdline ]; then
+    BOOT_OPTIONS="$(grep -Gv '^\s*#' /usr/lib/kernel/cmdline | tr -s "$IFS" ' ')"
+elif ! systemd-detect-virt --container --quiet; then
+    BOOT_OPTIONS="$(tr -s "$IFS" '\n' </proc/cmdline | grep -ve '^BOOT_IMAGE=' -e '^initrd=' | tr '\n' ' ')"
+else
+    BOOT_OPTIONS=""
+fi
+
+BOOT_OPTIONS="${BOOT_OPTIONS% }"
+
+# If the boot entries are named after the machine ID, then suffix the kernel
+# command line with the machine ID we use, so that the machine ID remains
+# stable, even during factory reset, in the initrd (where the system's machine
+# ID is not directly accessible yet), and if the root file system is volatile.
+if [ "$ENTRY_TOKEN" = "$MACHINE_ID" ] && ! echo "$BOOT_OPTIONS" | grep -q "systemd.machine_id="; then
+    BOOT_OPTIONS="$BOOT_OPTIONS systemd.machine_id=$MACHINE_ID"
+fi
+
+TRIES_FILE="${KERNEL_INSTALL_CONF_ROOT:-/etc/kernel}/tries"
+
+if [ -f "$TRIES_FILE" ]; then
+    read -r TRIES <"$TRIES_FILE"
+    if ! echo "$TRIES" | grep -q '^[0-9][0-9]*$'; then
+        echo "$TRIES_FILE does not contain an integer." >&2
+        exit 1
+    fi
+    if [ -f "$LOADER_ENTRY" ]; then
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing previous loader entry '$LOADER_ENTRY' without boot counting." >&2
+        rm -f "$LOADER_ENTRY"
+    fi
+    for loaderentry in "${LOADER_ENTRY%.conf}+"*.conf; do
+        [ "$loaderentry" = "${LOADER_ENTRY%.conf}+*.conf" ] && break
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing previous loader entry '$loaderentry' that has not yet booted successfully." >&2
+        rm -f "$loaderentry"
+    done
+    LOADER_ENTRY="${LOADER_ENTRY%.conf}+$TRIES.conf"
+fi
+
+if ! [ -d "$ENTRY_DIR_ABS" ]; then
+    echo "Error: entry directory '$ENTRY_DIR_ABS' does not exist" >&2
+    exit 1
+fi
+
+install -m 0644 "$KERNEL_IMAGE" "$KERNEL_DEST" || {
+    echo "Error: could not copy '$KERNEL_IMAGE' to '$KERNEL_DEST'." >&2
+    exit 1
+}
+chown root:root "$KERNEL_DEST" || :
+
+if [ -n "$KERNEL_INSTALL_CONF_ROOT" ]; then
+    if [ -f "$KERNEL_INSTALL_CONF_ROOT/devicetree" ]; then
+        read -r DEVICETREE <"$KERNEL_INSTALL_CONF_ROOT/devicetree"
+    fi
+elif [ -f /etc/kernel/devicetree ]; then
+    read -r DEVICETREE </etc/kernel/devicetree
+elif [ -f /usr/lib/kernel/devicetree ]; then
+    read -r DEVICETREE </usr/lib/kernel/devicetree
+fi
+if [ -n "$DEVICETREE" ]; then
+    for prefix in \
+        "$KERNEL_INSTALL_CONF_ROOT" \
+        "/usr/lib/firmware/$KERNEL_VERSION/device-tree" \
+        "/usr/lib/linux-image-$KERNEL_VERSION" \
+        "/usr/lib/modules/$KERNEL_VERSION/dtb"
+    do
+        [ -n "$prefix" ] || continue
+        [ -f "$prefix/$DEVICETREE" ] || continue
+        DEVICETREE_SRC="$prefix/$DEVICETREE"
+        break
+    done
+
+    [ -n "$DEVICETREE_SRC" ] || {
+        echo "Error: could not find device tree blob '$DEVICETREE'." >&2
+        exit 1
+    }
+
+    DEVICETREE_DEST="$ENTRY_DIR_ABS/${DEVICETREE##*/}"
+    DEVICETREE_ENTRY="$ENTRY_DIR/${DEVICETREE##*/}"
+
+    install -m 0644 "$DEVICETREE_SRC" "$DEVICETREE_DEST" || {
+        echo "Error: could not copy '$DEVICETREE_SRC' to '$DEVICETREE_DEST'." >&2
+        exit 1
+    }
+    chown root:root "$DEVICETREE_DEST" || :
+fi
+
+shift "$INITRD_OPTIONS_SHIFT"
+# All files listed as arguments, and staged files starting with "initrd" are installed as initrds.
+for initrd in "${KERNEL_INSTALL_STAGING_AREA}"/microcode* "${@}" "${KERNEL_INSTALL_STAGING_AREA}"/initrd*; do
+    [ -f "$initrd" ] || {
+        case "$initrd" in
+            "${KERNEL_INSTALL_STAGING_AREA}/initrd*" | "${KERNEL_INSTALL_STAGING_AREA}/microcode*")
+            continue ;;
+        esac
+        echo "Error: '$initrd' is not a file." >&2
+        exit 1
+    }
+
+    initrd_basename="${initrd##*/}"
+    [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "Installing $ENTRY_DIR_ABS/$initrd_basename"
+    install -m 0644 "$initrd" "$ENTRY_DIR_ABS/$initrd_basename" || {
+        echo "Error: could not copy '$initrd' to '$ENTRY_DIR_ABS/$initrd_basename'." >&2
+        exit 1
+    }
+    chown root:root "$ENTRY_DIR_ABS/$initrd_basename" || :
+done
+
+mkdir -p "${LOADER_ENTRY%/*}" || {
+    echo "Error: could not create loader entry directory '${LOADER_ENTRY%/*}'." >&2
+    exit 1
+}
+
+[ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "Creating $LOADER_ENTRY"
+{
+    echo "# Boot Loader Specification type#1 entry"
+    echo "# File created by $0 (systemd 257.13-1~deb13u1)"
+    echo "title      $PRETTY_NAME"
+    echo "version    $KERNEL_VERSION"
+    if [ "$ENTRY_TOKEN" = "$MACHINE_ID" ]; then
+        # See similar logic above for the systemd.machine_id= kernel command line option
+        echo "machine-id $MACHINE_ID"
+    fi
+    [ -n "$SORT_KEY" ] && echo "sort-key   $SORT_KEY"
+    [ -n "$BOOT_OPTIONS" ] && echo "options    $BOOT_OPTIONS"
+    echo "linux      $KERNEL_ENTRY"
+    [ -n "$DEVICETREE_ENTRY" ] && echo "devicetree $DEVICETREE_ENTRY"
+
+    have_initrd=
+    for initrd in "${KERNEL_INSTALL_STAGING_AREA}"/microcode* "${@}" "${KERNEL_INSTALL_STAGING_AREA}"/initrd*; do
+        [ -f "$initrd" ] || continue
+        echo "initrd     $ENTRY_DIR/${initrd##*/}"
+        have_initrd=yes
+    done
+
+    # Try a few variations that are generated by various initrd generators in their kernel-install hooks if
+    # no initrds were supplied.
+
+    if [ -z "$have_initrd" ] && [ -f "$ENTRY_DIR_ABS/initrd" ]; then
+        echo "initrd     $ENTRY_DIR/initrd"
+        have_initrd=yes
+    fi
+
+    if [ -z "$have_initrd" ] && [ -f "$BOOT_ROOT/initramfs-$KERNEL_VERSION.img" ]; then
+        echo "initrd     /initramfs-$KERNEL_VERSION.img"
+        have_initrd=yes
+    fi
+    :
+} >"$LOADER_ENTRY" || {
+    echo "Error: could not create loader entry '$LOADER_ENTRY'." >&2
+    exit 1
+}
+exit 0
+=== /usr/lib/kernel/install.d/90-uki-copy.install
+#!/bin/sh
+# -*- mode: shell-script; indent-tabs-mode: nil; sh-basic-offset: 4; -*-
+# ex: ts=8 sw=4 sts=4 et filetype=sh
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
+# This file is part of systemd.
+#
+# systemd is free software; you can redistribute it and/or modify it
+# under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# systemd is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with systemd; If not, see <https://www.gnu.org/licenses/>.
+
+set -e
+
+COMMAND="${1:?}"
+KERNEL_VERSION="${2:?}"
+# shellcheck disable=SC2034
+ENTRY_DIR_ABS="$3"
+KERNEL_IMAGE="$4"
+
+ENTRY_TOKEN="$KERNEL_INSTALL_ENTRY_TOKEN"
+BOOT_ROOT="$KERNEL_INSTALL_BOOT_ROOT"
+
+UKI_DIR="$BOOT_ROOT/EFI/Linux"
+
+case "$COMMAND" in
+    remove)
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing $UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION*.efi and extras"
+        exec rm -rf \
+            "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION.efi" \
+            "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION.efi.extra.d/" \
+            "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION+"*".efi"
+        ;;
+    add)
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+[ "$KERNEL_INSTALL_LAYOUT" = "uki" ] || exit 0
+
+if ! [ -d "$UKI_DIR" ]; then
+    [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "creating $UKI_DIR"
+    mkdir -p "$UKI_DIR"
+fi
+
+TRIES_FILE="${KERNEL_INSTALL_CONF_ROOT:-/etc/kernel}/tries"
+
+if [ -f "$TRIES_FILE" ]; then
+    read -r TRIES <"$TRIES_FILE"
+    if ! echo "$TRIES" | grep -q '^[0-9][0-9]*$'; then
+        echo "$TRIES_FILE does not contain an integer." >&2
+        exit 1
+    fi
+    if [ -f "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION.efi" ]; then
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing previous UKI '$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION.efi' without boot counting." >&2
+        rm -f "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION.efi"
+    fi
+    for uki in "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION+"*.efi; do
+        [ "$uki" = "$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION+*.efi" ] && break
+        [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && \
+            echo "Removing previous UKI '$uki' that has not yet booted successfully." >&2
+        rm -f "$uki"
+    done
+
+    UKI_FILE="$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION+$TRIES.efi"
+else
+    UKI_FILE="$UKI_DIR/$ENTRY_TOKEN-$KERNEL_VERSION.efi"
+fi
+
+# If there is a UKI named uki.efi on the staging area use that, if not use what
+# was passed in as $KERNEL_IMAGE but insist it has a .efi extension
+if [ -f "$KERNEL_INSTALL_STAGING_AREA/uki.efi" ]; then
+    [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "Installing $KERNEL_INSTALL_STAGING_AREA/uki.efi as $UKI_FILE"
+    install -m 0644 "$KERNEL_INSTALL_STAGING_AREA/uki.efi" "$UKI_FILE" || {
+        echo "Error: could not copy '$KERNEL_INSTALL_STAGING_AREA/uki.efi' to '$UKI_FILE'." >&2
+        exit 1
+    }
+elif [ -n "$KERNEL_IMAGE" ]; then
+    [ -f "$KERNEL_IMAGE" ] || {
+        echo "Error: UKI '$KERNEL_IMAGE' not a file." >&2
+        exit 1
+    }
+    [ "$KERNEL_IMAGE" != "${KERNEL_IMAGE%*.efi}.efi" ] && {
+        echo "Error: $KERNEL_IMAGE is missing .efi suffix." >&2
+        exit 1
+    }
+    [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "Installing $KERNEL_IMAGE as $UKI_FILE"
+    install -m 0644 "$KERNEL_IMAGE" "$UKI_FILE" || {
+        echo "Error: could not copy '$KERNEL_IMAGE' to '$UKI_FILE'." >&2
+        exit 1
+    }
+else
+    [ "$KERNEL_INSTALL_VERBOSE" -gt 0 ] && echo "No UKI available. Nothing to do."
+    exit 0
+fi
+chown root:root "$UKI_FILE" || :
+
+exit 0

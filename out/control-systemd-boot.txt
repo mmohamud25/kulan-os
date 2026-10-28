@@ -1,0 +1,329 @@
+=== ctl-systemd-boot/conffiles
+/etc/initramfs/post-update.d/systemd-boot
+/etc/kernel/postinst.d/zz-systemd-boot
+/etc/kernel/postrm.d/zz-systemd-boot
+=== ctl-systemd-boot/control
+Package: systemd-boot
+Source: systemd
+Version: 257.13-1~deb13u1
+Architecture: amd64
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Installed-Size: 196
+Depends: libc6 (>= 2.34), libsystemd-shared (= 257.13-1~deb13u1), systemd (= 257.13-1~deb13u1), systemd-boot-tools (= 257.13-1~deb13u1), systemd-boot-efi-signed (>= 257.13-1~deb13u1) | systemd-boot-efi (= 257.13-1~deb13u1)
+Recommends: efibootmgr, shim-signed
+Suggests: systemd-ukify
+Conflicts: systemd (<< 256-2~), systemd-boot-efi (<< 256-2~)
+Section: admin
+Priority: optional
+Homepage: https://systemd.io
+Description: simple UEFI boot manager - integration and services
+ systemd-boot (short: sd-boot) is a simple UEFI boot manager. It provides a
+ textual menu to select the entry to boot and an editor for the kernel command
+ line. It supports systems with UEFI firmware only.
+ .
+ Installing systemd-boot will configure and install it in the ESP.
+ .
+ This package contains various tools and services to manage systems using
+ systemd-boot, and serves as the main integration point to autoconfigure
+ the system.
+=== ctl-systemd-boot/md5sums
+3f478311a93df6f555397e9baa8535ef  usr/lib/systemd/system-generators/systemd-bless-boot-generator
+2f2b0f860e84c000a7c7eee574ae6efc  usr/lib/systemd/system/systemd-bless-boot.service
+371e3b49fed83a1a0cd7590d3f558e58  usr/lib/systemd/system/systemd-boot-random-seed.service
+4e49ef9aaa3f11734d6079e61d366885  usr/lib/systemd/system/systemd-boot-update.service
+305e8189dc315973543bdfedc438070c  usr/lib/systemd/system/systemd-bootctl.socket
+95aeba1c1f8136c88938e2ddb69fd4aa  usr/lib/systemd/system/systemd-bootctl@.service
+81baac254b4b42d5cbe6d3f1b261dcfd  usr/lib/systemd/systemd-bless-boot
+00d159afa7df88fea88b6f7e18caee1a  usr/share/doc/systemd-boot/NEWS.Debian.gz
+0a176b356d87d134b1d35c6463c95c3b  usr/share/doc/systemd-boot/changelog.Debian.gz
+26ad924032ac9d520f57275eba26291d  usr/share/doc/systemd-boot/copyright
+32174095efc9c6cfefb47cd2b4e85472  usr/share/lintian/overrides/systemd-boot
+6551798473e28d70250f939d780ea356  usr/share/man/man5/loader.conf.5.gz
+4ff44faf13a692a3bb52d6f20c476bab  usr/share/man/man7/systemd-boot.7.gz
+dd866b9d107f511bf597eccf3e44c702  usr/share/man/man7/systemd-stub.7.gz
+f37edca86cf52bcce5d1eae653869bd5  usr/share/man/man8/systemd-bless-boot-generator.8.gz
+3dd3ced7590839de38e1815b5923a9ca  usr/share/man/man8/systemd-bless-boot.service.8.gz
+c0f85740285b0c999475aa224477c302  usr/share/man/man8/systemd-boot-random-seed.service.8.gz
+=== ctl-systemd-boot/postinst
+#!/bin/sh
+
+# When installing/updating systemd-boot, if _both_ signed shim and signed systemd-boot are available, and
+# signed grub is not available, then take over the ESP and the EFI boot entry, install systemd-boot as the
+# second stage loader, and install signed shim as the first stage loader and add a boot entry named after
+# the OS vendor pointing to it, and mark it as the default.
+#
+# When triggered, given dpkg does not tell us whether the trigger added or removed a file, if signed
+# grub is available then do nothing and assume it will take over the ESP. If it is not, and either
+# signed shim or signed systemd-boot or both are not available, then remove all of them from the ESP
+# and the EFI boot entry. If both signed shim and signed systemd-boot are available, then update them
+# in the ESP.
+
+set -e
+
+remove_shim() {
+    case "$(dpkg --print-architecture)" in
+        amd64)
+        efi_arch_upper=X64
+        efi_arch=x64
+        grub_arch=x86_64
+        ;;
+        arm64)
+        efi_arch_upper=AA64
+        efi_arch=aa64
+        grub_arch=arm64
+        ;;
+        *)
+        return
+    esac
+
+    # shellcheck disable=SC1091
+    . /etc/os-release || . /usr/lib/os-release
+    vendor="${ID:-debian}"
+    vendor_upper="$(echo "$vendor" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$vendor" | cut -c2-)"
+
+    esp_path="$(bootctl --quiet --print-esp-path 2>/dev/null)"
+    if [ -z "$esp_path" ]; then
+        return
+    fi
+
+    if [ -f "/usr/lib/grub/${grub_arch}-efi-signed/grub${efi_arch}.efi.signed" ]; then
+        return
+    fi
+
+    if [ ! -f "${esp_path}/EFI/systemd/systemd-boot${efi_arch}.efi" ]; then
+        return
+    fi
+
+    if [ -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" ] && \
+            [ -f "${esp_path}/EFI/${vendor}/shim${efi_arch}.efi" ] && \
+            [ "$(<"${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" sha256sum)" = "$(<"${esp_path}/EFI/${vendor}/shim${efi_arch}.efi" sha256sum)" ]; then
+        rm -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi"
+    fi
+
+    if [ -f "${esp_path}/EFI/BOOT/fb${efi_arch_upper}.efi" ] && \
+            [ -f "${esp_path}/EFI/${vendor}/fb${efi_arch}.efi" ] && \
+            [ "$(<"${esp_path}/EFI/BOOT/fb${efi_arch_upper}.efi" sha256sum)" = "$(<"${esp_path}/EFI/${vendor}/fb${efi_arch}.efi" sha256sum)" ]; then
+        rm -f "${esp_path}/EFI/BOOT/fb${efi_arch_upper}.efi"
+    fi
+
+    for f in shim fb mm; do
+        rm -f "${esp_path}/EFI/${vendor}/${f}${efi_arch}.efi"
+    done
+
+    rm -f "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV"
+    rmdir --ignore-fail-on-non-empty "${esp_path}/EFI/${vendor}" 2>/dev/null || true
+
+    if command -v efibootmgr >/dev/null 2>&1 && efibootmgr | grep -i -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi"; then
+        bootentry="$(efibootmgr | grep -i "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
+        efibootmgr -q --delete-bootnum --bootnum "$bootentry"
+    fi
+}
+
+install_shim() {
+    case "$(dpkg --print-architecture)" in
+        amd64)
+        efi_arch_upper=X64
+        efi_arch=x64
+        grub_arch=x86_64
+        ;;
+        arm64)
+        efi_arch_upper=AA64
+        efi_arch=aa64
+        grub_arch=arm64
+        ;;
+        *)
+        return
+    esac
+
+    if [ ! -f "/usr/lib/shim/shim${efi_arch}.efi.signed" ] || [ ! -f "/usr/lib/systemd/boot/efi/systemd-boot${efi_arch}.efi.signed" ]; then
+        if [ "$1" = trigger ]; then
+            remove_shim
+        fi
+        return
+    fi
+
+    if [ -f "/usr/lib/grub/${grub_arch}-efi-signed/grub${efi_arch}.efi.signed" ]; then
+        return
+    fi
+
+    esp_path="$(bootctl --quiet --print-esp-path 2>/dev/null)"
+    if [ -z "$esp_path" ]; then
+        return
+    fi
+
+    # shellcheck disable=SC1091
+    . /etc/os-release || . /usr/lib/os-release
+    vendor="${ID:-debian}"
+    vendor_upper="$(echo "$vendor" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$vendor" | cut -c2-)"
+
+    for f in shim fb mm; do
+        if [ ! -f "/usr/lib/shim/${f}${efi_arch}.efi.signed" ]; then
+            continue
+        fi
+        if [ -f "${esp_path}/EFI/${vendor}/${f}${efi_arch}.efi" ] && [ "$(<"${esp_path}/EFI/${vendor}/${f}${efi_arch}.efi" sha256sum)" = "$(<"/usr/lib/shim/${f}${efi_arch}.efi.signed" sha256sum)" ]; then
+            continue
+        fi
+        install -p -D "/usr/lib/shim/${f}${efi_arch}.efi.signed" "${esp_path}/EFI/${vendor}/${f}${efi_arch}.efi"
+    done
+
+    if [ ! -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" ] || [ "$(<"${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" sha256sum)" != "$(<"/usr/lib/shim/shim${efi_arch}.efi.signed" sha256sum)" ]; then
+        install -p -D "/usr/lib/shim/shim${efi_arch}.efi.signed" "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi"
+    fi
+
+    if [ ! -f "${esp_path}/EFI/BOOT/fb${efi_arch}.efi" ] || [ "$(<"${esp_path}/EFI/BOOT/fb${efi_arch}.efi" sha256sum)" != "$(<"/usr/lib/shim/fb${efi_arch}.efi.signed" sha256sum)" ]; then
+        install -p -D "/usr/lib/shim/fb${efi_arch}.efi.signed" "${esp_path}/EFI/BOOT/fb${efi_arch}.efi"
+    fi
+
+    if [ ! -f "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV" ] && command -v iconv >/dev/null 2>&1; then
+        printf "shim%s.efi,%s,\\\\EFI\\\\systemd\\\\systemd-boot%s.efi \\\\0,This is the boot entry for %s\n" "${efi_arch}" "${vendor_upper}" "${efi_arch}" "${vendor_upper}" | iconv -t UCS-2LE > "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV"
+    fi
+
+    # 730079007300740065006d0064002d0062006f006f007400 is 'systemd-boot' encoded in UTF-16-LE"
+    if ! command -v efibootmgr >/dev/null 2>&1; then
+        echo "efibootmgr not found, skipping boot entry creation"
+    elif ! efibootmgr | grep -i -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi.*systemd-boot${efi_arch}.efi\|Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi.*730079007300740065006d0064002d0062006f006f007400"; then
+        blkpart="$(findmnt -nvo SOURCE "$esp_path")"
+        if [ ! -L "/sys/class/block/${blkpart##*/}" ]; then
+            return
+        fi
+        drive="$(readlink -f "/sys/class/block/${blkpart##*/}")"
+        drive="${drive%/*}"
+        drive="/dev/${drive##*/}"
+        partno="$(cat "/sys/class/block/${blkpart##*/}/partition")"
+        efibootmgr -q --create --disk "$drive" --part "$partno" --loader "EFI/${vendor}/shim${efi_arch}.efi" --label "${vendor_upper}" --unicode "\EFI\systemd\systemd-boot${efi_arch}.efi \0"
+    fi
+}
+
+if [ "$1" = configure ] && bootctl --print-esp-path > /dev/null 2>&1; then
+    if bootctl is-installed > /dev/null 2>&1; then
+        bootctl update --graceful
+    else
+        bootctl install --make-machine-id-directory=auto
+    fi
+    install_shim install
+
+    if [ -z "$2" ]; then
+        # register existing kernel(s)
+        for k in /boot/vmlinu[xz]-*; do
+            [ -f "$k" ] || continue
+            ver=$(basename "$k" | sed s/^vmlinu[xz]-//)
+            kernel-install add "$ver" "$k"
+        done
+    fi
+fi
+
+if [ "$1" = triggered ]; then
+    shift
+    for trigger in "$@"; do
+        case $trigger in
+            /usr/lib/shim|/usr/lib/grub|systemd-boot-signed)
+                install_shim trigger
+                ;;
+        esac
+    done
+    exit 0
+fi
+
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper mv_conffile /etc/kernel/postinst.d/systemd-boot /etc/kernel/postinst.d/zz-systemd-boot 251.4-4\~ -- "$@"
+dpkg-maintscript-helper mv_conffile /etc/kernel/postrm.d/systemd-boot /etc/kernel/postrm.d/zz-systemd-boot 251.4-4\~ -- "$@"
+# End automatically added section
+
+=== ctl-systemd-boot/postrm
+#!/bin/sh
+set -e
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper mv_conffile /etc/kernel/postinst.d/systemd-boot /etc/kernel/postinst.d/zz-systemd-boot 251.4-4\~ -- "$@"
+dpkg-maintscript-helper mv_conffile /etc/kernel/postrm.d/systemd-boot /etc/kernel/postrm.d/zz-systemd-boot 251.4-4\~ -- "$@"
+# End automatically added section
+=== ctl-systemd-boot/preinst
+#!/bin/sh
+set -e
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper mv_conffile /etc/kernel/postinst.d/systemd-boot /etc/kernel/postinst.d/zz-systemd-boot 251.4-4\~ -- "$@"
+dpkg-maintscript-helper mv_conffile /etc/kernel/postrm.d/systemd-boot /etc/kernel/postrm.d/zz-systemd-boot 251.4-4\~ -- "$@"
+# End automatically added section
+=== ctl-systemd-boot/prerm
+#!/bin/sh
+
+set -e
+
+remove_shim() {
+    case "$(dpkg --print-architecture)" in
+        amd64)
+        efi_arch_upper=X64
+        efi_arch=x64
+        grub_arch=x86_64
+        ;;
+        arm64)
+        efi_arch_upper=AA64
+        efi_arch=aa64
+        grub_arch=arm64
+        ;;
+        *)
+        return
+    esac
+
+    # shellcheck disable=SC1091
+    . /etc/os-release || . /usr/lib/os-release
+    vendor="${ID:-debian}"
+    vendor_upper="$(echo "$vendor" | cut -c1 | tr '[:lower:]' '[:upper:]')$(echo "$vendor" | cut -c2-)"
+
+    esp_path="$(bootctl --quiet --print-esp-path 2>/dev/null)"
+    if [ -z "$esp_path" ]; then
+        return
+    fi
+
+    if [ -f "/usr/lib/grub/${grub_arch}-efi-signed/grub${efi_arch}.efi.signed" ]; then
+        return
+    fi
+
+    if [ ! -f "${esp_path}/EFI/systemd/systemd-boot${efi_arch}.efi" ]; then
+        return
+    fi
+
+    if [ -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" ] && \
+            [ -f "${esp_path}/EFI/${vendor}/shim${efi_arch}.efi" ] && \
+            [ "$(<"${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi" sha256sum)" = "$(<"${esp_path}/EFI/${vendor}/shim${efi_arch}.efi" sha256sum)" ]; then
+        rm -f "${esp_path}/EFI/BOOT/BOOT${efi_arch_upper}.efi"
+    fi
+
+    if [ -f "${esp_path}/EFI/BOOT/fb${efi_arch_upper}.efi" ] && \
+            [ -f "${esp_path}/EFI/${vendor}/fb${efi_arch}.efi" ] && \
+            [ "$(<"${esp_path}/EFI/BOOT/fb${efi_arch_upper}.efi" sha256sum)" = "$(<"${esp_path}/EFI/${vendor}/fb${efi_arch}.efi" sha256sum)" ]; then
+        rm -f "${esp_path}/EFI/BOOT/fb${efi_arch_upper}.efi"
+    fi
+
+    for f in shim fb mm; do
+        rm -f "${esp_path}/EFI/${vendor}/${f}${efi_arch}.efi"
+    done
+
+    rm -f "${esp_path}/EFI/${vendor}/BOOT${efi_arch_upper}.CSV"
+    rmdir --ignore-fail-on-non-empty "${esp_path}/EFI/${vendor}" 2>/dev/null || true
+
+    if command -v efibootmgr >/dev/null 2>&1 && efibootmgr | grep -i -q "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi"; then
+        bootentry="$(efibootmgr | grep -i "Boot.*${vendor_upper}.*EFI\\\\${vendor}\\\\shim${efi_arch}.efi" | cut -d' ' -f1 | sed -e 's/Boot//' -e 's/*//')"
+        efibootmgr -q --delete-bootnum --bootnum "$bootentry"
+    fi
+}
+
+# shellcheck disable=SC2166
+if [ "$1" = remove -o "$1" = purge ] && bootctl --print-esp-path > /dev/null 2>&1; then
+    for k in /boot/vmlinu[xz]-*; do
+        [ -f "$k" ] || continue
+        ver=$(basename "$k" | sed s/^vmlinu[xz]-//)
+        kernel-install remove "$ver"
+    done
+
+    remove_shim
+    bootctl remove --graceful
+fi
+
+# Automatically added by dh_installdeb/13.24.2
+dpkg-maintscript-helper mv_conffile /etc/kernel/postinst.d/systemd-boot /etc/kernel/postinst.d/zz-systemd-boot 251.4-4\~ -- "$@"
+dpkg-maintscript-helper mv_conffile /etc/kernel/postrm.d/systemd-boot /etc/kernel/postrm.d/zz-systemd-boot 251.4-4\~ -- "$@"
+# End automatically added section
+
+=== ctl-systemd-boot/triggers
+interest-noawait /usr/lib/shim
+interest-noawait systemd-boot-signed

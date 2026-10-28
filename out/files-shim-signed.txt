@@ -1,0 +1,10 @@
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./usr/
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./usr/lib/
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./usr/lib/shim/
+-rw-r--r-- root/root   1036152 2026-06-22 21:30 ./usr/lib/shim/shimx64.efi.signed
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./usr/share/
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./usr/share/doc/
+drwxr-xr-x root/root         0 2026-06-22 21:30 ./usr/share/doc/shim-signed/
+-rw-r--r-- root/root      3143 2026-06-22 21:30 ./usr/share/doc/shim-signed/changelog.gz
+-rw-r--r-- root/root      2090 2019-04-19 14:09 ./usr/share/doc/shim-signed/copyright

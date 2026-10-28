@@ -1,0 +1,6 @@
+mokutil:
+  Installed: (none)
+  Candidate: 0.7.2-1
+  Version table:
+     0.7.2-1 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages

@@ -1,0 +1,15 @@
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/boot/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/lib/systemd/boot/efi/
+-rw-r--r-- root/root      2048 2026-04-13 19:38 ./usr/lib/systemd/boot/efi/addonx64.efi.stub
+-rw-r--r-- root/root     92160 2026-04-13 19:38 ./usr/lib/systemd/boot/efi/linuxx64.efi.stub
+-rw-r--r-- root/root    124416 2026-04-13 19:38 ./usr/lib/systemd/boot/efi/systemd-bootx64.efi
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/
+drwxr-xr-x root/root         0 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi/
+-rw-r--r-- root/root      3292 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi/NEWS.Debian.gz
+-rw-r--r-- root/root     49267 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi/changelog.Debian.gz
+-rw-r--r-- root/root     12521 2026-04-13 19:38 ./usr/share/doc/systemd-boot-efi/copyright

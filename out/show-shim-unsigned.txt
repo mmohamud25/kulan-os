@@ -1,0 +1,18 @@
+Package: shim-unsigned
+Source: shim
+Version: 16.1-2~deb13u1
+Installed-Size: 1993
+Maintainer: Debian EFI team <debian-efi@lists.debian.org>
+Architecture: amd64
+Replaces: shim (<< 15+1533136590.3beb971-3~)
+Conflicts: shim (<< 15+1533136590.3beb971-3~)
+Description: boot loader to chain-load signed boot loaders under Secure Boot
+Description-md5: ba97e9b3cf7ad648ef7a4f6c9fa9a6d0
+Multi-Arch: same
+Section: admin
+Priority: optional
+Filename: pool/main/s/shim/shim-unsigned_16.1-2~deb13u1_amd64.deb
+Size: 452748
+MD5sum: 8e762b3621677346e308fdbdc7f9255e
+SHA256: 4e9a0742fef5419879ccef6b612bfffd0e92bf7047bf23a51f04106d33628f35
+

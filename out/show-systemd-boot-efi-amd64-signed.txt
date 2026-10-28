@@ -1,0 +1,17 @@
+Package: systemd-boot-efi-amd64-signed
+Source: systemd-boot-efi-amd64-signed (257.13+1~deb13u1)
+Version: 257.13-1~deb13u1
+Installed-Size: 140
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Architecture: amd64
+Provides: systemd-boot-efi-signed (= 257.13-1~deb13u1)
+Description: Tools to manage UEFI firmware updates (signed)
+Description-md5: b0b56b5e66e826ef5ce8c1e936f476cc
+Built-Using: systemd (= 257.13-1~deb13u1)
+Section: admin
+Priority: optional
+Filename: pool/main/s/systemd-boot-efi-amd64-signed/systemd-boot-efi-amd64-signed_257.13-1~deb13u1_amd64.deb
+Size: 56828
+MD5sum: 6442f73619b7874439e2fffdd03b0086
+SHA256: 8ecdb0b4af26105ff8c38986c3c8a261133d60ca342ff75351c1be9d1abf74cc
+

@@ -1,0 +1,21 @@
+Package: systemd-ukify
+Source: systemd
+Version: 257.13-1~deb13u1
+Installed-Size: 175
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Architecture: all
+Replaces: systemd (<< 255.1-1~)
+Depends: python3:any, python3-pefile, python3-zstandard
+Recommends: systemd, systemd-boot-efi, systemd-repart, python3-cryptography, python3-lz4, sbsigntool | pesign
+Conflicts: systemd (<< 255.1-1~)
+Description: tool to build Unified Kernel Images
+Description-md5: 39e5649d00705f557e265149601a82a3
+Multi-Arch: foreign
+Homepage: https://systemd.io
+Section: admin
+Priority: optional
+Filename: pool/main/s/systemd/systemd-ukify_257.13-1~deb13u1_all.deb
+Size: 88516
+MD5sum: 7c1679733e8db55013f2ad29b43308eb
+SHA256: 78e1f7921f39d07512d848244b8b3e320e93e77d0b5778c211809e9f3b8b8284
+

@@ -1,0 +1,6 @@
+shim-signed:
+  Installed: (none)
+  Candidate: 1.51~1+deb13u1+16.1-2~deb13u1
+  Version table:
+     1.51~1+deb13u1+16.1-2~deb13u1 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages

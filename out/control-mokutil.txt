@@ -1,0 +1,19 @@
+=== ctl-mokutil/control
+Package: mokutil
+Version: 0.7.2-1
+Architecture: amd64
+Maintainer: Debian UEFI Maintainers <debian-efi@lists.debian.org>
+Installed-Size: 79
+Depends: libc6 (>= 2.34), libcrypt1 (>= 1:4.1.0), libefivar1t64 (>= 38), libkeyutils1 (>= 1.5.9), libssl3t64 (>= 3.0.0)
+Section: admin
+Priority: optional
+Multi-Arch: foreign
+Description: tools for manipulating machine owner keys
+ This program provides the means to enroll and erase the machine owner
+ keys (MOK) stored in the database of shim.
+=== ctl-mokutil/md5sums
+9f7ae2df22b0f847481af76503cbe75e  usr/bin/mokutil
+e44144531c4a3bc0c2cb43a0964901ac  usr/share/bash-completion/completions/mokutil
+49ade3bc3587554cbe149220a7b8ba38  usr/share/doc/mokutil/changelog.Debian.gz
+3813836571a1ab5565ce72c2ff762395  usr/share/doc/mokutil/copyright
+c5d131574f3083e3c370e24198867d1d  usr/share/man/man1/mokutil.1.gz

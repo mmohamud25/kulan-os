@@ -1,0 +1,6 @@
+dracut-core:
+  Installed: (none)
+  Candidate: 106-6
+  Version table:
+     106-6 500
+        500 http://deb.debian.org/debian trixie/main amd64 Packages

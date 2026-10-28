@@ -1,0 +1,25 @@
+Package: systemd
+Version: 257.13-1~deb13u1
+Installed-Size: 9944
+Maintainer: Debian systemd Maintainers <pkg-systemd-maintainers@lists.alioth.debian.org>
+Architecture: amd64
+Provides: systemd-sysusers (= 257.13-1~deb13u1), systemd-tmpfiles (= 257.13-1~deb13u1)
+Depends: libacl1 (>= 2.2.23), libapparmor1 (>= 2.13), libc6 (>= 2.41), libmount1 (>= 2.30), libpam0g (>= 0.99.7.1), libseccomp2 (>= 2.3.1), libselinux1 (>= 3.1~), libssl3t64 (>= 3.4.0), libsystemd0 (= 257.13-1~deb13u1), mount
+Pre-Depends: libc6 (>= 2.38), libsystemd-shared (= 257.13-1~deb13u1)
+Recommends: default-dbus-system-bus | dbus-system-bus, linux-sysctl-defaults, systemd-timesyncd | time-daemon, systemd-cryptsetup
+Suggests: systemd-container, systemd-homed, systemd-userdbd, systemd-boot, systemd-resolved, systemd-repart, libtss2-tcti-device0, polkitd
+Conflicts: consolekit, libpam-ck-connector, opensysusers (<< 0.7.3-4.1~), systemd-shim
+Breaks: dracut-core (<< 102-2~), less (<< 563), sicherboot (<< 0.1.6)
+Description: system and service manager
+Description-md5: 2728f00e9cb47f195aa39097a3afbc42
+Multi-Arch: foreign
+Homepage: https://systemd.io
+Tag: admin::boot, implemented-in::c, interface::daemon, role::program,
+ works-with::software:running
+Section: admin
+Priority: important
+Filename: pool/main/s/systemd/systemd_257.13-1~deb13u1_amd64.deb
+Size: 3093632
+MD5sum: ac7a446ab9400f597a25d1157c61d333
+SHA256: ee81302a1d5b7434762b6e784a572854d4b6cf6235e33e2d104ad4e1cae71ab4
+
