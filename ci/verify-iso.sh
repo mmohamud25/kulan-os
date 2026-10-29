@@ -231,7 +231,7 @@ else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
 fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
-check "Tor Browser offline" "Tor Browser opens through Kulan's start script, which says when its first download needs the internet" bash -c "grep -q '^Exec=/usr/lib/kulan/torbrowser-start' '${R}/usr/share/kulan/xdg/applications/torbrowser.desktop' && grep -q 'squashfs-root/usr/lib/kulan/torbrowser-start\$' '${WORK}/listing'"
+check "Tor Browser offline" "Tor Browser (where it's in the ISO) opens through Kulan's start script, which says when its first download needs the internet" bash -c "$(declare -f installed); R='${R}'; ! installed torbrowser-launcher || { grep -q '^Exec=/usr/lib/kulan/torbrowser-start' '${R}/usr/share/kulan/xdg/applications/torbrowser.desktop' && grep -q 'squashfs-root/usr/lib/kulan/torbrowser-start\$' '${WORK}/listing'; }"
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "kulan command" "/usr/bin/kulan present (info, update, doctor, ask)" has_path usr/bin/kulan
 kulan_installer() {
