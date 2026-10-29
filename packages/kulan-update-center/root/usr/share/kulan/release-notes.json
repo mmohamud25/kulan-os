@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.10.1",
+    "label": "2.10.1",
+    "title": "Smoother when you do several things at once",
+    "items": [
+      "Videos are decoded by the graphics chip in Firefox and Chromium where the computer can, so a video playing no longer keeps the processor busy and slows everything else down",
+      "Ask Kulan always gives way to the app you're using: it answers with half the processor and the lowest priority, so a video or a call doesn't stutter while it thinks",
+      "Automatic updates and other background work wait for the app in front of you",
+      "On Intel computers, Intel's thermal service slows a hot processor gently instead of in sudden drops"
+    ]
+  },
+  {
     "version": "2.10.0",
     "label": "2.10",
     "title": "Easier to install, harder to tamper with",

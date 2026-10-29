@@ -1,0 +1,4 @@
+# Kulan OS: Chromium decodes video with the graphics chip (VA-API) where it
+# can, like Firefox, so a video playing doesn't keep the processor busy and
+# slow everything else down. Where it can't, Chromium decodes as before.
+export CHROMIUM_FLAGS="$CHROMIUM_FLAGS --enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL"

@@ -6,7 +6,7 @@ Section: admin
 Priority: optional
 Pre-Depends: dpkg (>= 1.19.1)
 Depends: ufw, unattended-upgrades, python3, python3-cryptography, libpam-runtime, libpam-u2f, pamu2fcfg, libpam-oath, oathtool
-Recommends: apparmor-profiles-extra, systemd-zram-generator, systemd-oomd, kexec-tools
+Recommends: apparmor-profiles-extra, systemd-zram-generator, systemd-oomd, kexec-tools, thermald
 Homepage: @HOME_URL@
 Description: @NAME@ system name, updates and security defaults
  Names the system @NAME@ and adds its software update channel.

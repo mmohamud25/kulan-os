@@ -102,6 +102,14 @@ FILES=(
 	etc/pam.d/common-auth
 	etc/group
 	usr/sbin/grub-install
+	usr/lib/systemd/system/thermald.service.d/50-kulan-intel.conf
+	usr/lib/systemd/user/kulan-assistant-engine.service
+	usr/lib/systemd/system/man-db.service.d/50-kulan-idle.conf
+	usr/lib/systemd/system/fwupd-refresh.service.d/50-kulan-idle.conf
+	usr/lib/systemd/system/apt-daily-upgrade.service.d/50-kulan-idle.conf
+	usr/lib/systemd/system/apt-daily.service.d/50-kulan-idle.conf
+	etc/chromium.d/kulan-video
+	usr/lib/firefox-esr/kulan.cfg
 	usr/share/kulan/xdg/applications/torbrowser.desktop
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
@@ -232,6 +240,7 @@ else
 fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
 check "Tor Browser offline" "Tor Browser (where it's in the ISO) opens through Kulan's start script, which says when its first download needs the internet" bash -c "$(declare -f installed); R='${R}'; ! installed torbrowser-launcher || { grep -q '^Exec=/usr/lib/kulan/torbrowser-start' '${R}/usr/share/kulan/xdg/applications/torbrowser.desktop' && grep -q 'squashfs-root/usr/lib/kulan/torbrowser-start\$' '${WORK}/listing'; }"
+check "Smooth multitasking" "video decoded by the graphics chip in Firefox and Chromium; automatic updates and background work at idle priority; Ask Kulan's engine gives way to apps; Intel's thermal service (PC)" bash -c "$(declare -f installed has_path); R='${R}'; WORK='${WORK}'; grep -q 'media.ffmpeg.vaapi.enabled' '${R}/usr/lib/firefox-esr/kulan.cfg' && grep -q 'AcceleratedVideoDecodeLinuxGL' '${R}/etc/chromium.d/kulan-video' && for u in apt-daily apt-daily-upgrade fwupd-refresh man-db; do grep -qx 'CPUWeight=idle' '${R}/usr/lib/systemd/system/'\$u'.service.d/50-kulan-idle.conf' || exit 1; done && grep -qx 'CPUWeight=20' '${R}/usr/lib/systemd/user/kulan-assistant-engine.service' && { [ '${ARCH}' != amd64 ] || { installed thermald && grep -q GenuineIntel '${R}/usr/lib/systemd/system/thermald.service.d/50-kulan-intel.conf'; }; }"
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "kulan command" "/usr/bin/kulan present (info, update, doctor, ask)" has_path usr/bin/kulan
 kulan_installer() {

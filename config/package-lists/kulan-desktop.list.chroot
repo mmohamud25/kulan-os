@@ -28,6 +28,11 @@ gir1.2-dbusmenu-glib-0.4
 gnome-shell-extension-tiling-assistant
 # Battery modes (Power Saver, Balanced, Performance) in Quick Settings
 power-profiles-daemon
+# Intel's thermal service: slows a hot processor gently instead of in
+# sudden drops (Intel computers only; see kulan-base's drop-in)
+#if ARCHITECTURES amd64
+thermald
+#endif
 
 # Look and feel
 adwaita-icon-theme
