@@ -1,0 +1,17 @@
+# Kulan OS: GNOME Shell's Wi-Fi and network password box in Kulan's words
+# (English). Only these lines change; every other GNOME Shell text stays.
+# Each msgid must match GNOME Shell's exactly (checked in ci/test-packages.sh).
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Authentication required"
+msgstr "Password needed"
+
+msgid "Passwords or encryption keys are required to access the wireless network “%s”"
+msgstr "Type the password for the Wi-Fi network “%s”."
+
+msgid "Alternatively you can connect by pushing the “WPS” button on your router"
+msgstr "Or press the WPS button on your router."
+
+msgid "A password is required to connect to “%s”"
+msgstr "Type the password for “%s”."

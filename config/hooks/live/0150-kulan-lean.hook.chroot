@@ -29,6 +29,27 @@ purge_if_alone() {
 	done
 }
 purge_if_alone pocketsphinx-en-us locales-all vlc-l10n
+# - tor: the system's own Tor service, which torbrowser-launcher recommends.
+#   Tor Browser runs its own Tor, so this one only ran in the background.
+purge_if_alone tor
+
+# Services that only need to run when they're used (kulan-base's postinst does
+# the same once on computers updating; see there):
+# - cups.service: printing starts when something prints or looks for printers
+#   (cups.socket stays on).
+# - ModemManager.service: started when a mobile-data modem is there (kulan-base's
+#   udev rule), not at every start.
+# - openvpn.service: an empty placeholder; VPNs from Settings run OpenVPN themselves.
+# - tor.service, if tor stayed: Tor Browser has its own.
+# (systemctl here: deb-systemd-helper only works inside a package's scripts.
+# The packages' own updates keep a unit that's off as it is.)
+for UNIT in cups.service ModemManager.service openvpn.service tor.service; do
+	[ -e "/usr/lib/systemd/system/${UNIT}" ] || continue
+	systemctl disable "${UNIT}"
+done
+if [ -e /usr/lib/systemd/system/cups.socket ]; then
+	systemctl enable cups.socket
+fi
 
 # English formats ready in the live session (live-config then only checks).
 if [ -f /etc/locale.gen ] && command -v locale-gen >/dev/null 2>&1; then

@@ -1,0 +1,73 @@
+#!/usr/bin/python3
+"""Join the organisation whose Kulan OS USB stick this computer was installed
+from (Kulan USB Maker, "For an organisation"): Kulan Installer copied the
+stick's server and join code to /var/lib/kulan/fleet-join.json (root only).
+
+Run by kulan-fleet-autojoin.timer: shortly after start-up, then every 10
+minutes until it has joined. The file is removed once joined, when the
+server refuses the code (used up, expired), when the computer already joined
+some other way, or after 2,000 tries (14 days of being on; counted in tries,
+not by the clock, which may be wrong until the computer is first online).
+"""
+from __future__ import annotations
+
+import json
+import re
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+JOIN = Path("/var/lib/kulan/fleet-join.json")
+CONFIG = Path("/etc/kulan/fleet.json")
+GIVE_UP = 2000  # tries, every 10 minutes
+CODE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
+
+
+def done(why: str) -> int:
+    print(why)
+    JOIN.unlink(missing_ok=True)
+    return 0
+
+
+def main() -> int:
+    if not JOIN.exists():
+        return 0
+    if CONFIG.exists():
+        return done("Already in an organisation: the USB stick's join code isn't needed")
+    try:
+        settings = json.loads(JOIN.read_text())
+        server, code = str(settings["server"]), str(settings["code"]).upper()
+    except (OSError, ValueError, KeyError, TypeError):
+        return done("The USB stick's settings couldn't be read")
+    if not server.startswith("https://") or not CODE.match(code):
+        return done("The USB stick's settings aren't valid")
+    tries = int(settings.get("tries", 0)) if str(settings.get("tries", 0)).isdigit() else 0
+    if tries >= GIVE_UP:
+        return done("Couldn't join the organisation for 14 days: stopped trying. Join in Kulan Settings › About")
+    settings["tries"] = tries + 1
+    # Written 0600 from the start (the code must never be readable by others, even for a moment).
+    tmp = JOIN.with_suffix(".new")
+    tmp.unlink(missing_ok=True)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "w") as fh:
+        fh.write(json.dumps(settings))
+    tmp.replace(JOIN)
+    try:
+        out = subprocess.run(["/usr/bin/kulan-fleet", "join", server], input=code + "\n", text=True,
+                             capture_output=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"Couldn't join yet: {e}")
+        return 0
+    said = (out.stdout + out.stderr).strip()
+    print(said)
+    if out.returncode == 0 or CONFIG.exists():
+        return done("Joined the organisation from the USB stick")
+    # Refused (400, 403...), but not "too many at once" (429) or "too slow" (408).
+    if re.search(r"server said 4(?!08|29)\d\d", said):
+        return done("The organisation's server refused the USB stick's join code (used up or expired): "
+                    "join in Kulan Settings › About with a new code")
+    return 0  # not online yet, or the server busy: next time
+
+
+if __name__ == "__main__":
+    sys.exit(main())

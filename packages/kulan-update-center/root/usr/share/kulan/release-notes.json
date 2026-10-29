@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.10.0",
+    "label": "2.10",
+    "title": "Easier to install, harder to tamper with",
+    "items": [
+      "Kulan USB Maker for Windows and Mac makes the USB stick: pick the stick and click Make. It downloads Kulan OS, checks it's genuine and shows the key that starts your computer from it",
+      "Installing is one screen: where, your name and one password, which signs you in and unlocks the encrypted disk. Language, keyboard and time zone are filled in for you",
+      "Signed start-up: new encrypted installs sign their start-up files with the computer's own key, enrolled once on a blue screen at the first restart, so nobody can change how it starts without you knowing. Other computers can turn it on in Kulan Settings › Security",
+      "Kulan Fleet has a new design on the web and in the app: sections in a sidebar, the fleet's health at a glance, and a page for each computer",
+      "Kulan Fleet is safer: a computer joined with a code from an admin other than the Owner waits for the Owner's approval, computers run only scripts the Owner signed, and join codes can be listed and withdrawn",
+      "Updates from Kulan's channel can only change Kulan's own packages, and printing, mobile data, VPN and Tor now start only when they're used",
+      "Fixes from testing on a ThinkPad: a start menu you can read on any screen, Wi-Fi joined while trying Kulan OS still connected after installing, and plain messages when something needs the internet"
+    ]
+  },
+  {
     "version": "2.9.3",
     "label": "2.9c",
     "title": "Get help, and remote desktop in Settings",

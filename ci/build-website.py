@@ -12,6 +12,7 @@ in the sizes, and says so plainly when the newest release isn't there yet.
 """
 from __future__ import annotations
 
+import datetime
 import html
 import json
 import os
@@ -25,6 +26,9 @@ WEB = ROOT / "website"
 NOTES = ROOT / "packages/kulan-update-center/root/usr/share/kulan/release-notes.json"
 REPO = os.environ.get("GITHUB_REPOSITORY", "mmohamud25/kulan-os")
 RELEASES = f"https://github.com/{REPO}/releases"
+# Kulan USB Maker, on every release (ci/make-release.sh).
+USB_MAKER_WINDOWS = f"{RELEASES}/latest/download/Kulan-USB-Maker-Windows.exe"
+USB_MAKER_MAC = f"{RELEASES}/latest/download/Kulan-USB-Maker-Mac.dmg"
 DOWNLOAD = f"{RELEASES}/latest/download"
 SUPPORT = "support@kulangroup.com"
 SECURITY = "security@kulangroup.com"
@@ -96,7 +100,7 @@ def page(path: str, title: str, description: str, body: str, script: str = "") -
 <footer>
 <div class="wrap">
 <span>© 2026 {e(C.get("KULAN_PUBLISHER", "Kulan Group LLC"))} · Kulan means “gathering” in Somali</span>
-<nav aria-label="Footer"><a href="/help/#security">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
+<nav aria-label="Footer"><a href="/security/">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
 </div>
 </footer>
 {script}
@@ -236,12 +240,12 @@ def download() -> str:
 
 def install() -> str:
     flow = (
-        '<div class="flow" role="img" aria-label="balenaEtcher: pick the .iso, pick the USB stick, then Flash">'
-        '<span><i><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg></i>Pick the .iso</span>'
-        '<svg viewBox="0 0 24 24" fill="none" stroke="#3a4d66" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>'
+        '<div class="flow" role="img" aria-label="Kulan USB Maker: pick the USB stick, click Make, wait until it says it’s ready">'
         '<span><i><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="9" width="10" height="13" rx="2"/><path d="M9 9V3h6v6"/></svg></i>Pick the USB stick</span>'
         '<svg viewBox="0 0 24 24" fill="none" stroke="#3a4d66" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>'
-        '<span><i class="go"><svg viewBox="0 0 24 24" fill="none" stroke="#04201d" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></i>Flash</span>'
+        '<span><i class="go"><svg viewBox="0 0 24 24" fill="none" stroke="#04201d" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></i>Make</span>'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="#3a4d66" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>'
+        '<span><i><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></i>Ready</span>'
         '</div>')
     keys = "".join(f"<div><strong>{b}</strong> {k}</div>" for b, k in (
         ("Dell", "F12"), ("HP", "F9 or Esc"), ("Lenovo", "F12"), ("Acer", "F12"), ("ASUS", "F8 or Esc"),
@@ -256,7 +260,7 @@ def install() -> str:
 <h2>On a PC</h2>
 <div class="note">
 <h3>Will this delete Windows?</h3>
-<p>Only if you choose to. Trying {e(NAME)} from the USB stick changes nothing on your computer. When you install, choose <strong>Erase disk</strong> to have only {e(NAME)}, or <strong>Install next to Windows</strong> to keep both and pick one each time you start.</p>
+<p>Only if you choose to. Trying {e(NAME)} from the USB stick changes nothing on your computer. When you install, choose <strong>Erase</strong> to have only {e(NAME)}, or <strong>Next to Windows</strong> to keep both and pick one each time you start.</p>
 <p>To keep Windows, do this in Windows first:</p>
 <ol>
 <li><strong>Back up</strong> your important files.</li>
@@ -267,8 +271,8 @@ def install() -> str:
 </div>
 <div class="step"><div>
 <div class="step-title"><span class="num">1</span><h3>Make a USB stick</h3></div>
-<p><a href="/download/">Download {e(NAME)} for PC</a>, then open balenaEtcher, a free app for Windows, Mac and Linux. Choose Flash from file, pick the .iso, choose your USB stick and click Flash. Everything on the stick is erased.</p>
-<p class="muted">On Windows, Rufus works too. Choose “DD image” mode when it asks.</p>
+<p>Get Kulan USB Maker for <a href="{USB_MAKER_WINDOWS}">Windows</a> or <a href="{USB_MAKER_MAC}">Mac</a>, plug in a USB stick of 8 GB or more, pick it and click Make. It downloads {e(NAME)}, checks it’s genuine and writes the stick, then shows the key that starts your computer from it. Everything on the stick is erased.</p>
+<p class="muted">The first time you open it, Windows may say it protected your PC: choose More info, then Run anyway. On a Mac, open it once, then choose Open Anyway in System Settings › Privacy &amp; Security. Rather use your own tool? <a href="/download/">Download the .iso</a> and write it with balenaEtcher, Raspberry Pi Imager (Use custom) or, on Windows, Rufus in DD image mode.</p>
 </div><figure>{flow}</figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">2</span><h3>Start from the USB stick</h3></div>
@@ -280,16 +284,16 @@ def install() -> str:
 </div><figure><img src="/images/live-desktop.jpg" width="1200" height="675" alt="The {e(NAME)} live desktop, with Install {e(NAME)} first in the dock" loading="lazy"></figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">4</span><h3>Install with Kulan Installer</h3></div>
-<p>Click Install {e(NAME)}, the first icon in the dock, and follow four short steps:</p>
+<p>Click Install {e(NAME)}, the first icon in the dock. It’s one screen:</p>
 <ol>
-<li><strong>Keyboard:</strong> pick your layout and try it.</li>
-<li><strong>Where to install:</strong> Erase disk deletes everything on the disk. Install next to Windows uses the space you made and keeps Windows and your files. Tick encryption to protect your files with a password.</li>
-<li><strong>Time zone:</strong> usually filled in for you.</li>
-<li><strong>Your account:</strong> your name, a username and a password.</li>
+<li><strong>Where:</strong> next to Windows, using the space you made and keeping Windows and your files, or erase the whole disk.</li>
+<li><strong>You:</strong> your name and a password. The password signs you in and unlocks the encrypted disk when the computer starts.</li>
+<li><strong>Install.</strong> Language, keyboard and time zone are filled in for you. To change them, open More choices.</li>
 </ol>
-<p>A summary shows what will change, and nothing happens until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, restart, remove the stick and sign in.</p>
-</div><figure><img src="/images/installer-disk.jpg" width="840" height="665" alt="Kulan Installer’s Where to install step, offering to install next to Windows" loading="lazy"></figure></div>
-<p class="muted" style="font-size:15px">Want to choose partitions yourself? Open Advanced install from the app grid instead.</p>
+<p>Nothing on the computer changes until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, the last screen shows an eight-digit code: write it down, restart, and remove the stick when the screen goes dark.</p>
+<p>At that first restart, a blue screen asks once to enroll your computer’s own start-up key, so nobody can change how it starts without you knowing. Press any key, choose Enroll MOK, then Continue, then Yes, type the eight digits and choose Reboot. Then type your password to unlock the disk, and sign in. Missed the blue screen? {e(NAME)} starts as usual and asks again next time; the code is in Kulan Settings › Security.</p>
+</div><figure><img src="/images/installer-disk.jpg" width="840" height="718" alt="Kulan Installer’s one screen, offering to install next to Windows" loading="lazy"></figure></div>
+<p class="muted" style="font-size:15px">Want to choose partitions yourself? Open More choices in the installer, then Advanced install.</p>
 </section>
 <section class="band" id="mac">
 <div class="wrap">
@@ -363,7 +367,7 @@ def help_page() -> str:
         ("How do I back up my files?", "Open Backups from the app grid and choose an external drive or network "
                                        "folder. It can back up automatically every day."),
         ("My computer won’t start from the USB stick", "Try another USB port, make the stick again with "
-                                                       "balenaEtcher, and check the boot-menu key for your computer "
+                                                       "Kulan USB Maker, and check the boot-menu key for your computer "
                                                        "in the <a href=\"/install/\">install guide</a>."),
     ]
     items = "".join(f"<details><summary>{e(q)}</summary><p>{a}</p></details>" for q, a in faq)
@@ -445,6 +449,48 @@ what it never does.</p><p class="muted">For {e(NAME)} {e(LABEL)} and later.</p>{
     return page("/privacy/", "Privacy policy", f"What {NAME} sends, and what it never does.", body)
 
 
+def security() -> str:
+    """How to report a security problem, and how Kulan OS is protected (with /.well-known/security.txt)."""
+    sections = [
+        ("Report a security problem", f"""<p>Found a way to get around {e(NAME)}’s protections, in the system,
+Kulan Fleet, the installer, Kulan USB Maker or this website? Please tell us privately first, at
+<a href="mailto:{SECURITY}">{SECURITY}</a>, before telling anyone else.</p>
+<ul><li>Say what you found and how to repeat it, and which version you used (Kulan Settings › About).</li>
+<li>We confirm we got it, keep you told as we fix it, and release the fix as an update. Tell us if you’d like
+to be thanked by name in the release notes.</li>
+<li>Please don’t look at, change or keep other people’s data, or test against computers or organisations that
+aren’t yours.</li></ul>
+<p>Problems in Debian’s own packages go to the <a href="https://www.debian.org/security/">Debian security
+team</a>; {e(NAME)} gets their fixes the same day through its updates.</p>"""),
+        (f"How {NAME} is protected", f"""<ul>
+<li><strong>Signed updates</strong>: every {e(NAME)} update and release is signed with Kulan’s key
+(<a href="/apt/kulan-archive-keyring.gpg">download it</a>), and installed computers only take system updates signed by it
+or by Debian.</li>
+<li><strong>Security updates</strong> from Debian install by themselves, with a restore point first.</li>
+<li><strong>Disk encryption</strong> is on when you install, and Secure Boot is supported.</li>
+<li><strong>A firewall</strong> blocks connections from outside; sharing and remote desktop are let in from your
+local network only, and only when you turn them on.</li>
+<li><strong>Kulan Fleet</strong> (for organisations) can only do what’s listed in Kulan Settings › About ›
+Organisation; remote help needs the person at the computer to agree, every time.</li>
+<li><strong>Kulan Assistant</strong> runs on your computer, and nothing you type in it leaves it.</li>
+<li>The <a href="https://github.com/{REPO}">source code</a> is open for anyone to check.</li></ul>"""),
+    ]
+    parts = "".join(f'<section class="stack"><h2>{e(title)}</h2>{text}</section>' for title, text in sections)
+    body = f"""<section class="wrap narrow stack"><h1>Security</h1><p class="lead">How to report a security
+problem, and how {e(NAME)} keeps your computer safe.</p>{parts}</section>"""
+    return page("/security/", "Security", f"How to report a security problem in {NAME}.", body)
+
+
+def security_txt(today: datetime.date) -> str:
+    """RFC 9116. Expires a year after the website was built (every release rebuilds it)."""
+    expires = (today + datetime.timedelta(days=365)).strftime("%Y-%m-%dT00:00:00Z")
+    return (f"Contact: mailto:{SECURITY}\n"
+            f"Expires: {expires}\n"
+            "Preferred-Languages: en\n"
+            "Canonical: https://os.kulangroup.com/.well-known/security.txt\n"
+            "Policy: https://os.kulangroup.com/security/\n")
+
+
 def not_found() -> str:
     body = """<section class="wrap stack"><h1>Page not found</h1><p class="lead">That page isn’t here. Try the <a href="/">home page</a> or <a href="/help/">Help</a>.</p></section>"""
     return page("/404", "Page not found", "Page not found.", body)
@@ -461,7 +507,8 @@ def main(argv: list[str]) -> int:
               f"aren't for {VERSION}", file=sys.stderr)
         return 1
     pages = {"index.html": home(notes), "download/index.html": download(), "install/index.html": install(),
-             "whats-new/index.html": whats_new(notes), "help/index.html": help_page(), "privacy/index.html": privacy(), "404.html": not_found()}
+             "whats-new/index.html": whats_new(notes), "help/index.html": help_page(), "privacy/index.html": privacy(), "security/index.html": security(),
+             ".well-known/security.txt": security_txt(datetime.date.today()), "404.html": not_found()}
     for rel, text in pages.items():
         target = out / rel
         target.parent.mkdir(parents=True, exist_ok=True)

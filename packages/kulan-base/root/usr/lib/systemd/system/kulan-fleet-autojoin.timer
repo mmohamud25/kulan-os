@@ -1,0 +1,10 @@
+[Unit]
+Description=Join the organisation of the USB stick Kulan OS was installed from, once online (Kulan fleet)
+ConditionPathExists=/var/lib/kulan/fleet-join.json
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

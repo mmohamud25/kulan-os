@@ -4,6 +4,11 @@
 # printers and the like, all linked from Kulan Settings) is in System. These
 # are defaults: users can rename, rearrange or remove folders, and their
 # changes are kept.
+#
+# The folders list their apps by name, not by category (2.10): with
+# categories, an app someone installs (that calls itself a "Utility", say)
+# disappeared into a folder and could only be found by searching. Apps
+# installed later always land loose in the grid.
 # Compiled by "dconf update" (run by the kulan-desktop-settings package).
 
 [org/gnome/desktop/app-folders]
@@ -12,11 +17,13 @@ folder-children=['Kulan-Utilities', 'Kulan-System']
 [org/gnome/desktop/app-folders/folders/Kulan-Utilities]
 name='Utilities'
 translate=false
-categories=['Utility', 'Accessories']
-excluded-apps=['org.gnome.TextEditor.desktop', 'org.gnome.Calculator.desktop']
+categories=@as []
+apps=['org.gnome.Characters.desktop', 'org.gnome.clocks.desktop', 'org.gnome.Weather.desktop', 'org.gnome.Maps.desktop', 'org.gnome.DiskUtility.desktop', 'org.gnome.baobab.desktop', 'org.gnome.FileRoller.desktop', 'org.gnome.font-viewer.desktop', 'org.gnome.Connections.desktop', 'org.gnome.DejaDup.desktop', 'org.keepassxc.KeePassXC.desktop', 'fr.romainvigier.MetadataCleaner.desktop', 'org.gnome.Logs.desktop', 'org.gnome.Extensions.desktop', 'yelp.desktop']
+excluded-apps=@as []
 
 [org/gnome/desktop/app-folders/folders/Kulan-System]
 name='System'
 translate=false
-categories=['System', 'Settings', 'Security', 'PackageManager', 'Monitor']
-excluded-apps=['org.kulan.Settings.desktop', 'org.gnome.Console.desktop', 'org.gnome.Ptyxis.desktop', 'org.kulan.Welcome.desktop']
+categories=@as []
+apps=['org.gnome.Settings.desktop', 'org.gnome.SystemMonitor.desktop', 'org.gnome.tweaks.desktop', 'gufw.desktop', 'nm-connection-editor.desktop', 'org.freedesktop.MalcontentControl.desktop', 'timeshift-gtk.desktop', 'org.kulan.Fleet.desktop', 'calamares-install-debian.desktop']
+excluded-apps=@as []

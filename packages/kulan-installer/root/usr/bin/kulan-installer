@@ -1,16 +1,20 @@
 #!/usr/bin/python3
-"""Kulan Installer: put Kulan OS on this computer, in a few clear steps.
+"""Kulan Installer: put Kulan OS on this computer, on one screen.
 
-The usual case only: erase a disk, or use the free space next to Windows or
-another system, with the disk encrypted if you like. For manual partitions,
-Advanced install (Calamares) is in the app grid. The work itself is done by
+Where (the free space next to Windows or another system when there is room,
+else a whole disk), your name and one password, and Install. The password
+signs you in and unlocks the encrypted disk. Language, keyboard and time zone
+are guessed from the live session, and can be changed under More choices,
+with the user name, the computer's name and encryption, and Advanced install
+(Calamares) for choosing partitions by hand. The work itself is done by
 /usr/lib/kulan/installer-engine, as root, through pkexec.
 
     kulan-installer              # the app
     kulan-installer --self-test  # build every page, then quit (for CI)
-    kulan-installer --demo [disk|account|summary]
-                                 # sample answers and a sample Windows disk,
-                                 # opened at that step; never installs (for
+    kulan-installer --demo [welcome|filled|done]
+                                 # a sample Windows disk, and with filled,
+                                 # sample answers; done: the last screen, with
+                                 # signed start-up's code; never installs (for
                                  # the website's screenshots and guides)
 """
 from __future__ import annotations
@@ -21,6 +25,7 @@ import re
 import subprocess
 import sys
 import threading
+import urllib.parse
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 
@@ -28,9 +33,10 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, GObject, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "org.kulan.Installer"
+ADVANCED_INSTALL = "calamares-install-debian.desktop"  # Calamares, hidden from the app grid
 ENGINE = "/usr/lib/kulan/installer-engine"
 LOG = Path(GLib.get_user_cache_dir()) / "kulan-installer.log"
 EVDEV = Path("/usr/share/X11/xkb/rules/evdev.xml")
@@ -149,9 +155,13 @@ def chassis() -> str:
 # --- the window ------------------------------------------------------------------------
 
 class Installer(Adw.ApplicationWindow):
+    """One screen: where, your name and one password, Install. Language,
+    keyboard, time zone, the names and encryption are guessed, and can be
+    changed under More choices."""
+
     def __init__(self, app: Adw.Application, self_test: bool = False, demo: bool = False) -> None:
         super().__init__(application=app, title="Install Kulan OS")
-        self.set_default_size(820, 640)
+        self.set_default_size(820, 700)
         self.self_test = self_test
         self.demo = demo
         css = Gtk.CssProvider()
@@ -163,10 +173,13 @@ class Installer(Adw.ApplicationWindow):
         self.set_content(self.toasts)
         self.disk_info: dict = {"firmware": "uefi", "disks": []}
         self.choice: dict = {"disk": None, "mode": "erase"}
+        self.disk_buttons: list[tuple[Gtk.CheckButton, dict, str]] = []
+        self.disks_loaded = False
         self.languages = languages()
         self.layouts = layouts()
         self.zones = zones()
-        self.nav.add(self.welcome_page())
+        self.nav.add(self.install_page())
+        self.load_disks()
 
     # helpers
     def page(self, tag: str, title: str, step: str, heading: str, body: str | None, content: Gtk.Widget,
@@ -175,7 +188,8 @@ class Installer(Adw.ApplicationWindow):
         view.add_top_bar(Adw.HeaderBar(show_title=False))
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18, margin_top=6, margin_bottom=24,
                       margin_start=24, margin_end=24)
-        box.append(Gtk.Label(label=step.upper(), xalign=0, css_classes=["kulan-step"]))
+        if step:
+            box.append(Gtk.Label(label=step.upper(), xalign=0, css_classes=["kulan-step"]))
         box.append(Gtk.Label(label=heading, xalign=0, wrap=True, css_classes=["kulan-hero"]))
         if body:
             box.append(Gtk.Label(label=body, xalign=0, wrap=True, css_classes=["dim-label"]))
@@ -186,17 +200,17 @@ class Installer(Adw.ApplicationWindow):
             button = Gtk.Button(label=next_label, css_classes=["suggested-action", "pill"], halign=Gtk.Align.END,
                                 margin_end=24, margin_bottom=18, margin_top=6)
             button.connect("clicked", lambda _b: on_next())
-            bar = Gtk.Box(halign=Gtk.Align.FILL)
+            bar = Gtk.Box(halign=Gtk.Align.FILL, spacing=12)
             bar.append(Gtk.Box(hexpand=True))
             bar.append(button)
             view.add_bottom_bar(bar)
             view.next_button = button
+            view.bottom = bar
         page = Adw.NavigationPage(title=title, tag=tag, child=view)
         page.view = view
         return page
 
     def push(self, page: Adw.NavigationPage) -> None:
-        # Coming back to a step and going forward again makes it afresh.
         existing = self.nav.find_page(page.get_tag())
         if existing is not None:
             previous = self.nav.get_previous_page(existing)
@@ -207,54 +221,183 @@ class Installer(Adw.ApplicationWindow):
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=5))
 
-    # 1. welcome and language
-    def welcome_page(self) -> Adw.NavigationPage:
+    # the one screen
+    def install_page(self) -> Adw.NavigationPage:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(Gtk.Image(icon_name="kulan-logo", pixel_size=96, halign=Gtk.Align.START))
-        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+
+        # Where: filled in once the disks are known.
+        self.where = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        looking = Adw.ActionRow(title="Looking at this computer’s disks…")
+        looking.add_prefix(Gtk.Spinner(spinning=True))
+        self.where.append(looking)
+        box.append(self.titled("Where", self.where))
+        self.erase_note = Gtk.Label(wrap=True, xalign=0, css_classes=["kulan-warning"], visible=False)
+        box.append(self.erase_note)
+
+        # You: a name and one password.
+        you = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        self.full_name = Adw.EntryRow(title="Your name")
+        self.password = Adw.PasswordEntryRow(title="Password (at least 8 characters)")
+        self.password2 = Adw.PasswordEntryRow(title="Password again")
+        for row in (self.full_name, self.password, self.password2):
+            you.append(row)
+        box.append(self.titled("You", you))
+        self.password_note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"])
+        box.append(self.password_note)
+        # An organisation's USB stick (Kulan USB Maker): said, so it's no
+        # surprise, and it can be turned off.
+        self.org_list = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE, visible=False)
+        self.org_row = Adw.SwitchRow(title="Join your organisation", active=True, subtitle_lines=0)
+        self.org_list.append(self.org_row)
+        box.append(self.org_list)
+
+        # More choices: what's guessed, to change if it's wrong.
+        more = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        self.more = Adw.ExpanderRow(title="More choices", subtitle="")
+        more.append(self.more)
         self.language_row = Adw.ComboRow(title="Language", subtitle="For menus, dates and numbers",
                                          model=Gtk.StringList.new([t for _n, t in self.languages]),
                                          enable_search=True,
                                          expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-        rows.append(self.language_row)
-        box.append(rows)
-        try_it = Gtk.Label(label="To keep trying Kulan OS, close this window. Nothing changes on this "
-                                 "computer until you press Install.",
-                           wrap=True, xalign=0, css_classes=["dim-label"])
-        box.append(try_it)
-        return self.page("welcome", "Welcome", "Install Kulan OS", "Welcome to Kulan OS",
+        self.layout_row = Adw.ComboRow(title="Keyboard", model=Gtk.StringList.new([d for _l, _v, d in self.layouts]),
+                                       enable_search=True,
+                                       expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+        test = Adw.EntryRow(title="Type here to try the keyboard")
+        self.zone_row = Adw.ComboRow(title="Time zone", model=Gtk.StringList.new([zone_label(z) for z in self.zones]),
+                                     enable_search=True,
+                                     expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+        self.username = Adw.EntryRow(title="User name")
+        self.hostname = Adw.EntryRow(title="This computer’s name")
+        self.encrypt_row = Adw.SwitchRow(title="Encrypt the disk",
+                                         subtitle="Protects your files if the computer is lost or stolen",
+                                         # (off in a virtual machine, unless it's the demo)
+                                         active=self.demo or self.self_test or not self.is_virtual_machine())
+        self.autologin = Adw.SwitchRow(title="Sign in automatically",
+                                       subtitle="Not recommended. Anyone who starts the computer can open your files")
+        for row in (self.language_row, self.layout_row, test, self.zone_row, self.username, self.hostname,
+                    self.encrypt_row, self.autologin):
+            self.more.add_row(row)
+        # Calamares, for choosing partitions by hand: only here, not in the app grid.
+        try:
+            advanced = Gio.DesktopAppInfo.new(ADVANCED_INSTALL) if not self.demo else None
+        except TypeError:  # not installed
+            advanced = None
+        if advanced is not None or self.self_test:
+            row = Adw.ActionRow(title="Advanced install", activatable=True,
+                                subtitle="Choose the partitions yourself, in the classic installer")
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r: self.advanced_install(advanced))
+            self.more.add_row(row)
+        box.append(more)
+        box.append(Gtk.Label(label="To keep trying Kulan OS instead, close this window. Nothing changes on this "
+                                   "computer until you press Install.", wrap=True, xalign=0, css_classes=["dim-label"]))
+
+        # The guesses: the live session's language and keyboard, a time zone for the language's country.
+        self.guess()
+        self.edited = {"user": False, "host": False}
+
+        def name_changed(_e) -> None:
+            first = suggested_username(self.full_name.get_text()) or ("user" if self.full_name.get_text().strip() else "")
+            if not self.edited["user"]:
+                self.username.handler_block(self.user_handler)
+                self.username.set_text(first)
+                self.username.handler_unblock(self.user_handler)
+            if not self.edited["host"]:
+                self.hostname.handler_block(self.host_handler)
+                self.hostname.set_text(f"{first}-{chassis()}" if first else "")
+                self.hostname.handler_unblock(self.host_handler)
+            self.describe_more()
+        self.full_name.connect("changed", name_changed)
+        self.user_handler = self.username.connect("changed", lambda _e: (self.edited.__setitem__("user", True),
+                                                                         self.describe_more()))
+        self.host_handler = self.hostname.connect("changed", lambda _e: self.edited.__setitem__("host", True))
+        self.language_row.connect("notify::selected", lambda *_a: self.language_changed())
+        self.layout_row.connect("notify::selected", lambda *_a: (self.use_layout(), self.describe_more()))
+        self.zone_row.connect("notify::selected", lambda *_a: self.describe_more())
+        self.encrypt_row.connect("notify::active", lambda *_a: (self.describe_password(), self.describe_more()))
+        self.use_layout()
+        self.describe_password()
+        self.describe_more()
+        page = self.page("install", "Install", "", "Install Kulan OS",
                          "It takes about 10 minutes. Plug the computer in if it’s a laptop.", box,
-                         on_next=lambda: self.push(self.keyboard_page()))
+                         next_label="Install", on_next=self.confirm)
+        page.view.next_button.set_sensitive(False)
+        return page
+
+    def advanced_install(self, app_info) -> None:
+        """Calamares instead of this window (both changing the disk at once would clash)."""
+        if app_info is None:
+            return
+        try:
+            app_info.launch([], None)
+        except GLib.Error:
+            self.toast("Couldn’t open Advanced install")
+            return
+        self.close()
+
+    @staticmethod
+    def titled(text: str, content: Gtk.Widget) -> Gtk.Box:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(Gtk.Label(label=text, xalign=0, css_classes=["heading"]))
+        box.append(content)
+        return box
+
+    def guess(self) -> None:
+        """Language and keyboard as the live session has them (chosen at the
+        USB stick's start menu, or in its settings), else US English."""
+        names = [n for n, _t in self.languages]
+        lang = os.environ.get("LANG", "")
+        lang = lang if lang.endswith(".UTF-8") else lang.split(".")[0] + ".UTF-8" if lang else ""
+        if lang in names:
+            self.language_row.set_selected(names.index(lang))
+        self.guess_zone()
+        current = None
+        source = Gio.SettingsSchemaSource.get_default()
+        if not (self.self_test or self.demo) and source is not None \
+                and source.lookup("org.gnome.desktop.input-sources", True) is not None:
+            sources = Gio.Settings(schema_id="org.gnome.desktop.input-sources").get_value("sources").unpack()
+            current = next((v for kind, v in sources if kind == "xkb"), None)
+        if current:
+            layout, _, variant = current.partition("+")
+        else:
+            country = self.chosen_locale().split(".")[0].split("_")[-1].lower()
+            layout, variant = {"gb": "gb", "fr": "fr", "es": "es", "de": "de", "sa": "ara", "eg": "ara"}.get(country, "us"), ""
+        for i, (lay, var, _d) in enumerate(self.layouts):
+            if lay == layout and var == variant:
+                self.layout_row.set_selected(i)
+                break
+
+    def guess_zone(self) -> None:
+        country = self.chosen_locale().split(".")[0].split("_")[-1]
+        zone = COUNTRY_ZONE.get(country, "UTC")
+        if zone in self.zones:
+            self.zone_row.set_selected(self.zones.index(zone))
+
+    def language_changed(self) -> None:
+        self.guess_zone()
+        self.describe_more()
 
     def chosen_locale(self) -> str:
         return self.languages[self.language_row.get_selected()][0]
 
-    # 2. keyboard
-    def keyboard_page(self) -> Adw.NavigationPage:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        self.layout_row = Adw.ComboRow(title="Keyboard layout", model=Gtk.StringList.new([d for _l, _v, d in self.layouts]),
-                                       enable_search=True,
-                                       expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-        country = self.chosen_locale().split(".")[0].split("_")[-1].lower()
-        guess = {"gb": "gb", "fr": "fr", "es": "es", "de": "de", "sa": "ara", "eg": "ara"}.get(country, "us")
-        for i, (layout, variant, _d) in enumerate(self.layouts):
-            if layout == guess and not variant:
-                self.layout_row.set_selected(i)
-                break
-        rows.append(self.layout_row)
-        test = Adw.EntryRow(title="Type here to try it")
-        rows.append(test)
-        box.append(rows)
-        # The live session types with the chosen layout straight away, so the
-        # box above really tries it (and the rest of the install uses it too).
-        self.layout_row.connect("notify::selected", lambda *_a: self.use_layout())
-        self.use_layout()
-        return self.page("keyboard", "Keyboard", "Step 1 of 4", "Your keyboard", "Choose the layout printed on "
-                         "your keys. You can add more later in Kulan Settings.", box,
-                         on_next=lambda: self.load_disks())
+    def describe_more(self) -> None:
+        """More choices, folded, still says what will be used."""
+        parts = [self.languages[self.language_row.get_selected()][1].split(" (")[0],
+                 self.layouts[self.layout_row.get_selected()][2],
+                 zone_label(self.zones[self.zone_row.get_selected()]).split(" (")[0],
+                 "encrypted" if self.encrypt_row.get_active() else "not encrypted"]
+        self.more.set_subtitle(GLib.markup_escape_text(" · ".join(parts)))
+
+    def describe_password(self) -> None:
+        self.password_note.set_label(
+            "You sign in with this password, and type it when the computer starts to unlock the encrypted disk. "
+            "Keep it somewhere safe: without it, your files can’t be recovered. Later, you can use a short PIN "
+            "at start-up instead, in Kulan Settings › Security."
+            if self.encrypt_row.get_active() else "You sign in with this password. You can add more people later.")
 
     def use_layout(self) -> None:
+        """The live session types with the chosen layout straight away, so the
+        box under it really tries it (and the name and password use it too)."""
         if self.self_test or self.demo:
             return
         layout, variant, _d = self.layouts[self.layout_row.get_selected()]
@@ -265,25 +408,18 @@ class Installer(Adw.ApplicationWindow):
         settings.set_value("sources", GLib.Variant("a(ss)", [("xkb", f"{layout}+{variant}" if variant else layout)]))
         settings.set_uint("current", 0)
 
-    # 3. disk
+    # the disks
     def load_disks(self) -> None:
         if self.self_test or self.demo:
-            self.disk_info = {"firmware": "uefi", "disks": [
+            GLib.idle_add(lambda: self.show_disks({"firmware": "uefi", "disks": [
                 {"path": "/dev/nvme0n1", "size": 512 * GB, "model": "Samsung SSD 980", "removable": False,
                  "empty": False, "contents": ["Windows"], "windows": True, "table": "gpt",
-                 "largest_free": 120 * GB, "big_enough": True}]}
-            self.push(self.disk_page())
+                 "largest_free": 120 * GB, "big_enough": True}],
+                "organisation": {"server": "https://fleet.example.org/functions/v1/fleet"}}, None) and False)
             return
-        # Looking can take a while (the password prompt, slow disks): in the
-        # background, with the button saying so, so the window never freezes.
-        current = self.nav.get_visible_page()
-        button = getattr(getattr(current, "view", None), "next_button", None)
         if getattr(self, "disks_loading", False):
             return
         self.disks_loading = True
-        if button is not None:
-            button.set_sensitive(False)
-            button.set_label("Checking disks…")
 
         def work() -> None:
             try:
@@ -294,27 +430,35 @@ class Installer(Adw.ApplicationWindow):
                     error = "no admin password was entered"
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
                 info, error = {}, str(exc)
-            GLib.idle_add(done, info, error)
-
-        def done(info: dict, error: str | None) -> bool:
-            self.disks_loading = False
-            if button is not None:
-                button.set_sensitive(True)
-                button.set_label("Continue")
-            if error:
-                self.toast(f"Couldn’t check the disks: {error}. Press Continue to try again.")
-                return False
-            self.disk_info = info
-            self.push(self.disk_page())
-            return False
+            GLib.idle_add(lambda: self.show_disks(info, error) and False)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def disk_page(self) -> Adw.NavigationPage:
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        disks = self.disk_info.get("disks", [])
-        group = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        self.disk_buttons: list[tuple[Gtk.CheckButton, dict, str]] = []
+    def show_disks(self, info: dict, error: str | None) -> None:
+        """Where to install: every way to use every disk, the safest one chosen."""
+        self.disks_loading = False
+        self.where.remove_all()
+        self.disk_buttons = []
+        self.choice = {"disk": None, "mode": "erase"}
+        if error:
+            row = Adw.ActionRow(title="Couldn’t look at the disks", subtitle=GLib.markup_escape_text(error),
+                                subtitle_lines=0)
+            again = Gtk.Button(label="Try again", valign=Gtk.Align.CENTER)
+            again.connect("clicked", lambda _b: (self.where.remove_all(), self.load_disks()))
+            row.add_suffix(again)
+            self.where.append(row)
+            self.update_install()
+            return
+        self.disk_info = info
+        self.disks_loaded = True
+        org = (info.get("organisation") or {}).get("server", "")
+        host = urllib.parse.urlsplit(org).hostname or "" if org else ""
+        self.org_list.set_visible(bool(host))
+        if host:
+            self.org_row.set_subtitle(GLib.markup_escape_text(
+                f"This USB stick is an organisation’s. Once installed, the computer joins its Kulan Fleet ({host}) "
+                "the first time it’s online, so it can manage this computer."))
+        disks = info.get("disks", [])
         first: Gtk.CheckButton | None = None
         for disk in disks:
             name = disk["model"] or disk["path"]
@@ -325,31 +469,30 @@ class Installer(Adw.ApplicationWindow):
                 check = Gtk.CheckButton(group=first)
                 first = first or check
                 if mode == "erase":
-                    title = f"Erase {name} and install"
-                    sub = f"{size_text(disk['size'])} · Deletes everything on it ({what})"
+                    title = f"The whole of {name}" if disk["empty"] else f"Erase {name}"
+                    sub = f"{size_text(disk['size'])} · " + ("Empty" if disk["empty"] else f"Deletes everything on it ({what})")
                 else:
-                    title = f"Install next to {', '.join(disk['contents']) or 'what’s there'} on {name}"
+                    systems = [c for c in disk["contents"] if c != "files"]
+                    title = f"Next to {', '.join(systems)} on {name}" if systems else f"In the free space on {name}"
                     sub = f"Uses {size_text(disk['largest_free'])} of free space. Nothing is deleted. Choose " \
                           "a system each time the computer starts"
+                if disk["removable"]:
+                    sub += " · USB drive"
                 row = Adw.ActionRow(title=GLib.markup_escape_text(title), subtitle=GLib.markup_escape_text(sub),
                                     activatable_widget=check, sensitive=disk["big_enough"])
-                if disk["removable"]:
-                    row.set_subtitle(GLib.markup_escape_text(sub + " · USB drive"))
                 row.add_prefix(check)
                 icon = "drive-removable-media-symbolic" if disk["removable"] else "drive-harddisk-symbolic"
                 row.add_suffix(Gtk.Image(icon_name=icon))
                 check.connect("toggled", lambda c, d=disk, m=mode: c.get_active() and self.pick_disk(d, m))
-                group.append(row)
+                self.where.append(row)
                 self.disk_buttons.append((check, disk, mode))
-        # Another system there, but no room next to it: say how to make room,
-        # rather than offering only "Erase".
+        # Another system there, but no room next to it: say how to make room.
         for disk in disks:
-            if disk["empty"] or not disk["contents"] or disk["largest_free"] >= 20 * GB:
+            if disk["empty"] or disk["contents"] in ([], ["files"]) or disk["largest_free"] >= 20 * GB:
                 continue
             other = ", ".join(disk["contents"])
             if disk["table"] != "gpt":
-                why = (f"This disk’s layout is too old to install next to {other}. Erase it, or "
-                       "choose another disk.")
+                why = f"This disk’s layout is too old to install next to {other}. Erase it, or choose another disk."
             elif "Windows" in disk["contents"]:
                 why = ("To keep Windows, first free at least 20 GB. In Windows, open Disk Management, "
                        "right-click the C: drive and choose Shrink Volume. Then start the installer again.")
@@ -358,40 +501,18 @@ class Installer(Adw.ApplicationWindow):
             hint = Adw.ActionRow(title=GLib.markup_escape_text(f"Can’t install next to {other} yet"),
                                  subtitle=GLib.markup_escape_text(why), subtitle_lines=0)
             hint.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
-            group.append(hint)
+            self.where.append(hint)
         if not self.disk_buttons:
-            group.append(Adw.ActionRow(title="No disk to install on",
-                                       subtitle="Kulan OS needs a disk of at least 20 GB, other than "
-                                                "this USB stick"))
-        box.append(group)
-        # Free space first when it's there (safer), else the first disk.
-        preferred = next((b for b in self.disk_buttons if b[2] == "free"), self.disk_buttons[0] if self.disk_buttons else None)
-        if preferred and preferred[1]["big_enough"]:
+            self.where.append(Adw.ActionRow(title="No disk to install on", subtitle_lines=0,
+                                            subtitle="Kulan OS needs a disk of at least 20 GB, other than this USB stick"))
+        # Free space next to another system first (nothing is lost), then a disk
+        # inside the computer rather than a USB drive.
+        usable = [b for b in self.disk_buttons if b[1]["big_enough"]]
+        preferred = next((b for b in usable if b[2] == "free"), None) or \
+            next((b for b in usable if not b[1]["removable"]), usable[0] if usable else None)
+        if preferred:
             preferred[0].set_active(True)
-
-        enc = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        self.encrypt_row = Adw.SwitchRow(title="Encrypt the disk",
-                                         subtitle="Protects your files if the computer is lost or stolen. "
-                                                  "You enter a password when it starts",
-                                         active=not self.is_virtual_machine())
-        self.disk_password = Adw.PasswordEntryRow(title="Disk password (at least 8 characters)")
-        self.disk_password2 = Adw.PasswordEntryRow(title="Disk password again")
-        for row in (self.disk_password, self.disk_password2):
-            self.encrypt_row.bind_property("active", row, "visible", GObject.BindingFlags.SYNC_CREATE)
-        enc.append(self.encrypt_row)
-        enc.append(self.disk_password)
-        enc.append(self.disk_password2)
-        box.append(enc)
-        note = Gtk.Label(label="Keep the disk password somewhere safe. Without it, your files can’t be "
-                               "recovered. Later, you can use a short PIN instead in Kulan Settings › Security.",
-                         wrap=True, xalign=0, css_classes=["dim-label"])
-        self.encrypt_row.bind_property("active", note, "visible", GObject.BindingFlags.SYNC_CREATE)
-        box.append(note)
-        firmware = self.disk_info.get("firmware", "uefi")
-        return self.page("disk", "Where", "Step 2 of 4", "Where to install",
-                         "Back up anything important first." + ("" if firmware == "uefi" else
-                                                                 " This computer starts in the older BIOS mode."),
-                         box, on_next=self.check_disk)
+        self.update_install()
 
     @staticmethod
     def is_virtual_machine() -> bool:
@@ -403,125 +524,66 @@ class Installer(Adw.ApplicationWindow):
 
     def pick_disk(self, disk: dict, mode: str) -> None:
         self.choice = {"disk": disk, "mode": mode}
+        self.update_install()
 
-    def check_disk(self) -> None:
+    def update_install(self) -> None:
+        """Install is ready once there's somewhere to install; erasing is said in red."""
+        disk = self.choice.get("disk")
+        page = self.nav.find_page("install")
+        button = page.view.next_button if page is not None else None
+        erase = bool(disk) and self.choice["mode"] == "erase" and not disk["empty"]
+        self.erase_note.set_visible(erase)
+        if erase:
+            self.erase_note.set_label(f"Everything on {disk['model'] or disk['path']} will be deleted. "
+                                      "Back up anything important first.")
+        if button is not None:
+            button.set_sensitive(bool(disk))
+            button.set_label("Erase and install" if erase else "Install")
+            for style in ("suggested-action", "destructive-action"):
+                button.remove_css_class(style)
+            button.add_css_class("destructive-action" if erase else "suggested-action")
+
+    # checking, then installing
+    def problem(self) -> str | None:
+        """What's missing or wrong, in words for the person, or None."""
         if not self.choice.get("disk"):
-            self.toast("Choose where to install")
-            return
-        if self.encrypt_row.get_active():
-            if len(self.disk_password.get_text()) < 8:
-                self.toast("The disk password needs at least 8 characters")
-                return
-            if self.disk_password.get_text() != self.disk_password2.get_text():
-                self.toast("The two disk passwords aren’t the same")
-                return
-        self.push(self.time_page())
-
-    # 4. time zone
-    def time_page(self) -> Adw.NavigationPage:
-        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        self.zone_row = Adw.ComboRow(title="Time zone", model=Gtk.StringList.new([zone_label(z) for z in self.zones]),
-                                     enable_search=True,
-                                     expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-        country = self.chosen_locale().split(".")[0].split("_")[-1]
-        guess = COUNTRY_ZONE.get(country, "UTC")
-        if guess in self.zones:
-            self.zone_row.set_selected(self.zones.index(guess))
-        rows.append(self.zone_row)
-        return self.page("time", "Time zone", "Step 3 of 4", "Your time zone",
-                         "Type a city to find it.", rows,
-                         on_next=lambda: self.push(self.account_page()))
-
-    # 5. account
-    def account_page(self) -> Adw.NavigationPage:
-        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        self.full_name = Adw.EntryRow(title="Your name")
-        self.username = Adw.EntryRow(title="User name")
-        self.hostname = Adw.EntryRow(title="This computer’s name")
-        self.password = Adw.PasswordEntryRow(title="Password")
-        self.password2 = Adw.PasswordEntryRow(title="Password again")
-        self.autologin = Adw.SwitchRow(title="Sign in automatically",
-                                       subtitle="Not recommended. Anyone who starts the computer can open "
-                                                "your files")
-        self.edited = {"user": False, "host": False}
-
-        def name_changed(_e) -> None:
-            first = suggested_username(self.full_name.get_text())
-            if not self.edited["user"]:
-                self.username.handler_block(self.user_handler)
-                self.username.set_text(first)
-                self.username.handler_unblock(self.user_handler)
-            if not self.edited["host"]:
-                self.hostname.handler_block(self.host_handler)
-                self.hostname.set_text(f"{first}-{chassis()}" if first else "")
-                self.hostname.handler_unblock(self.host_handler)
-        self.full_name.connect("changed", name_changed)
-        self.user_handler = self.username.connect("changed", lambda _e: self.edited.__setitem__("user", True))
-        self.host_handler = self.hostname.connect("changed", lambda _e: self.edited.__setitem__("host", True))
-        for row in (self.full_name, self.username, self.hostname, self.password, self.password2, self.autologin):
-            rows.append(row)
-        return self.page("account", "Account", "Step 4 of 4", "Your account",
-                         "You’ll use this to sign in. You can add more people later.", rows,
-                         on_next=self.check_account)
-
-    def check_account(self) -> None:
+            return "Choose where to install"
         if not self.full_name.get_text().strip():
-            self.toast("Type your name")
-        elif not NAME_RULE.match(self.username.get_text()):
-            self.toast("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
-        elif not HOST_RULE.match(self.hostname.get_text()):
-            self.toast("Use lowercase letters, digits and dashes for the computer’s name")
-        elif len(self.password.get_text()) < 6:
-            self.toast("Choose a password of at least 6 characters")
-        elif self.password.get_text() != self.password2.get_text():
-            self.toast("The two passwords aren’t the same")
-        else:
-            self.push(self.summary_page())
+            return "Type your name"
+        if len(self.password.get_text()) < 8:
+            return "Choose a password of at least 8 characters"
+        if self.password.get_text() != self.password2.get_text():
+            return "The two passwords aren’t the same"
+        if not NAME_RULE.match(self.username.get_text()):
+            self.more.set_expanded(True)
+            return "Use lowercase letters, digits, - or _ for the user name, starting with a letter"
+        if not HOST_RULE.match(self.hostname.get_text()):
+            self.more.set_expanded(True)
+            return "Use lowercase letters, digits and dashes for the computer’s name"
+        return None
 
-    # 6. summary
     def plan(self) -> dict:
         layout, variant, _d = self.layouts[self.layout_row.get_selected()]
+        password = self.password.get_text()
         return {
             "disk": self.choice["disk"]["path"], "mode": self.choice["mode"],
-            "encrypt": self.encrypt_row.get_active(), "password": self.disk_password.get_text(),
+            "encrypt": self.encrypt_row.get_active(), "password": password,
             "locale": self.chosen_locale(), "keyboard": {"layout": layout, "variant": variant},
             "timezone": self.zones[self.zone_row.get_selected()], "hostname": self.hostname.get_text(),
+            "join_organisation": self.org_list.get_visible() and self.org_row.get_active(),
             "user": {"full_name": self.full_name.get_text().strip(), "username": self.username.get_text(),
-                     "password": self.password.get_text(), "autologin": self.autologin.get_active()},
+                     "password": password, "autologin": self.autologin.get_active()},
         }
 
-    def summary_page(self) -> Adw.NavigationPage:
+    def confirm(self) -> Adw.AlertDialog | None:
+        problem = self.problem()
+        if problem:
+            self.toast(problem)
+            return None
         plan = self.plan()
-        disk = self.choice["disk"]
-        rows = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        where = (f"Erase {disk['model'] or disk['path']} ({size_text(disk['size'])})" if plan["mode"] == "erase"
-                 else f"Next to {', '.join(disk['contents']) or 'the other system'} on {disk['model'] or disk['path']}")
-        for title, value in (("Where", where), ("Encryption", "On" if plan["encrypt"] else "Off"),
-                             ("Language", self.languages[self.language_row.get_selected()][1]),
-                             ("Keyboard", self.layouts[self.layout_row.get_selected()][2]),
-                             ("Time zone", zone_label(plan["timezone"])),
-                             ("Account", f"{plan['user']['full_name']} ({plan['user']['username']})"),
-                             ("Computer name", plan["hostname"])):
-            row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(value))
-            row.add_css_class("property")
-            rows.append(row)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.append(rows)
-        if plan["mode"] == "erase":
-            box.append(Gtk.Label(label=f"Everything on {disk['model'] or disk['path']} will be deleted.",
-                                 wrap=True, xalign=0, css_classes=["kulan-warning"]))
-        page = self.page("summary", "Ready", "Ready", "Ready to install", None, box, next_label="Install",
-                         on_next=self.confirm)
-        if plan["mode"] == "erase":
-            page.view.next_button.remove_css_class("suggested-action")
-            page.view.next_button.add_css_class("destructive-action")
-        return page
-
-    def confirm(self) -> None:
-        plan = self.plan()
-        if plan["mode"] != "erase":
+        if plan["mode"] != "erase" or self.choice["disk"]["empty"]:
             self.start(plan)
-            return
+            return None
         disk = self.choice["disk"]
         dialog = Adw.AlertDialog(heading="Erase the disk?",
                                  body=f"Everything on {disk['model'] or disk['path']} "
@@ -533,8 +595,9 @@ class Installer(Adw.ApplicationWindow):
         dialog.set_close_response("cancel")
         dialog.connect("response", lambda _d, r: r == "erase" and self.start(plan))
         dialog.present(self)
+        return dialog
 
-    # 7. installing
+    # installing
     def start(self, plan: dict) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         self.bar = Gtk.ProgressBar(show_text=False)
@@ -580,6 +643,8 @@ class Installer(Adw.ApplicationWindow):
         if "progress" in data:
             self.bar.set_fraction(float(data["progress"]))
             self.status.set_label(data.get("text", ""))
+        if isinstance(data.get("signed_start_code"), str) and data["signed_start_code"].isdigit():
+            self.signed_code = data["signed_start_code"]
         if "error" in data or "done" in data:
             self.result = data
         stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self.on_line)
@@ -609,13 +674,16 @@ class Installer(Adw.ApplicationWindow):
             self.finished(False, error)
         return GLib.SOURCE_REMOVE
 
-    # 8. done
+    # done
     def finished(self, ok: bool, error: str) -> None:
         self.set_deletable(True)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         if ok:
             box.append(Gtk.Label(label="Remove the USB stick when the screen goes dark.",
                                  wrap=True, xalign=0))
+            code = getattr(self, "signed_code", None)
+            if code:
+                box.append(self.signed_start_steps(code))
             page = self.page("done", "Done", "Done", "Kulan OS is installed", None, box, next_label="Restart now",
                              on_next=self.restart)
         else:
@@ -639,24 +707,68 @@ class Installer(Adw.ApplicationWindow):
         page.set_can_pop(False)
         self.nav.replace([page])
 
-    def try_again(self) -> None:
-        """Back to the summary, with every answer kept (a fresh look at the
-        disks, since they may have changed)."""
-        if self.nav.find_page("summary") is not None and not (self.self_test or self.demo):
-            self.nav.pop_to_tag("summary")
-        else:
-            self.start_again()
+    def signed_start_steps(self, code: str) -> Gtk.Widget:
+        """Signed start-up: what to do on the blue screen at the first restart."""
+        group = Adw.PreferencesGroup(title="At the first restart", description=(
+            "This computer now has its own start-up key, so nobody can change how it starts without you "
+            "knowing. A blue screen asks once to enroll it:"))
+        steps = Gtk.Label(xalign=0, wrap=True, label="1. Press any key\n2. Choose Enroll MOK, then Continue, then Yes\n"
+                          "3. Type the eight digits below and press Enter\n4. Choose Reboot")
+        group.add(steps)
+        shown = Gtk.Label(label=f"{code[:4]} {code[4:]}", selectable=True, xalign=0, css_classes=["title-1"],
+                          margin_top=6)
+        shown.update_property([Gtk.AccessibleProperty.LABEL], [f"Code {' '.join(code)}"])
+        group.add(shown)
+        group.add(Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"], margin_top=6,
+                            label="Missed it? Kulan OS starts as usual and asks again at the next restart. "
+                                  "The code is also in Kulan Settings › Security."))
+        self.signed_code_label = shown  # for the self-test
+        return group
 
-    def start_again(self) -> None:
-        self.nav.replace([self.welcome_page()])
+    def try_again(self) -> None:
+        """Back to the screen, with every answer kept, and a fresh look at the
+        disks (they may have changed)."""
+        if self.nav.find_page("install") is None:
+            self.nav.replace([self.install_page()])
+        else:
+            self.nav.pop_to_tag("install")
+        self.where.remove_all()
+        looking = Adw.ActionRow(title="Looking at this computer’s disks…")
+        looking.add_prefix(Gtk.Spinner(spinning=True))
+        self.where.append(looking)
+        self.choice = {"disk": None, "mode": "erase"}
+        self.update_install()
+        self.load_disks()
 
     def restart(self) -> None:
-        try:
-            Gio.DBus.system.call_sync("org.freedesktop.login1", "/org/freedesktop/login1",
-                                      "org.freedesktop.login1.Manager", "Reboot", GLib.Variant("(b)", (True,)), None,
-                                      Gio.DBusCallFlags.NONE, 10000, None)
-        except GLib.Error as exc:
-            self.toast("Couldn’t restart. Use the menu at the top right.")
+        """Through GNOME's session (as the top-right menu does), else systemd directly. Never
+        waits on the reply: the window stays responsive, and says so if neither works."""
+        button = self.nav.get_visible_page().view.next_button
+        button.set_sensitive(False)
+        button.set_label("Restarting…")
+
+        def failed() -> None:
+            button.set_sensitive(True)
+            button.set_label("Restart now")
+            self.toast("Couldn’t restart. Use the menu at the top right: the power button, then Restart.")
+
+        def by_systemd() -> None:
+            def done(bus, result) -> None:
+                try:
+                    bus.call_finish(result)
+                except GLib.Error:
+                    failed()
+            Gio.DBus.system.call("org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+                                 "Reboot", GLib.Variant("(b)", (True,)), None, Gio.DBusCallFlags.NONE, 60000, None,
+                                 done)
+
+        def by_session(bus, result) -> None:
+            try:
+                bus.call_finish(result)
+            except GLib.Error:
+                by_systemd()
+        Gio.DBus.session.call("org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager",
+                              "RequestReboot", None, None, Gio.DBusCallFlags.NONE, 60000, None, by_session)
 
 
 class App(Adw.Application):
@@ -670,47 +782,62 @@ class App(Adw.Application):
     def do_activate(self) -> None:
         window = self.props.active_window or Installer(self, self.self_test, demo=bool(self.demo))
         window.present()
-        if self.self_test:
-            GLib.idle_add(self.walk, window)
-        elif self.demo and self.demo != "welcome":
-            GLib.idle_add(self.show_step, window)
+        then = self.walk if self.self_test else self.show_step if self.demo and self.demo != "welcome" else None
+        if then is not None:  # once the sample disk is shown
+            GLib.timeout_add(100, lambda: not window.disks_loaded or then(window))
 
     def show_step(self, window: Installer) -> bool:
-        """Demo: fill in sample answers up to the chosen step (nothing is installed)."""
-        window.push(window.keyboard_page())
-        window.load_disks()
-        if self.demo in ("account", "summary"):
-            if window.encrypt_row.get_active():
-                window.disk_password.set_text("demo-password")
-                window.disk_password2.set_text("demo-password")
-            window.check_disk()
-            window.push(window.account_page())
-            window.full_name.set_text("Amina Yusuf")
-        if self.demo == "summary":
-            window.password.set_text("demo-password")
-            window.password2.set_text("demo-password")
-            window.check_account()
+        """Demo: the screen filled in with sample answers, More choices open (nothing is installed)."""
+        if self.demo == "done":
+            window.signed_code = "48207165"
+            window.finished(True, "")
+            return GLib.SOURCE_REMOVE
+        window.full_name.set_text("Amina Yusuf")
+        window.password.set_text("demo-password")
+        window.password2.set_text("demo-password")
+        window.more.set_expanded(True)
         return GLib.SOURCE_REMOVE
 
     def walk(self, window: Installer) -> bool:
-        """Go through every step with sample answers (no pkexec, no disks touched)."""
+        """Every check and page with sample answers (no pkexec, no disks touched)."""
         try:
-            window.push(window.keyboard_page())
-            window.load_disks()
-            window.disk_password.set_text("correct horse")
-            window.disk_password2.set_text("correct horse")
-            window.check_disk()
-            window.push(window.account_page())
+            assert window.choice.get("disk"), "the sample disk is chosen"
+            assert window.choice["mode"] == "free", "next to Windows first: nothing is lost"
+            assert window.problem() == "Type your name", window.problem()
+            assert "fleet.example.org" in window.org_row.get_subtitle() and window.org_list.get_visible()
             window.full_name.set_text("Amina Yusuf")
-            window.password.set_text("secret-pw")
-            window.password2.set_text("secret-pw")
-            assert window.username.get_text() == "amina", window.username.get_text()
-            window.check_account()
+            assert window.username.get_text() == "amina" and window.hostname.get_text().startswith("amina-")
+            window.password.set_text("short")
+            window.password2.set_text("short")
+            assert "8 characters" in window.problem(), window.problem()
+            window.password.set_text("correct horse")
+            assert "aren’t the same" in window.problem(), window.problem()
+            window.password2.set_text("correct horse")
+            assert window.problem() is None, window.problem()
+            window.full_name.set_text("عائشة")  # no Latin letters: still a user name
+            assert window.username.get_text() == "user", window.username.get_text()
+            window.full_name.set_text("Amina Yusuf")
             plan = window.plan()
             assert plan["user"]["username"] == "amina" and plan["disk"] == "/dev/nvme0n1", plan
-            window.start(plan)
-            window.finished(True, "")
+            assert plan["password"] == plan["user"]["password"] == "correct horse", "one password for both"
+            assert plan["join_organisation"] is True
+            window.org_row.set_active(False)
+            assert window.plan()["join_organisation"] is False, "joining can be turned off"
+            erase = next(b for b in window.disk_buttons if b[2] == "erase")
+            erase[0].set_active(True)
+            button = window.nav.find_page("install").view.next_button
+            assert button.get_label() == "Erase and install" and window.erase_note.get_visible()
+            dialog = window.confirm()
+            assert dialog is not None, "erasing is asked first"
+            dialog.force_close()
+            window.encrypt_row.set_active(False)
+            assert "not encrypted" in window.more.get_subtitle(), window.more.get_subtitle()
+            window.start(window.plan())
             window.finished(False, "sample error")
+            window.try_again()
+            window.signed_code = "12345678"
+            window.finished(True, "")
+            assert window.signed_code_label.get_label() == "1234 5678", "the signed start-up code is shown"
             print("Kulan Installer: every step built")
         except Exception as exc:  # noqa: BLE001 - report, then fail
             print(f"FAIL {exc!r}", file=sys.stderr)
@@ -726,8 +853,8 @@ def main(argv: list[str]) -> int:
     if "--demo" in argv:
         i = argv.index("--demo")
         demo = argv[i + 1] if i + 1 < len(argv) else "welcome"
-        if demo not in ("welcome", "disk", "account", "summary"):
-            print("Usage: kulan-installer --demo [welcome|disk|account|summary]", file=sys.stderr)
+        if demo not in ("welcome", "filled", "done", "disk", "account", "summary"):  # (the last three: older names for filled)
+            print("Usage: kulan-installer --demo [welcome|filled]", file=sys.stderr)
             return 2
     if not self_test and not demo and not Path("/run/live/medium").is_dir() \
             and os.environ.get("KULAN_INSTALLER_ANYWHERE") != "1":

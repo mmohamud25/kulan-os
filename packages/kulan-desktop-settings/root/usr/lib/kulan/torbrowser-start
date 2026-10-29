@@ -1,0 +1,21 @@
+#!/bin/sh
+# Tor Browser, through Kulan OS: torbrowser-launcher downloads Tor Browser the
+# first time it's opened. Offline, it only showed its own "Error starting
+# download … Are you connected to the internet?" window: say it in Kulan's
+# words instead, and open it as usual once it's downloaded or online.
+BROWSER="${HOME}/.local/share/torbrowser/tbb"
+if ! ls "${BROWSER}"/*/tor-browser/Browser/start-tor-browser >/dev/null 2>&1; then
+	STATE="$(nmcli -t -f CONNECTIVITY general 2>/dev/null)"
+	if [ "${STATE}" = none ] || [ "${STATE}" = portal ] || [ "${STATE}" = limited ]; then
+		if [ "${STATE}" = portal ]; then
+			BODY="Tor Browser downloads itself the first time it opens. Sign in to this Wi-Fi network in Firefox first, then open Tor Browser again."
+		else
+			BODY="Tor Browser downloads itself the first time it opens. Connect to Wi-Fi or a cable, then open it again."
+		fi
+		gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+			--method org.freedesktop.Notifications.Notify "Tor Browser" 0 torbrowser \
+			"Tor Browser needs the internet" "${BODY}" "[]" "{}" 0 >/dev/null 2>&1
+		exit 0
+	fi
+fi
+exec torbrowser-launcher "$@"

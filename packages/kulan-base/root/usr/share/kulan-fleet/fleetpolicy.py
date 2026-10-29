@@ -36,7 +36,8 @@ APPS_STATE = Path("/var/lib/kulan/fleet-apps.json")  # Flatpak masks Fleet added
 SEEN_HELPER = "/usr/lib/kulan/fleet-usb-seen"
 HEX4 = re.compile(r"^[0-9a-f]{4}$")
 SERIAL = re.compile(r"^[A-Za-z0-9._-]{4,64}$")
-DEBIAN = re.compile(r"^[a-z0-9][a-z0-9+.-]{1,62}$")
+# 2-63 characters, never ending in "-" (apt-get install would remove the package instead).
+DEBIAN = re.compile(r"^[a-z0-9][a-z0-9+.-]{0,61}[a-z0-9+.]$")
 FLATPAK = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}$")
 # Never removed here, whatever a policy says (the server refuses them too).
 PROTECTED = re.compile(r"^(kulan|linux-|systemd|gnome-shell|gnome-session|gdm3|mutter|apt|dpkg|libc6|bash|coreutils|"
@@ -57,8 +58,11 @@ def _read_json(path: Path, default):
 def _write(path: Path, text: str, mode: int = 0o644) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".kulan-new")
-    tmp.write_text(text)
-    os.chmod(tmp, mode)
+    tmp.unlink(missing_ok=True)
+    # Made with its final mode (never readable by others for a moment), and never through a link.
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode), "w") as fh:
+        fh.write(text)
+    os.chmod(tmp, mode)  # the umask may have taken bits away
     os.replace(tmp, path)
 
 

@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Kulan OS hides this launcher: Terminal tool; run it from the terminal.
+Type=Application
+Name=btop++
+Hidden=true

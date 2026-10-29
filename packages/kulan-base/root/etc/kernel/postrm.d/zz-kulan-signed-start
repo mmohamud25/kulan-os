@@ -1,0 +1,4 @@
+#!/bin/sh
+# Kulan OS signed start-up: a removed kernel's start-up file goes too.
+[ -x /usr/bin/kulan-signed-start ] || exit 0
+/usr/bin/kulan-signed-start remove-kernel "$1" || true

@@ -338,6 +338,18 @@ class KulanSettings(Adw.Application):
             get_help.self_test(window)
         except AssertionError as exc:
             failures.append(f"help: {exc}")
+        try:  # Security: signed start-up in each of its steps
+            window.show_page("security")
+            page = window.pages["security"]
+            page.render_signed_start({"phase": "enroll", "code": "48207165", "secure_boot": True})
+            assert "48207165" in page.signed_row.get_subtitle() and page.signed_button.get_label() == "Restart"
+            page.render_signed_start({"phase": "off", "possible": False,
+                                      "reasons": ["Turn TPM unlock off first, and on again afterwards"]})
+            assert "TPM" in page.signed_row.get_subtitle() and not page.signed_button.get_sensitive()
+            page.render_signed_start({"phase": "on", "secure_boot": False})
+            assert "Secure Boot is off" in page.signed_row.get_subtitle() and not page.signed_button.get_visible()
+        except (AssertionError, KeyError) as exc:
+            failures.append(f"security: signed start-up {exc!r}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

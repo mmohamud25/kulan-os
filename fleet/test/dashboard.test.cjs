@@ -1,8 +1,18 @@
 // The web dashboard (fleet/dashboard) in a real browser: sign-in faked, fleet-admin answered
-// by a stand-in, every flow clicked through (2.8b to 2.9c).
+// by a stand-in, every flow clicked through (2.8b to 2.9c), in the 2.10 Console layout.
 //   node dashboard.test.cjs ../dashboard     (needs playwright and its Chromium)
 const { chromium } = require("playwright");
-const path = require("path"), http = require("http"), fs = require("fs");
+const path = require("path"), http = require("http"), fs = require("fs"), nodeCrypto = require("crypto");
+// The Owner's script signing key from a code, as the dashboard makes it (2.10).
+const signingKey = (code) => {
+  const seed = nodeCrypto.createHash("sha256").update(`kulan-fleet-script-key v1\n${code}`).digest();
+  const priv = nodeCrypto.createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), seed]), format: "der", type: "pkcs8" });
+  return nodeCrypto.createPublicKey(priv).export({ format: "der", type: "spki" }).subarray(-32).toString("base64");
+};
+const signedBy = (key, sig, message) => nodeCrypto.verify(null, Buffer.from(message),
+  nodeCrypto.createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(key, "base64")]), format: "der", type: "spki" }),
+  Buffer.from(sig || "", "base64"));
+const sha256 = (t) => nodeCrypto.createHash("sha256").update(t).digest("hex");
 const root = path.resolve(process.argv[2] || path.join(__dirname, "../dashboard"));
 const srv = http.createServer((q, r) => { const f = path.join(root, q.url.split("?")[0] === "/" ? "index.html" : q.url.split("?")[0]);
   fs.readFile(f, (e, b) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { "content-type": f.endsWith(".js") ? "text/javascript" : "text/html" }); r.end(b); }); });
@@ -16,13 +26,16 @@ const PNG1 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkaPhfDw
 function reply(b) {
   state.calls.push(b);
   switch (b.op) {
-    case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy, allow_scripts: state.allowScripts }],
+    case "overview": return { email: "a@x", global: true, organisations: [{ id: org, name: "Org", policy: state.policy, allow_scripts: state.allowScripts, is_owner: true }],
       devices: [{ id: "d1", organisation_id: org, hostname: "laptop-a", last_seen: new Date().toISOString(),
-                  pushed: { networks: { n1: "added" }, printers: { pr1: "couldn't reach the printer; tried again at the next report" } } }],
+                  pushed: { networks: { n1: "added" }, printers: { pr1: "couldn't reach the printer; tried again at the next report" } } },
+                ...(!state.showD2 || state.removed ? [] : [{ id: "d2", organisation_id: org, hostname: "new-pc", last_seen: new Date().toISOString(), approved: state.approvedD2 }])],
       actions: [{ id: "a1", device_id: "d1", type: "run-fix", status: "done", detail: "no problems found", created_at: "2026-10-26T09:00:00Z",
                   requested_by: "a@x", exit_code: 0, has_output: true, what: "check-disk" }],
-      alerts: state.helpDone ? [] : [{ kind: "help", organisation_id: org, device_id: "d1", hostname: "laptop-a", request_id: "h1", title: "Help request",
-                                       text: "Amina asked for help: The printer won't print" }],
+      alerts: [...(!state.showD2 || state.approvedD2 || state.removed ? [] : [{ kind: "approve", organisation_id: org, device_id: "d2", hostname: "new-pc",
+                                                               title: "New computer", text: "new-pc joined and waits for the Owner's approval." }]),
+               ...(state.helpDone ? [] : [{ kind: "help", organisation_id: org, device_id: "d1", hostname: "laptop-a", request_id: "h1", title: "Help request",
+                                       text: "Amina asked for help: The printer won't print" }])],
       help_requests: [{ id: "h1", organisation_id: org, device_id: "d1", hostname: "laptop-a", username: "amina", full_name: "Amina",
                         body: "The printer won't print.\nIt says offline.", state: state.helpDone ? "done" : "open", reply: null,
                         created_at: new Date().toISOString(), has_screenshot: true }] };
@@ -30,10 +43,18 @@ function reply(b) {
       body: "The printer won't print.\nIt says offline. <img src=x onerror=alert(1)>", state: "open", reply: null,
       created_at: new Date().toISOString(), screenshot: PNG1, screenshot_type: "image/png" } };
     case "close-help": state.helpDone = true; return {};
+    case "approve-computer": state.approvedD2 = true; return {};
+    case "remove-computer": state.removed = true; return {};
+    case "codes": return { codes: state.revoked ? [] : [{ id: "c1", created_at: new Date().toISOString(), expires_at: "2026-11-01T00:00:00Z",
+                                                          uses: 3, uses_left: 2, trusted: false, created_by: "helper@x" }] };
+    case "revoke-code": state.revoked = true; return {};
+    case "new-code": return { code: "ABCD-EFGH-JKLM", hours: 72, uses: 1, approved: true };
     case "action-output": return { output: "== Disk errors in the last 7 days\nnone", exit_code: 0, status: "done", type: "run-fix" };
-    case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true };
+    case "scripts": return { allowed: state.allowScripts, scripts: state.scripts, is_owner: true, script_key: state.scriptKey || null };
+    case "set-script-key": state.scriptKey = b.public_key; return {};
     case "set-scripts-allowed": state.allowScripts = b.allowed; return {};
-    case "add-script": state.scripts.push({ id: "s1", name: b.name, description: b.description, body: b.body, sha256: "ab".repeat(32),
+    case "add-script": state.scripts.push({ id: "s1", name: b.name, description: b.description, body: b.body, sha256: sha256(b.body),
+                                             signed: signedBy(state.scriptKey, b.signature, `kulan-fleet-script v1\n${sha256(b.body)}\n`),
                                              updated_at: "2026-10-26T09:00:00Z", updated_by: "a@x" }); return { id: "s1" };
     case "add-network": state.groups[0].networks = [{ id: "n1", ssid: b.ssid, security: b.security, hidden: b.hidden }]; return { id: "n1" };
     case "add-printer": state.groups[0].printers = [{ id: "pr1", name: b.name, uri: b.uri }]; return { id: "pr1" };
@@ -79,7 +100,8 @@ function reply(b) {
   }
 }
 (async () => {
-  const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true });
+  state.approvedD2 = false;
+  const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true, colorScheme: process.env.DARK ? "dark" : "light" });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && !m.text().includes("status of 403") && errors.push(m.text()));
   page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().includes("name you'll") ? "Finance drive" : ""); else await d.accept(); });
   await page.route("**/functions/v1/fleet-admin", async (r) => {
@@ -112,7 +134,19 @@ function reply(b) {
   await page.click("#dlg-actions >> text=Continue");
   await page.waitForTimeout(500);
   if (state.verifiedWith !== "123456" || !state.auth.includes("POST /auth/v1/factors/f1/challenge")) throw "authenticator code not verified " + JSON.stringify(state.auth);
-  await page.waitForSelector("#groups tr");
+  await page.waitForSelector("#groups tr", { state: "attached" });
+  // The sections, from the sidebar.
+  const seen = new Set();
+  const view = async (v) => {
+    await page.click(`.nav[data-view='${v}']`);
+    await page.waitForSelector(`section.view[data-view='${v}']:not(.hidden)`);
+    if (process.env.SHOTS && !seen.has(v)) { seen.add(v); await page.waitForTimeout(150); await page.screenshot({ path: `${process.env.SHOTS}/view-${v}.png`, fullPage: true }); }
+  };
+  await page.waitForSelector("section.view[data-view='computers']:not(.hidden) #devices tr.on");
+  if (!(await page.textContent("#detail")).includes("laptop-a")) throw "the computer's details aren't shown";
+  if (!(await page.textContent("#health")).includes("1 healthy")) throw "fleet health " + await page.textContent("#health");
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/computers.png`, fullPage: true });
+  await view("policy");
   // org policy keeps usb and adds an app
   if (await page.locator("#policy select[aria-label='USB drives']").inputValue() !== "block") throw "usb not shown";
   await page.fill("#policy input[aria-label='Blocked apps: app']", "kulan-base");
@@ -124,6 +158,7 @@ function reply(b) {
   const sp = state.calls.filter((c) => c.op === "set-policy").pop();
   if (JSON.stringify(sp.policy) !== JSON.stringify({ firewall: true, usb: "block", blocked_apps: [{ source: "debian", id: "steam" }] })) throw "set-policy " + JSON.stringify(sp);
   // add group, set its policy and computers
+  await view("groups");
   await page.click("#add-group");
   await page.fill("#dlg input", "Office");
   await page.click("#dlg-actions >> text=Add");
@@ -151,12 +186,15 @@ function reply(b) {
   const ad = state.calls.filter((c) => c.op === "approve-drive").pop();
   if (!ad || ad.name !== "Finance drive" || ad.serial !== "ABCD1234") throw "approve " + JSON.stringify(ad);
   // person dialog offers the group, keeps it on save
+  await view("people");
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/people.png`, fullPage: true });
   await page.click("#people >> text=Manage…");
   await page.click("#dlg-actions >> text=Save");
   await page.waitForTimeout(300);
   const ep = state.calls.filter((c) => c.op === "edit-person").pop();
   if (JSON.stringify(ep.groups) !== JSON.stringify(["g1"])) throw "edit-person " + JSON.stringify(ep);
   // 2.8c: the weekly report (printed), the admin-rights review, the log searched and exported.
+  await view("activity");
   await page.evaluate(() => { window.printed = 0; window.print = () => { window.printed++; window.printedText = document.getElementById("print-area").textContent; }; });
   await page.click("#weekly");
   await page.waitForSelector("#dlg .report-line.bad");
@@ -197,11 +235,13 @@ function reply(b) {
   const more = state.calls.filter((c) => c.op === "log").pop();
   if (more.who !== "a@x") throw "Show more changed the search " + JSON.stringify(more);
   // The policy's two-step setting, and a person's reset.
+  await view("policy");
   await page.selectOption("#policy select[aria-label='Two-step sign-in']", "admins");
   await page.click("#p-save");
   await page.waitForTimeout(300);
   if (state.calls.filter((c) => c.op === "set-policy").pop().policy.two_step !== "admins") throw "two_step not saved";
   // 2.8e: connect Google Workspace, a new person with a mailbox, a new Google password, removing with the mailbox deleted.
+  await view("settings");
   if (!(await page.textContent("#mail-connect")).includes("Connect Google Workspace")) throw "mail card";
   await page.click("#mail-connect");
   await page.setInputFiles("#dlg input[type=file]", { name: "key.json", mimeType: "application/json",
@@ -212,6 +252,7 @@ function reply(b) {
   await page.waitForSelector("#mail >> text=acme.test");
   const cm = state.calls.filter((c) => c.op === "connect-mail").pop();
   if (cm.admin_email !== "it@acme.test" || JSON.parse(cm.key).client_email !== "kf@acme-mail.iam.gserviceaccount.com") throw "connect-mail " + JSON.stringify(cm);
+  await view("people");
   await page.click("#add-person");
   await page.fill("#dlg input >> nth=0", "Leyla Nur");
   await page.fill("#dlg input[spellcheck=false] >> nth=0", "Leyla");
@@ -243,16 +284,16 @@ function reply(b) {
   // 2.9b: a fix and a message for a computer, a fix's output, scripts allowed by the Owner, added and run,
   // a group's Wi-Fi and printers (how they went on its computers), a message to a person.
   const last = (op) => state.calls.filter((c) => c.op === op && !c.refused).pop();
-  await page.selectOption("#devices select", "run-fix");
-  await page.click("#devices >> button:has-text('Send')");
+  await view("computers");
+  await page.selectOption("#detail select", "run-fix");
   await page.waitForSelector("#dlg-title:has-text('Run a fix on laptop-a')");
   await page.selectOption("#dlg select", "reset-wifi");
   if (!(await page.textContent("#dlg")).includes("offline for a few seconds")) throw "the fix isn't explained";
   await page.click("#dlg-actions >> text=Run");
   await page.waitForTimeout(300);
   if (JSON.stringify(last("action")) !== JSON.stringify({ op: "action", device_id: "d1", type: "run-fix", payload: { fix: "reset-wifi" } })) throw "run-fix " + JSON.stringify(last("action"));
-  await page.selectOption("#devices select", "message");
-  await page.click("#devices >> button:has-text('Send')");
+  await view("computers");
+  await page.selectOption("#detail select", "message");
   await page.click("#dlg-actions >> text=Send");
   if (!(await page.textContent("#dlg")).includes("Give the message a title")) throw "a message without a title was sent";
   await page.fill("#dlg input", "Restart tonight");
@@ -260,13 +301,31 @@ function reply(b) {
   await page.click("#dlg-actions >> text=Send");
   await page.waitForTimeout(300);
   if (JSON.stringify(last("action").payload) !== JSON.stringify({ title: "Restart tonight", body: "Save your work." })) throw "message " + JSON.stringify(last("action"));
-  if (await page.locator("#devices option[value='run-script']").count()) throw "scripts offered before the Owner allowed them";
+  if (await page.locator("#detail option[value='run-script']").count()) throw "scripts offered before the Owner allowed them";
+  await view("activity");
   if (!(await page.textContent("#actions")).includes("Run a fix · Check the disk")) throw "the fix isn't named in Recent requests";
   await page.click("#actions >> button:has-text('Output')");
   await page.waitForSelector("#dlg-title:has-text('Check the disk on laptop-a')");
   if (!(await page.textContent("#dlg pre")).includes("Disk errors in the last 7 days")) throw "output not shown";
   await page.click("#dlg-actions >> text=Close");
+  await view("scripts");
   if (!(await page.textContent("#scripts-sub")).startsWith("Off.") || !(await page.isHidden("#add-script"))) throw "scripts shown as allowed";
+  // Script signing first (2.10): a code made here, shown once; only its public key is sent.
+  await page.click("#scripts-allow");
+  await page.waitForSelector("#app-msg:has-text('Set up script signing first')");
+  if (await page.isChecked("#scripts-allow")) throw "the switch stayed on";
+  if (last("set-scripts-allowed")) throw "scripts allowed before script signing was set up";
+  await page.click("#signing >> button:has-text('Set up…')");
+  await page.waitForSelector("#dlg-title:has-text('Set up script signing')");
+  const signingCode = (await page.textContent("#dlg .code")).trim();
+  if (!/^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$/.test(signingCode)) throw "signing code " + signingCode;
+  if (!(await page.isDisabled("#dlg-actions >> text=Save"))) throw "saved before it was written down";
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/script-signing.png` });
+  await page.check("#dlg input[type=checkbox]");
+  await page.click("#dlg-actions >> text=Save");
+  await page.waitForSelector("#signing >> text=Change the code…");
+  if (last("set-script-key")?.public_key !== signingKey(signingCode)) throw "set-script-key " + JSON.stringify(last("set-script-key"));
+  if (JSON.stringify(state.calls).includes(signingCode)) throw "the signing code was sent";
   await page.check("#scripts-allow");
   await page.waitForSelector("#add-script:not(.hidden)");
   if (last("set-scripts-allowed")?.allowed !== true) throw "set-scripts-allowed " + JSON.stringify(last("set-scripts-allowed"));
@@ -276,14 +335,16 @@ function reply(b) {
   await page.click("#dlg-actions >> text=Save");
   await page.waitForSelector("#scripts >> text=Clear the print queue");
   if (last("add-script")?.body !== "cancel -a\n" || last("add-script").organisation_id !== org) throw "add-script " + JSON.stringify(last("add-script"));
-  await page.selectOption("#devices select", "run-script");
-  await page.click("#devices >> button:has-text('Send')");
+  if (!state.scripts[0].signed) throw "the script wasn't signed with the Owner's key " + JSON.stringify(last("add-script"));
+  await view("computers");
+  await page.selectOption("#detail select", "run-script");
   await page.waitForSelector("#dlg-title:has-text('Run a script on laptop-a')");
   if (!(await page.textContent("#dlg pre")).includes("cancel -a")) throw "the script isn't shown before it's run";
-  if (process.env.SHOTS) { await page.screenshot({ path: `${process.env.SHOTS}/run-script.png` }); await page.locator("#scripts").screenshot({ path: `${process.env.SHOTS}/scripts.png` }); }
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/run-script.png` });
   await page.click("#dlg-actions >> text=Run");
   await page.waitForTimeout(300);
   if (JSON.stringify(last("action")) !== JSON.stringify({ op: "action", device_id: "d1", type: "run-script", payload: { script_id: "s1" } })) throw "run-script " + JSON.stringify(last("action"));
+  await view("groups");
   await page.click("#groups >> text=Wi-Fi and printers…");
   await page.fill("#dlg input[placeholder='Office Wi-Fi']", "Acme Staff");
   await page.fill("#dlg input[type=password]", "correct horse");
@@ -298,6 +359,7 @@ function reply(b) {
   if (!(await page.textContent("#dlg")).includes("laptop-a: couldn't reach the printer")) throw "a printer's problem isn't shown";
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/wifi.png`, fullPage: true });
   await page.click("#dlg-actions >> text=Close");
+  await view("people");
   await page.click("#people >> text=Manage…");
   await page.click("#dlg-actions >> text=Send a message…");
   await page.fill("#dlg input", "Hello");
@@ -305,13 +367,14 @@ function reply(b) {
   await page.waitForTimeout(300);
   if (JSON.stringify(last("message-person")) !== JSON.stringify({ op: "message-person", person_id: "p1", title: "Hello", body: "" })) throw "message-person " + JSON.stringify(last("message-person"));
   // 2.9a: remote help asked from a computer's row; the person says no.
-  await page.selectOption("#devices select", "remote-help");
-  await page.click("#devices >> button:has-text('Send')");
+  await view("computers");
+  await page.selectOption("#detail select", "remote-help");
   await page.waitForSelector("#dlg-title:has-text('Remote help on laptop-a')");
   if (!(await page.textContent("#dlg")).includes("asked first and sees your email")) throw "remote help: consent not explained";
   await page.check("#dlg input[type=checkbox]");
   await page.click("#dlg-actions >> text=Ask to see the screen");
   await page.waitForSelector("#help-dialog[open]");
+  for (let i = 0; i < 50 && !state.calls.some((c) => c.op === "help-start"); i++) await page.waitForTimeout(100);
   const hs = state.calls.find((c) => c.op === "help-start");
   if (JSON.stringify(hs) !== JSON.stringify({ op: "help-start", device_id: "d1", control: true })) throw "help-start " + JSON.stringify(hs);
   await page.waitForSelector("#help-status:has-text('Asking amina on laptop-a')", { timeout: 5000 });
@@ -320,8 +383,10 @@ function reply(b) {
   await page.click("#help-end");
   if (await page.locator("#help-dialog[open]").count()) throw "remote help: viewer didn't close";
   // 2.9c: a help request: an alert and the Help requests card; opened, its screenshot seen, answered and done.
+  await view("computers");
   await page.waitForSelector("#help-card:not(.hidden) >> text=The printer won't print.");
-  await page.click("#alerts >> button:has-text('Open…')");
+  if (await page.locator("#alerts >> text=asked for help").count()) throw "a help request listed twice";
+  await page.click("#help-requests >> button:has-text('Open…')");
   await page.waitForSelector("#dlg-title:has-text('Help request from Amina')");
   if (!(await page.textContent("#dlg pre")).includes("<img src=x onerror=alert(1)>")) throw "help request: text not shown as written";
   if (await page.locator("#dlg pre img").count()) throw "help request: text turned into markup";
@@ -334,13 +399,42 @@ function reply(b) {
   await page.waitForFunction(() => !document.getElementById("dlg").open);
   if (JSON.stringify(last("close-help")) !== JSON.stringify({ op: "close-help", request_id: "h1", reply: "I restarted the printer. Try again now." })) throw "close-help " + JSON.stringify(last("close-help"));
   await page.waitForSelector("#help-requests >> text=Done");
-  if (await page.locator("#alerts >> text=asked for help").count()) throw "a done help request is still an alert";
+  if (await page.locator("#detail >> text=asked for help").count()) throw "a done help request is still an alert";
   await page.click("#help-requests >> button:has-text('Open…')");
   await page.click("#dlg-actions >> text=Start remote help…");
   await page.waitForSelector("#dlg-title:has-text('Remote help on laptop-a')");
   await page.click("#dlg-actions >> text=Cancel");
+  // 2.10: a computer waiting for approval, approved; removing a computer; join codes withdrawn.
+  await view("computers");
+  state.showD2 = true;
+  await page.click("#devices tr:has-text('laptop-a')");
+  await page.click("#detail >> button:has-text('Lock the screen')");
+  await page.waitForSelector("#devices tr:has-text('new-pc')");
+  await page.click("#devices tr:has-text('new-pc')");
+  await page.waitForSelector("#detail >> text=Waiting for approval");
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/waiting.png` });
+  if (await page.locator("#detail >> text=Remote help").count()) throw "requests offered to a computer waiting for approval";
+  await page.click("#detail >> button:has-text('Approve')");
+  await page.waitForTimeout(300);
+  if (!last("approve-computer") || last("approve-computer").device_id !== "d2") throw "approve-computer " + JSON.stringify(last("approve-computer"));
+  await page.click("#devices tr:has-text('new-pc')");
+  await page.waitForSelector("#detail >> text=Remove from the organisation…");
+  page.removeAllListeners("dialog");
+  page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().startsWith("Remove new-pc") ? "new-pc" : ""); else await d.accept(); });
+  await page.click("#detail >> text=Remove from the organisation…");
+  await page.waitForTimeout(300);
+  if (JSON.stringify(last("remove-computer")) !== JSON.stringify({ op: "remove-computer", device_id: "d2", confirm: "new-pc" })) throw "remove-computer " + JSON.stringify(last("remove-computer"));
+  await page.click("#add-computers");
+  await page.waitForSelector("#codes-list >> text=computers wait for approval");
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/join-codes.png` });
+  await page.click("#codes-list >> button:has-text('Withdraw')");
+  await page.waitForTimeout(300);
+  if (!last("revoke-code") || last("revoke-code").code_id !== "c1") throw "revoke-code " + JSON.stringify(last("revoke-code"));
+  if (await page.locator("#codes-box:not(.hidden)").count()) throw "a withdrawn code is still listed";
+  await page.click("#add-close");
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });
+  if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/phone.png`, fullPage: true });
   const wide = await page.evaluate(() => document.documentElement.scrollWidth);
   if (wide > 390) throw "the page scrolls sideways on a phone: " + wide;
   // A sign-in link that had expired: said plainly, and the address cleared.

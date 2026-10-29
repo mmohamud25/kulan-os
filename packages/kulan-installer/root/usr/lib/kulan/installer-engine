@@ -12,6 +12,10 @@ The plan (JSON on standard input):
     encrypt     true/false; password  the disk password (with encrypt)
     locale      "en_US.UTF-8";  keyboard {"layout": "us", "variant": ""}
     timezone    "America/New_York";  hostname "amina-laptop"
+    join_organisation  false: don't join the organisation of the USB stick
+                (Kulan USB Maker's settings on it); default true
+    signed_start  false: leave signed start-up off (kulan-signed-start); default
+                true, on UEFI computers with an encrypted disk
     user        {"full_name", "username", "password", "autologin"}
   For tests only:
     source      the live system's squashfs (default: the one the live session runs)
@@ -21,7 +25,9 @@ The plan (JSON on standard input):
     require_pool  fail rather than fetch the boot loader from the internet
 
 Progress lines: {"progress": 0.0-1.0, "text": "..."}; the last line is
-{"done": true} or {"error": "what went wrong, in plain words"}.
+{"done": true} or {"error": "what went wrong, in plain words"}. With signed
+start-up, a line {"signed_start_code": "12345678"} comes first: the code to
+type at the first restart, on the blue screen that enrolls the computer's key.
 
 What it does, in order: checks the plan; partitions (erase: GPT with an EFI
 partition, a BIOS boot partition on PCs, /boot when encrypted, then the
@@ -30,10 +36,15 @@ that's already there); formats (LUKS2 + ext4 when encrypted); copies the live
 system's files; writes fstab, crypttab, host name, language, keyboard and
 time zone; removes the live session's packages; makes the account; installs
 GRUB (with Secure Boot's shim on PCs) from the package pool on the Kulan OS
-USB stick, so no internet is needed; rebuilds the start-up image.
+USB stick, so no internet is needed; rebuilds the start-up image. On UEFI
+computers with an encrypted disk, also signed start-up (kulan-signed-start:
+the computer's own key, signed start-up files, and shim's request to enroll
+the key at the first restart); GRUB starts the computer until then.
 """
 from __future__ import annotations
 
+import configparser
+import hashlib
 import json
 import os
 import re
@@ -115,6 +126,61 @@ def live_disks() -> set[str]:
     return found
 
 
+STICK_MAGIC = b"KULAN-STICK-CONFIG 1\n"
+JOIN_CODE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
+MIB = 1 << 20
+
+
+def live_device() -> str | None:
+    """The whole USB stick (or disc) the live session started from."""
+    source = subprocess.run(["findmnt", "-no", "SOURCE", "/run/live/medium"], capture_output=True, text=True).stdout.strip()
+    if not source:
+        return None
+    parent = subprocess.run(["lsblk", "-no", "PKNAME", source], capture_output=True, text=True).stdout.split()
+    return "/dev/" + parent[0] if parent else source
+
+
+def stick_settings(device: str | None = None) -> dict | None:
+    """An organisation's settings on the USB stick (Kulan USB Maker puts them
+    in a 4 KiB block on a megabyte boundary, within 64 MiB after Kulan OS):
+    {"server", "code"} of its Kulan Fleet, or None."""
+    device = device or live_device()
+    if not device:
+        return None
+    try:
+        with open(device, "rb") as f:
+            f.seek(16 * 2048)
+            pvd = f.read(2048)
+            if pvd[1:6] != b"CD001":
+                return None
+            end = int.from_bytes(pvd[80:84], "little") * (int.from_bytes(pvd[128:130], "little") or 2048)
+            start = -(-end // MIB) * MIB
+            for offset in range(start, start + 64 * MIB, MIB):
+                f.seek(offset)
+                block = f.read(4096)
+                if not block.startswith(STICK_MAGIC):
+                    continue
+                lines = block.rstrip(b"\0").split(b"\n")
+                if len(lines) < 3 or hashlib.sha256(lines[2]).hexdigest().encode() != lines[1]:
+                    return None
+                settings = json.loads(lines[2])
+                # Only for the Kulan OS it was written with (not another one
+                # written over it later with another app, which leaves this block).
+                image = settings.get("image") or {}
+                volume = pvd[40:72].decode("ascii", "replace").rstrip(" \0")
+                created = pvd[813:829].decode("ascii", "replace").rstrip(" \0")
+                if image.get("volume") != volume or image.get("created") != created:
+                    return None
+                fleet = settings.get("fleet") or {}
+                server, code = str(fleet.get("server", "")), str(fleet.get("code", "")).upper()
+                if server.startswith("https://") and len(server) < 300 and JOIN_CODE.match(code):
+                    return {"server": server, "code": code}
+                return None
+    except (OSError, ValueError, AttributeError, RecursionError):
+        return None
+    return None
+
+
 def free_areas(disk: str) -> list[dict]:
     """Free areas of a GPT disk, largest first: [{start, size}] in sectors."""
     out = subprocess.run(["sfdisk", "-F", "--bytes", disk], capture_output=True, text=True,
@@ -135,6 +201,25 @@ def partition_table(disk: str) -> dict:
         return {}
 
 
+LINUX_FS = {"ext2", "ext3", "ext4", "btrfs", "xfs", "f2fs", "jfs", "reiserfs", "crypto_LUKS", "LVM2_member"}
+
+
+def systems_on(children: list[dict]) -> list[str]:
+    """What a disk holds, in the words people use: Windows, macOS, another Linux
+    system or files (never partition labels or format names)."""
+    kinds = {c.get("fstype") or "" for c in children} - {""}
+    found = []
+    if "ntfs" in kinds:
+        found.append("Windows")
+    if kinds & {"apfs", "hfsplus"}:
+        found.append("macOS")
+    if kinds & LINUX_FS:
+        found.append("another Linux system")
+    if not found and kinds - {"swap"}:
+        found.append("files")
+    return found
+
+
 def disks() -> list[dict]:
     """Disks Kulan OS could go on, with what's on them now."""
     out = subprocess.run(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MODEL,TRAN,RM,RO,FSTYPE,LABEL"],
@@ -147,7 +232,7 @@ def disks() -> list[dict]:
         if dev["path"].startswith(("/dev/zram", "/dev/loop", "/dev/sr", "/dev/ram")):
             continue
         children = dev.get("children") or []
-        systems = sorted({c.get("label") or c.get("fstype") for c in children if c.get("fstype")} - {None})
+        systems = systems_on(children)
         table = partition_table(dev["path"]) if children else {}
         free = free_areas(dev["path"]) if table.get("label") == "gpt" else []
         found.append({
@@ -175,6 +260,8 @@ def check_plan(plan: dict) -> dict:
         raise Failure("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
     if not user.get("password"):
         raise Failure("Choose a password for the account")
+    if any(c in str(user["password"]) for c in "\r\n\0"):  # chpasswd reads one account per line
+        raise Failure("A password can't have a line break in it")
     if plan.get("encrypt") and len(plan.get("password", "")) < 8:
         raise Failure("The disk password must be at least 8 characters")
     if not HOST_RULE.match(plan.get("hostname", "")):
@@ -466,6 +553,34 @@ def configure(plan: dict, target: Path, parts: dict, disk_info: dict) -> None:
     write(target / "etc/machine-id", "", 0o444)
 
 
+NM_CONNECTIONS = Path("/etc/NetworkManager/system-connections")
+
+
+def carry_wifi(target: Path) -> None:
+    """The Wi-Fi networks joined in the live session, so the new system is online at once
+    (its add-ons and updates need it). Any user may use them, as on the live system."""
+    dest = target / "etc/NetworkManager/system-connections"
+    try:
+        found = sorted(NM_CONNECTIONS.glob("*.nmconnection"))
+    except OSError:
+        return
+    for path in found:
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        parser.optionxform = str  # keys are case-sensitive
+        try:
+            parser.read(path, encoding="utf-8")
+        except (OSError, configparser.Error):
+            continue
+        if parser.get("connection", "type", fallback="") not in ("wifi", "802-11-wireless"):
+            continue
+        parser.remove_option("connection", "permissions")  # the live user's only
+        dest.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(dest / path.name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as out:
+            parser.write(out, space_around_delimiters=False)
+        log(f"Wi-Fi network carried over: {parser.get('wifi', 'ssid', fallback='?')}")
+
+
 def make_user(chroot: Chroot, plan: dict) -> None:
     user = plan["user"]
     target = chroot.target
@@ -497,13 +612,25 @@ def pool_source(medium: str) -> tuple[str, str] | None:
     return None
 
 
-def boot_packages(encrypt: bool) -> list[str]:
+def signed_start_wanted(plan: dict) -> bool:
+    return (firmware() == "uefi" and bool(plan.get("encrypt")) and plan.get("signed_start", True) is not False
+            and not plan.get("no_nvram"))
+
+
+def boot_packages(plan: dict) -> list[str]:
     machine = arch()
+    encrypt = bool(plan.get("encrypt"))
     if firmware() == "uefi":
         packages = [f"grub-efi-{machine}", f"grub-efi-{machine}-signed", "shim-signed", "efibootmgr"]
     else:
         packages = ["grub-pc"]
-    if encrypt:
+    if signed_start_wanted(plan):
+        # Signed start-up's tools, and dracut's start-up image (systemd-cryptsetup
+        # unlocks the disk, as TPM unlock needs too) instead of initramfs-tools'.
+        packages += ["cryptsetup", "keyutils", "dracut", "systemd-cryptsetup", "systemd-boot-efi",
+                     f"systemd-boot-efi-{machine}-signed", f"shim-helpers-{machine}-signed", "systemd-ukify",
+                     "sbsigntool", "mokutil", "openssl"]
+    elif encrypt:
         packages += ["cryptsetup-initramfs", "cryptsetup", "keyutils"]
     return packages + ["os-prober"]
 
@@ -529,7 +656,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
         result = chroot.run(["apt-get", "install", "-y", "-q", "--no-install-recommends",
                              "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold",
                              *(MEDIA_ONLY if pool else []),
-                             *boot_packages(bool(plan.get("encrypt")))], check=False)
+                             *boot_packages(plan)], check=False)
         if result.returncode != 0:
             raise Failure("Couldn’t install the boot loader"
                           + ("" if pool else ". The USB stick doesn’t have it, and there’s no internet "
@@ -550,7 +677,12 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     write(grub_d / "60-kulan-installer.cfg", "\n".join(settings) + "\n")
 
     progress(0.45, "Preparing start-up files…")
-    chroot.run(["update-initramfs", "-u", "-k", "all"])
+    if signed_start_wanted(plan):
+        # dracut made the images when it was installed; signed start-up makes them again with its settings.
+        if not any((target / "boot").glob("initrd.img-*")):
+            chroot.run(["dracut", "--force", "--regenerate-all"], timeout=1800)
+    else:
+        chroot.run(["update-initramfs", "-u", "-k", "all"])
     progress(0.75, "Making the disk start Kulan OS…")
     if firmware() == "uefi":
         target_name = {"amd64": "x86_64-efi", "arm64": "arm64-efi"}.get(arch(), f"{arch()}-efi")
@@ -571,7 +703,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
             chroot.run([a for a in argv if a != "--recheck"] + ["--removable", "--no-nvram"])
     else:
         chroot.run(["grub-install", "--target=i386-pc", "--recheck", plan["disk"]])
-    progress(0.9, "Adding Kulan OS to the start-up menu…")
+    progress(0.85, "Adding Kulan OS to the start-up menu…")
     chroot.run(["update-grub"])
     # GRUB names a loop device (tests) by its path, which won't exist at start-up.
     root_dev = disk_info.get("root_dev", "")
@@ -579,6 +711,21 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     if root_dev.startswith("/dev/loop") and config.exists():
         text = config.read_text()
         config.write_text(re.sub(rf"root={re.escape(root_dev)}(?=\s)", f"root=UUID={uuid_of(root_dev)}", text))
+    if signed_start_wanted(plan):
+        progress(0.9, "Signing the start-up files…")
+        signed_start(chroot)
+
+
+def signed_start(chroot: Chroot) -> None:
+    """The computer's own start-up key and signed start-up files; shim asks to enroll
+    the key at the first restart. Never fails the install: GRUB starts the
+    computer until then, and Kulan Settings can turn it on later."""
+    result = chroot.run(["kulan-signed-start", "on"], check=False, timeout=3600)
+    code = result.stdout.strip().splitlines()[-1] if result.stdout.strip() else ""
+    if result.returncode == 0 and re.fullmatch(r"[0-9]{8}", code):
+        emit(signed_start_code=code)
+    else:
+        log("signed start-up left off: " + (result.stderr or result.stdout).strip()[-300:])
 
 
 # --- the install ----------------------------------------------------------------------
@@ -614,6 +761,11 @@ def install(plan: dict) -> None:
         copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
         at("configure", 0, "Setting the language, keyboard and time zone…")
         configure(plan, target, parts, disk_info)
+        carry_wifi(target)
+        org = stick_settings(plan.get("stick")) if plan.get("join_organisation", True) else None
+        if org:  # joined once online, by kulan-fleet-autojoin
+            write(target / "var/lib/kulan/fleet-join.json", json.dumps(org) + "\n", 0o600)
+            log(f"joins {org['server']} once online")
         with Chroot(target, parts.get("esp"), efivars=not plan.get("no_nvram")) as chroot:
             chroot.run(["systemd-machine-id-setup"], check=False)
             chroot.run(["locale-gen"], check=False)
@@ -662,7 +814,10 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         if argv[1] == "disks":
-            print(json.dumps({"firmware": firmware(), "disks": disks()}))
+            org = stick_settings()
+            print(json.dumps({"firmware": firmware(), "disks": disks(),
+                              # (the server only: the code itself stays out of the window)
+                              **({"organisation": {"server": org["server"]}} if org else {})}))
             return 0
         plan = json.loads(sys.stdin.read() or "{}")
         install(plan)

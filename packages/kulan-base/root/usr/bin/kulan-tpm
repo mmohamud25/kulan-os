@@ -24,6 +24,12 @@ BitLocker with a PIN, a short PIN instead of the long disk password.
 
 Secure Boot must be on: with it off, any system started from a USB stick
 would see the same PCR 7 and could unlock the disk.
+
+With signed start-up on (kulan-signed-start), PCR 7 also records this
+computer's own start-up key, so only its signed start-up files get the key
+from the TPM: not GRUB, and not another system's start-up from a USB stick.
+While signed start-up is being turned on, TPM unlock waits (PCR 7 changes at
+its switch); turn it on after that.
 """
 from __future__ import annotations
 
@@ -45,6 +51,7 @@ PCRS = "7"
 # Kulan Settings and Fleet.
 AVAILABLE = True
 TPM_OPTION = "tpm2-device=auto"
+SIGNED_START = Path("/var/lib/kulan/signed-start.json")
 PIN_MIN, PIN_MAX = 4, 64
 
 
@@ -151,6 +158,8 @@ def status() -> dict:
         reasons.append("Secure Boot is off. Turn it on in the firmware settings first")
     if luks is None:
         reasons.append("The system disk isn't encrypted")
+    if signed_start_phase() in ("enroll", "switch"):
+        reasons.append("Signed start-up is being turned on. Turn TPM unlock on after the next restart")
     elif dump and luks_version(dump) not in ("", "2"):
         reasons.append("The disk’s encryption is too old for TPM unlock")
     return {
@@ -197,11 +206,23 @@ def set_crypttab_option(volume: str, add: bool) -> None:
     os.replace(tmp, CRYPTTAB)
 
 
+def signed_start_phase() -> str:
+    try:
+        return json.loads(SIGNED_START.read_text()).get("phase") or "off"
+    except (OSError, ValueError):
+        return "off"
+
+
 def rebuild_startup_image() -> None:
     r = run(["dracut", "--force", "--regenerate-all"], timeout=1800)
     if r.returncode != 0:
         raise RuntimeError("the start-up image couldn't be rebuilt: " + (r.stderr.strip()[-300:] or "dracut failed"))
-    run(["update-grub"])
+    if signed_start_phase() != "off":
+        r = run(["kulan-signed-start", "rebuild"], timeout=1800)
+        if r.returncode != 0:
+            raise RuntimeError("the start-up files couldn't be signed: " + r.stderr.strip()[-300:])
+    elif Path("/usr/sbin/update-grub").exists():
+        run(["update-grub"])
 
 
 def turn_on(with_pin: bool = False) -> int:

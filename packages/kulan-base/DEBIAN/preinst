@@ -1,5 +1,6 @@
 #!/bin/sh
-# Divert Debian's /usr/lib/os-release so this package can ship its own.
+# Divert Debian's /usr/lib/os-release and grub-install so this package can ship
+# its own (see /usr/sbin/grub-install).
 # Future base-files updates write Debian's copy to os-release.debian instead.
 # --no-rename: base-files is Essential, so the file must never be missing,
 # even for a moment; Debian's copy is kept alongside first.
@@ -16,6 +17,14 @@ case "$1" in
 			dpkg-divert --package kulan-base --add --no-rename \
 				--divert "${OS_RELEASE}.debian" "${OS_RELEASE}"
 		fi
+		# GRUB's installer: under both its names (/sbin is /usr/sbin, and a
+		# package may ship it under either), renamed to grub-install.debian.
+		for GRUB_INSTALL in /usr/sbin/grub-install /sbin/grub-install; do
+			if ! dpkg-divert --list "${GRUB_INSTALL}" | grep -q 'by kulan-base$'; then
+				dpkg-divert --package kulan-base --add --rename \
+					--divert "${GRUB_INSTALL}.debian" "${GRUB_INSTALL}"
+			fi
+		done
 		;;
 esac
 

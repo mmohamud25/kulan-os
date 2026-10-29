@@ -101,6 +101,8 @@ FILES=(
 	etc/pam.d/login
 	etc/pam.d/common-auth
 	etc/group
+	usr/sbin/grub-install
+	usr/share/kulan/xdg/applications/torbrowser.desktop
 )
 unsquashfs -q -n -d "${WORK}/root" "${WORK}/fs.squashfs" "${FILES[@]}" >/dev/null 2>&1 || true
 unsquashfs -l -n "${WORK}/fs.squashfs" > "${WORK}/listing" 2>/dev/null
@@ -133,7 +135,9 @@ if [[ "${ARCH}" == arm64 ]]; then
 fi
 check "Identity" "os-release says Kulan OS" grep -q '^NAME="Kulan OS"' "${R}/usr/lib/os-release"
 check "Account picture" "new accounts start with Kulan's picture, not Debian's logo" bash -c "grep -qx /etc/skel/.face '${R}/var/lib/dpkg/diversions' && grep -q 'squashfs-root/usr/share/kulan/faces/kulan.png\$' '${WORK}/listing'"
+check "Version in lsb_release" "lsb_release -d says Kulan OS with its version (it reads PRETTY_NAME)" bash -c "grep -q '^PRETTY_NAME=\"Kulan OS [0-9]' \"${R}/usr/lib/os-release\""
 check "Identity is upgrade-safe" "os-release diverted from base-files" grep -qx "/usr/lib/os-release" "${R}/var/lib/dpkg/diversions"
+check "GRUB's installer" "grub-install diverted to Kulan's (GRUB in EFI/debian; left out with signed start-up on)" bash -c "grep -qx /usr/sbin/grub-install '${R}/var/lib/dpkg/diversions' && grep -q 'bootloader-id=debian' '${R}/usr/sbin/grub-install'"
 for PKG in kulan-base kulan-desktop-settings kulan-settings kulan-welcome kulan-update-center kulan-apps kulan-assistant kulan-assistant-engine; do
 	VER="$(awk -v p="${PKG}" 'BEGIN{RS=""} $0 ~ "(^|\n)Package: " p "\n" {match($0, /\nVersion: [^\n]+/); print substr($0, RSTART+10, RLENGTH-10)}' "${R}/var/lib/dpkg/status")"
 	check "Package ${PKG}" "installed ${VER:-?}" installed "${PKG}"
@@ -172,10 +176,17 @@ check "Restart in ARM VMs" "kexec-tools, fast-restart generator, and the kexec h
 check "Disk password" "a mistyped disk password asks again (installer writes tries=0 to crypttab)" grep -qE '^crypttabOptions:[[:space:]]*[^#[:space:]]*tries=0' "${R}/etc/calamares/modules/fstab.conf"
 check "Store apps' look" "Flatpak apps may read the GTK settings folders, for Kulan's window buttons" bash -c "grep -q 'xdg-config/gtk-4.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'xdg-config/gtk-3.0:ro' '${R}/var/lib/flatpak/overrides/global' && grep -q 'QT_QPA_PLATFORM=xcb;wayland' '${R}/var/lib/flatpak/overrides/global'"
 check "Boot report" "kulan-boot-report.service enabled, for the boot test" has_path etc/systemd/system/multi-user.target.wants/kulan-boot-report.service
-if installed cups-browsed; then
-	result fail "Lean services" "cups-browsed is in the ISO (it should be left out)"
+LEAN_PROBLEMS=()
+installed cups-browsed && LEAN_PROBLEMS+=("cups-browsed is in the ISO")
+for UNIT in cups.service ModemManager.service openvpn.service tor.service; do
+	has_path "etc/systemd/system/multi-user.target.wants/${UNIT}" && LEAN_PROBLEMS+=("${UNIT} starts at every start")
+done
+has_path etc/systemd/system/sockets.target.wants/cups.socket || LEAN_PROBLEMS+=("printing can't start when it's needed (cups.socket off)")
+has_path usr/lib/udev/rules.d/90-kulan-modemmanager.rules || LEAN_PROBLEMS+=("no rule to start ModemManager for a modem")
+if [[ ${#LEAN_PROBLEMS[@]} -eq 0 ]]; then
+	result pass "Lean services" "cups-browsed left out; printing, mobile data, VPN and Tor start only when used"
 else
-	result pass "Lean services" "cups-browsed left out"
+	result fail "Lean services" "$(IFS=';'; echo "${LEAN_PROBLEMS[*]}")"
 fi
 check "Password manager" "KeePassXC and Metadata Cleaner" bash -c "$(declare -f installed); R='${R}'; installed keepassxc && installed metadata-cleaner"
 check "Font" "Inter installed" installed fonts-inter
@@ -220,16 +231,21 @@ else
 	result fail "Boot splash in initramfs" "no initrd found under /live"
 fi
 check "Login screen logo" "Debian's vendor logos point at Kulan's" test "$(readlink "${R}/etc/alternatives/vendor-logos")" = /usr/share/kulan/vendor-logos
+check "Tor Browser offline" "Tor Browser opens through Kulan's start script, which says when its first download needs the internet" bash -c "grep -q '^Exec=/usr/lib/kulan/torbrowser-start' '${R}/usr/share/kulan/xdg/applications/torbrowser.desktop' && grep -q 'squashfs-root/usr/lib/kulan/torbrowser-start\$' '${WORK}/listing'"
 check "Welcome app" "/usr/bin/kulan-welcome present" has_path usr/bin/kulan-welcome
 check "kulan command" "/usr/bin/kulan present (info, update, doctor, ask)" has_path usr/bin/kulan
 kulan_installer() {
 	test -x "${R}/usr/bin/kulan-installer" && test -x "${R}/usr/lib/kulan/installer-engine" &&
 		grep -qF "favorite-apps=['org.kulan.Installer.desktop'" "${R}/usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override" &&
-		grep -qx 'Name=Advanced install' "${R}/usr/share/applications/calamares-install-debian.desktop"
+		grep -qx 'Name=Advanced install' "${R}/usr/share/applications/calamares-install-debian.desktop" &&
+		grep -qx 'NoDisplay=true' "${R}/usr/share/applications/calamares-install-debian.desktop"
 }
-check "Kulan Installer" "Install Kulan OS (Kulan Installer) first in the dock; Calamares is Advanced install" kulan_installer
+check "Kulan Installer" "Install Kulan OS (Kulan Installer) first in the dock; Calamares is Advanced install, only from its More choices" kulan_installer
 POOL="$(xorriso -indev "${ISO}" -find /pool -name '*.deb' 2>/dev/null | tr -d "'")"
 if [[ "${ARCH}" == amd64 ]]; then POOL_NEED=(grub-efi-amd64_ grub-efi-amd64-signed_ shim-signed_ grub-pc_ cryptsetup-initramfs_); else POOL_NEED=(grub-efi-arm64_ cryptsetup-initramfs_); fi
+# Signed start-up's tools (kulan-signed-start), for installing without internet.
+POOL_NEED+=(dracut_ dracut-core_ systemd-cryptsetup_ systemd-boot-efi_ "systemd-boot-efi-${ARCH}-signed_" "shim-helpers-${ARCH}-signed_"
+	systemd-ukify_ python3-pefile_ sbsigntool_ mokutil_)
 POOL_MISSING=()
 for P in "${POOL_NEED[@]}"; do grep -q "/${P}" <<<"${POOL}" || POOL_MISSING+=("${P%_}"); done
 if [[ ${#POOL_MISSING[@]} -eq 0 ]] && xorriso -indev "${ISO}" -find /dists -name Packages\* 2>/dev/null | grep -q Packages; then
@@ -251,6 +267,7 @@ check "Live session" "screen stays on in the live session" has_path etc/xdg/auto
 check "Firewall" "ufw enabled at boot" grep -qx "ENABLED=yes" "${R}/etc/ufw/ufw.conf"
 check "Firewall app" "gufw installed" installed gufw
 check "Graphics helper" "Kulan's renderer helper and the EGL and OpenGL ES libraries it uses are there, for Kulan Settings › About's 3D acceleration line" bash -c "$(declare -f has_path); WORK='${WORK}'; has_path usr/lib/kulan/graphics-renderer && grep -q 'squashfs-root/usr/lib/[^/]*/libEGL.so.1\$' '${WORK}/listing' && grep -q 'squashfs-root/usr/lib/[^/]*/libGLESv2.so.2\$' '${WORK}/listing'"
+check "Joins from an organisation's stick" "kulan-fleet-autojoin.timer is enabled, and no stick's join code is in the image" bash -c "$(declare -f has_path); WORK='${WORK}'; has_path etc/systemd/system/timers.target.wants/kulan-fleet-autojoin.timer && has_path usr/lib/systemd/system/kulan-fleet-autojoin.service && ! has_path var/lib/kulan/fleet-join.json"
 check "Lost mode stops sign-in" "GDM's sign-in (password and automatic) and the console's honour /etc/nologin (pam_nologin), which Kulan Fleet's lost mode uses" bash -c "for f in gdm-password gdm-autologin login; do grep -Eq '^auth[[:space:]]+(requisite|required)[[:space:]]+pam_nologin.so' '${R}/etc/pam.d/'\$f || { echo \"no pam_nologin in \$f\"; exit 1; }; done"
 check "Two-step sign-in ready" "Kulan Fleet's two-step profile is in common-auth, after the password, and only asks members of kulan-two-step (nobody on a new install)" bash -c "f='${R}/etc/pam.d/common-auth'; grep -q 'pam_succeed_if.so quiet user ingroup kulan-two-step' \"\$f\" || { echo 'not in common-auth:'; grep -v '^#' \"\$f\" | grep . | head -n 12; ls '${R}/usr/share/pam-configs/'; exit 1; }; grep -Eq '^kulan-two-step:x:[0-9]+:$' '${R}/etc/group' || { echo \"group: \$(grep kulan-two-step '${R}/etc/group' || echo missing)\"; exit 1; }; grep -q 'squashfs-root/usr/lib/[a-z0-9_]*-linux-gnu/security/pam_oath.so\$' '${WORK}/listing' || { echo 'no pam_oath.so'; exit 1; }; awk '/pam_unix.so/ {u=NR} /ingroup kulan-two-step/ {k=NR} END {exit !(u && k > u)}' \"\$f\" || { echo 'not after pam_unix'; exit 1; }"
 check "Backups" "Deja Dup installed" installed deja-dup
@@ -262,6 +279,11 @@ if [[ "${ARCH}" == amd64 ]]; then
 fi
 if has_path etc/apt/sources.list.d/kulan.sources; then
 	result pass "Update channel" "kulan.sources and signing key included"
+	if has_path etc/apt/preferences.d/50-kulan-channel; then
+		result pass "Update channel pin" "only Kulan's own packages from the channel"
+	else
+		result fail "Update channel pin" "etc/apt/preferences.d/50-kulan-channel missing"
+	fi
 else
 	result info "Update channel" "not set up yet - run scripts/setup-update-channel.sh"
 fi

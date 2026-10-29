@@ -16,7 +16,9 @@ case "$1" in
 		deb-systemd-helper purge kulan-boot-report.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-oom-notice.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-kexec-guard.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-fleet-autojoin.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fast-restart.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-signed-start.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fleet.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-fleet-listen.service >/dev/null 2>&1 || true
 		rm -f /etc/kulan/fleet.json
@@ -34,6 +36,12 @@ case "$1" in
 			dpkg-divert --package kulan-base --remove --rename \
 				--divert "${OS_RELEASE}.debian" "${OS_RELEASE}"
 		fi
+		for GRUB_INSTALL in /usr/sbin/grub-install /sbin/grub-install; do
+			if dpkg-divert --list "${GRUB_INSTALL}" | grep -q 'by kulan-base$'; then
+				dpkg-divert --package kulan-base --remove --rename \
+					--divert "${GRUB_INSTALL}.debian" "${GRUB_INSTALL}"
+			fi
+		done
 		;;
 esac
 

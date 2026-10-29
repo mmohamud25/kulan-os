@@ -149,7 +149,9 @@ check "Symlink" "/etc/os-release points at the Kulan file" test "$(readlink /etc
 
 # --- Desktop (real Debian extensions and GNOME 48 schemas) ---------------------------
 check "Extensions (strict)" "dock and blur found under their real Debian IDs" env KULAN_STRICT=1 /usr/lib/kulan/desktop-setup
-check "Dock settings icon" "the dock opens Kulan Settings; GNOME Settings is in the System folder" bash -c "grep -q \"org.kulan.Settings.desktop'\]\" /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && grep -q \"excluded-apps=\['org.kulan.Settings.desktop'\" /etc/dconf/db/local.d/10-kulan-app-folders"
+check "Dock settings icon" "the dock opens Kulan Settings; GNOME Settings is in the System folder, Kulan Settings isn't" bash -c "grep -q \"org.kulan.Settings.desktop'\]\" /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override && grep -q \"'org.gnome.Settings.desktop'\" /etc/dconf/db/local.d/10-kulan-app-folders && ! grep -q org.kulan.Settings /etc/dconf/db/local.d/10-kulan-app-folders"
+check "Apps installed later stay in sight" "2.10: Kulan's folders list their apps by name (no categories), so a new app is never tucked into a folder" bash -c 'f=/etc/dconf/db/local.d/10-kulan-app-folders; [ "$(grep -c "^categories=@as \[\]$" "$f")" = 2 ] && ! grep -q "^categories=\[" "$f" && ! grep -q "org.gnome.Nautilus\|org.kulan.Assistant\|org.gnome.Software" "$f"'
+check "No terminal tools in the app grid" "htop, btop, Vim and Lynis are hidden (run from the terminal; Lynis is Settings › Security)" bash -c 'for a in htop btop vim lynis; do grep -qx "Hidden=true" /usr/share/kulan/xdg/applications/$a.desktop || exit 1; done' 
 check "Extensions enabled" "dash-to-dock and blur-my-shell in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q dash-to-dock && gs org.gnome.shell enabled-extensions | grep -q blur-my-shell"
 check "Dock defaults applied" "dash-to-dock reads Kulan's settings (bottom, translucent)" bash -c "$(declare -f gs); test \"\$(gs org.gnome.shell.extensions.dash-to-dock dock-position)\" = \"'BOTTOM'\" && test \"\$(gs org.gnome.shell.extensions.dash-to-dock transparency-mode)\" = \"'FIXED'\""
 check "Kulan Shell enabled" "kulan-shell@kulangroup.com in enabled-extensions" bash -c "$(declare -f gs); gs org.gnome.shell enabled-extensions | grep -q kulan-shell@kulangroup.com"
@@ -229,6 +231,14 @@ if [[ -f /etc/apt/sources.list.d/kulan.sources ]]; then
 	# An upgrade must move computers to this build's address (kulan.conf), even
 	# when the released version pointed somewhere else.
 	check "Update channel address" "kulan.sources uses ${CHANNEL}" grep -qx "URIs: ${CHANNEL}" /etc/apt/sources.list.d/kulan.sources
+	# Only Kulan's own packages from the channel (a stolen key can't replace Debian's), and only from its own site.
+	CHANNEL_HOST="$(sed -E 's#^https://([^/:]+).*#\1#' <<<"${CHANNEL}")"
+	check "Update channel pin" "only Kulan's own packages from ${CHANNEL_HOST}; anything else from it never" bash -c "
+		! apt-cache policy 2>&1 | grep -q '^[EW]:' &&
+		grep -q 'Pin: origin \"${CHANNEL_HOST}\"' /etc/apt/preferences.d/50-kulan-channel &&
+		apt-cache policy kulan-base | grep -Eq '^ +(\*\*\* )?[0-9][^ ]* 500$' &&
+		apt-cache policy kulan-base | grep -q 'https://${CHANNEL_HOST}/' &&
+		grep -q 'origin=Kulan OS,site=${CHANNEL_HOST}' /etc/apt/apt.conf.d/52kulan-auto-upgrades"
 fi
 
 # --- Update Center ------------------------------------------------------------------
@@ -241,6 +251,15 @@ check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/
 check "Interrupted update finished" "update-run install first finishes a package an earlier update left half-installed" bash -c 'd=$(mktemp -d); cd "$d" && apt-get download -q hello >/dev/null 2>&1 && dpkg --unpack hello_*.deb >/dev/null 2>&1 && dpkg --audit | grep -q hello && out="$(/usr/lib/kulan/update-run install 2>&1)"; echo "$out" | grep -i "interrupted" | head -n 2; ok=0; dpkg-query -W -f="\${Status}" hello 2>/dev/null | grep -qx "install ok installed" && test -z "$(dpkg --audit)" && ok=1; dpkg --purge hello >/dev/null 2>&1; [ "$ok" = 1 ]'
 check "Restore point before automatic updates" "apt hook present; outside an automatic update it does nothing" bash -c 'apt-config dump | grep -q "restore-points before-auto-update" && rm -f /var/lib/kulan/auto-update-restore-point && /usr/lib/kulan/restore-points before-auto-update && test ! -e /var/lib/kulan/auto-update-restore-point'
 check "Restart after automatic updates" "a new kernel from automatic updates shows as restart needed" bash -c 'mkdir -p /run && echo linux-image-test > /run/reboot-required.pkgs && touch /run/reboot-required && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); assert \"linux-image-test\" in d[\"restart_required\"], d[\"restart_required\"]"; ok=$?; rm -f /run/reboot-required /run/reboot-required.pkgs; /usr/lib/kulan/update-status refresh; exit $ok'
+check "Wi-Fi password words" "GNOME Shell's network password box says it in Kulan's words in English (the texts it replaces are GNOME Shell's own)" python3 -I - <<'PY'
+import gettext
+ours = gettext.GNUTranslations(open("/usr/share/locale/en/LC_MESSAGES/gnome-shell.mo", "rb"))
+gnome = gettext.GNUTranslations(open("/usr/share/locale/en_GB/LC_MESSAGES/gnome-shell.mo", "rb"))
+for msgid in [k for k in ours._catalog if k]:
+    assert msgid in gnome._catalog, f"not one of GNOME Shell's texts: {msgid!r}"
+used = gettext.translation("gnome-shell", "/usr/share/locale", languages=["en_US"])
+assert used.gettext("Authentication required") == "Password needed"
+PY
 check "A failing setup step can't block updates" "when one of Kulan's desktop setup steps fails, kulan-desktop-settings still configures (a warning, not a failure)" bash -c 'h=/usr/lib/kulan/boot-splash-setup; cp -p "$h" /tmp/splash.bak && printf "#!/bin/sh\necho simulated failure >&2\nexit 1\n" > "$h"; out="$(/var/lib/dpkg/info/kulan-desktop-settings.postinst configure 2>&1)"; rc=$?; cp -p /tmp/splash.bak "$h"; /var/lib/dpkg/info/kulan-desktop-settings.postinst configure >/dev/null 2>&1; echo "$out" | grep "^W: kulan-desktop-settings" | head -n 2; echo "postinst exit: $rc"; [ "$rc" -eq 0 ] && echo "$out" | grep -q "boot-splash-setup.* runs again at the next update"'
 check "Firmware updates" "device firmware from fwupd shows in Software Update" bash -c 'printf "{\"Devices\": [{\"Name\": \"Test Dock\", \"DeviceId\": \"abc\", \"Version\": \"1.0\", \"Releases\": [{\"Version\": \"1.1\", \"Summary\": \"Fixes\"}]}]}" > /var/lib/kulan/firmware-updates.json && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); f = [u for u in d[\"available\"] if u.get(\"kind\") == \"firmware\"]; assert f and f[0][\"name\"] == \"Test Dock\" and f[0][\"to\"] == \"1.1\", f"; ok=$?; rm -f /var/lib/kulan/firmware-updates.json; /usr/lib/kulan/update-status refresh; exit $ok'
 check "Anonymous count" "countme's own tests: exactly version, PC or Mac, and rough age; once a week; off means nothing is sent" /usr/lib/kulan/countme self-test
@@ -334,6 +353,20 @@ check "Remote desktop firewall" "remote-desktop-on allows RDP (3389) from local 
 	[ "$(grep -c "^allow proto tcp from .* to any port 3389 comment Kulan remote desktop$" /tmp/ufw-on.log)" = 5 ] || { cat /tmp/ufw-on.log; exit 1; }
 	! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
 	[ "$(grep -c "^--force delete allow proto tcp from .* to any port 3389$" "$log")" = 5 ] || { cat "$log"; exit 1; }'
+check "Sharing firewall" "sharing-on allows file and media sharing (30301, 30302) from local networks only, and marks it for Sharing; off closes it" bash -c '
+	real=/usr/sbin/ufw; log=/tmp/ufw-calls.log; rm -f "$log"
+	[ -e "$real" ] && mv "$real" "$real.kulan-test"
+	printf "#!/bin/sh\necho \"\$*\" >> %s\n" "$log" > "$real"; chmod +x "$real"
+	/usr/lib/kulan/update-run sharing-on >/dev/null 2>&1; on=$?; [ -e /var/lib/kulan/sharing-firewall ]; marked=$?
+	cp "$log" /tmp/ufw-on.log; rm -f "$log"
+	/usr/lib/kulan/update-run sharing-off >/dev/null 2>&1; off=$?
+	rm -f "$real"; [ -e "$real.kulan-test" ] && mv "$real.kulan-test" "$real"
+	[ "$on" = 0 ] && [ "$off" = 0 ] && [ "$marked" = 0 ] && [ ! -e /var/lib/kulan/sharing-firewall ] || { echo "on=$on off=$off marked=$marked"; exit 1; }
+	[ "$(grep -c "^allow proto tcp from .* to any port 30301,30302 comment Kulan file and media sharing$" /tmp/ufw-on.log)" = 5 ] || { cat /tmp/ufw-on.log; exit 1; }
+	! grep -v " from " /tmp/ufw-on.log | grep -q . || { echo "a rule without a source network"; exit 1; }
+	[ "$(grep -c "^--force delete allow proto tcp from .* to any port 30301,30302$" "$log")" = 5 ] || { cat "$log"; exit 1; }'
+check "Sharing on fixed ports" "file sharing (gnome-user-share) and media sharing (Rygel) are given the ports the firewall allows" bash -c 'grep -qx "Environment=GNOME_USER_SHARE_PORT=30301" /usr/lib/systemd/user/gnome-user-share-webdav.service.d/50-kulan-port.conf && grep -qx "Environment=RYGEL_PORT=30302" /usr/lib/systemd/user/rygel.service.d/50-kulan-port.conf'
+check "File sharing works" "Apache as gnome-user-share starts it, on port 30301: anyone reads the Public folder, adding files needs Kulan's password, and with the password asked for, reading does too" bash -c 'command -v curl >/dev/null || apt-get install -y -q --no-install-recommends curl >/dev/null 2>&1; out="$(timeout 120 bash ci/file-sharing-test.sh 2>&1)"; echo "$out" | grep -qx "file sharing test passed" || { echo "$out" | tail -n 6; exit 1; }'
 check "Remote desktop with GNOME 48" "Sharing's settings, username and password (read back by GNOME Remote Desktop's grdctl) and certificate" bash -c 'command -v gnome-keyring-daemon >/dev/null || apt-get install -y -q --no-install-recommends gnome-keyring >/dev/null 2>&1; command -v grdctl >/dev/null || { echo "gnome-remote-desktop not installed"; exit 1; }; out="$(HOME=$(mktemp -d) timeout 120 dbus-run-session -- bash ci/sharing-test.sh 2>&1)"; echo "$out" | grep -qx "sharing self-test passed" || { echo "$out" | grep -v "fd limit" | tail -n 4; exit 1; }'
 check "Phone link works with GNOME 48" "Debian's GSConnect (the Phone link add-on) is made for GNOME 48" bash -c '
 	apt-get install -y -q --no-install-recommends gnome-shell-extension-gsconnect >/dev/null 2>&1 || { echo "not installable"; exit 1; }
@@ -401,6 +434,11 @@ m.handle("Killed " + base + "app-gnome-org.gnome.Nautilus-17.scope due to memory
 m.handle("Killed /system.slice/foo.service due to memory pressure", {})
 assert sent and sent[0][0] == 1000 and ("Files" in sent[0][1] or "Nautilus" in sent[0][1]), sent
 assert len(sent) == 1, sent
+# The id comes from a unit name its user chose: never a path, never a pipe that would hang root.
+import os, tempfile
+home = tempfile.mkdtemp(); os.makedirs(home + "/.local/share/applications")
+os.mkfifo(home + "/.local/share/applications/hang.desktop")
+assert m.desktop_name("../../../etc/passwd", home) is None and m.desktop_name("hang", home) is None
 print(sent[0][1])
 PY
 check "Widgets and Quick Note" "Kulan Shell has them; four widgets on by default; Cmd+Shift+N" bash -c "$(declare -f gs); d=/usr/share/gnome-shell/extensions/kulan-shell@kulangroup.com; test -s \$d/widgets.js && test -s \$d/quicknote.js && test -s \$d/spotlight.js && test \"\$(gs org.kulan.desktop desktop-widgets)\" = \"['calendar', 'weather', 'prayer', 'notes']\" && gs org.kulan.desktop quick-note-shortcut | grep -q '<Shift><Super>n'"
@@ -457,6 +495,8 @@ PY
 if [[ ${#FILES[@]} -gt 0 ]]; then
 	NAUT="$(dpkg-query -W -f '${Version}' nautilus 2>/dev/null)"
 	check "Kulan Files" "Nautilus ${NAUT} with the status bar, preview pane and sidebar sections" bash -c "[[ '${NAUT}' == *+kulan* ]] && grep -aq kulan-status-bar /usr/bin/nautilus && grep -aq 'NautilusKulanPreview' /usr/bin/nautilus && grep -aq kulan-sidebar-heading /usr/bin/nautilus && grep -aq win.toggle-preview /usr/bin/nautilus"
+	GUS="$(dpkg-query -W -f '${Version}' gnome-user-share 2>/dev/null)"
+	check "File sharing's port" "gnome-user-share ${GUS} takes its port from GNOME_USER_SHARE_PORT" bash -c "[[ '${GUS}' == *+kulan* ]] && grep -rlaqs GNOME_USER_SHARE_PORT \$(dpkg -L gnome-user-share | grep -E \"/(libexec|bin)/\") && grep -c 'AuthName \"Please log in as the user guest\"' /usr/share/gnome-user-share/dav_user_2.4.conf | grep -qx 2"
 else
 	result skip "Kulan Files" "no Kulan Files package for PCs in this run"
 fi
@@ -519,6 +559,7 @@ check "Update Center moved" "kulan-updates opens Kulan Settings; old shortcut hi
 check "Store pages" "Kulan apps have valid AppStream pages" appstreamcli validate --no-net /usr/share/metainfo/org.kulan.Settings.metainfo.xml /usr/share/metainfo/org.kulan.Welcome.metainfo.xml
 check "Kulan options" "org.kulan.desktop schema installed with Kulan defaults" bash -c "$(declare -f gs); test \"\$(gs org.kulan.desktop animation-speed)\" = \"'normal'\" && test \"\$(gs org.kulan.desktop kulan-menu)\" = true && test \"\$(gs org.kulan.desktop automatic-style)\" = false"
 check "Sound theme" "Kulan chimes installed and chosen" bash -c "$(declare -f gs); test -f /usr/share/sounds/kulan/index.theme && test -s /usr/share/sounds/kulan/stereo/message-new-instant.oga && test \"\$(gs org.gnome.desktop.sound theme-name)\" = \"'kulan'\""
+check "Quiet sign-in" "2.10: GNOME's USB protection (needs USBGuard) off, and no media keys GNOME can't bind (hibernate, repeat)" bash -c "$(declare -f gs); test \"\$(gs org.gnome.desktop.privacy usb-protection)\" = false && test \"\$(gs org.gnome.settings-daemon.plugins.media-keys hibernate-static)\" = '@as []' && test \"\$(gs org.gnome.settings-daemon.plugins.media-keys playback-repeat-static)\" = '@as []'"
 check "Mac shortcuts" "Super+Space search, Super+Shift+3/4/5 screenshots, Kulan Live Text and clipboard keys" bash -c "$(declare -f gs); gs org.kulan.desktop search-shortcut | grep -q \"'<Super>space'\" && test \"\$(gs org.kulan.desktop search-style)\" = \"'spotlight'\" && ! gs org.gnome.shell.keybindings toggle-overview | grep -q \"'<Super>space'\" && gs org.gnome.shell.keybindings screenshot | grep -q '<Shift><Super>3' && gs org.gnome.shell.keybindings show-screenshot-ui | grep -q '<Shift><Super>4' && gs org.kulan.desktop live-text-shortcut | grep -q '<Shift><Super>t' && test \"\$(gs org.kulan.desktop clipboard-history)\" = false && test \"\$(gs org.gnome.desktop.interface icon-theme)\" = \"'Kulan'\" && test -f /usr/share/icons/Kulan/index.theme"
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Helper refuses bad input" "computer name, DNS and add-on values are checked before anything runs as root" bash -c 'for args in "set-hostname Bad_Name" "set-hostname -x" "set-hostname a.b"; do out="$(/usr/lib/kulan/update-run $args 2>&1)"; echo "$out" | grep -q "letters, numbers and dashes" || { echo "not refused by the check: $args"; exit 1; }; done; for args in "dns bogus" "dns" "addon-install ../x" "addon-remove nope" "nonsense"; do if /usr/lib/kulan/update-run $args >/dev/null 2>&1; then echo "accepted: $args"; exit 1; fi; done'
@@ -646,7 +687,7 @@ check "Package names" "add-on and security packages exist in Debian 13" bash -c 
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
-check "Account picture" "new accounts start with Kulan's picture (Debian's kept aside); an account still on Debian's logo gets Kulan's" bash -c 'cmp -s /etc/skel/.face /usr/share/kulan/faces/kulan.png && dpkg-divert --list /etc/skel/.face | grep -q "by kulan-desktop-settings" || exit 1; [ -f /etc/skel/.face.debian ] || exit 0; mkdir -p /home/facetest && cp /etc/skel/.face.debian /home/facetest/.face && /var/lib/dpkg/info/kulan-desktop-settings.postinst configure >/dev/null 2>&1; ok=1; cmp -s /home/facetest/.face /usr/share/kulan/faces/kulan.png && ok=0; rm -rf /home/facetest; exit $ok'
+check "Account picture" "new accounts start with Kulan's picture (Debian's kept aside); an account still on Debian's logo gets Kulan's, written as its owner, never through a link" bash -c 'cmp -s /etc/skel/.face /usr/share/kulan/faces/kulan.png && dpkg-divert --list /etc/skel/.face | grep -q "by kulan-desktop-settings" || exit 1; [ -f /etc/skel/.face.debian ] || exit 0; mkdir -p /home/facetest /home/facelink && cp /etc/skel/.face.debian /home/facetest/.face && chown nobody /home/facetest/.face && cp /etc/skel/.face.debian /root/face-target && ln -s /root/face-target /home/facelink/.face && /var/lib/dpkg/info/kulan-desktop-settings.postinst configure >/dev/null 2>&1; ok=1; cmp -s /home/facetest/.face /usr/share/kulan/faces/kulan.png && cmp -s /root/face-target /etc/skel/.face.debian && test "$(stat -c %U /home/facetest/.face)" = nobody && ok=0; rm -rf /home/facetest /home/facelink /root/face-target; exit $ok'
 check "Cursor files" "only Bibata Modern Classic's cursors are kept (the dpkg rule and postinst)" bash -c 'test -e /usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr && test -f /etc/dpkg/dpkg.cfg.d/kulan-lean && test -z "$(find /usr/share/icons/Bibata-* -path "*/cursors/*" ! -path "/usr/share/icons/Bibata-Modern-Classic/*" \( -type f -o -type l \) 2>/dev/null | head -n 1)" && apt-get install -y -q --reinstall bibata-cursor-theme >/dev/null 2>&1 && test -e /usr/share/icons/Bibata-Modern-Classic/cursors/left_ptr && test -z "$(find /usr/share/icons/Bibata-* -path "*/cursors/*" ! -path "/usr/share/icons/Bibata-Modern-Classic/*" \( -type f -o -type l \) 2>/dev/null | head -n 1)"'
 check "Upgrade path" "kulan-desktop-settings pulls in kulan-update-center, kulan-settings and Timeshift" bash -c 'dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-update-center && dpkg-query -W -f="\${Depends}" kulan-desktop-settings | grep -q kulan-settings && dpkg-query -W -f="\${Status}" timeshift | grep -q "ok installed"'
 
@@ -766,6 +807,21 @@ check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwa
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
+check "Signed start-up" "kulan-signed-start says why it can't be used here, takes only its commands, and its hooks, service and update-run commands are in place" bash -c 'kulan-signed-start status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"phase\"] == \"off\" and d[\"possible\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])" && kulan-signed-start nope 2>/dev/null; [ $? -eq 64 ] && kulan-signed-start rebuild && kulan-signed-start finish && test -x /etc/kernel/postinst.d/zz-kulan-signed-start && test -x /etc/kernel/postrm.d/zz-kulan-signed-start && test -x /etc/initramfs/post-update.d/zz-kulan-signed-start && systemctl is-enabled kulan-signed-start.service && grep -q "signed-start-on|signed-start-off)" /usr/lib/kulan/update-run && grep -q "interest-noawait /usr/lib/shim" /var/lib/dpkg/info/kulan-base.triggers'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "GRUB's installer" "Kulan's grub-install puts GRUB in EFI/debian (the system's name would give EFI/kulan) and leaves it out while signed start-up is on" bash -c '
+	set -e
+	DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends grub2-common >/dev/null
+	dpkg-divert --list /usr/sbin/grub-install | grep -q "by kulan-base\$"
+	test -x /usr/sbin/grub-install.debian
+	grep -q "bootloader-id=debian" /usr/sbin/grub-install
+	grub-install --version | grep -qi grub
+	SAVED=$(cat /var/lib/kulan/signed-start.json 2>/dev/null || true)
+	echo "{\"phase\": \"on\"}" >/var/lib/kulan/signed-start.json
+	OUT=$(grub-install --target=x86_64-efi --efi-directory=/nowhere 2>&1) && RC=0 || RC=$?
+	if [ -n "${SAVED}" ]; then echo "${SAVED}" >/var/lib/kulan/signed-start.json; else rm -f /var/lib/kulan/signed-start.json; fi
+	echo "${OUT}"
+	[ "${RC}" -eq 0 ] && echo "${OUT}" | grep -q "signed start-up is on"'
 check "TPM unlock status" "kulan-tpm explains why it can't be used here (no TPM, no Secure Boot in a container)" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"possible\"] is False and d[\"on\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])"'
 check "TPM unlock PIN" "status says whether a PIN is needed; the helper takes on, on --pin and off only" bash -c 'kulan-tpm status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"pin\"] is False, d" && kulan-tpm on --nope 2>/dev/null; [ $? -eq 64 ] && grep -q "tpm-on-pin)" /usr/lib/kulan/update-run && grep -q "exec /usr/bin/kulan-tpm on --pin" /usr/lib/kulan/update-run'
 # --- Fleet management (the computer's side, against a stand-in server) ----------------
@@ -825,6 +881,7 @@ check "Fleet work email" "2.8e: who has a work mailbox, whether it's connected (
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet work email at sign-in" "2.8e: offered once a day; Connect opens Settings › Online Accounts › Google" bash -c 'out="$(timeout 120 dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py 2>&1)"; echo "$out" | grep -qx "work email reminder: asked, connected, then not asked again" || { echo "$out" | tail -n 6; exit 1; }; grep -qx "Exec=/usr/lib/kulan/fleet-work-email" /etc/xdg/autostart/org.kulan.WorkEmail.desktop'
 check "Fleet actions" "2.9b and 2.9c: Kulan's fixes, the organisation's scripts (only when allowed, only unchanged, stopped after the time limit), messages, Wi-Fi networks and printers from a group, and Get help" python3 -I -B ci/fleet-actions-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
+check "Organisation USB sticks" "2.10: the installer finds the settings Kulan USB Maker put on a stick (none on a plain one, damaged or odd ones refused), and kulan-fleet-autojoin joins with them once, stopping when joined, refused or after 14 days" python3 -I -B ci/stick-join-test.py
 check "Fleet remote help" "2.9a: who is at the computer, the request picked up (the helper gets only the session's key), input checked, the wake listener" python3 -I -B ci/remotehelp-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet remote help on the computer" "2.9a: the helper on this GStreamer: asks first, offers the screen (VP8, sent only) and the input channel; declined and unanswered share nothing; its windows" bash -c 'out="$(HOME=$(mktemp -d) timeout 240 xvfb-run -a dbus-run-session -- python3 -I -B ci/remotehelp-helper-test.py /usr/lib/kulan/kulan-remote-help /usr/share/kulan-fleet 2>&1)"; echo "$out" | grep -qx "remote help helper: every case passed" || { echo "$out" | grep -v "^libEGL\|a11y\|fd limit" | tail -n 8; exit 1; }; systemd-analyze verify /usr/lib/systemd/system/kulan-fleet-listen.service >/dev/null 2>&1 || test ! -d /run/systemd/system'
@@ -1115,6 +1172,29 @@ check "Kulan Installer demo" "--demo summary opens without asking for root; an u
 check "Installer engine lists disks" "JSON with the firmware and disks" bash -c '/usr/lib/kulan/installer-engine disks | python3 -c "import json,sys; d=json.load(sys.stdin); assert d[\"firmware\"] in (\"uefi\",\"bios\") and isinstance(d[\"disks\"], list), d"'
 check "Installer engine stays in the live session" "through pkexec, it refuses to run on an installed system" bash -c 'PKEXEC_UID=1000 /usr/lib/kulan/installer-engine disks | grep -q "only runs from the Kulan OS USB stick"'
 check "Installer engine checks plans" "a plan without a disk is refused, nothing touched" bash -c "echo '{}' | /usr/lib/kulan/installer-engine install | grep -q 'Choose a disk'"
+# shellcheck disable=SC2016  # expanded by Python
+check "Installer words and Wi-Fi" "what's on a disk said as Windows, macOS or another Linux system (never labels or formats); the live session's Wi-Fi carried over for any user" python3 -I - <<'PY'
+import importlib.machinery, importlib.util, os, pathlib, tempfile
+loader = importlib.machinery.SourceFileLoader("engine", "/usr/lib/kulan/installer-engine")
+spec = importlib.util.spec_from_loader("engine", loader)
+m = importlib.util.module_from_spec(spec)
+loader.exec_module(m)
+win = [{"fstype": "vfat", "label": "SYSTEM"}, {"fstype": "ntfs", "label": "KULANOS C: 10/28/2026"}]
+assert m.systems_on(win) == ["Windows"], m.systems_on(win)
+assert m.systems_on([{"fstype": "ext4", "label": "root"}]) == ["another Linux system"]
+assert m.systems_on([{"fstype": "exfat", "label": "PHOTOS"}]) == ["files"]
+t = pathlib.Path(tempfile.mkdtemp())
+(t / "src").mkdir()
+(t / "src/home.nmconnection").write_text("[connection]\nid=Home\ntype=wifi\npermissions=user:kulan;\n\n[wifi]\nssid=Home\n\n[wifi-security]\nkey-mgmt=wpa-psk\npsk=x\n")
+(t / "src/cable.nmconnection").write_text("[connection]\nid=Cable\ntype=ethernet\n")
+m.NM_CONNECTIONS = t / "src"
+m.carry_wifi(t / "target")
+out = t / "target/etc/NetworkManager/system-connections"
+assert sorted(p.name for p in out.iterdir()) == ["home.nmconnection"]
+text = (out / "home.nmconnection").read_text()
+assert "psk=x" in text and "permissions" not in text, text
+assert oct(os.stat(out / "home.nmconnection").st_mode & 0o777) == "0o600"
+PY
 dpkg --purge kulan-installer >/dev/null 2>&1
 
 # --- Compliance mode ------------------------------------------------------------------

@@ -30,6 +30,9 @@ sys.path.insert(0, str(LIB))
 import fixes  # noqa: E402
 import gethelp  # noqa: E402
 import pushed  # noqa: E402
+import scriptkey  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat  # noqa: E402
 
 failures = []
 
@@ -247,17 +250,40 @@ loader.exec_module(kf_mod)
 told, posts = [], []
 screens = [1]
 kf_mod.notify_users = lambda title, body: told.append((title, body)) or screens[0]
+# The Owner's script signing key (2.10), and another.
+def keypair():
+    priv = Ed25519PrivateKey.generate()
+    return priv, base64.b64encode(priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
+
+
+def signed(priv, message: bytes) -> str:
+    return base64.b64encode(priv.sign(message)).decode()
+
+
+owner, owner_pub = keypair()
+stranger, stranger_pub = keypair()
 policy = {"policy": {}}
+computer = {"organisation": "Acme", "server": "https://fleet.test", "device_id": "d1", "token": "t"}
 kf_mod.read_json = lambda path, default: policy if path == kf_mod.POLICY_PUBLIC else (
-    {"organisation": "Acme", "server": "https://fleet.test", "device_id": "d1", "token": "t"} if path == kf_mod.CONFIG else default)
+    computer if path == kf_mod.CONFIG else default)
 kf_mod.post = lambda server, path, body, token=None: posts.append(path) or {"body": "echo hi\n"}
 config = {"organisation": "Acme", "server": "https://fleet.test", "device_id": "d1", "token": "t"}
-ok, detail, extra = kf_mod.run_job("run-script", {"sha256": sha("echo hi\n"), "name": "Hi"}, "act-1", config)
+good = signed(owner, scriptkey.script_message(sha("echo hi\n")))
+ok, detail, extra = kf_mod.run_job("run-script", {"sha256": sha("echo hi\n"), "name": "Hi", "signature": good}, "act-1", config)
 check("scripts not allowed by the policy: not even fetched", not ok and not posts and not told, (detail, posts))
 policy["policy"]["scripts"] = True
+ok, detail, extra = kf_mod.run_job("run-script", {"sha256": sha("echo hi\n"), "name": "Hi", "signature": good}, "act-1", config)
+check("allowed, but no script signing key kept here: not fetched", not ok and not posts and "signing" in detail, (detail, posts))
+computer["script_key"] = owner_pub
+for name, sig in (("unsigned", None), ("signed by another key", signed(stranger, scriptkey.script_message(sha("echo hi\n")))),
+                  ("signed for another script", signed(owner, scriptkey.script_message(sha("rm -rf /"))))):
+    payload = {"sha256": sha("echo hi\n"), "name": "Hi"} | ({"signature": sig} if sig else {})
+    ok, detail, extra = kf_mod.run_job("run-script", payload, "act-1", config)
+    check(f"{name}: refused, not fetched, nobody told", not ok and not posts and not told and "signed" in detail, (detail, posts))
 Path.is_dir = lambda self: False if str(self) == "/run/systemd/system" else real_isdir(self)
 try:
-    ok, detail, extra = kf_mod.run_job("run-script", {"sha256": sha("echo hi\n"), "name": "Hi\x1b[31m"}, "act-1", config)
+    ok, detail, extra = kf_mod.run_job("run-script", {"sha256": sha("echo hi\n"), "name": "Hi\x1b[31m", "signature": good},
+                                       "act-1", config)
 finally:
     Path.is_dir = real_isdir
 check("allowed: fetched for that request, run, the person told", ok and posts == ["/v1/scripts/act-1"] and
@@ -291,6 +317,22 @@ finally:
     Path.is_dir = real_isdir
 check("a job is only ever started for a real request id", not kf_mod.start_job("run-fix", {}, "../../etc/x"))
 check("all three are actions this computer takes", {"run-fix", "run-script", "message"} <= set(kf_mod.ALLOWED_ACTIONS))
+# Keeping the Owner's key: the first one told, then only one the old key signed.
+new, new_pub = keypair()
+cfg = {}
+check("the first key is kept", scriptkey.update(cfg, {"script_key": owner_pub}) == (True, None) and cfg["script_key"] == owner_pub)
+check("the same key: nothing to do", scriptkey.update(cfg, {"script_key": owner_pub}) == (False, None))
+changed, problem = scriptkey.update(cfg, {"script_key": stranger_pub})
+check("a key the old one didn't sign: not taken, and said", changed and problem and cfg["script_key"] == owner_pub and
+      cfg["script_key_offered"] == stranger_pub, (cfg, problem))
+changed, problem = scriptkey.update(cfg, {"script_key": new_pub, "script_key_endorsement": signed(stranger, scriptkey.key_message(new_pub))})
+check("signed by some other key: not taken", problem and cfg["script_key"] == owner_pub, cfg)
+changed, problem = scriptkey.update(cfg, {"script_key": new_pub, "script_key_endorsement": signed(owner, scriptkey.key_message(new_pub))})
+check("signed by the old key: taken", changed and not problem and cfg["script_key"] == new_pub and "script_key_offered" not in cfg, cfg)
+check("only well-formed keys and signatures come from the policy",
+      kf_mod.clean_policy({"script_key": "x" * 44, "script_key_endorsement": "y"}) == {} and
+      kf_mod.clean_policy({"script_key": owner_pub, "script_key_endorsement": "y"}) == {"script_key": owner_pub})
+check("a fingerprint to compare by eye", len(scriptkey.fingerprint(owner_pub)) == 19)
 check("the policy keeps scripts only when it says true",
       kf_mod.clean_policy({"scripts": True}).get("scripts") is True and "scripts" not in kf_mod.clean_policy({"scripts": "yes"}))
 

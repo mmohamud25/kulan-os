@@ -1,0 +1,7 @@
+# Kulan OS: dracut, the start-up image maker signed start-up (and TPM
+# unlock) use, kept in the ISO's package pool for Kulan Installer. It
+# conflicts with initramfs-tools and live-tools, which the live system and
+# installer.list.binary have, so it has a list of its own: live-build
+# downloads each list separately.
+dracut
+systemd-cryptsetup

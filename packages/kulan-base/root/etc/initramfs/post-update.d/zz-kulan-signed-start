@@ -1,0 +1,5 @@
+#!/bin/sh
+# Kulan OS signed start-up: a remade start-up image ($1 kernel version, $2 the
+# image) is signed into that kernel's start-up file.
+[ -x /usr/bin/kulan-signed-start ] || exit 0
+/usr/bin/kulan-signed-start rebuild "$1" || true

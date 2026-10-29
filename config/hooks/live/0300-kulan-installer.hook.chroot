@@ -107,14 +107,17 @@ if [ -x /bin/zsh ] || [ -x /usr/bin/zsh ]; then
 	[ -f /etc/default/useradd ] && sed -i -E 's|^#?[[:space:]]*SHELL=.*|SHELL=/bin/zsh|' /etc/default/useradd
 fi
 
-# Calamares' launcher: Advanced install (choose partitions yourself); Kulan
-# Installer is "Install Kulan OS" in the dock.
+# Calamares' launcher: Advanced install (choose partitions yourself), opened
+# from Install Kulan OS › More choices. Kept out of the app grid, where two
+# installers with the same icon get mixed up.
 if [ -f "${LAUNCHER}" ]; then
 	sed -i -E \
 		-e "s|^Name=.*|Name=Advanced install|" \
 		-e "s|^Comment=.*|Comment=Install ${KULAN_NAME} with partitions you choose yourself|" \
 		-e "s|^Icon=.*|Icon=kulan-logo|" \
+		-e '/^NoDisplay=/d' \
 		"${LAUNCHER}"
+	sed -i '/^\[Desktop Entry\]/a NoDisplay=true' "${LAUNCHER}"
 fi
 # The desktop-icon helper hardcodes "Install Debian" for LXDE only; rebrand it too.
 if [ -f /usr/bin/add-calamares-desktop-icon ]; then

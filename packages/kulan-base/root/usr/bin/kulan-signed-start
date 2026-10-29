@@ -1,0 +1,725 @@
+#!/usr/bin/python3
+"""Signed start-up: the files that start Kulan OS can't be changed unnoticed.
+
+  kulan-signed-start status [--json]   is it on, waiting, or possible here (no root needed)
+  kulan-signed-start on                turn it on (root); prints the one-time code for the key
+  kulan-signed-start finish            the next step, if any (root; kulan-signed-start.service,
+                                       at every start)
+  kulan-signed-start rebuild [VERSION] sign the start-up files again (root; kernel and
+                                       start-up image updates, kulan-tpm)
+  kulan-signed-start update-loader     copy updated shim and systemd-boot to the EFI partition
+                                       (root; their packages' updates)
+  kulan-signed-start off               back to GRUB (root)
+
+Why. Before the disk is unlocked, the kernel, its start-up image (which asks
+for the disk password or the TPM PIN) and the kernel options sit unencrypted
+on the disk. Debian's Secure Boot checks GRUB and the kernel but not the
+start-up image, so someone with a few minutes alone with the computer could
+swap it for one that records the password.
+
+How. Each computer makes its own signing key (kept on its encrypted disk,
+root only). The kernel, the start-up image and the kernel options are put
+together in one file (a unified kernel image, by ukify) and signed with it,
+on the EFI partition in EFI/Linux. Debian's signed shim starts Debian's
+signed systemd-boot, which starts that file only if the computer's key
+signed it. The firmware is told to trust the key through shim's key list
+(MOK): the next start shows a blue "MOK management" screen once, where the
+person types the one-time code to enroll it. With the TPM, unlock is tied to
+Secure Boot's state (PCR 7), which now includes this key, so the TPM opens
+the disk only for these signed files.
+
+Steps, so the computer always starts:
+  1. on: the key, the signed files and shim's request to enroll the key.
+     GRUB still starts the computer ("enroll").
+  2. finish, after the key was enrolled at a restart: the firmware's start-up
+     entry "Kulan OS" (shim, then systemd-boot) goes first ("switch"). If the
+     enroll screen was skipped, the request is made again with a new code.
+  3. finish, after a start through the signed files: GRUB is removed ("on").
+     If that start didn't happen through them twice, GRUB goes first again.
+
+TPM unlock must be off while it's turned on (PCR 7 changes at the switch);
+turn it on again afterwards. Needs UEFI, an encrypted system disk and room on
+the EFI partition.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+STATE_DIR = Path("/var/lib/kulan/signed-start")
+STATE = STATE_DIR / "state.json"
+PUBLIC = Path("/var/lib/kulan/signed-start.json")  # what Kulan Settings shows (the code while it's needed)
+KEY, CERT, CERT_DER = STATE_DIR / "kulan.key", STATE_DIR / "kulan.crt", STATE_DIR / "kulan.der"
+ESP = Path("/boot/efi")
+VENDOR = "kulan"
+LABEL = "Kulan OS"
+CMDLINE = Path("/etc/kernel/cmdline")
+DRACUT_CONF = Path("/etc/dracut.conf.d/40-kulan-signed-start.conf")
+TPM_STATE = Path("/var/lib/kulan/tpm.json")
+EFIVARS = Path("/sys/firmware/efi/efivars")
+LOADER_GUID = "4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+SECURE_BOOT_VAR = EFIVARS / "SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
+ARCHES = {"amd64": ("x64", "X64", "x86_64"), "arm64": ("aa64", "AA64", "arm64")}
+PACKAGES = ["systemd-boot-efi", "systemd-ukify", "sbsigntool", "mokutil", "shim-signed", "efibootmgr", "dracut", "openssl",
+            "systemd-cryptsetup"]
+UKI_MB = 120  # room for one signed start-up file, with margin
+SWITCH_TRIES = 2
+APT_ENV = {"DEBIAN_FRONTEND": "noninteractive"}
+APT_OPTS = ["-y", "-q", "--no-install-recommends", "-o", "Dpkg::Options::=--force-confdef",
+            "-o", "Dpkg::Options::=--force-confold", "-o", "DPkg::Lock::Timeout=300"]
+
+
+def run(argv: list[str], input_text: str | None = None, env: dict | None = None,
+        timeout: int = 900) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout, check=False,
+                              env={**os.environ, "LC_ALL": "C.UTF-8", **(env or {})})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return subprocess.CompletedProcess(argv, 127, "", str(e))
+
+
+def say(text: str) -> None:
+    print(text, file=sys.stderr, flush=True)
+
+
+def need_root() -> None:
+    if os.geteuid() != 0:
+        sys.exit("kulan-signed-start: this needs administrator rights (run it with sudo)")
+
+
+def arch() -> str:
+    return run(["dpkg", "--print-architecture"]).stdout.strip()
+
+
+def names() -> tuple[str, str, str]:
+    """(x64, X64, x86_64) for this computer's kind of processor."""
+    return ARCHES.get(arch(), ARCHES["amd64"])
+
+
+def write_file(path: Path, text: str, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".kulan-new")
+    tmp.unlink(missing_ok=True)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode), "w") as fh:
+        fh.write(text)
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+
+
+def load_state() -> dict:
+    try:
+        data = json.loads(STATE.read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(state: dict) -> None:
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    write_file(STATE, json.dumps(state, indent=2) + "\n", 0o600)
+    public = {k: state.get(k) for k in ("phase", "since", "problem")}
+    if state.get("phase") == "enroll":
+        public["code"] = state.get("code")
+    write_file(PUBLIC, json.dumps(public, indent=2) + "\n", 0o644)
+
+
+# --- what this computer has ---------------------------------------------------------------
+def uefi() -> bool:
+    return Path("/sys/firmware/efi").is_dir()
+
+
+def secure_boot_on() -> bool:
+    try:
+        data = SECURE_BOOT_VAR.read_bytes()
+    except OSError:
+        return False
+    return bool(data) and data[-1] == 1
+
+
+def efivar(name: str) -> str | None:
+    """A systemd-boot or systemd-stub variable's text (UTF-16), or None."""
+    try:
+        raw = (EFIVARS / f"{name}-{LOADER_GUID}").read_bytes()[4:]
+    except OSError:
+        return None
+    return raw.decode("utf-16-le", "replace").rstrip("\0")
+
+
+def started_signed() -> bool:
+    """This start went through systemd-boot and a signed start-up file of Kulan's."""
+    image = (efivar("LoaderImageIdentifier") or "").lower().replace("/", "\\")
+    return efivar("StubInfo") is not None and f"\\efi\\{VENDOR}\\" in image
+
+
+def root_encrypted() -> bool:
+    source = run(["findmnt", "-no", "SOURCE", "/"]).stdout.strip()
+    if not source:
+        return False
+    return '"crypt"' in run(["lsblk", "-J", "-s", "-o", "TYPE", source]).stdout
+
+
+def esp_mounted() -> bool:
+    return run(["findmnt", "-no", "FSTYPE", str(ESP)]).stdout.strip() == "vfat"
+
+
+def esp_free_mb() -> int:
+    try:
+        st = os.statvfs(ESP)
+    except OSError:
+        return 0
+    return st.f_bavail * st.f_frsize // 2 ** 20
+
+
+def ours_mb() -> int:
+    linux = ESP / "EFI/Linux"
+    return sum(f.stat().st_size for f in linux.glob(f"{VENDOR}-*.efi")) // 2 ** 20 if linux.is_dir() else 0
+
+
+def kernels() -> list[str]:
+    found = []
+    for k in sorted(Path("/boot").glob("vmlinuz-*")):
+        version = k.name[len("vmlinuz-"):]
+        if re.fullmatch(r"[A-Za-z0-9._+~-]+", version) and Path(f"/lib/modules/{version}").is_dir():
+            found.append(version)
+    return found
+
+
+def tpm_on() -> bool:
+    try:
+        return json.loads(TPM_STATE.read_text()).get("on") is True
+    except (OSError, ValueError):
+        return False
+
+
+def status() -> dict:
+    state = load_state()
+    phase = state.get("phase") or "off"
+    reasons = []
+    if not uefi():
+        reasons.append("This computer starts without UEFI")
+    if not root_encrypted():
+        reasons.append("The system disk isn't encrypted, so there's nothing to protect at start-up")
+    if uefi() and not esp_mounted():
+        reasons.append("The EFI partition isn't mounted at /boot/efi")
+    elif uefi() and phase == "off" and esp_free_mb() < UKI_MB * len(kernels() or [1]) + 20:
+        reasons.append(f"Not enough room on the EFI partition ({esp_free_mb()} MB free)")
+    if phase == "off" and tpm_on():
+        reasons.append("Turn TPM unlock off first, and on again afterwards")
+    public: dict = {}
+    try:
+        public = json.loads(PUBLIC.read_text())
+    except (OSError, ValueError):
+        pass
+    return {
+        "phase": phase,  # off | enroll | switch | on
+        "on": phase == "on",
+        "possible": phase != "off" or not reasons,
+        "reasons": reasons if phase == "off" else [],
+        "code": public.get("code") if phase == "enroll" else None,
+        "problem": state.get("problem") or public.get("problem"),
+        "secure_boot": secure_boot_on(),
+        "started_signed": started_signed(),
+    }
+
+
+# --- the signed start-up files ------------------------------------------------------------
+def make_key() -> None:
+    if KEY.exists() and CERT.exists() and CERT_DER.exists():
+        return
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(STATE_DIR, 0o700)
+    machine = Path("/etc/machine-id").read_text().strip()[:8] if Path("/etc/machine-id").exists() else "local"
+    with tempfile.TemporaryDirectory(dir=STATE_DIR) as tmp:
+        key, crt = Path(tmp) / "k", Path(tmp) / "c"
+        # RSA 2048: what shim and every firmware accept. Valid for a hundred years:
+        # firmware doesn't check dates, and a renewal would need the blue screen again.
+        r = run(["openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "36500",
+                 "-subj", f"/CN=Kulan OS signed start-up {machine}/", "-keyout", str(key), "-out", str(crt)])
+        if r.returncode != 0:
+            raise RuntimeError("the signing key couldn't be made: " + r.stderr.strip()[-200:])
+        der = Path(tmp) / "d"
+        run(["openssl", "x509", "-in", str(crt), "-outform", "DER", "-out", str(der)])
+        for src, dst in ((key, KEY), (crt, CERT), (der, CERT_DER)):
+            os.chmod(src, 0o600)
+            os.replace(src, dst)
+
+
+def cmdline() -> str:
+    """The kernel options the signed files carry: GRUB's settings (Kulan's and the
+    installer's, in /etc/default/grub and grub.d) while they're there, else the
+    ones kept from before."""
+    if Path("/etc/default/grub").exists():
+        r = run(["sh", "-c", '. /etc/default/grub; for f in /etc/default/grub.d/*.cfg; do [ -e "$f" ] && . "$f"; done; '
+                             'echo "${GRUB_CMDLINE_LINUX} ${GRUB_CMDLINE_LINUX_DEFAULT}"'])
+        options = r.stdout.split() if r.returncode == 0 else []
+    elif CMDLINE.exists():
+        return CMDLINE.read_text().strip()
+    else:
+        options = ["quiet", "splash"]
+    options = [o for o in options if not o.startswith(("root=", "BOOT_IMAGE=", "initrd=")) and o not in ("ro", "rw")]
+    root = run(["findmnt", "-no", "UUID", "/"]).stdout.strip()
+    if not re.fullmatch(r"[0-9A-Fa-f-]{8,64}", root):
+        raise RuntimeError("the system disk's ID couldn't be found")
+    return " ".join([f"root=UUID={root}", "ro", *options])
+
+
+def set_up_files() -> None:
+    # The start-up image as TPM unlock needs it too: systemd-cryptsetup, the TPM and the splash.
+    write_file(DRACUT_CONF, "# Kulan OS: signed start-up (kulan-signed-start). Only what this computer needs,\n"
+                            "# with the disk's unlocking and the splash.\n"
+                            'hostonly="yes"\nhostonly_cmdline="yes"\n'
+                            'add_dracutmodules+=" systemd crypt plymouth "\n')
+    # No rescue images: they'd fill the EFI partition and wouldn't be signed.
+    rescue = Path("/etc/kernel/install.d/51-dracut-rescue.install")
+    rescue.parent.mkdir(parents=True, exist_ok=True)
+    if not rescue.is_symlink():
+        rescue.unlink(missing_ok=True)
+        rescue.symlink_to("/dev/null")
+
+
+def uki_path(version: str) -> Path:
+    return ESP / "EFI/Linux" / f"{VENDOR}-{version}.efi"
+
+
+def build_one(version: str) -> None:
+    kernel, initrd = Path(f"/boot/vmlinuz-{version}"), Path(f"/boot/initrd.img-{version}")
+    if not kernel.exists():
+        raise RuntimeError(f"no kernel {version}")
+    if not initrd.exists():
+        r = run(["dracut", "--force", "--kver", version, str(initrd)], timeout=1800)
+        if r.returncode != 0:
+            raise RuntimeError("the start-up image couldn't be made: " + (r.stderr.strip()[-300:] or "dracut failed"))
+    out = uki_path(version)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.with_name(out.name + ".new")
+    tmp.unlink(missing_ok=True)
+    x64 = names()[0]
+    r = run(["ukify", "build", f"--linux={kernel}", f"--initrd={initrd}", f"--cmdline=@{CMDLINE}",
+             "--os-release=@/usr/lib/os-release", f"--uname={version}",
+             f"--stub=/usr/lib/systemd/boot/efi/linux{x64}.efi.stub",
+             "--signtool=sbsign", f"--secureboot-private-key={KEY}", f"--secureboot-certificate={CERT}",
+             f"--output={tmp}"], timeout=600)
+    if r.returncode != 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError("the signed start-up file couldn't be made: " + (r.stderr.strip()[-300:] or "ukify failed"))
+    if run(["sbverify", "--cert", str(CERT), str(tmp)]).returncode != 0:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError("the signed start-up file didn't pass its own check")
+    os.replace(tmp, out)
+
+
+def rebuild(only: str | None = None) -> None:
+    write_file(CMDLINE, cmdline() + "\n")
+    versions = [only] if only else kernels()
+    for version in versions:
+        build_one(version)
+    if not only:  # kernels no longer installed: their files go
+        keep = {uki_path(v).name for v in versions}
+        for old in (ESP / "EFI/Linux").glob(f"{VENDOR}-*.efi"):
+            if old.name not in keep:
+                old.unlink()
+
+
+def remove_kernel(version: str) -> None:
+    uki_path(version).unlink(missing_ok=True)
+
+
+def copy_if_changed(src: Path, dst: Path) -> None:
+    if dst.exists() and hashlib.sha256(dst.read_bytes()).digest() == hashlib.sha256(src.read_bytes()).digest():
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".new")
+    shutil.copyfile(src, tmp)
+    os.replace(tmp, dst)
+
+
+def install_loader() -> None:
+    """Debian's signed shim (and its key manager and fallback) and signed systemd-boot, in EFI/kulan."""
+    x64, X64, _ = names()
+    here = ESP / "EFI" / VENDOR
+    for f in ("shim", "mm", "fb"):
+        copy_if_changed(Path(f"/usr/lib/shim/{f}{x64}.efi.signed"), here / f"{f}{x64}.efi")
+    copy_if_changed(Path(f"/usr/lib/systemd/boot/efi/systemd-boot{x64}.efi.signed"), here / f"systemd-boot{x64}.efi")
+    # Until the switch, GRUB's shim starts the computer: it needs its key manager next to
+    # it to show the blue screen that enrolls the key (grub-install doesn't always put it there).
+    for other in ("BOOT", "debian"):
+        folder = ESP / "EFI" / other
+        if (folder / f"grub{x64}.efi").exists() and not (folder / f"mm{x64}.efi").exists():
+            copy_if_changed(Path(f"/usr/lib/shim/mm{x64}.efi.signed"), folder / f"mm{x64}.efi")
+    # For shim's fallback (fb), should the firmware forget the entry.
+    csv = f"shim{x64}.efi,{LABEL},\\EFI\\{VENDOR}\\systemd-boot{x64}.efi \\0,{LABEL}\n"
+    (here / f"BOOT{X64}.CSV").write_bytes(csv.encode("utf-16-le"))
+    # No menu (hold Space to see it); the newest Kulan OS; no editing the options.
+    loader = ESP / "loader/loader.conf"
+    loader.parent.mkdir(parents=True, exist_ok=True)
+    loader.write_text(f"timeout 0\ndefault {VENDOR}-*\neditor no\nauto-firmware yes\nconsole-mode keep\n")
+
+
+def esp_disk() -> tuple[str, str] | None:
+    """(disk, partition number) of the EFI partition."""
+    part = run(["findmnt", "-no", "SOURCE", str(ESP)]).stdout.strip()
+    sysfs = Path("/sys/class/block") / Path(part).name
+    try:
+        number = (sysfs / "partition").read_text().strip()
+        disk = "/dev/" + sysfs.resolve().parent.name
+    except OSError:
+        return None
+    return disk, number
+
+
+def boot_entries() -> list[tuple[str, str, str]]:
+    """(number, label, line) of each firmware start-up entry."""
+    out = []
+    for line in run(["efibootmgr", "-v"]).stdout.splitlines():
+        m = re.match(r"^Boot([0-9A-Fa-f]{4})\*? ", line)
+        if m:
+            out.append((m.group(1).upper(), line[m.end():].split("\t")[0].strip(), line))
+    return out
+
+
+def order() -> list[str]:
+    for line in run(["efibootmgr"]).stdout.splitlines():
+        if line.startswith("BootOrder:"):
+            return [x.strip().upper() for x in line.split(":", 1)[1].split(",") if x.strip()]
+    return []
+
+
+def kulan_entry() -> str | None:
+    x64 = names()[0]
+    for number, label, line in boot_entries():
+        if label == LABEL and f"\\EFI\\{VENDOR}\\shim{x64}.efi".lower() in line.lower():
+            return number
+    return None
+
+
+def grub_entries() -> list[str]:
+    """GRUB's entries: in EFI/debian, or in EFI/kulan where GRUB's updates put it before
+    2.10 (named "kulan" after the system, not "Kulan OS")."""
+    x64 = names()[0]
+    return [n for n, label, line in boot_entries() if label != LABEL
+            and any(f"\\EFI\\{d}\\".lower() in line.lower() for d in ("debian", VENDOR))
+            and (f"shim{x64}.efi" in line.lower() or f"grub{x64}.efi" in line.lower())]
+
+
+def put_first(number: str) -> None:
+    rest = [n for n in order() if n != number]
+    run(["efibootmgr", "-q", "--bootorder", ",".join([number, *rest])])
+
+
+def make_entry() -> str:
+    """The firmware's "Kulan OS" entry (shim, which starts systemd-boot); not moved first here."""
+    found = kulan_entry()
+    if found:
+        return found
+    where = esp_disk()
+    if not where:
+        raise RuntimeError("the EFI partition's disk couldn't be found")
+    before = order()
+    x64 = names()[0]
+    r = run(["efibootmgr", "-q", "--create", "--disk", where[0], "--part", where[1], "--label", LABEL,
+             "--loader", f"\\EFI\\{VENDOR}\\shim{x64}.efi", "--unicode", f"\\EFI\\{VENDOR}\\systemd-boot{x64}.efi \\0"])
+    found = kulan_entry()
+    if r.returncode != 0 or not found:
+        raise RuntimeError("the start-up entry couldn't be made: " + r.stderr.strip()[-200:])
+    # efibootmgr puts a new entry first: keep the order as it was until the switch.
+    run(["efibootmgr", "-q", "--bootorder", ",".join([*before, found] if before else [found])])
+    return found
+
+
+def mok_enrolled() -> bool:
+    out = run(["mokutil", "--test-key", str(CERT_DER)])
+    return "already enrolled" in (out.stdout + out.stderr).lower()
+
+
+def mok_requested() -> bool:
+    """Whether shim still has the request to enroll this key (it goes once it's answered)."""
+    out = run(["mokutil", "--list-new"])
+    if out.returncode != 0:
+        return False
+    fingerprint = run(["openssl", "x509", "-in", str(CERT), "-noout", "-fingerprint", "-sha1"]).stdout
+    want = re.sub(r"[^0-9a-f]", "", fingerprint.split("=", 1)[-1].lower())
+    return len(want) == 40 and want in re.sub(r"[^0-9a-f]", "", out.stdout.lower())
+
+
+def request_enroll(state: dict) -> None:
+    """Ask shim to enroll the key at the next start. The same code each time it's asked
+    again (the screen was skipped), so what the installer showed stays right."""
+    code = state.get("code") if re.fullmatch(r"[0-9]{8}", str(state.get("code") or "")) else \
+        "".join(secrets.choice("0123456789") for _ in range(8))
+    with tempfile.NamedTemporaryFile("w", dir=STATE_DIR, delete=False) as fh:
+        hash_file = Path(fh.name)
+    try:
+        r = run(["mokutil", "--generate-hash=" + code])
+        if r.returncode != 0 or not r.stdout.strip():
+            raise RuntimeError("the code couldn't be prepared: " + r.stderr.strip()[-200:])
+        hash_file.write_text(r.stdout.strip() + "\n")
+        run(["mokutil", "--revoke-import"])  # an earlier request, with another code
+        r = run(["mokutil", "--import", str(CERT_DER), "--hash-file", str(hash_file)])
+        if r.returncode != 0:
+            raise RuntimeError("shim couldn't be asked to enroll the key: " + (r.stderr or r.stdout).strip()[-200:])
+    finally:
+        hash_file.unlink(missing_ok=True)
+    state.update(phase="enroll", code=code, asked=int(time.time()), problem=None)
+
+
+def install_packages() -> None:
+    missing = [p for p in PACKAGES + [f"systemd-boot-efi-{arch()}-signed", f"shim-helpers-{arch()}-signed"]
+               if "ok installed" not in run(["dpkg-query", "-W", "-f=${Status}", p]).stdout]
+    if not missing:
+        return
+    say("Installing the start-up tools…")
+    r = run(["apt-get", "install", *APT_OPTS, *missing], env=APT_ENV, timeout=1800, input_text="")
+    if r.returncode != 0:
+        raise RuntimeError("the start-up tools couldn't be installed. Check the internet connection: "
+                           + r.stderr.strip()[-300:])
+
+
+# --- the steps ------------------------------------------------------------------------------
+def turn_on() -> int:
+    need_root()
+    st = status()
+    if st["phase"] != "off":
+        if st["phase"] == "enroll":
+            say(f"Already asked: at the next restart, enroll the key with the code {st['code']}")
+        else:
+            say("Signed start-up is already " + ("on" if st["on"] else "being turned on"))
+        return 0
+    if not st["possible"]:
+        for reason in st["reasons"]:
+            say(reason)
+        return 3
+    state = {"phase": "off"}
+    try:
+        install_packages()
+        make_key()
+        set_up_files()
+        say("Making the start-up images…")
+        r = run(["dracut", "--force", "--regenerate-all"], timeout=3600)
+        if r.returncode != 0:
+            raise RuntimeError("the start-up images couldn't be made: " + (r.stderr.strip()[-300:] or "dracut failed"))
+        say("Signing the start-up files…")
+        rebuild()
+        install_loader()
+        make_entry()
+        request_enroll(state)
+    except (RuntimeError, OSError) as e:
+        say(str(e))
+        return 1
+    state["since"] = int(time.time())
+    save_state(state)
+    say(f"At the next restart, a blue screen asks to enroll a key: press a key, choose Enroll MOK, "
+        f"Continue, Yes, type the code {state['code']} and choose Reboot")
+    print(state["code"])
+    return 0
+
+
+def finish() -> int:
+    """At every start: the next step, if there is one."""
+    need_root()
+    state = load_state()
+    phase = state.get("phase")
+    if phase not in ("enroll", "switch"):
+        return 0
+    try:
+        if phase == "enroll":
+            if mok_enrolled():
+                rebuild()  # anything updated since
+                install_loader()
+                put_first(make_entry())
+                state.update(phase="switch", tries=0, code=None, problem=None)
+                say("The key is enrolled: the next start goes through the signed start-up files")
+            elif not mok_requested():
+                request_enroll(state)  # the blue screen was skipped or the code mistyped: ask again
+                say(f"The key wasn't enrolled. At the next restart, enroll it with the code {state['code']}")
+        elif started_signed():
+            remove_grub()
+            state.update(phase="on", problem=None, on_since=int(time.time()))
+            say("Signed start-up is on")
+        else:
+            # Started some other way (GRUB, as the firmware fell back): after a couple of
+            # tries, GRUB goes first again and it's reported.
+            state["tries"] = int(state.get("tries", 0)) + 1
+            if state["tries"] >= SWITCH_TRIES:
+                for number in grub_entries()[:1]:
+                    put_first(number)
+                state.update(phase="enroll" if not mok_enrolled() else "switch",
+                             problem="The computer didn't start through the signed start-up files. "
+                                     "It starts as before; Kulan OS will try again after the next update")
+                state["tries"] = 0
+            else:
+                entry = kulan_entry()
+                if entry:
+                    put_first(entry)
+    except (RuntimeError, OSError) as e:
+        state["problem"] = str(e)[:300]
+        save_state(state)
+        say(str(e))
+        return 1
+    save_state(state)
+    return 0
+
+
+def remove_grub() -> None:
+    """After a start through the signed files: GRUB can't start the computer any more."""
+    for number in grub_entries():
+        run(["efibootmgr", "-q", "--delete-bootnum", "--bootnum", number])
+    x64, X64, grub_arch = names()
+    # GRUB's packages go too, but only if nothing else would go with them (some
+    # other package may need them); either way GRUB's files leave the EFI
+    # partition, and its updates only put them back where they still are.
+    grub = [f"grub-efi-{arch()}-signed", f"grub-efi-{arch()}"]
+    grub = [p for p in grub if "ok installed" in run(["dpkg-query", "-W", "-f=${Status}", p]).stdout]
+    if grub:
+        plan = run(["apt-get", "-s", "purge", *grub], env=APT_ENV)
+        going = sorted({line.split()[1] for line in plan.stdout.splitlines() if line.startswith(("Purg ", "Remv "))})
+        if "essential" in plan.stdout.lower():
+            # Debian marks its signed GRUB as needed to start the computer; it stays,
+            # and Kulan's grub-install keeps its updates off the EFI partition.
+            say("GRUB's packages stay (Debian marks them as needed); GRUB can't start the computer any more")
+        elif plan.returncode == 0 and set(going) <= set(grub):
+            r = run(["apt-get", "purge", *APT_OPTS, *grub], env=APT_ENV, timeout=1800, input_text="")
+            if r.returncode != 0:
+                say("GRUB's packages couldn't be removed now: " + r.stderr.strip()[-200:])
+        else:
+            say("GRUB's packages stay (removing them would also remove " +
+                (", ".join(p for p in going if p not in grub) or plan.stderr.strip()[-200:]) +
+                "); GRUB can't start the computer any more")
+    shutil.rmtree(ESP / "EFI/debian", ignore_errors=True)
+    for name in (f"grub{x64}.efi", "grub.cfg"):  # GRUB's, from updates before 2.10
+        (ESP / "EFI" / VENDOR / name).unlink(missing_ok=True)
+    shutil.rmtree("/boot/grub", ignore_errors=True)
+    # The fallback path some firmware starts from, if it was GRUB's (never another
+    # system's): shim, which recreates the entry from EFI/kulan/BOOT*.CSV.
+    fallback = ESP / "EFI/BOOT"
+    current = fallback / f"BOOT{X64}.EFI"
+    if not current.exists() or (fallback / f"grub{x64}.efi").exists():
+        copy_if_changed(Path(f"/usr/lib/shim/shim{x64}.efi.signed"), current)
+        copy_if_changed(Path(f"/usr/lib/shim/fb{x64}.efi.signed"), fallback / f"fb{x64}.efi")
+        copy_if_changed(Path(f"/usr/lib/shim/mm{x64}.efi.signed"), fallback / f"mm{x64}.efi")
+        (fallback / f"grub{x64}.efi").unlink(missing_ok=True)
+
+
+def update_loader() -> int:
+    need_root()
+    if load_state().get("phase") in ("enroll", "switch", "on"):
+        try:
+            install_loader()
+            if load_state().get("phase") == "on":
+                x64, X64, _ = names()
+                current = ESP / "EFI/BOOT" / f"BOOT{X64}.EFI"
+                if current.exists() and b"shim" in current.read_bytes():
+                    copy_if_changed(Path(f"/usr/lib/shim/shim{x64}.efi.signed"), current)
+        except OSError as e:
+            say(str(e))
+            return 1
+    return 0
+
+
+def rebuild_command(version: str | None, removed: bool = False) -> int:
+    need_root()
+    if load_state().get("phase") not in ("enroll", "switch", "on"):
+        return 0
+    if version is not None and not re.fullmatch(r"[A-Za-z0-9._+~-]+", version):
+        say("not a kernel version")
+        return 64
+    state = load_state()
+    try:
+        if removed and version:
+            remove_kernel(version)
+        else:
+            rebuild(version)
+    except (RuntimeError, OSError) as e:
+        state["problem"] = f"Kulan OS couldn't sign its start-up files after an update ({str(e)[:200]}). " \
+                           "It still starts the version it had"
+        save_state(state)
+        say(str(e))
+        return 1
+    if (state.get("problem") or "").startswith("Kulan OS couldn't sign"):
+        state["problem"] = None
+        save_state(state)
+    return 0
+
+
+def turn_off() -> int:
+    need_root()
+    state = load_state()
+    if state.get("phase") in (None, "off"):
+        say("Signed start-up is off")
+        return 0
+    if tpm_on():
+        say("Turn TPM unlock off first, and on again afterwards")
+        return 3
+    x64, X64, grub_arch = names()
+    say("Putting GRUB back…")
+    r = run(["apt-get", "install", *APT_OPTS, f"grub-efi-{arch()}-signed", f"grub-efi-{arch()}"],
+            env=APT_ENV, timeout=1800, input_text="")
+    if r.returncode != 0:
+        say("GRUB couldn't be installed. Check the internet connection: " + r.stderr.strip()[-300:])
+        return 1
+    # GRUB's own installer: Kulan's (grub-install) leaves GRUB out while signed start-up is on.
+    real = "/usr/sbin/grub-install.debian"
+    argv = [real if os.path.exists(real) else "grub-install",
+            f"--target={grub_arch}-efi", f"--efi-directory={ESP}", "--bootloader-id=debian"]
+    if arch() == "amd64":
+        argv.append("--uefi-secure-boot")
+    r = run(argv)
+    if r.returncode != 0:
+        say("GRUB couldn't be set up: " + r.stderr.strip()[-300:])
+        return 1
+    run(["update-grub"])
+    run(["mokutil", "--revoke-import"])
+    entry = kulan_entry()
+    if entry:
+        run(["efibootmgr", "-q", "--delete-bootnum", "--bootnum", entry])
+    shutil.rmtree(ESP / "EFI" / VENDOR, ignore_errors=True)
+    for f in (ESP / "EFI/Linux").glob(f"{VENDOR}-*.efi"):
+        f.unlink()
+    (ESP / "loader/loader.conf").unlink(missing_ok=True)
+    state.update(phase="off", code=None, problem=None)
+    save_state(state)
+    say("Signed start-up is off. GRUB starts the computer again")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    command = argv[1] if len(argv) > 1 else "status"
+    if command == "status":
+        st = status()
+        if "--json" in argv[2:]:
+            print(json.dumps(st, indent=2))
+        else:
+            words = {"off": "off", "enroll": f"waiting: enroll the key at the next restart (code {st['code']})",
+                     "switch": "waiting: the next start goes through the signed files", "on": "on"}
+            print("Signed start-up " + words.get(st["phase"], st["phase"]))
+            for reason in st["reasons"]:
+                print("  " + reason)
+            if st["problem"]:
+                print("  " + st["problem"])
+        return 0
+    if command == "on" and len(argv) == 2:
+        return turn_on()
+    if command == "off" and len(argv) == 2:
+        return turn_off()
+    if command == "finish" and len(argv) == 2:
+        return finish()
+    if command == "update-loader" and len(argv) == 2:
+        return update_loader()
+    if command == "rebuild" and len(argv) in (2, 3):
+        return rebuild_command(argv[2] if len(argv) == 3 else None)
+    if command == "remove-kernel" and len(argv) == 3:
+        return rebuild_command(argv[2], removed=True)
+    print(__doc__.split("\n\n")[1], file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

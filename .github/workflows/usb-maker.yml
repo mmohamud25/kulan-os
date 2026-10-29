@@ -1,0 +1,111 @@
+name: Kulan USB Maker
+
+# Builds Kulan USB Maker for Macs and Windows, and tests it on each: its
+# unit tests, its window, and writing for real to a stand-in USB stick (a RAM
+# disk on the Mac, a virtual disk on Windows). The apps are kept as this
+# run's artifacts; they're put on a release by hand, when it's released.
+on:
+  push:
+    paths: ["usb-maker/**", ".github/workflows/usb-maker.yml", "packages/kulan-archive-keyring.gpg"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  window:
+    name: The window
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Test every screen
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node usb-maker/test/ui.test.cjs
+
+  mac:
+    name: Mac
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Rust for both kinds of Mac
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - name: Unit tests
+        working-directory: usb-maker/src-tauri
+        run: |
+          set +e +o pipefail
+          cargo test > "$RUNNER_TEMP/out.txt" 2>&1; rc=$?
+          cat "$RUNNER_TEMP/out.txt"
+          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+      - name: Write to a stand-in stick
+        working-directory: usb-maker/src-tauri
+        run: |
+          set +e +o pipefail
+          say() { echo "::error title=Writing::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+          cargo build --release --features test-devices > "$RUNNER_TEMP/out.txt" 2>&1 || say
+          DISK="$(hdiutil attach -nomount ram://1048576 | awk '{print $1}')"   # 512 MB
+          ID="${DISK#/dev/}"
+          echo "stand-in stick: ${ID}" | tee "$RUNNER_TEMP/out.txt"
+          diskutil info "${ID}" >> "$RUNNER_TEMP/out.txt" 2>&1
+          sudo env KULAN_USB_MAKER_TEST_DEVICES="${ID}" python3 ../test/write_test.py \
+            target/release/kulan-usb-maker "${ID}" "/dev/r${ID}" disk0 >> "$RUNNER_TEMP/out.txt" 2>&1 || say
+          cat "$RUNNER_TEMP/out.txt"
+          hdiutil detach "${DISK}" || true
+      - name: Build the app
+        working-directory: usb-maker
+        run: |
+          npm ci
+          npx tauri build --target universal-apple-darwin
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kulan-usb-maker-mac
+          path: usb-maker/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+      - name: Unit tests
+        working-directory: usb-maker/src-tauri
+        shell: bash
+        run: |
+          set +e +o pipefail
+          cargo test > "$RUNNER_TEMP/out.txt" 2>&1; rc=$?
+          cat "$RUNNER_TEMP/out.txt"
+          [ "$rc" = 0 ] || { echo "::error title=Unit tests::$(grep -v '^ *Compiling' "$RUNNER_TEMP/out.txt" | tail -n 60 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')"; exit 1; }
+      - name: Write to a stand-in stick
+        working-directory: usb-maker/src-tauri
+        shell: pwsh
+        run: |
+          Start-Transcript -Path "$env:RUNNER_TEMP\out.txt" | Out-Null
+          trap { Stop-Transcript | Out-Null; $t = (Get-Content "$env:RUNNER_TEMP\out.txt" | Select-Object -Last 60) -join '%0A'; Write-Host "::error title=Writing::$t"; exit 1 }
+          cargo build --release --features test-devices
+          if ($LASTEXITCODE -ne 0) { throw "build failed" }
+          $vhd = "$env:RUNNER_TEMP\stick.vhdx"
+          "create vdisk file=`"$vhd`" maximum=512 type=expandable`r`nselect vdisk file=`"$vhd`"`r`nattach vdisk" | Set-Content "$env:RUNNER_TEMP\vhd.txt"
+          diskpart /s "$env:RUNNER_TEMP\vhd.txt"
+          $number = (Get-Disk | Where-Object { $_.Location -eq $vhd }).Number
+          if ($null -eq $number) { $number = (Get-Disk | Where-Object { $_.BusType -eq 'File Backed Virtual' } | Select-Object -Last 1).Number }
+          $system = (Get-Disk | Where-Object { $_.IsSystem }).Number
+          Write-Host "stand-in stick: disk $number; the system's disk: $system"
+          $env:KULAN_USB_MAKER_TEST_DEVICES = "$number"
+          python ..\test\write_test.py target\release\kulan-usb-maker.exe "$number" "\\.\PhysicalDrive$number" "$system" 2>&1 | Write-Host
+          if ($LASTEXITCODE -ne 0) { throw "the write test failed" }
+          Stop-Transcript | Out-Null
+      - name: Build the app
+        working-directory: usb-maker
+        run: |
+          npm ci
+          npx tauri build
+      - uses: actions/upload-artifact@v6
+        with:
+          name: kulan-usb-maker-windows
+          path: usb-maker/src-tauri/target/release/bundle/nsis/*.exe

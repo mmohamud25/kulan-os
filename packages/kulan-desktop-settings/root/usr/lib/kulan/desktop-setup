@@ -152,6 +152,26 @@ for SPEC in \
 	mv -f "${DST}.tmp" "${DST}"
 done
 
+# Tor Browser through Kulan's start script (it says when the first-time
+# download can't happen because there's no internet). Remade each time from
+# the real launcher; removed with it.
+TOR_SRC=/usr/share/applications/torbrowser.desktop
+TOR=/usr/share/kulan/xdg/applications/torbrowser.desktop
+if [ -f "${TOR_SRC}" ]; then
+	mkdir -p "$(dirname "${TOR}")"
+	awk '
+		/^\[/ { main = ($0 == "[Desktop Entry]") }
+		main && /^\[Desktop Entry\]$/ { print; print "# Kulan OS: Tor Browser through /usr/lib/kulan/torbrowser-start."; next }
+		main && /^Exec=/ { sub(/^Exec=[^ ]*/, "Exec=/usr/lib/kulan/torbrowser-start"); print; next }
+		main && /^TryExec=/ { next }
+		{ print }
+	' "${TOR_SRC}" > "${TOR}.tmp"
+	chmod 0644 "${TOR}.tmp"
+	mv -f "${TOR}.tmp" "${TOR}"
+else
+	rm -f "${TOR}"
+fi
+
 # KeePassXC's own launcher copy from 2.3 test builds: Qt apps now open
 # through XWayland for everyone (environment.d), so it isn't needed.
 rm -f /usr/share/kulan/xdg/applications/org.keepassxc.KeePassXC.desktop

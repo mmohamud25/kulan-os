@@ -12,10 +12,10 @@ sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else "/usr/share/kulan-fleet
 sys.dont_write_bytecode = True
 import people as P
 log = []
-def run(argv, timeout=60):
+def run(argv, timeout=60, input=None):
     log.append(argv[0])
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=input)
     except FileNotFoundError as e:
         return subprocess.CompletedProcess(argv, 127, "", str(e))
 def h(pw): return subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=pw, capture_output=True, text=True, check=True).stdout.strip()

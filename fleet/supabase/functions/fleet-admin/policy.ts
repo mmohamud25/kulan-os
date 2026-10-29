@@ -23,7 +23,7 @@ export type Policy = {
 };
 
 export const MAX_APPS = 50;
-const DEBIAN = /^[a-z0-9][a-z0-9+.-]{1,62}$/;
+const DEBIAN = /^[a-z0-9][a-z0-9+.-]{0,61}[a-z0-9+.]$/;
 const FLATPAK = /^[A-Za-z][A-Za-z0-9_-]*(\.[A-Za-z0-9_-]+){2,}$/;
 // Never blocked: Kulan OS itself and what it can't run without. (Each
 // computer also refuses to remove anything that would take more with it.)

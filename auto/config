@@ -13,6 +13,14 @@ die() {
 }
 
 ARCH="${KULAN_ARCH:-$(dpkg --print-architecture)}"
+# noprompt: at shutdown, live-tools asks to remove the stick and press Enter,
+# on a console the splash hides, so restarting looked stuck. The installer's
+# last page says when to remove the stick instead.
+LIVE_ARGS="noprompt "
+# The live session's time zone: the one the installer guesses for its English
+# (US) too, instead of UTC, which showed the time hours off once the clock was
+# set from the internet. (Changed in the installer's More choices.)
+LIVE_ARGS="${LIVE_ARGS}live-config.timezone=America/New_York "
 # ARM: show the console (boot splash, prompts) on the screen, not only on a
 # serial port the firmware announces. See kulan-desktop-settings' grub.d file.
 CONSOLE_ARGS=""
@@ -100,5 +108,5 @@ lb config noauto \
 	--iso-publisher "${KULAN_PUBLISHER}" \
 	--iso-volume "${ISO_VOLUME}" \
 	--image-name "${KULAN_ID}-os-${KULAN_VERSION}-${BUILD_TAG}" \
-	--bootappend-live "boot=live components quiet splash ${CONSOLE_ARGS}live-config.hostname=${KULAN_HOSTNAME} live-config.username=${KULAN_LIVE_USER} live-config.user-fullname=${KULAN_SHORT_NAME} live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us" \
+	--bootappend-live "boot=live components quiet splash ${LIVE_ARGS}${CONSOLE_ARGS}live-config.hostname=${KULAN_HOSTNAME} live-config.username=${KULAN_LIVE_USER} live-config.user-fullname=${KULAN_SHORT_NAME} live-config.locales=en_US.UTF-8 live-config.keyboard-layouts=us" \
 	"${@}"

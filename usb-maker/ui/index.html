@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kulan USB Maker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <img src="logo.svg" alt="" width="32" height="32">
+  <div>
+    <h1>Kulan USB Maker</h1>
+    <p class="sub">Makes a USB stick to install Kulan OS from.</p>
+  </div>
+</header>
+
+<main>
+  <!-- Choosing -->
+  <section id="choose">
+    <div class="panel">
+      <h2><span class="num">1</span>The USB stick</h2>
+      <p class="sub">Use one of 4 GB or more. Everything on it is erased.</p>
+      <div id="drives" class="list" role="radiogroup" aria-label="USB stick"></div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="num">2</span>Kulan OS</h2>
+      <div class="list" role="radiogroup" aria-label="Kulan OS">
+        <label class="row"><input type="radio" name="source" value="amd64" checked>
+          <span class="grow"><b>The newest Kulan OS</b><small>For PCs and laptops. Downloads about 2 GB.</small></span></label>
+        <label class="row"><input type="radio" name="source" value="arm64">
+          <span class="grow"><b>The newest Kulan OS for ARM</b><small>For ARM computers, not PCs. Downloads about 2 GB.</small></span></label>
+        <label class="row"><input type="radio" name="source" value="file">
+          <span class="grow"><b>An .iso file on this computer</b><small id="file-name">One you already downloaded</small></span>
+          <button type="button" id="pick-file">Choose…</button></label>
+      </div>
+      <details id="org-box">
+        <summary>For an organisation using Kulan Fleet</summary>
+        <p class="sub">Computers installed from this stick join your organisation by themselves the first time
+          they’re online. Make a join code in Kulan Fleet (Computers, then Add computers) for as many computers as
+          you’ll install.</p>
+        <label class="field"><span>Join code from Kulan Fleet</span>
+          <input id="org-code" autocomplete="off" spellcheck="false" placeholder="Paste it here"></label>
+        <p class="note" id="org-note"></p>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h2><span class="num">3</span>The computer you’ll install on</h2>
+      <label class="field"><span>Its make</span>
+        <select id="brand"></select></label>
+      <p class="key" id="key"></p>
+    </div>
+
+    <div class="actions">
+      <p class="note" id="why-not"></p>
+      <button id="make" class="primary" disabled>Make the USB stick</button>
+    </div>
+  </section>
+
+  <!-- Working -->
+  <section id="working" class="panel hidden" aria-live="polite">
+    <h2 id="work-title">Getting Kulan OS</h2>
+    <ol class="steps">
+      <li data-step="get">Download Kulan OS and check it’s the real one</li>
+      <li data-step="write">Write it to the USB stick</li>
+      <li data-step="check">Check the USB stick</li>
+    </ol>
+    <div class="bar"><div id="bar-fill"></div></div>
+    <p class="sub" id="work-text">Starting…</p>
+    <div class="actions"><button id="stop">Stop</button></div>
+  </section>
+
+  <!-- Done, or not -->
+  <section id="done" class="panel hidden">
+    <div class="big-icon ok" aria-hidden="true">✓</div>
+    <h2>The USB stick is ready</h2>
+    <ol class="next" id="next-steps"></ol>
+    <div class="actions"><button id="again" class="primary">Make another</button></div>
+  </section>
+
+  <section id="failed" class="panel hidden">
+    <div class="big-icon bad" aria-hidden="true">!</div>
+    <h2 id="failed-title">The USB stick wasn’t made</h2>
+    <p id="failed-text"></p>
+    <div class="actions"><button id="retry" class="primary">Try again</button></div>
+  </section>
+</main>
+
+<dialog id="confirm" aria-labelledby="confirm-title">
+  <h2 id="confirm-title">Erase the USB stick?</h2>
+  <p id="confirm-text"></p>
+  <div class="actions">
+    <button id="confirm-no" class="primary-plain">Cancel</button>
+    <button id="confirm-yes" class="danger">Erase and make</button>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

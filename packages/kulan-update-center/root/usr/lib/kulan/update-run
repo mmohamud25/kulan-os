@@ -20,9 +20,12 @@
 #   update-run phone-link-on|phone-link-off  let phones (KDE Connect) reach this computer through the firewall
 #   update-run remote-desktop-on|remote-desktop-off  let remote desktop apps (RDP, port 3389) through the
 #                                         firewall, from local networks only
+#   update-run sharing-on|sharing-off     let file sharing (port 30301) and media sharing (30302) through
+#                                         the firewall, from local networks only
 #   update-run compliance-on|compliance-off  Kulan compliance mode (kulan-compliance on/off)
 #   update-run tpm-on|tpm-off             TPM unlock of the system disk (disk password on stdin)
 #   update-run tpm-on-pin                 TPM unlock with a start-up PIN (password, then PIN, on stdin)
+#   update-run signed-start-on|signed-start-off  signed start-up (kulan-signed-start)
 #   update-run fleet-join <server> [--allow-erase]|fleet-leave  join or leave an organisation (one-time code on stdin)
 #   update-run fleet-allow-erase on|off   let the organisation erase this computer if it's lost
 #   update-run dns off|quad9|adblock|family  encrypted DNS for the whole computer
@@ -80,6 +83,21 @@ repair_dpkg() {
 	run_apt -f install || true
 	if [[ -n "$(dpkg --audit 2>/dev/null)" ]]; then
 		die "An earlier update couldn't be finished. Restart the computer and try again. If it still fails, run \"sudo dpkg --configure -a\" in Terminal."
+	fi
+}
+
+# The package lists, fresh. apt only warns when it can't reach a server and
+# then carries on with no or old lists ("has no installation candidate"):
+# say what's wrong in plain words instead, for the two common causes.
+refresh_lists() {
+	local out
+	out="$(apt-get -q "${APT_LOCK[@]}" update 2>&1)" || { echo "${out}" >&2; die "Couldn't check for software. Try again in a few minutes."; }
+	echo "${out}" >&2
+	if grep -qE "Temporary failure resolving|Could not resolve|Network is unreachable|No route to host" <<<"${out}"; then
+		die "Not connected to the internet. Connect to Wi-Fi or a cable, then try again."
+	fi
+	if grep -qE "is not valid yet|is no longer valid|has expired" <<<"${out}"; then
+		die "This computer's date or time is wrong, so the software servers can't be checked. Correct it in Kulan Settings › Date and time, then try again."
 	fi
 }
 
@@ -215,7 +233,7 @@ case "${1:-}" in
 		[[ $# -eq 1 ]] || die "usage: update-run check"
 		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
 		firmware_list
-		apt-get -q "${APT_LOCK[@]}" update 1>&2
+		refresh_lists
 		/usr/lib/kulan/update-status refresh || true
 		;;
 	install)
@@ -279,13 +297,13 @@ case "${1:-}" in
 	install-devkit)
 		[[ $# -eq 1 ]] || die "usage: update-run install-devkit"
 		repair_dpkg
-		apt-get -q "${APT_LOCK[@]}" update 1>&2
+		refresh_lists
 		run_apt install kulan-devkit
 		;;
 	install-apps)
 		[[ $# -eq 1 ]] || die "usage: update-run install-apps"
 		repair_dpkg
-		apt-get -q "${APT_LOCK[@]}" update 1>&2
+		refresh_lists
 		run_apt install kulan-apps
 		;;
 	addon-install | addon-remove)
@@ -306,7 +324,7 @@ case "${1:-}" in
 		if [[ "$1" == addon-install ]]; then
 			if [[ ${#PACKAGES[@]} -gt 0 ]]; then
 				repair_dpkg
-				apt-get -q "${APT_LOCK[@]}" update 1>&2
+				refresh_lists
 				check_space install "${PACKAGES[@]}"
 				run_apt install "${PACKAGES[@]}"
 			fi
@@ -438,6 +456,11 @@ PY
 		[[ -x /usr/bin/kulan-tpm ]] || die "TPM unlock isn't installed."
 		exec /usr/bin/kulan-tpm "${1#tpm-}"
 		;;
+	signed-start-on|signed-start-off)
+		[[ $# -eq 1 ]] || die "usage: update-run signed-start-on|signed-start-off"
+		[[ -x /usr/bin/kulan-signed-start ]] || die "Signed start-up isn't installed."
+		exec /usr/bin/kulan-signed-start "${1#signed-start-}"
+		;;
 	tpm-on-pin)
 		[[ $# -eq 1 ]] || die "usage: update-run tpm-on-pin (disk password, then the new PIN, on stdin)"
 		[[ -x /usr/bin/kulan-tpm ]] || die "TPM unlock isn't installed."
@@ -501,6 +524,31 @@ PY
 			rm -f "${MARK}"
 		fi
 		;;
+	sharing-on | sharing-off)
+		[[ $# -eq 1 ]] || die "usage: update-run sharing-on|sharing-off"
+		# File sharing (gnome-user-share, 30301) and media sharing (Rygel,
+		# 30302), from local networks only, never the internet. Their
+		# discovery (mDNS 5353 and UPnP 1900) is let in by ufw's own rules.
+		# Kulan Settings › Sharing reads the mark to know it's open.
+		MARK=/var/lib/kulan/sharing-firewall
+		if command -v ufw >/dev/null 2>&1; then
+			for NET in "${PRIVATE_NETS[@]}"; do
+				if [[ "$1" == sharing-on && "${NET}" == *:* ]]; then
+					ufw allow proto tcp from "${NET}" to any port 30301,30302 comment "Kulan file and media sharing" 1>&2 || true
+				elif [[ "$1" == sharing-on ]]; then
+					ufw allow proto tcp from "${NET}" to any port 30301,30302 comment "Kulan file and media sharing" 1>&2
+				else
+					ufw --force delete allow proto tcp from "${NET}" to any port 30301,30302 >/dev/null 2>&1 || true
+				fi
+			done
+		fi
+		if [[ "$1" == sharing-on ]]; then
+			install -d -m 0755 /var/lib/kulan
+			touch "${MARK}"
+		else
+			rm -f "${MARK}"
+		fi
+		;;
 	lighter)
 		[[ $# -eq 2 ]] || die "usage: update-run lighter on|off|auto"
 		case "$2" in
@@ -537,7 +585,7 @@ PY
 				;;
 			quad9 | adblock | family)
 				if ! command -v resolvectl >/dev/null 2>&1; then
-					apt-get -q "${APT_LOCK[@]}" update 1>&2
+					refresh_lists
 					run_apt install systemd-resolved
 				fi
 				if [[ "$2" == quad9 ]]; then
@@ -605,6 +653,6 @@ PY
 		fi
 		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-on-pin|tpm-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-on-pin|tpm-off|signed-start-on|signed-start-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
 		;;
 esac

@@ -12,6 +12,8 @@
                                        unit of its own, so reports never wait for it)
   kulan-fleet get-help USER            ask the organisation for help: {text, screenshot?} on stdin
                                        (root; Kulan Settings › Get help, through fleet-get-help)
+  kulan-fleet trust-script-key         take the organisation's new script signing key after its
+                                       Owner set up a new code (root; scriptkey.py)
 
 A joined computer reports once an hour to its organisation's server over
 HTTPS: what it is (model, processor, memory, disk space), what it runs (Kulan
@@ -36,7 +38,8 @@ The server can only answer with these actions, nothing else:
   run-fix          run one of Kulan's fixes (free up disk space, reset Wi-Fi, repair
                    updates, restart printing, check the disk); fixes.py
   run-script       run one of the organisation's scripts, only if its Owner allows
-                   them (the "scripts" policy) and the script is unchanged
+                   them (the "scripts" policy), the script is unchanged, and the
+                   Owner's script signing key signed it (scriptkey.py)
   message          show a notice on the screens of whoever is signed in
   remote-help      ask the person using the computer whether an admin may see
                    (and, if they also allow it, control) their screen; nothing
@@ -99,6 +102,7 @@ import people  # noqa: E402
 import pushed  # noqa: E402
 import signins  # noqa: E402
 import fixes  # noqa: E402
+import scriptkey  # noqa: E402
 import gethelp  # noqa: E402
 import helpsession  # noqa: E402
 import twostep  # noqa: E402
@@ -160,9 +164,9 @@ MAX_APPS = 3000
 TIMEOUT = 30
 
 
-def run(argv: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
+def run(argv: list[str], timeout: int = 60, input: str | None = None) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False,
+        return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False, input=input,
                               env={**os.environ, "LC_ALL": "C.UTF-8"})
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(argv, 127, "", str(e))
@@ -187,7 +191,8 @@ def read_json(path: Path, default):
 def write_json(path: Path, data: dict, mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".kulan-new")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    tmp.unlink(missing_ok=True)  # a leftover could have another mode: always a new file, never through a link
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
     with os.fdopen(fd, "w") as fh:
         fh.write(json.dumps(data, indent=2) + "\n")
     os.chmod(tmp, mode)
@@ -206,13 +211,22 @@ def check_server(server: str) -> str:
     return server
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect is an error: the computer's key is never sent anywhere else."""
+    def redirect_request(self, *_args, **_kwargs):
+        return None
+
+
+OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def post(server: str, path: str, body: dict, token: str | None = None) -> dict:
     headers = {"Content-Type": "application/json", "User-Agent": f"kulan-fleet/1 ({kulan_version()})"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(server + path, data=json.dumps(body).encode(), headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
+        with OPENER.open(request, timeout=TIMEOUT) as reply:
             text = reply.read(1_000_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"the server said {e.code} {e.reason}") from e
@@ -475,6 +489,7 @@ def clean_policy(raw) -> dict:
             policy[key] = apps_list
     if raw.get("scripts") is True:  # the Owner allows the organisation's own scripts here
         policy["scripts"] = True
+    policy.update(scriptkey.clean(raw))  # the Owner's public key for scripts
     return policy
 
 
@@ -580,7 +595,8 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
     if kind == "erase":
         return erase()
     if kind in ("restart", "shutdown"):
-        org = read_json(CONFIG, {}).get("organisation") or "Your organisation"
+        # The message never starts with "-" (shutdown would read it as an option).
+        org = (read_json(CONFIG, {}).get("organisation") or "").lstrip("- ") or "Your organisation"
         if kind == "restart":
             argv = ["shutdown", "-r", "+5", f"{org} is restarting this computer in 5 minutes to finish updates."]
         else:
@@ -629,6 +645,9 @@ def run_job(kind: str, payload, action_id: str, config: dict) -> tuple[bool, str
         return False, "this organisation doesn't allow scripts", {}
     if not isinstance(sha, str) or not isinstance(name, str):
         return False, "not a script request", {}
+    unsigned = scriptkey.check(read_json(CONFIG, {}), payload)
+    if unsigned:
+        return False, unsigned, {}
     try:
         got = post(config["server"], f"/v1/scripts/{urllib.parse.quote(action_id, safe='')}",
                    {"device_id": config["device_id"]}, config["token"])
@@ -637,7 +656,9 @@ def run_job(kind: str, payload, action_id: str, config: dict) -> tuple[bool, str
     body = got.get("body")
     if not isinstance(body, str):
         return False, "couldn't get the script", {}
-    notify_users(f"{org} is running a script", "".join(c for c in name if c.isprintable())[:80])
+    # Shown as written: GNOME's notifications read a little markup.
+    shown = "".join(c for c in name if c.isprintable())[:80].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    notify_users(f"{org} is running a script", shown)
     ok, detail, output, code = fixes.run_script(body, sha, allowed)
     return ok, detail, {"output": output, "exit_code": code}
 
@@ -901,11 +922,14 @@ def power_off() -> None:
 
 
 # --- commands -------------------------------------------------------------------------------
-def publish(config: dict | None, last_report: int | None = None, error: str | None = None) -> None:
+def publish(config: dict | None, last_report: int | None = None, error: str | None = None,
+            pending: bool | None = None) -> None:
     if config is None:
         PUBLIC.unlink(missing_ok=True)
         return
     old = read_json(PUBLIC, {})
+    # Waiting for the Owner's approval (2.10): as the server last said.
+    waiting = bool(old.get("pending")) if pending is None else pending
     write_json(PUBLIC, {
         "joined": True,
         "organisation": config.get("organisation", ""),
@@ -916,6 +940,7 @@ def publish(config: dict | None, last_report: int | None = None, error: str | No
         "shared": SHARED,
         "actions": list(ALLOWED_ACTIONS),
         "allow_erase": bool(config.get("allow_erase")),
+        "pending": waiting,
     }, 0o644)
 
 
@@ -945,9 +970,10 @@ def join(server: str, allow_erase: bool = False) -> int:
               "organisation": str(reply.get("organisation", "")).strip()[:80] or urllib.parse.urlsplit(server).hostname,
               "since": int(time.time()), "allow_erase": allow_erase}
     write_json(CONFIG, config, 0o600)
-    publish(config)
+    publish(config, pending=reply.get("pending") is True)
     run(["systemctl", "enable", "--now", "kulan-fleet.timer"])
-    say(f"Joined {config['organisation']}")
+    say(f"Joined {config['organisation']}" + (". It waits for the organisation's Owner to approve it"
+                                               if reply.get("pending") is True else ""))
     return report()
 
 
@@ -998,12 +1024,13 @@ def report() -> int:
             publish(config, error=str(e))
             say(f"Report not sent: {e}")
             return 1
-        publish(config, last_report=int(time.time()))
+        waiting = reply.get("pending") is True
+        publish(config, last_report=int(time.time()), pending=waiting)
         keep_wake(reply.get("wake"), server)
         if apps_due:
             APPS_SENT.parent.mkdir(parents=True, exist_ok=True)
             APPS_SENT.touch()
-        if passwords:
+        if passwords and not waiting:  # a computer waiting for approval: the server didn't take them
             people.sent(people_state, passwords)
         if "accounts" in reply:
             people_state, accounts_status = people.apply(reply.get("accounts"), run, people_state)
@@ -1024,6 +1051,16 @@ def report() -> int:
             status = apply_policy(reply.get("policy"))
             if status:
                 say("Policy: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in status.items()))
+            # The Owner's script signing key: kept the first time, changed only if the old key signed the new one.
+            sent = scriptkey.clean(reply.get("policy") if isinstance(reply.get("policy"), dict) else {})
+            current = read_json(CONFIG, {})
+            if current.get("device_id") == device_id:
+                changed, problem = scriptkey.update(current, sent)
+                if changed:
+                    write_json(CONFIG, current, 0o600)
+                if problem:
+                    say(f"Scripts: {problem}")
+                    publish(config, error=problem)
         # Wi-Fi networks and printers from the computer's groups (2.9b); how it went goes with the next report.
         if "networks" in reply or "printers" in reply:
             done = {"networks": pushed.apply_networks(reply.get("networks"), run),
@@ -1247,12 +1284,34 @@ def locked(fn):
     return wrapper
 
 
+def trust_script_key() -> int:
+    """Take the key the organisation sends now (its Owner set up a new script signing code)."""
+    config = read_json(CONFIG, None)
+    if not config:
+        say("This computer hasn't joined an organisation")
+        return 3
+    offered = config.get("script_key_offered")
+    if not offered:
+        say("There's no new script signing key to take" + (
+            f". The organisation's key is {scriptkey.fingerprint(config['script_key'])}" if config.get("script_key") else ""))
+        return 0
+    config["script_key"] = offered
+    config.pop("script_key_offered", None)
+    write_json(CONFIG, config, 0o600)
+    publish(config, error=None)
+    say(f"Scripts signed with the key {scriptkey.fingerprint(offered)} run here now. Check it matches the one in "
+        "Kulan Fleet › Scripts")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     if command == "status":
         return status("--json" in argv[2:])
-    if command in ("join", "report", "allow-erase", "leave", "listen", "run-job", "get-help"):
+    if command in ("join", "report", "allow-erase", "leave", "listen", "run-job", "get-help", "trust-script-key"):
         need_root()
+    if command == "trust-script-key" and len(argv) == 2:
+        return locked(trust_script_key)()
     if command == "get-help" and len(argv) == 3:
         return get_help(argv[2])
     if command == "run-job" and len(argv) == 3:

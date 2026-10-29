@@ -1,0 +1,13 @@
+# Kulan OS: ModemManager (mobile data) starts when a modem is there, instead
+# of at every start (its service isn't enabled). Modems: built-in ones (the
+# wwan devices of PCIe modems, cdc-wdm control ports, wwan network
+# interfaces) and USB ones (their serial ports).
+ACTION!="add", GOTO="kulan_mm_end"
+SUBSYSTEM=="wwan", GOTO="kulan_mm_start"
+SUBSYSTEM=="usbmisc", KERNEL=="cdc-wdm*", GOTO="kulan_mm_start"
+SUBSYSTEM=="net", ENV{DEVTYPE}=="wwan", GOTO="kulan_mm_start"
+SUBSYSTEM=="tty", ENV{ID_BUS}=="usb", ENV{ID_MM_CANDIDATE}=="1", GOTO="kulan_mm_start"
+GOTO="kulan_mm_end"
+LABEL="kulan_mm_start"
+TAG+="systemd", ENV{SYSTEMD_WANTS}+="ModemManager.service"
+LABEL="kulan_mm_end"

@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -45,6 +46,24 @@ def memory() -> tuple[int, int]:
     return fields.get("MemTotal", 0), fields.get("MemAvailable", 0)
 
 
+def plain(name: str, limit: int = 40) -> str:
+    """A name from the system (a program's, a network's) as plain words only: it goes into
+    the assistant's instructions, so it mustn't be able to read as one."""
+    return re.sub(r"[^\w .()+-]", "", name)[:limit].strip()
+
+
+# This assistant's own engine: named for what it is, so the answer doesn't
+# blame an unknown "llama-server" (it stops by itself when not in use).
+ENGINE = "llama-server"
+ENGINE_NAME = "Ask Kulan's engine (this assistant, stops by itself a few minutes after the last question)"
+
+
+def memory_state(total: int, available: int) -> str:
+    """How full memory is, in words (small models misjudge the bare numbers)."""
+    free = available * 100 // max(total, 1)
+    return "plenty free" if free >= 25 else "getting full" if free >= 10 else "nearly full"
+
+
 def top_apps(count: int = 3) -> list[tuple[str, int]]:
     """The programs using the most memory, added up by name (Firefox's many
     processes count as one)."""
@@ -52,10 +71,10 @@ def top_apps(count: int = 3) -> list[tuple[str, int]]:
     for line in _out(["ps", "-eo", "rss=,comm="]).splitlines():
         parts = line.split(None, 1)
         if len(parts) == 2 and parts[0].isdigit():
-            name = parts[1].strip()
+            name = plain(parts[1])
             name = {"Isolated Web Co": "firefox-esr", "Web Content": "firefox-esr", "WebExtensions": "firefox-esr",
                     "RDD Process": "firefox-esr", "Socket Process": "firefox-esr", "Privileged Cont": "firefox-esr",
-                    "Utility Process": "firefox-esr"}.get(name, name)
+                    "Utility Process": "firefox-esr", ENGINE: ENGINE_NAME}.get(name, name)
             totals[name] = totals.get(name, 0) + int(parts[0]) * 1024
     return sorted(totals.items(), key=lambda kv: -kv[1])[:count]
 
@@ -66,10 +85,11 @@ def busiest(count: int = 3) -> list[tuple[str, float]]:
     for line in _out(["ps", "-eo", "pid=,pcpu=,comm=", "--sort=-pcpu"]).splitlines():
         parts = line.split(None, 2)
         try:
-            pid, pct, name = int(parts[0]), float(parts[1]), parts[2].strip()
+            pid, pct, name = int(parts[0]), float(parts[1]), plain(parts[2])
         except (IndexError, ValueError):
             continue
-        if pid != os.getpid() and pct >= 5:
+        # Not this program, nor the engine (busy because it's answering now).
+        if pid != os.getpid() and name != ENGINE and pct >= 5:
             rows.append((name, pct))
         if len(rows) >= count:
             break
@@ -93,7 +113,7 @@ def network() -> str:
     wifi = _out(["nmcli", "-t", "-f", "WIFI", "general"]) or "unknown"
     active = [line.split(":") for line in _out(["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show",
                                                  "--active"]).splitlines()]
-    names = [f"{n[0]} ({n[1].replace('802-11-wireless', 'Wi-Fi').replace('802-3-ethernet', 'cable')})"
+    names = [f"{plain(n[0])} ({n[1].replace('802-11-wireless', 'Wi-Fi').replace('802-3-ethernet', 'cable')})"
              for n in active if len(n) >= 2 and n[1] not in ("loopback", "bridge")]
     words = {"full": "internet works", "none": "no internet", "limited": "limited (no internet)",
              "portal": "a Wi-Fi sign-in page is waiting", "unknown": "not checked"}
@@ -141,7 +161,8 @@ def snapshot() -> str:
     total, available = memory()
     if total:
         apps = ", ".join(f"{name} {gb(size)}" for name, size in top_apps() if size >= 100 * 1024 ** 2)
-        lines.append(f"Memory: {gb(total - available)} used of {gb(total)}" + (f"; most used by {apps}" if apps else ""))
+        lines.append(f"Memory: {gb(total - available)} used of {gb(total)}, {memory_state(total, available)}"
+                     + (f"; most used by {apps}" if apps else ""))
     cpu = busiest()
     lines.append("Busiest programs: " + (", ".join(f"{name} {pct:.0f}% of one core" for name, pct in cpu)
                                          if cpu else "nothing is using the processor much"))

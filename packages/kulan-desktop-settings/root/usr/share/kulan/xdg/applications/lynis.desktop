@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Kulan OS hides this launcher: Kulan Settings › Security runs it (Security checkup).
+Type=Application
+Name=Lynis auditing tool
+Hidden=true

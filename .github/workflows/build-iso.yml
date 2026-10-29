@@ -50,7 +50,7 @@ jobs:
     name: Kulan packages
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
       - name: Build kulan-base, kulan-desktop-settings, kulan-welcome
         run: packages/build-debs.sh
       - name: Check packages
@@ -59,7 +59,7 @@ jobs:
             echo "== $deb"
             dpkg-deb --info "$deb" | sed -n '/Package:/,/Description:/p'
           done
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: kulan-debs
           path: dist/debs/
@@ -78,9 +78,9 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
       - id: cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: dist/engine
           key: kulan-engine-${{ matrix.arch }}-${{ hashFiles('ci/build-engine.sh', 'kulan.conf') }}
@@ -93,16 +93,17 @@ jobs:
         run: |
           ls -l dist/engine/
           dpkg-deb --info dist/engine/kulan-assistant-engine_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: kulan-engine-${{ matrix.arch }}
           path: dist/engine/*.deb
           if-no-files-found: error
           retention-days: 14
 
-  # Kulan Files: Debian 13's Nautilus with Kulan's patch, one build per
-  # architecture. Rebuilt when the patch or the script changes, or when Debian
-  # updates Nautilus (its version is part of the cache key).
+  # Kulan Files: Debian 13's Nautilus with Kulan's patch, and Debian 13's
+  # gnome-user-share (file sharing) on a fixed port, one build per
+  # architecture. Rebuilt when a change or a script changes, or when Debian
+  # updates either (their versions are part of the cache key).
   files:
     needs: plan
     name: Kulan Files (${{ matrix.arch }})
@@ -112,28 +113,31 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
       - name: Which Nautilus Debian has
         id: debian
         run: |
           VERSION="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh --version | tail -n 1)"
-          echo "Debian's Nautilus: ${VERSION}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          SHARE="$(docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-user-share.sh --version | tail -n 1)"
+          echo "Debian's Nautilus: ${VERSION}; gnome-user-share: ${SHARE}"
+          echo "version=${VERSION}-${SHARE}" >> "$GITHUB_OUTPUT"
       - id: cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: dist/files
-          key: kulan-files-${{ matrix.arch }}-${{ steps.debian.outputs.version }}-${{ hashFiles('ci/build-nautilus.sh', 'packages-src/nautilus/**') }}
+          key: kulan-files-${{ matrix.arch }}-${{ steps.debian.outputs.version }}-${{ hashFiles('ci/build-nautilus.sh', 'ci/build-user-share.sh', 'packages-src/**') }}
       - name: Build Kulan Files in Debian 13
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-nautilus.sh
+          docker run --rm -v "$GITHUB_WORKSPACE:/build" -w /build debian:trixie bash ci/build-user-share.sh
           sudo chown -R "$(id -u):$(id -g)" dist
       - name: Check the packages
         run: |
           ls -l dist/files/
           dpkg-deb --info dist/files/nautilus_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Description:/p'
-      - uses: actions/upload-artifact@v6
+          dpkg-deb --info dist/files/gnome-user-share_*_${{ matrix.arch }}.deb | sed -n '/Package:/,/Version:/p'
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: kulan-files-${{ matrix.arch }}
           path: dist/files/*.deb
@@ -149,17 +153,17 @@ jobs:
     name: Test packages on Debian 13
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-debs
           path: dist/debs/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           pattern: kulan-engine-amd64
           path: dist/engine/
           merge-multiple: true
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           pattern: kulan-files-amd64
           path: dist/files/
@@ -183,8 +187,8 @@ jobs:
     name: Fleet people on two computers
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-debs
           path: dist/debs/
@@ -220,7 +224,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
       - name: Is the update channel set up?
         id: ready
@@ -234,7 +238,7 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-debs
@@ -242,12 +246,12 @@ jobs:
 
       # Both engines, for systems that add Kulan Assistant from Add-ons. By
       # name, so a missing one stops publishing instead of dropping it.
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-engine-amd64
           path: dist/debs/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-engine-arm64
@@ -259,12 +263,12 @@ jobs:
       # The ISOs use that same copy (see "Use the PC build's shared packages"):
       # a different file under the same version made apt in the image build
       # want to "downgrade" to the channel's copy, and stop.
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-files-arm64
           path: dist/files-arm64/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         if: steps.ready.outputs.ready == 'true'
         with:
           name: kulan-files-amd64
@@ -293,14 +297,14 @@ jobs:
           sudo apt-get install -y -q apt-utils gnupg xz-utils
           ci/publish-repo.sh
 
-      - uses: actions/upload-pages-artifact@v5
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         if: steps.ready.outputs.ready == 'true'
         with:
           path: site/
 
       - id: deploy
         if: steps.ready.outputs.ready == 'true'
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1
 
       - name: Wait until the update channel serves this version
         if: steps.ready.outputs.ready == 'true'
@@ -339,16 +343,16 @@ jobs:
       matrix:
         from: [previous, older]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-debs
           path: dist/debs/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-engine-amd64
           path: dist/debs/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-files-amd64
           path: dist/debs/
@@ -384,7 +388,7 @@ jobs:
 
       - name: Upload upgrade test
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: upgrade-test-amd64-${{ matrix.from }}
           path: upgrade-test/
@@ -408,22 +412,22 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Check out
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
 
       - name: Get the Kulan packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-debs
           path: config/packages.chroot/
 
       - name: Get the assistant engine
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-engine-${{ matrix.arch }}
           path: config/packages.chroot/
 
       - name: Get Kulan Files
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-files-${{ matrix.arch }}
           path: config/packages.chroot/
@@ -432,7 +436,7 @@ jobs:
       # packages; the image must hold the very same files (see publish).
       - name: Get the PC build's shared packages
         if: matrix.arch != 'amd64'
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-files-amd64
           path: dist/files-amd64/
@@ -499,7 +503,7 @@ jobs:
           ci/vuln-scan.sh "${{ runner.temp }}/dpkg-status"
 
       - name: Upload ISO
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: kulan-os-${{ matrix.arch }}
           path: |
@@ -520,6 +524,14 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
           sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm || true
           ci/boot-test.sh out/*.iso boot-test
+
+      # The stick's start menu as a person sees it (UEFI, Secure Boot, 1920x1080).
+      - name: Boot menu test
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 10
+        run: |
+          sudo apt-get install -y -q ovmf
+          ci/boot-menu-test.sh out/*.iso boot-menu-test
 
       # The same on a small computer: 2 GB of memory and one processor.
       - name: Low-end boot test
@@ -545,7 +557,7 @@ jobs:
 
       - name: Upload website screenshots
         if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: screenshots-amd64
           path: |
@@ -556,7 +568,7 @@ jobs:
 
       - name: Upload low-end boot test
         if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: boot-test-low-end-amd64
           path: boot-test-low-end/
@@ -583,7 +595,7 @@ jobs:
 
       - name: Upload TPM unlock test
         if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: tpm-test-amd64
           path: tpm-test/
@@ -601,25 +613,53 @@ jobs:
 
       - name: Upload TPM unlock with a PIN test
         if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: tpm-pin-test-amd64
           path: tpm-pin-test/
           retention-days: 14
           if-no-files-found: ignore
 
+      # Signed start-up: turn it on, enroll the key on shim's blue screen (the
+      # test presses the keys), start through the signed start-up files, then
+      # TPM unlock tied to them.
+      - name: Signed start-up test
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 90
+        run: |
+          sudo apt-get install -y -q ovmf swtpm swtpm-tools cryptsetup squashfs-tools dosfstools fdisk python3-pil tesseract-ocr
+          ci/signed-start-test.sh out/*.iso signed-start-test
+
+      - name: Upload signed start-up test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: signed-start-test-amd64
+          path: signed-start-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload install test
         if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: install-test-amd64
           path: install-test/
           retention-days: 14
           if-no-files-found: ignore
 
+      - name: Upload boot menu test
+        if: always() && matrix.arch == 'amd64'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
+        with:
+          name: boot-menu-test-amd64
+          path: boot-menu-test/
+          retention-days: 14
+          if-no-files-found: ignore
+
       - name: Upload boot test
         if: always() && matrix.arch == 'amd64'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: boot-test-amd64
           path: boot-test/
@@ -628,7 +668,7 @@ jobs:
 
       - name: Upload build log
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:
           name: build-log-${{ matrix.arch }}
           path: |
@@ -649,13 +689,17 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read  # Kulan USB Maker from its own workflow's runs
+    # The signing key is a secret of this environment only (main only; scripts/signing-key.sh).
+    environment:
+      name: github-pages
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-os-amd64
           path: iso/amd64/
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         with:
           name: kulan-os-arm64
           path: iso/arm64/
@@ -677,7 +721,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         id: get
         continue-on-error: true
         with:
@@ -710,11 +754,11 @@ jobs:
       # The virtual-machine tests' logs and screenshots, on the ci-diagnostics
       # branch (one folder per run), for reading a failure without the
       # Actions artifacts. Logs and pictures only, at most 2 MB each.
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
         id: tests
         continue-on-error: true
         with:
-          pattern: "{boot-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test}-amd64"
+          pattern: "{boot-test,boot-menu-test,boot-test-low-end,install-test,tpm-test,tpm-pin-test,signed-start-test}-amd64"
           path: tests/
       - name: Commit to ci-diagnostics
         if: steps.tests.outcome == 'success'

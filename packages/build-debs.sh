@@ -43,6 +43,9 @@ if ! [[ "${KULAN_PKG_VERSION}" =~ ^[0-9][A-Za-z0-9.+~-]*$ ]]; then
 fi
 
 KEYRING="${ROOT}/packages/kulan-archive-keyring.gpg"
+KULAN_APT_HOST="$(sed -E 's#^https://([^/:]+).*#\1#' <<<"${KULAN_APT_URL}")"
+[[ "${KULAN_APT_HOST}" =~ ^[a-z0-9.-]+$ ]] || { echo "E: KULAN_APT_URL must be https://host/..." >&2; exit 1; }
+[[ -n "${KULAN_CHANNEL_PACKAGES:-}" ]] || { echo "E: KULAN_CHANNEL_PACKAGES is not set in kulan.conf" >&2; exit 1; }
 
 render_template() {
 	sed \
@@ -92,8 +95,23 @@ APT::Periodic::Unattended-Upgrade "1";
 Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=\${distro_codename},label=Debian";
 Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=\${distro_codename},label=Debian-Security";
 Unattended-Upgrade::Origins-Pattern:: "origin=Debian,codename=\${distro_codename}-security,label=Debian-Security";
-Unattended-Upgrade::Origins-Pattern:: "origin=${KULAN_NAME}";
+Unattended-Upgrade::Origins-Pattern:: "origin=${KULAN_NAME},site=${KULAN_APT_HOST}";
 Unattended-Upgrade::DevRelease "false";
+EOF
+
+	# The update channel may only install Kulan's own packages (kulan.conf's
+	# KULAN_CHANNEL_PACKAGES): anything else it offers is never installed.
+	install -d "${root}/etc/apt/preferences.d"
+	cat > "${root}/etc/apt/preferences.d/50-kulan-channel" <<EOF
+Explanation: ${KULAN_NAME}'s own packages, from its update channel.
+Package: ${KULAN_CHANNEL_PACKAGES}
+Pin: origin "${KULAN_APT_HOST}"
+Pin-Priority: 500
+
+Explanation: Anything else from the update channel: never, so it can't replace Debian's packages.
+Package: *
+Pin: origin "${KULAN_APT_HOST}"
+Pin-Priority: -1
 EOF
 
 	# The update channel is only switched on once its signing key exists
@@ -132,6 +150,13 @@ for SRC in "${ROOT}"/packages/*/; do
 	if [[ "${NAME}" == kulan-base ]]; then
 		generate_kulan_base "${STAGE}"
 	fi
+	# Word changes for other programs' texts: po/<domain>.<language>.po.
+	for PO in "${SRC}"/po/*.po; do
+		[[ -f "${PO}" ]] || continue
+		BASE="$(basename "${PO}" .po)"
+		install -d "${STAGE}/usr/share/locale/${BASE##*.}/LC_MESSAGES"
+		python3 "${ROOT}/packages/po2mo.py" "${PO}" "${STAGE}/usr/share/locale/${BASE##*.}/LC_MESSAGES/${BASE%.*}.mo"
+	done
 
 	render_template "${SRC}/DEBIAN/control.in" > "${STAGE}/DEBIAN/control"
 	for SCRIPT in preinst postinst prerm postrm triggers; do
@@ -151,7 +176,8 @@ for SRC in "${ROOT}"/packages/*/; do
 	# Normalise permissions so the package never depends on the build machine.
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type d -exec chmod 0755 {} +
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type f -exec chmod 0644 {} +
-	for EXEC in usr/bin usr/lib/kulan usr/lib/kulan-assistant usr/lib/systemd/user-environment-generators usr/lib/systemd/system-generators usr/share/initramfs-tools/hooks; do
+	for EXEC in usr/bin usr/sbin usr/lib/kulan usr/lib/kulan-assistant usr/lib/systemd/user-environment-generators usr/lib/systemd/system-generators usr/share/initramfs-tools/hooks \
+		etc/kernel/postinst.d etc/kernel/postrm.d etc/initramfs/post-update.d; do
 		[[ -d "${STAGE}/${EXEC}" ]] && find "${STAGE}/${EXEC}" -type f -exec chmod 0755 {} +
 	done
 
