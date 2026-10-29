@@ -264,11 +264,16 @@ def disks() -> list[dict]:
 # --- checks ---------------------------------------------------------------------------
 
 def taken_names() -> set[str]:
-    """The system's own account and group names (the new system starts from these files)."""
-    names = {"root", "kulan"}
+    """The system's own account and group names (bin, man, mail…), which the new system
+    starts with: a person's user name can't be one of them. People's accounts here (the
+    live session's own, "kulan") aren't copied, so their names are free."""
+    names = {"root"}
     for path in ("/etc/passwd", "/etc/group"):
         try:
-            names |= {line.split(":", 1)[0] for line in Path(path).read_text().splitlines() if line}
+            for line in Path(path).read_text().splitlines():
+                fields = line.split(":")
+                if len(fields) > 2 and fields[0] and not (fields[2].isdigit() and 1000 <= int(fields[2]) < 65534):
+                    names.add(fields[0])
         except OSError:
             pass
     return names
