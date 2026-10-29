@@ -1,5 +1,11 @@
 # Kulan OS 2.10 plan: the quality release
 
+Released 29 October 2026 (build 151): Kulan OS on the update channel, the
+website, and the GitHub release with Kulan USB Maker. Kulan Fleet's server
+(the fleet_trust migration and the fleet and fleet-admin functions) is not
+deployed yet: until it is, 2.10 computers run no Fleet scripts (unsigned),
+and the dashboard's join codes, signing and Approve don't work.
+
 Decided 26 October 2026: after 2.9 (2.9a remote help, 2.9b actions, 2.9c
 get help) and before 3.0, one release with no new features. Kulan OS has to
 hold up as a finished product: no rough edges, nothing that looks unfinished,
