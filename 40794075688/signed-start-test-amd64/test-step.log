@@ -1,0 +1,37 @@
+KULAN-SIGNED-TEST phase=off started_signed=False
+KULAN-SIGNED-TEST on_exit=0 code=13721349
+KULAN-SIGNED-TEST on: Installing the start-up tools…
+KULAN-SIGNED-TEST on: Making the start-up images…
+KULAN-SIGNED-TEST on: Signing the start-up files…
+KULAN-SIGNED-TEST on: At the next restart, a blue screen asks to enroll a key: press a key, choose Enroll MOK, Continue, Yes, type the code 13721349 and choose Reboot
+KULAN-SIGNED-TEST esp=/boot/efi/EFI/Linux: kulan-6.12.113+deb13-amd64.efi  /boot/efi/EFI/kulan: BOOTX64.CSV fbx64.efi mmx64.efi shimx64.efi systemd-bootx64.efi 
+KULAN-SIGNED-TEST verify=Signature verification OK
+KULAN-SIGNED-TEST mok_new=2
+KULAN-SIGNED-TEST phase=switch started_signed=False
+KULAN-SIGNED-TEST bootorder=0006,0000,0001,0002,0003,0004,0005 entry=1
+KULAN-SIGNED-TEST phase=on started_signed=True
+KULAN-SIGNED-TEST loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 unlock=
+KULAN-SIGNED-TEST grub_left=0 grub_pkg=2
+KULAN-SIGNED-TEST service: Starting kulan-signed-start.service - Signed start-up: the next step after a restart (Kulan OS)...
+KULAN-SIGNED-TEST service: GRUB's packages stay (Debian marks them as needed); GRUB can't start the computer any more
+KULAN-SIGNED-TEST service: Signed start-up is on
+KULAN-SIGNED-TEST service: kulan-signed-start.service: Deactivated successfully.
+KULAN-SIGNED-TEST service: Finished kulan-signed-start.service - Signed start-up: the next step after a restart (Kulan OS).
+KULAN-SIGNED-TEST service: kulan-signed-start.service: Consumed 2.555s CPU time, 127.6M memory peak.
+KULAN-SIGNED-TEST fallback=shim
+KULAN-SIGNED-TEST after_grub_update=0 first=0006 kulan=0006
+Installing dracut and the TPM tools…
+Adding the TPM key to the disk…
+Rebuilding the start-up image…
+TPM unlock is on. The disk unlocks automatically on this computer
+KULAN-SIGNED-TEST tpm_on_exit=0
+KULAN-SIGNED-TEST key_removed=0
+KULAN-SIGNED-TEST rebuilt=0
+KULAN-SIGNED-TEST phase=on started_signed=True
+KULAN-SIGNED-TEST loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 unlock=
+KULAN-SIGNED-TEST done
+--- on.err
+Installing the start-up tools…
+Making the start-up images…
+Signing the start-up files…
+At the next restart, a blue screen asks to enroll a key: press a key, choose Enroll MOK, Continue, Yes, type the code 13721349 and choose Reboot
