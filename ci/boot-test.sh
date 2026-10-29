@@ -164,6 +164,12 @@ else
 fi
 result info "Startup time" "$(field time)"
 result info "Memory in use" "$(field memory)"
+BACKGROUND="$(field background)"
+if [[ "${BACKGROUND}" =~ ^(idle|0)\ (inactive|active)$ ]]; then
+	result pass "Background work" "automatic updates run at idle priority; Intel's thermal service didn't fail (${BACKGROUND})"
+else
+	result fail "Background work" "automatic updates' priority or the thermal service: ${BACKGROUND:-not reported}"
+fi
 if [[ "$(field timezone)" == America/New_York ]]; then
 	result pass "Time zone" "the live session uses the installer's guess (America/New_York), not UTC"
 else

@@ -21,7 +21,9 @@ def main() -> int:
         print("kulan-assistant: no model downloaded; choose one in Kulan Settings > Assistant", file=sys.stderr)
         return 1
     model = engine.model_path(model_id)
-    threads = max(1, min(8, (os.cpu_count() or 2) - 1))
+    # Half the processor's threads (its cores, on most): the rest stay free for
+    # what you're doing while it answers.
+    threads = max(1, min(8, (os.cpu_count() or 2) // 2))
     try:
         engine.prepare_runtime_dir()
     except engine.EngineError as exc:
