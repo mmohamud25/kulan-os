@@ -1,0 +1,47 @@
+# Kulan OS start menu (written by Kulan's boot menu hook).
+desktop-image: "../splash.png"
+title-text: ""
+message-font: "Unifont Regular 16"
+terminal-font: "Unifont Regular 16"
+
++ boot_menu {
+	left = 12%
+	width = 60%
+	top = 36%
+	height = 36%
+	item_font = "Inter Regular 26"
+	selected_item_font = "Inter Regular 26"
+	item_color = "#c9d6e3"
+	selected_item_color = "#ffb547"
+	item_height = 40
+	item_padding = 0
+	item_spacing = 10
+	icon_width = 0
+	icon_height = 0
+	item_icon_space = 0
+}
+
++ progress_bar {
+	id = "__timeout__"
+	left = 12%
+	top = 75%
+	width = 60%
+	height = 32
+	font = "Inter Regular 18"
+	text_color = "#ffffff"
+	fg_color = "#1f7a8c"
+	bg_color = "#0e2a44"
+	border_color = "#3c6e91"
+	text = "@TIMEOUT_NOTIFICATION_LONG@"
+}
+
++ label {
+	left = 12%
+	top = 75%+48
+	width = 60%
+	height = 24
+	align = "left"
+	color = "#b8c7d6"
+	font = "Inter Regular 18"
+	text = "@KEYMAP_SHORT@"
+}
