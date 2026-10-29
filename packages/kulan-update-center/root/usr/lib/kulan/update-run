@@ -57,10 +57,12 @@ APT_OPTS=(-q -y "${APT_LOCK[@]}"
 	-o APT::Status-Fd=3)
 
 # The message is for the person: on standard error for Terminal and logs, and as
-# a "say:" line on standard output, which Kulan Settings shows in full.
+# a "say:" line on standard output, which Kulan Settings shows in full. Always the
+# real standard output (kept as fd 4), never into a $(...) or <(...) that called die.
+exec 4>&1
 die() {
 	echo "$*" >&2
-	echo "say:$*"
+	echo "say:$*" >&4
 	exit 1
 }
 
