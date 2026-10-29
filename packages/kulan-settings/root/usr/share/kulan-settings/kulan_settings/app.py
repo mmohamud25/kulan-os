@@ -350,6 +350,20 @@ class KulanSettings(Adw.Application):
             assert "Secure Boot is off" in page.signed_row.get_subtitle() and not page.signed_button.get_visible()
         except (AssertionError, KeyError) as exc:
             failures.append(f"security: signed start-up {exc!r}")
+        try:  # Battery: health in words, and apps named from their cgroups
+            from . import battery
+            assert battery.health_text(51.48, 50.5, 100, 494).startswith("Good: holds 100%")
+            assert "494 charge cycles" in battery.health_text(51.48, 50.5, 100, 494)
+            assert battery.health_text(35, 50, 0, -1).startswith("Worn: holds 70%")
+            assert battery.health_text(20, 50, 0, -1).startswith("Worn out")
+            assert battery.app_id("app-gnome-firefox\\x2desr-12345.scope") == "firefox-esr"
+            assert battery.app_id("app-flatpak-com.spotify.Client-3456.scope") == "com.spotify.Client"
+            assert battery.app_id("kulan-assistant-engine.service") == "Ask Kulan"
+            assert battery.app_id("dbus.service") is None
+            window.show_page("battery")
+            window.pages["battery"].sample_apps()
+        except (AssertionError, KeyError) as exc:
+            failures.append(f"battery: {exc!r}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
