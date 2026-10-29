@@ -14,11 +14,15 @@ from __future__ import annotations
 import json
 import re
 import os
+import pwd
 import subprocess
 import sys
 from pathlib import Path
 
 JOIN = Path("/var/lib/kulan/fleet-join.json")
+# Why the USB stick's join stopped, for Kulan Settings › About (anyone may read it).
+PROBLEM = Path("/var/lib/kulan/fleet-join-problem")
+NOTICE = Path("/usr/lib/kulan/oom-notice")  # shows a notification in someone's session
 CONFIG = Path("/etc/kulan/fleet.json")
 GIVE_UP = 2000  # tries, every 10 minutes
 CODE = re.compile(r"^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$")
@@ -28,6 +32,30 @@ def done(why: str) -> int:
     print(why)
     JOIN.unlink(missing_ok=True)
     return 0
+
+
+def tell(text: str) -> None:
+    """When joining from the USB stick stopped without joining: said in Kulan Settings ›
+    About, and as a notification to whoever is signed in."""
+    try:
+        PROBLEM.write_text(text + "\n")
+        PROBLEM.chmod(0o644)
+    except OSError:
+        pass
+    if not NOTICE.exists():
+        return
+    for bus in sorted(Path("/run/user").glob("*/bus")):
+        uid = bus.parent.name
+        if not uid.isdigit() or int(uid) < 1000:
+            continue
+        try:
+            user = pwd.getpwuid(int(uid)).pw_name
+            subprocess.run(["runuser", "-u", user, "--", "env", f"DBUS_SESSION_BUS_ADDRESS=unix:path={bus}",
+                            f"XDG_RUNTIME_DIR={bus.parent}", str(NOTICE), "notify",
+                            "This computer didn’t join your organisation", text],
+                           capture_output=True, timeout=20, check=False)
+        except (KeyError, OSError, subprocess.TimeoutExpired):
+            continue
 
 
 def main() -> int:
@@ -44,6 +72,8 @@ def main() -> int:
         return done("The USB stick's settings aren't valid")
     tries = int(settings.get("tries", 0)) if str(settings.get("tries", 0)).isdigit() else 0
     if tries >= GIVE_UP:
+        tell("It couldn’t reach your organisation for 14 days. Ask your IT team for a new code, then join in "
+             "Kulan Settings › About")
         return done("Couldn't join the organisation for 14 days: stopped trying. Join in Kulan Settings › About")
     settings["tries"] = tries + 1
     # Written 0600 from the start (the code must never be readable by others, even for a moment).
@@ -61,9 +91,12 @@ def main() -> int:
     said = (out.stdout + out.stderr).strip()
     print(said)
     if out.returncode == 0 or CONFIG.exists():
+        PROBLEM.unlink(missing_ok=True)
         return done("Joined the organisation from the USB stick")
-    # Refused (400, 403...), but not "too many at once" (429) or "too slow" (408).
-    if re.search(r"server said 4(?!08|29)\d\d", said):
+    # Refused (kulan-fleet join's 2: the code is used up, expired or wrong), not just offline or busy.
+    if out.returncode == 2:
+        tell("Your organisation didn’t accept the USB stick’s join code (it may be used up or expired). Ask "
+             "your IT team for a new code, then join in Kulan Settings › About")
         return done("The organisation's server refused the USB stick's join code (used up or expired): "
                     "join in Kulan Settings › About with a new code")
     return 0  # not online yet, or the server busy: next time

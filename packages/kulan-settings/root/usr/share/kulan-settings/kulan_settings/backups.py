@@ -13,7 +13,7 @@ import shutil
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, choice_row, has_key, launch, settings
+from .common import Page, choice_row, has_key, launch, plain_error, settings
 
 DEJA_DUP = "org.gnome.DejaDup"
 APP_ID = "org.gnome.DejaDup.desktop"
@@ -80,7 +80,7 @@ class BackupsPage(Page):
         self.drive = settings(f"{DEJA_DUP}.Drive")
         self.local = settings(f"{DEJA_DUP}.Local")
         if self.deja is None or shutil.which("deja-dup") is None:
-            group = self.add_group(None, "Backups need Déjà Dup, which isn’t installed. Get it in Software.")
+            group = self.add_group(None, "Backups need the Backups app, which isn’t installed. Get it in Software.")
             group.add(Adw.ActionRow(title="Restore points still protect the system",
                                     subtitle="Software Update takes one before every update"))
             return
@@ -163,8 +163,8 @@ class BackupsPage(Page):
         if include == ["$HOME"] and set(exclude) <= {"$TRASH", "$DOWNLOAD"}:
             skipped = " and ".join(name for key, name in (("$DOWNLOAD", "Downloads"), ("$TRASH", "the bin"))
                                    if key in exclude)
-            return "Your home folder" + (f", except {skipped}" if skipped else "") + ". Change in Déjà Dup"
-        return f"{len(include)} folder(s), {len(exclude)} left out. Change in Déjà Dup"
+            return "Your home folder" + (f", except {skipped}" if skipped else "") + ". Change in the Backups app"
+        return f"{len(include)} folder(s), {len(exclude)} left out. Change in the Backups app"
 
     # --- where ------------------------------------------------------------------------
     def fill_places(self) -> None:
@@ -246,9 +246,9 @@ class BackupsPage(Page):
         try:
             Gio.Subprocess.new(["deja-dup", "--backup"], Gio.SubprocessFlags.NONE)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t start the backup: {exc.message}")
+            self.toast(f"Couldn’t start the backup. {plain_error(exc)}")
             return
-        self.toast("Backing up. Déjà Dup shows the progress")
+        self.toast("Backing up. The Backups app shows the progress")
 
     def open_deja(self) -> None:
         launch(APP_ID, self.toast)
@@ -267,5 +267,5 @@ class BackupsPage(Page):
             try:
                 Gio.Subprocess.new(["deja-dup", "--restore", chosen.get_path()], Gio.SubprocessFlags.NONE)
             except GLib.Error as exc:
-                self.toast(f"Couldn’t open Déjà Dup: {exc.message}")
+                self.toast(f"Couldn’t open Backups. {plain_error(exc)}")
         dialog.open(self.window, None, done)

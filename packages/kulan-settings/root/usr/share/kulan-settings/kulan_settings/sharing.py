@@ -44,7 +44,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from .common import Page, settings
+from .common import Page, plain_error, settings
 
 SCHEMA_ID = "org.gnome.desktop.remote-desktop.rdp"
 CREDENTIALS_SCHEMA = "org.gnome.RemoteDesktop.RdpCredentials"
@@ -610,7 +610,7 @@ class SharingPage(Page):
             self.busy = False
             if not ok:
                 self.rdp.set_boolean("enable", False)
-                self.toast(f"Remote desktop didn’t start: {err.splitlines()[-1] if err else 'try again'}")
+                self.toast(f"Remote desktop didn’t start. {plain_error(err or 'failed')}")
             self.sync()
             if ok and firewall_on() and not FIREWALL_MARK.exists():
                 self.allow_firewall()

@@ -18,10 +18,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from . import updatelist
-from .common import Page, launch, os_release, plural, read_json
+from .common import Page, launch, os_release, plural, read_json, restart_computer
 
 STATUS_FILE = Path("/var/lib/kulan/updates.json")
 HISTORY_LOG = Path("/var/log/apt/history.log")
@@ -378,14 +378,8 @@ class UpdatesPage(Page):
             self.restart()
 
     def restart(self) -> None:
-        # GNOME's own restart dialog, so open apps can save their work first.
-        try:
-            Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SESSION, Gio.DBusProxyFlags.NONE, None, "org.gnome.SessionManager",
-                "/org/gnome/SessionManager", "org.gnome.SessionManager", None).call_sync(
-                "Reboot", None, Gio.DBusCallFlags.NONE, -1, None)
-        except GLib.Error as exc:
-            self.toast(f"Couldn’t restart: {exc.message}")
+        restart_computer(lambda: self.toast("Couldn’t restart. Use the menu at the top right: the power button, "
+                                            "then Restart"))
 
     # --- More Details ------------------------------------------------------------------
     def open_url(self, url: str) -> None:

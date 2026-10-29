@@ -87,16 +87,31 @@ def date_answer(now: datetime.datetime | None = None) -> str:
 
 
 def _battery_reading() -> tuple[int, str] | None:
-    """(percent, state) for the first battery, or None when there's none."""
+    """(percent, state) for all of the computer's batteries together (some laptops have
+    two), or None when there's none."""
+    levels: list[int] = []
+    states: list[str] = []
+    now = full = 0
     for supply in sorted(Path("/sys/class/power_supply").glob("*")):
         if facts._read(str(supply / "type")) != "Battery":
             continue
         if facts._read(str(supply / "scope")).lower() == "device":
             continue  # a wireless mouse or keyboard, not this computer
         capacity = facts._read(str(supply / "capacity"))
-        if capacity.isdigit():
-            return int(capacity), facts._read(str(supply / "status")).lower()
-    return None
+        if not capacity.isdigit():
+            continue
+        levels.append(min(100, int(capacity)))
+        states.append(facts._read(str(supply / "status")).lower())
+        unit = "energy" if facts._read(str(supply / "energy_full")) else "charge"
+        n, f = facts._read(str(supply / f"{unit}_now")), facts._read(str(supply / f"{unit}_full"))
+        if n.isdigit() and f.isdigit() and int(f) > 0:
+            now, full = now + int(n), full + int(f)
+    if not levels:
+        return None
+    percent = round(min(100, now / full * 100)) if len(levels) > 1 and full else levels[0]
+    state = ("charging" if "charging" in states else "discharging" if "discharging" in states
+             else "full" if all(s == "full" for s in states) else states[0])
+    return percent, state
 
 
 def battery_answer(reading: tuple[int, str] | None | bool = False) -> str:

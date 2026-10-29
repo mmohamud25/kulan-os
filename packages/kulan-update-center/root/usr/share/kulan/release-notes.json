@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.10.2",
+    "label": "2.10.2",
+    "title": "Battery health, and plain words when something goes wrong",
+    "items": [
+      "Kulan Settings › Battery shows the battery's health (how much it holds compared with when it was new, and how many times it has been charged), how much power the computer is using, and the apps using the most",
+      "On laptops that can, stop charging at 80% to keep the battery healthy for longer. Laptops with two batteries show both",
+      "When something doesn't work, Kulan says why in plain words and what to do, instead of a program's error message: in updates, Bluetooth, Wi-Fi, accounts, printers, joining an organisation and the installer",
+      "A computer installed from an organisation's USB stick says so if it couldn't join, in a notification and in Kulan Settings › About",
+      "The installer and Kulan Settings › Users never suggest a user name the system already uses",
+      "Update progress names what's being installed (\"Installing Firefox\"), and the \"Kulan OS was updated\" notification counts updates the way Software Update does",
+      "The calendar widget shows events that are already on as \"Now\", and uses the 12-hour clock when the top bar does",
+      "Restarting from Software Update and Security no longer freezes the window for a moment"
+    ]
+  },
+  {
     "version": "2.10.1",
     "label": "2.10.1",
     "title": "Smoother when you do several things at once",

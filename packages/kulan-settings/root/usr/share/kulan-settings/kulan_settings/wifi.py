@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page
+from .common import Page, plain_error
 from .netextras import NetworkExtras, details_text
 
 try:
@@ -330,7 +330,7 @@ class WifiPage(Page):
         try:
             client.dbus_set_property_finish(result)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t change Wi-Fi: {exc.message}")
+            self.toast(f"Couldn’t change Wi-Fi. {plain_error(exc)}")
             self.queue_refresh()
 
     def disconnect(self, device) -> None:
@@ -342,7 +342,7 @@ class WifiPage(Page):
                 getattr(obj, method)(result)
             except GLib.Error as exc:
                 if not exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
-                    self.toast(f"{failure}: {exc.message}")
+                    self.toast(f"{failure}. {plain_error(exc)}")
             self.queue_refresh()
         return done
 

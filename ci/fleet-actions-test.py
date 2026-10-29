@@ -439,7 +439,7 @@ try:
     rc_empty = kf_mod.get_help("mo")
     sys.stdin, sys.stdout = io.StringIO('{"text": "x"}'), io.StringIO()
     rc_nobody = kf_mod.get_help("root")
-    kf_mod.post = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("the server said 429 Too Many Requests"))
+    kf_mod.post = lambda *a, **k: (_ for _ in ()).throw(kf_mod.ServerError("Too many tries", 429))
     sys.stdin, sys.stdout = io.StringIO('{"text": "x"}'), io.StringIO()
     rc_busy = kf_mod.get_help("mo")
 finally:

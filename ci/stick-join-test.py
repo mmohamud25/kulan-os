@@ -109,6 +109,8 @@ check("not an ISO: nothing", engine.stick_settings(str(work / "nothing")) is Non
 # 2. Joining, with kulan-fleet stood in for.
 autojoin.JOIN = work / "fleet-join.json"
 autojoin.CONFIG = work / "fleet.json"
+autojoin.PROBLEM = work / "fleet-join-problem"
+autojoin.NOTICE = work / "no-notice"  # no desktop to tell in this test
 calls = []
 
 
@@ -133,7 +135,7 @@ def reset(settings=WANT) -> None:
 
 
 reset()
-autojoin.subprocess.run = fake(1, "Couldn't join: couldn't reach the server: [Errno -3] Temporary failure")
+autojoin.subprocess.run = fake(1, "Couldn't join. Can’t reach your organisation’s server. Check the internet connection.")
 autojoin.main()
 check("offline: tried, kept for next time", autojoin.JOIN.exists() and calls[0] == (
     ["/usr/bin/kulan-fleet", "join", WANT["server"]], "ABCD-EFGH-JK2M\n"), calls)
@@ -142,9 +144,10 @@ autojoin.subprocess.run = fake(0, "Joined Kulan", joins=True)
 autojoin.main()
 check("joined: the code removed", not autojoin.JOIN.exists() and len(calls) == 1)
 reset()
-autojoin.subprocess.run = fake(1, "Couldn't join: the server said 403 Forbidden")
+autojoin.subprocess.run = fake(2, "Couldn't join. That code isn't valid. It may be used, expired or mistyped.")
 autojoin.main()
-check("code refused: stops trying", not autojoin.JOIN.exists())
+check("code refused: stops trying, and says so in Settings", not autojoin.JOIN.exists() and
+      "didn’t accept" in autojoin.PROBLEM.read_text())
 reset()
 autojoin.CONFIG.write_text("{}")
 autojoin.main()
@@ -158,7 +161,7 @@ check("after 2,000 tries: stops trying", not calls and not autojoin.JOIN.exists(
 reset()
 old = time.time() - 400 * 86400  # a clock far off at install: not a reason to stop
 os.utime(autojoin.JOIN, (old, old))
-autojoin.subprocess.run = fake(1, "Couldn't join: the server said 429 Too Many Requests")
+autojoin.subprocess.run = fake(1, "Couldn't join. Too many tries in a short time. Wait a little, then try again.")
 autojoin.main()
 check("busy server (429) or an old date: kept, tries counted",
       autojoin.JOIN.exists() and json.loads(autojoin.JOIN.read_text()).get("tries") == 1 and len(calls) == 1)

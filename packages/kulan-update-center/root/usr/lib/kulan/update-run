@@ -56,8 +56,13 @@ APT_OPTS=(-q -y "${APT_LOCK[@]}"
 	-o Dpkg::Options::=--force-confold
 	-o APT::Status-Fd=3)
 
+# The message is for the person: on standard error for Terminal and logs, and as
+# a "say:" line on standard output, which Kulan Settings shows in full. Always the
+# real standard output (kept as fd 4), never into a $(...) or <(...) that called die.
+exec 4>&1
 die() {
 	echo "$*" >&2
+	echo "say:$*" >&4
 	exit 1
 }
 
@@ -244,6 +249,7 @@ case "${1:-}" in
 			die "usage: update-run install [--restore-point]"
 		fi
 		repair_dpkg
+		refresh_lists
 		check_space --with-new-pkgs upgrade
 		if [[ ${RESTORE} -eq 1 && -x /usr/lib/kulan/restore-points ]]; then
 			echo "pmstatus:restore-point:0:Creating a restore point"
@@ -329,6 +335,8 @@ case "${1:-}" in
 				run_apt install "${PACKAGES[@]}"
 			fi
 			if [[ ${#FLATPAKS[@]} -gt 0 ]]; then
+				getent hosts dl.flathub.org >/dev/null 2>&1 ||
+					die "Not connected to the internet. Connect to Wi-Fi or a cable, then try again."
 				flatpak remote-add --system --if-not-exists flathub "${FLATHUB_URL}" 1>&2
 				flatpak install --system --noninteractive -y flathub "${FLATPAKS[@]}" 1>&2
 			fi

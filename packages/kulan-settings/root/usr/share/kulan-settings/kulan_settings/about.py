@@ -16,7 +16,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from .common import Page, os_release
+from .common import Page, failure_text, os_release
 
 KULAN_CONF = Path("/usr/share/kulan/kulan.conf")
 
@@ -287,9 +287,14 @@ class AboutPage(Page):
             self.erase_row = erase
             rows.append(erase)
         else:
-            join = Adw.ActionRow(title="Join an organisation",
-                                 subtitle="For work or school computers. Your IT team gives you a server address "
-                                          "and a one-time code", activatable=True)
+            # Why joining from an organisation's USB stick stopped (kulan-fleet-autojoin).
+            try:
+                problem = Path("/var/lib/kulan/fleet-join-problem").read_text().strip()
+            except OSError:
+                problem = ""
+            join = Adw.ActionRow(title="Join an organisation", subtitle_lines=0,
+                                 subtitle=problem or "For work or school computers. Your IT team gives you a "
+                                                     "server address and a one-time code", activatable=True)
             join.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             join.connect("activated", lambda _r: self.join_org())
             rows = [join]
@@ -424,11 +429,11 @@ class AboutPage(Page):
             try:
                 r = subprocess.run(["pkexec", self.TWO_STEP_HELPER, *args], input=stdin, capture_output=True, text=True,
                                    timeout=300, check=False)
-                ok, msg = r.returncode == 0, (r.stderr.strip().splitlines() or [""])[-1]
+                ok, msg = r.returncode == 0, failure_text(r.stderr.strip().splitlines())
                 if r.returncode in (126, 127):
                     msg = "Not changed. The password wasn't entered."
-            except (OSError, subprocess.TimeoutExpired) as e:
-                ok, msg = False, str(e)
+            except (OSError, subprocess.TimeoutExpired):
+                ok, msg = False, "That took too long. Try again"
             GLib.idle_add(lambda: (done(ok, msg), False)[1])
         threading.Thread(target=work, daemon=True).start()
 
@@ -436,8 +441,8 @@ class AboutPage(Page):
         mine = self.my_two_step() or {}
         dialog = Adw.AlertDialog(heading="Two-step sign-in",
                                  body="After your password, touch a security key or enter a code from your phone. "
-                                      "It works on every organisation computer you use. sudo still asks "
-                                      "only for your password." + (" Your organisation asks you to set it up."
+                                      "It works on every organisation computer you use. Changes that need "
+                                      "an administrator’s password still ask only for your password." + (" Your organisation asks you to set it up."
                                                                     if mine.get("required") and not mine.get("factors") else ""))
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         for f in mine.get("factors") or []:
@@ -488,14 +493,15 @@ class AboutPage(Page):
                 try:
                     r = subprocess.run(["pamu2fcfg", "-n", "-o", self.TWO_STEP_ORIGIN, "-i", self.TWO_STEP_ORIGIN],
                                        capture_output=True, text=True, timeout=60, check=False)
-                    cred, err = (r.stdout.strip(), "") if r.returncode == 0 else ("", (r.stderr.strip().splitlines()
-                                                                                       or ["no key found"])[-1])
+                    found = r.returncode == 0 and r.stdout.strip()
+                    cred, err = (r.stdout.strip(), "") if found else (
+                        "", "No security key answered. Plug it in and touch it when it blinks")
                 except (OSError, subprocess.TimeoutExpired):
-                    cred, err = "", "no key was touched in time"
+                    cred, err = "", "The key wasn’t touched in time. Try again, and touch it when it blinks"
 
                 def after() -> bool:
                     if not cred:
-                        self.window.toast(f"Not added: {err}")
+                        self.window.toast(err)
                         return False
                     self.two_step_call(["add", "key", name.get_text().strip() or "Security key"], cred + "\n",
                                        lambda ok, msg: (self.window.toast("Security key added. Touch it when you sign in."
@@ -585,6 +591,13 @@ class AboutPage(Page):
         dialog.add_response("join", "Join")
         dialog.set_response_appearance("join", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_close_response("cancel")
+        # Join only once both are filled in.
+        dialog.set_response_enabled("join", False)
+
+        def filled(*_a) -> None:
+            dialog.set_response_enabled("join", bool(server.get_text().strip() and code.get_text().strip()))
+        server.connect("changed", filled)
+        code.connect("changed", filled)
 
         def answered(_d, response: str) -> None:
             if response != "join" or not server.get_text().strip() or not code.get_text().strip():

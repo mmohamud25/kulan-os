@@ -187,6 +187,18 @@ def restart_required() -> list[str]:
     return list(dict.fromkeys(names))[:20]
 
 
+def updated_count(packages: list[str]) -> int:
+    """How many updates a person would count among these packages."""
+    try:
+        out = subprocess.run(["dpkg-query", "-W", "-f", "${Package}\\t${source:Package}\\n", *packages],
+                             capture_output=True, text=True, timeout=30, check=False).stdout
+        source = dict(line.split("\t", 1) for line in out.splitlines() if "\t" in line)
+    except (OSError, subprocess.TimeoutExpired):
+        source = {}
+    updates = [{"name": p, "source": source.get(p, p)} for p in packages]
+    return counted(updates)[0] if updates else 0
+
+
 def last_run() -> dict:
     """The most recent apt run that installed or upgraded something."""
     try:
@@ -200,16 +212,17 @@ def last_run() -> dict:
             key, sep, value = line.partition(": ")
             if sep:
                 fields[key] = value
-        changed = [fields[k] for k in ("Upgrade", "Install") if k in fields]
-        if not changed:
+        # Only runs that updated something: installing an app (or what it needs) isn't "Kulan OS was updated".
+        if "Upgrade" not in fields:
             continue
-        packages = [p.split(":")[0].split(" ")[0] for chunk in changed for p in chunk.split("), ") if p.strip()]
+        packages = [p.split(":")[0].split(" ")[0] for p in fields["Upgrade"].split("), ") if p.strip()]
         stamp = fields.get("End-Date") or fields.get("Start-Date") or ""
         try:
             when = time.mktime(datetime.strptime(" ".join(stamp.split()), "%Y-%m-%d %H:%M:%S").timetuple())
         except ValueError:
             when = 0
-        return {"time": int(when), "count": len(packages), "packages": packages[:50]}
+        # Counted the way Software Update and the top bar count (all of Firefox's packages are one).
+        return {"time": int(when), "count": updated_count(packages), "packages": packages[:50]}
     return {}
 
 

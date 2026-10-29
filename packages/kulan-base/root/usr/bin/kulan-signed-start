@@ -91,6 +91,14 @@ def say(text: str) -> None:
     print(text, file=sys.stderr, flush=True)
 
 
+def detail(result, text: str) -> str:
+    """The tool's own words go to the log (indented, so Kulan Settings never shows them as the
+    message); the plain sentence comes back, to be said last."""
+    for line in (result.stderr or "").strip().splitlines()[-8:]:
+        print("    " + line, file=sys.stderr, flush=True)
+    return text[:1].upper() + text[1:]
+
+
 def need_root() -> None:
     if os.geteuid() != 0:
         sys.exit("kulan-signed-start: this needs administrator rights (run it with sudo)")
@@ -245,7 +253,7 @@ def make_key() -> None:
         r = run(["openssl", "req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "36500",
                  "-subj", f"/CN=Kulan OS signed start-up {machine}/", "-keyout", str(key), "-out", str(crt)])
         if r.returncode != 0:
-            raise RuntimeError("the signing key couldn't be made: " + r.stderr.strip()[-200:])
+            raise RuntimeError(detail(r, "the signing key couldn't be made"))
         der = Path(tmp) / "d"
         run(["openssl", "x509", "-in", str(crt), "-outform", "DER", "-out", str(der)])
         for src, dst in ((key, KEY), (crt, CERT), (der, CERT_DER)):
@@ -297,7 +305,7 @@ def build_one(version: str) -> None:
     if not initrd.exists():
         r = run(["dracut", "--force", "--kver", version, str(initrd)], timeout=1800)
         if r.returncode != 0:
-            raise RuntimeError("the start-up image couldn't be made: " + (r.stderr.strip()[-300:] or "dracut failed"))
+            raise RuntimeError(detail(r, "the start-up image couldn't be made"))
     out = uki_path(version)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".new")
@@ -310,7 +318,7 @@ def build_one(version: str) -> None:
              f"--output={tmp}"], timeout=600)
     if r.returncode != 0:
         tmp.unlink(missing_ok=True)
-        raise RuntimeError("the signed start-up file couldn't be made: " + (r.stderr.strip()[-300:] or "ukify failed"))
+        raise RuntimeError(detail(r, "the signed start-up file couldn't be made"))
     if run(["sbverify", "--cert", str(CERT), str(tmp)]).returncode != 0:
         tmp.unlink(missing_ok=True)
         raise RuntimeError("the signed start-up file didn't pass its own check")
@@ -429,7 +437,7 @@ def make_entry() -> str:
              "--loader", f"\\EFI\\{VENDOR}\\shim{x64}.efi", "--unicode", f"\\EFI\\{VENDOR}\\systemd-boot{x64}.efi \\0"])
     found = kulan_entry()
     if r.returncode != 0 or not found:
-        raise RuntimeError("the start-up entry couldn't be made: " + r.stderr.strip()[-200:])
+        raise RuntimeError(detail(r, "the start-up entry couldn't be made"))
     # efibootmgr puts a new entry first: keep the order as it was until the switch.
     run(["efibootmgr", "-q", "--bootorder", ",".join([*before, found] if before else [found])])
     return found
@@ -460,7 +468,7 @@ def request_enroll(state: dict) -> None:
     try:
         r = run(["mokutil", "--generate-hash=" + code])
         if r.returncode != 0 or not r.stdout.strip():
-            raise RuntimeError("the code couldn't be prepared: " + r.stderr.strip()[-200:])
+            raise RuntimeError(detail(r, "the code couldn't be prepared"))
         hash_file.write_text(r.stdout.strip() + "\n")
         run(["mokutil", "--revoke-import"])  # an earlier request, with another code
         r = run(["mokutil", "--import", str(CERT_DER), "--hash-file", str(hash_file)])
@@ -478,9 +486,11 @@ def install_packages() -> None:
         return
     say("Installing the start-up tools…")
     r = run(["apt-get", "install", *APT_OPTS, *missing], env=APT_ENV, timeout=1800, input_text="")
+    if r.returncode != 0:  # old package lists: refresh them and try again
+        run(["apt-get", "update", "-q", "-o", "DPkg::Lock::Timeout=300"], env=APT_ENV, timeout=600)
+        r = run(["apt-get", "install", *APT_OPTS, *missing], env=APT_ENV, timeout=1800, input_text="")
     if r.returncode != 0:
-        raise RuntimeError("the start-up tools couldn't be installed. Check the internet connection: "
-                           + r.stderr.strip()[-300:])
+        raise RuntimeError(detail(r, "the start-up tools couldn't be installed. Check the internet connection"))
 
 
 # --- the steps ------------------------------------------------------------------------------
@@ -505,7 +515,7 @@ def turn_on() -> int:
         say("Making the start-up images…")
         r = run(["dracut", "--force", "--regenerate-all"], timeout=3600)
         if r.returncode != 0:
-            raise RuntimeError("the start-up images couldn't be made: " + (r.stderr.strip()[-300:] or "dracut failed"))
+            raise RuntimeError(detail(r, "the start-up images couldn't be made"))
         say("Signing the start-up files…")
         rebuild()
         install_loader()
@@ -588,7 +598,7 @@ def remove_grub() -> None:
         elif plan.returncode == 0 and set(going) <= set(grub):
             r = run(["apt-get", "purge", *APT_OPTS, *grub], env=APT_ENV, timeout=1800, input_text="")
             if r.returncode != 0:
-                say("GRUB's packages couldn't be removed now: " + r.stderr.strip()[-200:])
+                say(detail(r, "GRUB's packages couldn't be removed now"))
         else:
             say("GRUB's packages stay (removing them would also remove " +
                 (", ".join(p for p in going if p not in grub) or plan.stderr.strip()[-200:]) +
@@ -663,7 +673,7 @@ def turn_off() -> int:
     r = run(["apt-get", "install", *APT_OPTS, f"grub-efi-{arch()}-signed", f"grub-efi-{arch()}"],
             env=APT_ENV, timeout=1800, input_text="")
     if r.returncode != 0:
-        say("GRUB couldn't be installed. Check the internet connection: " + r.stderr.strip()[-300:])
+        say(detail(r, "GRUB couldn't be installed. Check the internet connection"))
         return 1
     # GRUB's own installer: Kulan's (grub-install) leaves GRUB out while signed start-up is on.
     real = "/usr/sbin/grub-install.debian"
@@ -673,7 +683,7 @@ def turn_off() -> int:
         argv.append("--uefi-secure-boot")
     r = run(argv)
     if r.returncode != 0:
-        say("GRUB couldn't be set up: " + r.stderr.strip()[-300:])
+        say(detail(r, "GRUB couldn't be set up"))
         return 1
     run(["update-grub"])
     run(["mokutil", "--revoke-import"])

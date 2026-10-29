@@ -16,6 +16,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -129,8 +130,8 @@ def open_app(a: dict) -> Result:
 def open_settings(a: dict) -> Result:
     try:
         subprocess.Popen(["kulan-settings", a["page"]], start_new_session=True)
-    except OSError as e:
-        return Result(False, str(e))
+    except OSError:
+        return Result(False, "Kulan Settings couldn't be opened. Open it from the app grid")
     return Result(True, "Opened Kulan Settings")
 
 
@@ -195,7 +196,7 @@ def set_wifi(a: dict) -> Result:
     state = "on" if a["on"] else "off"
     r = subprocess.run(["nmcli", "radio", "wifi", state], capture_output=True, text=True)
     if r.returncode != 0:
-        return Result(False, r.stderr.strip() or "Wi-Fi couldn't be changed")
+        return Result(False, "Wi-Fi couldn't be changed. Try the Wi-Fi switch at the top right")
     back = "off" if a["on"] else "on"
     return Result(True, f"Wi-Fi {state}", undo=lambda: subprocess.run(["nmcli", "radio", "wifi", back]))
 
@@ -397,7 +398,7 @@ def set_reminder(a: dict) -> Result:
     started = _systemctl("enable", "--now", f"{unit}.timer")
     if started.returncode != 0:
         remove_reminder(rid)
-        return Result(False, "The reminder couldn't be set: " + (started.stderr.strip()[:120] or "systemd said no"))
+        return Result(False, "The reminder couldn't be set. Try again")
     return Result(True, f"I'll remind you {when_words(at)}", undo=lambda: remove_reminder(rid))
 
 
@@ -615,7 +616,7 @@ def fix_wifi(_a: dict) -> Result:
     time.sleep(2)
     on = subprocess.run(["nmcli", "radio", "wifi", "on"], capture_output=True, text=True, timeout=20)
     if on.returncode != 0:
-        return Result(False, on.stderr.strip() or "Wi-Fi couldn't be turned back on")
+        return Result(False, "Wi-Fi couldn't be turned back on. Use the Wi-Fi switch at the top right")
     for _ in range(25):
         time.sleep(1)
         state = subprocess.run(["nmcli", "-t", "-f", "CONNECTIVITY", "general"], capture_output=True,
@@ -632,7 +633,7 @@ def fix_sound(_a: dict) -> Result:
     r = subprocess.run(["systemctl", "--user", "restart", "wireplumber", "pipewire", "pipewire-pulse"],
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
-        return Result(False, "The sound system couldn't be restarted: " + r.stderr.strip()[:120])
+        return Result(False, "The sound system couldn't be restarted. Sign out and in again to restart it")
     time.sleep(2)
     if shutil.which("wpctl"):
         volume = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True,
@@ -712,9 +713,9 @@ def back_up_now(_a: dict) -> Result:
     try:
         subprocess.Popen(["deja-dup", "--backup"], start_new_session=True, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
-    except OSError as e:
-        return Result(False, f"The backup didn't start: {e}")
-    return Result(True, "Backing up now. Déjà Dup shows the progress")
+    except OSError:
+        return Result(False, "The backup didn't start. Open Backups from the app grid and start it there")
+    return Result(True, "Backing up now. Backups shows the progress")
 
 
 def check_storage(_a: dict) -> Result:
@@ -973,7 +974,8 @@ def run_step(step: Step) -> Result:
     try:
         step.result = step.action.run(step.args)
     except Exception as e:  # an action never takes the window down
-        step.result = Result(False, f"That didn't work: {e}")
+        print(f"kulan-assistant: {step.action.id} failed: {e!r}", file=sys.stderr)  # for the log
+        step.result = Result(False, "That didn't work. Try again, or do it in Kulan Settings")
     return step.result
 
 

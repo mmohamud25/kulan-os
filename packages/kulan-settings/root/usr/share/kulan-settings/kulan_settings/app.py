@@ -150,7 +150,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.rows[page_id] = row
             self.sidebar_list.append(row)
         heading = Gtk.ListBoxRow(activatable=False, selectable=False)
-        heading.set_child(Gtk.Label(label="More in GNOME Settings", xalign=0, css_classes=["heading", "dim-label"],
+        heading.set_child(Gtk.Label(label="More in the Settings app", xalign=0, css_classes=["heading", "dim-label"],
                                     margin_top=12, margin_start=6))
         heading.page_id = None
         heading.keywords = ""
@@ -230,7 +230,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             box.append(Gtk.Image(icon_name="adw-external-link-symbolic", css_classes=["dim-label"]))
         row = Gtk.ListBoxRow(child=box)
         row.update_property([Gtk.AccessibleProperty.LABEL],
-                            [f"{title} (opens GNOME Settings)" if external else title])
+                            [f"{title} (opens the Settings app)" if external else title])
         return row
 
     def group_gap(self, row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None) -> None:
@@ -350,6 +350,41 @@ class KulanSettings(Adw.Application):
             assert "Secure Boot is off" in page.signed_row.get_subtitle() and not page.signed_button.get_visible()
         except (AssertionError, KeyError) as exc:
             failures.append(f"security: signed start-up {exc!r}")
+        try:  # Battery: health in words, and apps named from their cgroups
+            from . import battery
+            assert battery.health_text(51.48, 50.5, 100, 494).startswith("Good: holds 100%")
+            assert "494 charge cycles" in battery.health_text(51.48, 50.5, 100, 494)
+            assert battery.health_text(35, 50, 0, -1).startswith("Worn: holds 70%")
+            assert battery.health_text(20, 50, 0, -1).startswith("Worn out")
+            assert battery.app_id("app-gnome-firefox\\x2desr-12345.scope") == "firefox-esr"
+            assert battery.app_id("app-flatpak-com.spotify.Client-3456.scope") == "com.spotify.Client"
+            assert battery.app_id("kulan-assistant-engine.service") == "Ask Kulan"
+            assert battery.app_id("dbus.service") is None
+            window.show_page("battery")
+            window.pages["battery"].sample_apps()
+        except (AssertionError, KeyError) as exc:
+            failures.append(f"battery: {exc!r}")
+        try:  # Messages in plain words, never a program's own output
+            from . import bluetooth, common, users
+            ft = common.failure_text
+            assert ft([], "Not enough free space.") == "Not enough free space"
+            assert ft(["E: Temporary failure resolving 'deb.debian.org'"]).startswith("Not connected to the internet")
+            assert ft(["E: Could not get lock /var/lib/dpkg/lock-frontend"]).startswith("Another update is running")
+            assert ft(["Traceback (most recent call last):"]).startswith("That didn’t work")
+            assert common.plain_error("GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown: x").startswith(
+                "The part of Kulan OS")
+            assert common.plain_error("Not authorized").startswith("Permission wasn’t given")
+            assert common.plain_error("xyz 0x3f").startswith("Try again")
+            assert common.progress_text("pmstatus", "firefox-esr:amd64", "Unpacking firefox-esr (amd64)") == \
+                "Installing Firefox"
+            assert common.progress_text("pmstatus", "restore-point", "Creating a restore point") == \
+                "Creating a restore point"
+            assert common.progress_text("dlstatus", "x", "Retrieving file 3 of 9") == "Downloading"
+            assert bluetooth.bluez_reason("org.bluez.Error.AuthenticationFailed", "").startswith("The code didn’t")
+            assert users.user_name_from("Bin Li", {"bin"}) == "binl"
+            assert users.user_name_from("Amina Yusuf", {"amina"}) not in ("amina", "")
+        except (AssertionError, AttributeError) as exc:
+            failures.append(f"messages: {exc!r}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

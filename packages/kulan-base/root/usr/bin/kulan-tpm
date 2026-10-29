@@ -68,6 +68,14 @@ def say(text: str) -> None:
     print(text, file=sys.stderr, flush=True)
 
 
+def detail(result, text: str) -> str:
+    """The tool's own words go to the log (indented, so Kulan Settings never shows them as the
+    message); the plain sentence comes back, to be said last."""
+    for line in (result.stderr or "").strip().splitlines()[-8:]:
+        print("    " + line, file=sys.stderr, flush=True)
+    return text[:1].upper() + text[1:]
+
+
 # --- what this computer has -------------------------------------------------------
 def tpm2_present() -> bool:
     try:
@@ -216,11 +224,11 @@ def signed_start_phase() -> str:
 def rebuild_startup_image() -> None:
     r = run(["dracut", "--force", "--regenerate-all"], timeout=1800)
     if r.returncode != 0:
-        raise RuntimeError("the start-up image couldn't be rebuilt: " + (r.stderr.strip()[-300:] or "dracut failed"))
+        raise RuntimeError(detail(r, "the start-up image couldn't be rebuilt"))
     if signed_start_phase() != "off":
         r = run(["kulan-signed-start", "rebuild"], timeout=1800)
         if r.returncode != 0:
-            raise RuntimeError("the start-up files couldn't be signed: " + r.stderr.strip()[-300:])
+            raise RuntimeError(detail(r, "the start-up files couldn't be signed"))
     elif Path("/usr/sbin/update-grub").exists():
         run(["update-grub"])
 
@@ -248,11 +256,16 @@ def turn_on(with_pin: bool = False) -> int:
 
     say("Installing dracut and the TPM tools…")
     # Never stop to ask (it can run from Kulan Settings, with nobody at a terminal).
-    r = run(["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confdef",
-             "-o", "Dpkg::Options::=--force-confold", "dracut", "systemd-cryptsetup", "tpm2-tools"],
-            env={"DEBIAN_FRONTEND": "noninteractive"}, input_text="")
+    # Waits for an automatic update that's running; if the package lists are old, refreshes them and tries again.
+    install = ["apt-get", "install", "-y", "-q", "-o", "Dpkg::Options::=--force-confdef",
+               "-o", "Dpkg::Options::=--force-confold", "-o", "DPkg::Lock::Timeout=300",
+               "dracut", "systemd-cryptsetup", "tpm2-tools"]
+    r = run(install, env={"DEBIAN_FRONTEND": "noninteractive"}, input_text="")
     if r.returncode != 0:
-        say("Couldn't install the start-up tools. Check the internet connection: " + r.stderr.strip()[-300:])
+        run(["apt-get", "update", "-q", "-o", "DPkg::Lock::Timeout=300"], env={"DEBIAN_FRONTEND": "noninteractive"})
+        r = run(install, env={"DEBIAN_FRONTEND": "noninteractive"}, input_text="")
+    if r.returncode != 0:
+        say(detail(r, "Couldn't install the start-up tools. Check the internet connection"))
         return 1
     DRACUT_CONF.parent.mkdir(parents=True, exist_ok=True)
     DRACUT_CONF.write_text(
@@ -270,7 +283,7 @@ def turn_on(with_pin: bool = False) -> int:
         enroll.append("--tpm2-with-pin=yes")
     r = run([*enroll, device], env={"PASSWORD": password, **({"NEWPIN": pin} if with_pin else {})})
     if r.returncode != 0:
-        say("The TPM key couldn't be added: " + r.stderr.strip()[-300:])
+        say(detail(r, "The TPM key couldn't be added"))
         return 1
     # Prove it: get the disk's key back from the TPM, right now (with the PIN
     # when there is one), so it's never left on when it wouldn't work.
@@ -311,7 +324,7 @@ def turn_off() -> int:
     env = {"PASSWORD": password} if password else {}
     r = run(["systemd-cryptenroll", "--wipe-slot=tpm2", st["device"]], env=env)
     if r.returncode != 0:
-        say("The TPM key couldn't be removed: " + r.stderr.strip()[-300:])
+        say(detail(r, "The TPM key couldn't be removed"))
         return 1
     try:
         set_crypttab_option(st["volume"], False)

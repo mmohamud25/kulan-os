@@ -33,6 +33,8 @@ const PRAYER_NAMES = {fajr: 'Fajr', sunrise: 'Sunrise', dhuhr: 'Dhuhr', asr: 'As
 class CalendarWidget {
     constructor() {
         this.card = new Card('Calendar', 'x-office-calendar-symbolic', () => launchApp('org.gnome.Calendar.desktop'), 'calendar');
+        this._interface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._clockId = this._interface.connect('changed::clock-format', () => this.update());
         this._source = null;
         try {
             this._source = new Calendar.DBusEventSource();
@@ -75,12 +77,22 @@ class CalendarWidget {
                 'kulan-widget-muted'));
             return;
         }
+        // The time as the top bar shows it (13:00 or 1:00 PM).
+        const twelve = this._interface?.get_string('clock-format') === '12h';
+        const clock = t => (twelve ? t.format('%-l:%M %p') : t.format('%H:%M')).trim();
         for (const event of events) {
             const start = GLib.DateTime.new_from_unix_local(Math.floor(event.date.getTime() / 1000));
-            const sameDay = start.get_day_of_year() === now.get_day_of_year() && start.get_year() === now.get_year();
+            const finish = GLib.DateTime.new_from_unix_local(Math.floor(event.end.getTime() / 1000));
+            const today = t => t.get_day_of_year() === now.get_day_of_year() && t.get_year() === now.get_year();
             const allDay = event.end.getTime() - event.date.getTime() >= 86400000 &&
                 event.date.getHours() === 0 && event.date.getMinutes() === 0;
-            const when = allDay ? (sameDay ? 'All day' : 'Tomorrow') : `${sameDay ? '' : 'Tomorrow '}${start.format('%H:%M')}`;
+            let when;
+            if (event.date <= begin) // already started (today, or earlier and still going)
+                when = allDay ? 'All day' : (today(finish) ? `Now, until ${clock(finish)}` : 'Now');
+            else if (today(start))
+                when = allDay ? 'All day' : clock(start);
+            else
+                when = allDay ? 'Tomorrow' : `Tomorrow ${clock(start)}`;
             const row = new St.BoxLayout({style_class: 'kulan-widget-event', vertical: true});
             row.add_child(label(event.summary || 'Event', 'kulan-widget-line'));
             row.add_child(label(when, 'kulan-widget-muted'));
@@ -89,6 +101,9 @@ class CalendarWidget {
     }
 
     destroy() {
+        if (this._clockId)
+            this._interface.disconnect(this._clockId);
+        this._clockId = 0;
         if (this._sourceId)
             this._source.disconnect(this._sourceId);
         this._source?.destroy();

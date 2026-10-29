@@ -309,7 +309,8 @@ def chat(messages: list[dict], max_tokens: int = 1024, temperature: float = 0.3)
     except EngineError:
         raise
     except (OSError, http.client.HTTPException) as exc:
-        raise EngineError(f"The assistant stopped unexpectedly: {exc}") from exc
+        raise EngineError("The assistant stopped, probably for lack of memory. Close some apps and ask "
+                          "again") from exc
     if buffer and not in_think:
         yield buffer
     touch_last_use()
