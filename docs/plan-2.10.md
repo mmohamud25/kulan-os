@@ -67,6 +67,17 @@ when this list is empty.
     failed and showed apt's "Package 'whois' has no installation candidate".
   - Tor Browser's first start: its own old-style window and "Are you connected
     to the internet?" with no Kulan wording.
+  - Status (29 Oct 2026): all fixed, with tests. The start menu used Debian's
+    800x600 screen size; it now uses the screen's own size (checked at
+    1920x1080 with Secure Boot from a USB stick, ci/boot-menu-test.sh). The
+    restart froze on live-tools' hidden "remove the stick, press Enter"
+    (noprompt; the boot test now restarts the live system). Advanced install
+    is only in the installer's More choices; the installer says Windows,
+    macOS or another Linux system; the live session's Wi-Fi is carried over;
+    add-ons and Tor Browser say "not connected" plainly; the Wi-Fi password
+    box has Kulan's words; the live session uses the installer's time zone
+    guess (decided: no automatic time zone, for privacy); Ask Kulan names its
+    own engine and says how full memory is.
 - Kulan Fleet sign-in emails from kulangroup.com through our own mail
   service: a 6-digit code to type as well as the link, no low hourly limit,
   and the Supabase Site URL set to the dashboard.

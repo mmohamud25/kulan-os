@@ -47,19 +47,15 @@ done
 
 # The UEFI start menu (GRUB): the computer's own screen size rather than
 # Debian's 800x600, which some laptops can't show (on a ThinkPad T490 the
-# entries couldn't be seen), and Kulan's layout: larger entries in Inter
-# (config/includes.binary/boot/grub/kulan), the countdown and keys below
-# them, all clear of the Kulan OS logo at the bottom right.
+# entries couldn't be seen), and Kulan's layout: the entries, then the
+# countdown and keys below them, all clear of the Kulan OS logo at the bottom
+# right. Unifont only: in a Secure Boot test, Debian's signed GRUB used its
+# built-in Unifont and ignored a loaded Inter font.
 GRUB_DIR="${MEDIUM}/boot/grub"
 if [ -f "${GRUB_DIR}/config.cfg" ] && [ -f "${GRUB_DIR}/live-theme/theme.txt" ]; then
-	[ -f "${GRUB_DIR}/kulan/inter-26.pf2" ] || { echo "E: ${GRUB_DIR}/kulan/inter-26.pf2 missing" >&2; exit 1; }
 	sed -i 's|^\([[:space:]]*\)set gfxmode=800x600$|\1set gfxmode=1920x1080,1600x900,1366x768,1280x800,1024x768,800x600,auto|' \
 		"${GRUB_DIR}/config.cfg"
 	grep -q 'gfxmode=1920x1080' "${GRUB_DIR}/config.cfg" || { echo "E: GRUB's screen size not set in config.cfg" >&2; exit 1; }
-	if ! grep -q 'kulan/inter-26.pf2' "${GRUB_DIR}/theme.cfg"; then
-		sed -i 's|^\([[:space:]]*\)set theme=|\1loadfont /boot/grub/kulan/inter-18.pf2\n\1loadfont /boot/grub/kulan/inter-26.pf2\n&|' \
-			"${GRUB_DIR}/theme.cfg"
-	fi
 	cat > "${GRUB_DIR}/live-theme/theme.txt" <<'THEME'
 # Kulan OS start menu (written by Kulan's boot menu hook).
 desktop-image: "../splash.png"
@@ -72,13 +68,13 @@ terminal-font: "Unifont Regular 16"
 	width = 60%
 	top = 36%
 	height = 36%
-	item_font = "Inter Regular 26"
-	selected_item_font = "Inter Regular 26"
+	item_font = "Unifont Regular 16"
+	selected_item_font = "Unifont Regular 16"
 	item_color = "#c9d6e3"
 	selected_item_color = "#ffb547"
-	item_height = 40
+	item_height = 24
 	item_padding = 0
-	item_spacing = 10
+	item_spacing = 12
 	icon_width = 0
 	icon_height = 0
 	item_icon_space = 0
@@ -90,7 +86,7 @@ terminal-font: "Unifont Regular 16"
 	top = 75%
 	width = 60%
 	height = 32
-	font = "Inter Regular 18"
+	font = "Unifont Regular 16"
 	text_color = "#ffffff"
 	fg_color = "#1f7a8c"
 	bg_color = "#0e2a44"
@@ -100,12 +96,12 @@ terminal-font: "Unifont Regular 16"
 
 + label {
 	left = 12%
-	top = 75%+48
+	top = 75%+44
 	width = 60%
 	height = 24
 	align = "left"
 	color = "#b8c7d6"
-	font = "Inter Regular 18"
+	font = "Unifont Regular 16"
 	text = "@KEYMAP_SHORT@"
 }
 THEME
