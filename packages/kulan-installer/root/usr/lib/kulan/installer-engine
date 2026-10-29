@@ -44,6 +44,7 @@ the key at the first restart); GRUB starts the computer until then.
 from __future__ import annotations
 
 import configparser
+import contextlib
 import hashlib
 import json
 import os
@@ -75,6 +76,21 @@ class Failure(Exception):
     """Something went wrong; the message is shown to the person."""
 
 
+class ToolFailure(Failure):
+    """A tool failed: its own words go to the log, and the step it was in says
+    what went wrong in plain words (see step())."""
+
+
+@contextlib.contextmanager
+def step(message: str):
+    """Within a step, a tool's failure is shown as this message (the tool's words are in the log)."""
+    try:
+        yield
+    except ToolFailure as exc:
+        log(f"{message}: {exc}")
+        raise Failure(message) from exc
+
+
 def emit(**data) -> None:
     print(json.dumps(data), flush=True)
 
@@ -90,14 +106,14 @@ def run(argv: list[str], input_text: str | None = None, check: bool = True, env:
         result = subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout,
                                 env={**os.environ, "LC_ALL": "C.UTF-8", **(env or {})})
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise Failure(f"{argv[0]} couldn't run: {exc}") from exc
+        raise ToolFailure(f"{argv[0]} couldn't run: {exc}") from exc
     if result.stdout.strip():
         log(result.stdout.strip()[-4000:])
     if result.stderr.strip():
         log(result.stderr.strip()[-4000:])
     if check and result.returncode != 0:
         detail = (result.stderr.strip() or result.stdout.strip()).splitlines()
-        raise Failure(f"{argv[0]} failed: {detail[-1] if detail else 'exit ' + str(result.returncode)}")
+        raise ToolFailure(f"{argv[0]} failed: {detail[-1] if detail else 'exit ' + str(result.returncode)}")
     return result
 
 
@@ -247,6 +263,17 @@ def disks() -> list[dict]:
 
 # --- checks ---------------------------------------------------------------------------
 
+def taken_names() -> set[str]:
+    """The system's own account and group names (the new system starts from these files)."""
+    names = {"root", "kulan"}
+    for path in ("/etc/passwd", "/etc/group"):
+        try:
+            names |= {line.split(":", 1)[0] for line in Path(path).read_text().splitlines() if line}
+        except OSError:
+            pass
+    return names
+
+
 def check_plan(plan: dict) -> dict:
     disk = plan.get("disk", "")
     if not re.fullmatch(r"/dev/[A-Za-z0-9/_-]+", disk or "") or not Path(disk).is_block_device():
@@ -258,6 +285,8 @@ def check_plan(plan: dict) -> dict:
     user = plan.get("user") or {}
     if not NAME_RULE.match(user.get("username", "")):
         raise Failure("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
+    if user["username"] in taken_names():  # checked before the disk is touched
+        raise Failure(f"The user name “{user['username']}” is used by the system. Choose another")
     if not user.get("password"):
         raise Failure("Choose a password for the account")
     if any(c in str(user["password"]) for c in "\r\n\0"):  # chpasswd reads one account per line
@@ -643,7 +672,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     sources_list = target / "etc/apt/sources.list.d/kulan-installer-media.list"
     pool = pool_source(medium) if Path(medium).is_dir() else None
     if pool is None and plan.get("require_pool"):
-        raise Failure(f"No package pool on the medium ({medium}/dists)")
+        raise Failure("The USB stick is missing the files that make a disk start Kulan OS. Make the stick again")
     mounted = False
     try:
         if pool:
@@ -672,7 +701,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     settings = ["# Kulan Installer", "GRUB_DISABLE_OS_PROBER=false"]
     if plan.get("kernel_args"):
         if not re.fullmatch(r"[A-Za-z0-9_.,=:+/ -]*", plan["kernel_args"]):
-            raise Failure("Unexpected kernel options")
+            raise Failure("The start-up options given aren’t valid")
         settings.append(f'GRUB_CMDLINE_LINUX_DEFAULT="${{GRUB_CMDLINE_LINUX_DEFAULT}} {plan["kernel_args"]}"')
     write(grub_d / "60-kulan-installer.cfg", "\n".join(settings) + "\n")
 
@@ -755,13 +784,17 @@ def install(plan: dict) -> None:
     finished = False
     try:
         at("partition", 0, "Preparing the disk…")
-        parts = partition(plan)
-        disk_info = format_and_mount(plan, parts, target)
+        with step("Couldn’t prepare the disk. Close any app using it, such as Disks or Files, and try again"):
+            parts = partition(plan)
+            disk_info = format_and_mount(plan, parts, target)
         at("copy", 0, "Copying Kulan OS…")
-        copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
+        with step("Couldn’t copy Kulan OS to the disk. Check that the USB stick is still plugged in, and try "
+                  "again"):
+            copy_system(plan, target, lambda f: at("copy", f, "Copying Kulan OS…"))
         at("configure", 0, "Setting the language, keyboard and time zone…")
-        configure(plan, target, parts, disk_info)
-        carry_wifi(target)
+        with step("Couldn’t set up the language, keyboard and time zone"):
+            configure(plan, target, parts, disk_info)
+            carry_wifi(target)
         org = stick_settings(plan.get("stick")) if plan.get("join_organisation", True) else None
         if org:  # joined once online, by kulan-fleet-autojoin
             write(target / "var/lib/kulan/fleet-join.json", json.dumps(org) + "\n", 0o600)
@@ -776,9 +809,11 @@ def install(plan: dict) -> None:
                 chroot.run(["apt-get", "purge", "-y", "-q", *remove], check=False)
                 chroot.run(["apt-get", "autoremove", "-y", "-q"], check=False)
             at("user", 0, "Creating your account…")
-            make_user(chroot, plan)
+            with step("Couldn’t create your account"):
+                make_user(chroot, plan)
             at("boot", 0, "Making the disk start Kulan OS…")
-            install_boot_loader(chroot, plan, parts, disk_info, lambda f, text: at("boot", f, text))
+            with step("Couldn’t make the disk start Kulan OS"):
+                install_boot_loader(chroot, plan, parts, disk_info, lambda f, text: at("boot", f, text))
         at("boot", 1, "Finishing…")
         run(["sync"], check=False)
         finished = True
@@ -823,15 +858,22 @@ def main(argv: list[str]) -> int:
         install(plan)
         emit(done=True)
         return 0
+    except ToolFailure as exc:  # outside a step: the tool's words are in the log
+        log(str(exc))
+        emit(error="Kulan OS couldn’t be installed because of a problem with this computer’s disks",
+             changed=CHANGED.get("what", ""))
+        return 1
     except Failure as exc:
         emit(error=str(exc), changed=CHANGED.get("what", ""))
         return 1
     except (ValueError, KeyError) as exc:
-        emit(error=f"The installer got an unexpected plan: {exc}", changed=CHANGED.get("what", ""))
+        log(f"unexpected plan: {exc!r}")
+        emit(error="The installer window and its helper don’t match. Restart the computer from the USB "
+                   "stick and try again", changed=CHANGED.get("what", ""))
         return 1
     except Exception as exc:  # noqa: BLE001 - always tell the installer window what happened
         log(f"unexpected: {exc!r}")
-        emit(error=f"The installer stopped unexpectedly: {exc}", changed=CHANGED.get("what", ""))
+        emit(error="The installer stopped unexpectedly", changed=CHANGED.get("what", ""))
         return 1
 
 

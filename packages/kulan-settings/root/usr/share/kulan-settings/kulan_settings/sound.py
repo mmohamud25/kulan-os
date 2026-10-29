@@ -152,7 +152,7 @@ class SoundPage(Page):
         self.status = Adw.StatusPage(icon_name="audio-speakers-symbolic", title="Sound isn’t ready",
                                      description="The sound service isn’t running yet.")
         if load_gvc() is None:
-            self.set_ready(False, "Sound settings need GNOME Shell.")
+            self.set_ready(False, "Sound settings work only on the Kulan desktop. If you’re on it, sign out and back in.")
             return
         self.set_ready(False, None)
         self.control = Gvc.MixerControl(name="Kulan Settings")

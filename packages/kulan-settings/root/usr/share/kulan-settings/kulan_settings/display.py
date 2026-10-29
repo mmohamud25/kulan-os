@@ -5,7 +5,15 @@ from __future__ import annotations
 from gi.repository import Adw, GLib, Gtk
 
 from . import screens
-from .common import Page, choice_row, has_key, reset_keys, settings, switch_row
+from .common import (
+    Page,
+    choice_row,
+    has_key,
+    plain_error,
+    reset_keys,
+    settings,
+    switch_row,
+)
 
 COLOR_SCHEMA = "org.gnome.settings-daemon.plugins.color"
 TEXT_SIZES = [("1.0", "Default"), ("1.1", "Larger"), ("1.25", "Large"), ("1.5", "Largest")]
@@ -87,7 +95,7 @@ class DisplayPage(Page):
         self.screen_groups = []
         if state is None:
             group = Adw.PreferencesGroup(title="Screens",
-                                         description="Screen settings need GNOME’s display service.")
+                                         description="Screen settings work only on the Kulan desktop. If you’re on it, sign out and back in.")
             self.insert_group(group)
             return
         if len(state.monitors) > 1:
@@ -163,7 +171,7 @@ class DisplayPage(Page):
             def done(error) -> None:
                 self.applying = False
                 if error:
-                    self.toast(f"Couldn’t change the screens: {error}")
+                    self.toast(f"Couldn’t change the screens. {plain_error(error)}")
                 self.reload_screens()
             self.config.apply(self.state, config, done)
 
@@ -244,7 +252,7 @@ class DisplayPage(Page):
             def done(error) -> None:
                 self.applying = False
                 if error:
-                    self.toast(f"Couldn’t change the screen: {error}")
+                    self.toast(f"Couldn’t change the screen. {plain_error(error)}")
                 self.reload_screens()
 
             self.config.apply(self.state, config, done)

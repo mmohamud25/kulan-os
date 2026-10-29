@@ -220,6 +220,34 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 OPENER = urllib.request.build_opener(_NoRedirect)
 
 
+class ServerError(RuntimeError):
+    """The organisation's server refused or couldn't be reached; str() is for people."""
+
+    def __init__(self, text: str, code: int = 0) -> None:
+        super().__init__(text)
+        self.code = code
+
+
+def server_says(code: int, body: bytes) -> str:
+    """Why the server refused, in words for people: its own message where it wrote one
+    for people (a join code that isn't valid), else by the kind of answer."""
+    try:
+        said = str(json.loads(body.decode("utf-8", "replace")).get("error", ""))
+    except (ValueError, AttributeError):
+        said = ""
+    if code == 403 and "code" in said:
+        return said[:1].upper() + said[1:200]
+    if code == 429:
+        return "Too many tries in a short time. Wait a little, then try again"
+    if code in (401, 403):
+        return "Your organisation’s server didn’t accept this computer. Ask its admins to check it"
+    if code == 404:
+        return "Your organisation’s server doesn’t know this computer any more. Ask its admins to add it again"
+    if code in (400, 409, 422):
+        return "Your organisation’s server couldn’t use that. It may need updating, so tell its admins"
+    return "Your organisation’s server has a problem right now. Try again later"
+
+
 def post(server: str, path: str, body: dict, token: str | None = None) -> dict:
     headers = {"Content-Type": "application/json", "User-Agent": f"kulan-fleet/1 ({kulan_version()})"}
     if token:
@@ -229,15 +257,19 @@ def post(server: str, path: str, body: dict, token: str | None = None) -> dict:
         with OPENER.open(request, timeout=TIMEOUT) as reply:
             text = reply.read(1_000_000).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"the server said {e.code} {e.reason}") from e
+        try:
+            said = e.read(10_000)
+        except OSError:
+            said = b""
+        raise ServerError(server_says(e.code, said), e.code) from e
     except (urllib.error.URLError, OSError) as e:
-        raise RuntimeError(f"couldn't reach the server: {getattr(e, 'reason', e)}") from e
+        raise ServerError("Can’t reach your organisation’s server. Check the internet connection") from e
     try:
         data = json.loads(text) if text.strip() else {}
     except ValueError as e:
-        raise RuntimeError("the server's answer wasn't JSON") from e
+        raise ServerError("Your organisation’s server gave an answer this computer can’t read") from e
     if not isinstance(data, dict):
-        raise RuntimeError("the server's answer wasn't a JSON object")
+        raise ServerError("Your organisation’s server gave an answer this computer can’t read")
     return data
 
 
@@ -960,8 +992,9 @@ def join(server: str, allow_erase: bool = False) -> int:
                                            "os": os_release().get("PRETTY_NAME", "Linux"),
                                            "kulan_version": kulan_version()})
     except RuntimeError as e:
-        say(f"Couldn't join: {e}")
-        return 1
+        say(f"Couldn't join. {e}.")
+        # 2: the server refused (the code is used up, expired or wrong); 1: try again later.
+        return 2 if 400 <= getattr(e, "code", 0) < 500 and getattr(e, "code", 0) not in (408, 429) else 1
     device_id, token = str(reply.get("device_id", "")), str(reply.get("token", ""))
     if not device_id or not token:
         say("Couldn't join: the server didn't give this computer an ID and a key")
@@ -970,6 +1003,10 @@ def join(server: str, allow_erase: bool = False) -> int:
               "organisation": str(reply.get("organisation", "")).strip()[:80] or urllib.parse.urlsplit(server).hostname,
               "since": int(time.time()), "allow_erase": allow_erase}
     write_json(CONFIG, config, 0o600)
+    try:  # an earlier problem joining from an organisation's USB stick is over
+        Path("/var/lib/kulan/fleet-join-problem").unlink(missing_ok=True)
+    except OSError:
+        pass
     publish(config, pending=reply.get("pending") is True)
     run(["systemctl", "enable", "--now", "kulan-fleet.timer"])
     say(f"Joined {config['organisation']}" + (". It waits for the organisation's Owner to approve it"
@@ -1244,9 +1281,9 @@ def get_help(username: str) -> int:
     try:
         reply = post(config["server"], "/v1/help-requests", body, config["token"])
     except RuntimeError as e:
-        too_many = "429" in str(e)
+        too_many = getattr(e, "code", 0) == 429
         say("This computer has asked several times in the last hour. Wait a little, then try again." if too_many
-            else f"It wasn't sent: {e}. Check the internet connection and try again.")
+            else f"It wasn't sent. {e}.")
         return 1
     request_id = str(reply.get("id", ""))
     if read_json(CONFIG, None):  # not if the computer left the organisation meanwhile

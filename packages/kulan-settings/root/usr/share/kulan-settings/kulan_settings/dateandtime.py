@@ -5,7 +5,15 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
-from .common import Page, choice_row, has_key, reset_keys, settings, switch_row
+from .common import (
+    Page,
+    choice_row,
+    has_key,
+    plain_error,
+    reset_keys,
+    settings,
+    switch_row,
+)
 
 INTERFACE = "org.gnome.desktop.interface"
 DATETIME = "org.gnome.desktop.datetime"
@@ -143,7 +151,7 @@ class DateTimePage(Page):
             except GLib.Error as exc:
                 if not self.torn_down:
                     dismissed = "dismissed" in exc.message.lower() or "not authorized" in exc.message.lower()
-                    self.toast("Not changed" if dismissed else f"Couldn’t change it: {exc.message}")
+                    self.toast("Not changed" if dismissed else f"Couldn’t change it. {plain_error(exc)}")
                     self.window.reload_page(self)
         self.timedate.call(method, args, Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, 120000, None, finish)
 

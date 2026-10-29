@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -858,7 +859,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def load_app_availability(self) -> None:
         if shutil.which("flatpak") is None:
-            self.apps_status.set_label("Flatpak isn't installed, so these apps can't be added here.")
+            self.apps_status.set_label("These apps can't be added here, because the app installer (Flatpak) is missing. Add apps later from the Store.")
             return
 
         code, out, _ = run(["flatpak", "--default-arch"], timeout=10)
@@ -937,9 +938,14 @@ class WelcomeWindow(Adw.ApplicationWindow):
             self.install_spinner.set_visible(False)
             if code == 0:
                 self.toast(f"Installed {len(apps)} app{'s' if len(apps) != 1 else ''}")
+            elif re.search(r"not allowed for user|Not authorized|dismissed|cancel", err, re.I):
+                self.toast("Cancelled")
+            elif re.search(r"Can't load uri|Could not resolve|Temporary failure|Network|Unable to connect", err, re.I):
+                self.toast("Couldn't install: not connected to the internet. Connect, then try again")
+            elif re.search(r"No space left|Not enough disk space", err, re.I):
+                self.toast("Couldn't install: not enough free space. Free some in Kulan Settings › Storage")
             else:
-                reason = (err.strip().splitlines() or ["unknown error"])[-1]
-                self.toast(f"Couldn't install: {reason}")
+                self.toast("Couldn't install the apps. Try again in a few minutes")
             self.load_app_availability()
             return False
 

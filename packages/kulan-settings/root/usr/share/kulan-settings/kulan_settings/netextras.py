@@ -6,7 +6,6 @@ from __future__ import annotations
 import secrets
 import shutil
 import string
-import subprocess
 from typing import Callable
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -280,7 +279,7 @@ class NetworkExtras:
 
     def import_vpn(self) -> None:
         if shutil.which("nmcli") is None:
-            self.page.toast("Adding a VPN needs nmcli, which isn’t installed")
+            self.page.toast("VPNs can’t be added on this computer: its network tools are missing")
             return
         dialog = Gtk.FileDialog(title="Choose a VPN file")
         files = Gtk.FileFilter(name="VPN files (.conf, .ovpn)")
@@ -299,20 +298,33 @@ class NetworkExtras:
             if not path:
                 return
             kind = "openvpn" if path.lower().endswith(".ovpn") else "wireguard"
-            try:
-                out = subprocess.run(["nmcli", "connection", "import", "type", kind, "file", path],
-                                     capture_output=True, text=True, timeout=30, check=False)
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                self.page.toast(f"Couldn’t add it: {exc}")
+            try:  # without waiting: the window keeps working while NetworkManager reads it
+                proc = Gio.Subprocess.new(["nmcli", "connection", "import", "type", kind, "file", path],
+                                          Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+            except GLib.Error:
+                self.page.toast("Couldn’t add the VPN. Try again")
                 return
-            if out.returncode == 0:
-                self.page.toast("VPN added")
-            elif kind == "openvpn" and "plugin" in (out.stderr or "").lower():
-                self.page.toast("OpenVPN needs the network-manager-openvpn-gnome package")
-            else:
-                lines = (out.stderr or out.stdout or "").strip().splitlines()
-                self.page.toast(f"Couldn’t add it: {lines[-1] if lines else 'unknown error'}")
-            self.page.queue_refresh()
+
+            def imported(p, res) -> None:
+                try:
+                    _ok, _out, err = p.communicate_utf8_finish(res)
+                    code = p.get_exit_status() if p.get_if_exited() else 1
+                except GLib.Error:
+                    code, err = 1, ""
+                if self.page.torn_down:
+                    return
+                err = (err or "").lower()
+                if code == 0:
+                    self.page.toast("VPN added")
+                elif kind == "openvpn" and "plugin" in err:
+                    self.page.toast("OpenVPN support is missing. Update Kulan OS in Kulan Settings › Software "
+                                    "Update, then try again")
+                elif "permission" in err or "not authorized" in err:
+                    self.page.toast("Not added: an administrator’s password is needed")
+                else:
+                    self.page.toast("This VPN file couldn’t be read. Check it’s the file your VPN provider gave you")
+                self.page.queue_refresh()
+            proc.communicate_utf8_async(None, None, imported)
         dialog.open(self.page.window, None, picked)
 
     # --- hotspot -------------------------------------------------------------------------

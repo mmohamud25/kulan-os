@@ -21,6 +21,7 @@ key-points, translate, explain.
 """
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,11 +72,15 @@ def main(argv: list[str]) -> int:
         from kulan_assistant import dictation
         try:
             print(dictation.transcribe(args.audio))
-        except (engine.EngineError, OSError) as exc:
+        except engine.EngineError as exc:  # Kulan's own message
             print(f"kulan-assistant: {exc}", file=sys.stderr)
             return 1
-        except Exception as exc:  # noqa: BLE001 - e.g. a timeout on a very long recording
-            print(f"kulan-assistant: dictation failed: {exc}", file=sys.stderr)
+        except subprocess.TimeoutExpired:
+            print("kulan-assistant: That recording was too long to turn into text. Try shorter pieces.",
+                  file=sys.stderr)
+            return 1
+        except Exception:  # noqa: BLE001 - anything else: a plain message, never the error itself
+            print("kulan-assistant: Couldn't turn the recording into text. Try again.", file=sys.stderr)
             return 1
         return 0
 

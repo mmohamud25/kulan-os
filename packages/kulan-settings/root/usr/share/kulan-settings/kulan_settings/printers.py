@@ -14,7 +14,7 @@ from collections.abc import Callable
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page
+from .common import Page, plain_error
 
 TEST_PAGE = "/usr/share/cups/data/testprint"
 STATES = {"idle": "Ready", "printing": "Printing", "disabled": "Paused"}
@@ -129,8 +129,8 @@ class PrintersPage(Page):
         add_group.add(add_row)
 
         more = self.add_group(description="Printers that need their maker’s software, and scanners, are set "
-                                          "up in GNOME Settings.")
-        gnome = Adw.ActionRow(title="More printer options", subtitle="In GNOME Settings", activatable=True)
+                                          "up in the Settings app.")
+        gnome = Adw.ActionRow(title="More printer options", subtitle="In the Settings app", activatable=True)
         gnome.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
         gnome.connect("activated", lambda _r: self.open_gnome())
         more.add(gnome)
@@ -226,7 +226,7 @@ class PrintersPage(Page):
             elif "Forbidden" in err or "not authorized" in err.lower() or "permission" in err.lower():
                 self.toast("Only an administrator can change printers")
             else:
-                self.toast(err.strip().splitlines()[-1] if err.strip() else "That didn’t work")
+                self.toast(f"That didn’t work. {plain_error(err or 'failed')}")
             self.reload()
 
         run_async(argv, done)
@@ -269,7 +269,7 @@ class PrintersPage(Page):
         try:
             Gio.Subprocess.new(["gnome-control-center", "printers"], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("GNOME Settings isn’t installed")
+            self.toast("The Settings app isn’t installed")
 
     # --- adding --------------------------------------------------------------------------
     def show_add(self) -> None:
@@ -336,7 +336,7 @@ class PrintersPage(Page):
                 self.toast("Only an administrator can add printers")
             else:
                 # Not a driverless printer: it needs its maker's driver.
-                self.toast("This printer needs its maker’s software. Add it in GNOME Settings.")
+                self.toast("This printer needs its maker’s software. Add it in the Settings app.")
                 self.open_gnome()
 
         run_async(["lpadmin", "-p", name, "-E", "-v", item["uri"], "-m", "everywhere",

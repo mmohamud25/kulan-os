@@ -3,6 +3,8 @@ codes some devices show), and connect, disconnect or forget the devices
 you've paired. Talks to BlueZ over D-Bus."""
 from __future__ import annotations
 
+import sys
+
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .btpair import Agent, nearby_devices
@@ -44,6 +46,29 @@ def paired_devices(objects: dict[str, dict[str, dict]]) -> list[dict]:
         })
     return sorted(found, key=lambda d: (not d["connected"], d["name"].lower()))
 
+
+
+# BlueZ's errors, in plain words with what to do.
+BLUEZ_REASONS = {
+    "org.bluez.Error.AuthenticationFailed": "The code didn’t match. Try pairing again",
+    "org.bluez.Error.AuthenticationCanceled": "Pairing was cancelled",
+    "org.bluez.Error.AuthenticationRejected": "The device said no. Try pairing again",
+    "org.bluez.Error.AuthenticationTimeout": "The device didn’t answer in time. Try again",
+    "org.bluez.Error.ConnectionAttemptFailed": "Turn the device on, bring it closer and try again",
+    "org.bluez.Error.InProgress": "It’s already trying. Wait a moment",
+    "org.bluez.Error.AlreadyConnected": "It’s already connected",
+    "org.bluez.Error.AlreadyExists": "It’s already paired",
+    "org.bluez.Error.NotReady": "Bluetooth is starting. Try again in a moment",
+    "org.bluez.Error.DoesNotExist": "The device isn’t nearby any more",
+}
+
+
+def bluez_reason(name: str, message: str) -> str:
+    if "profile-unavailable" in message or "br-connection" in message:
+        return "Turn the device on and put it in pairing mode, then try again"
+    if "Timeout" in name or "timed out" in message.lower():
+        return "The device didn’t answer. Turn it on, bring it closer and try again"
+    return BLUEZ_REASONS.get(name, "Turn the device on, bring it closer and try again")
 
 class BluetoothPage(Page):
     title = "Bluetooth"
@@ -147,7 +172,7 @@ class BluetoothPage(Page):
         except GLib.Error as exc:
             if "InProgress" not in (Gio.DBusError.get_remote_error(exc) or "") and not self.torn_down:
                 self.discovering = False
-                self.toast(f"Couldn’t look for devices: {exc.message}")
+                self.toast("Couldn’t look for devices. Turn Bluetooth off and on again, then try again")
         if not self.torn_down:
             self.queue_refresh()
 
@@ -179,7 +204,8 @@ class BluetoothPage(Page):
             try:
                 self.agent = Agent(self.manager.get_connection(), self.window, self.name_of)
             except GLib.Error as exc:
-                self.toast(f"Couldn’t get ready to pair: {exc.message}")
+                print(f"kulan-settings: {exc.message}", file=sys.stderr)
+                self.toast("Couldn’t get ready to pair. Turn Bluetooth off and on again, then try again")
                 return
         self.pairing = dev["path"]
         self.queue_refresh()
@@ -333,8 +359,7 @@ class BluetoothPage(Page):
             try:
                 conn.call_finish(result)
             except GLib.Error as exc:
-                message = Gio.DBusError.get_remote_error(exc) or exc.message
-                self.toast(f"{failure}: {exc.message if message.startswith('org.') else message}")
+                self.toast(f"{failure}. {bluez_reason(Gio.DBusError.get_remote_error(exc) or '', exc.message)}")
             if done:
                 done()
             self.queue_refresh()
@@ -363,7 +388,8 @@ class BluetoothPage(Page):
         try:
             proxy.call_finish(result)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t change Bluetooth: {exc.message}")
+            print(f"kulan-settings: {exc.message}", file=sys.stderr)
+            self.toast("Couldn’t change Bluetooth. If the computer has a wireless switch or key, check it’s on")
         self.queue_refresh()
 
     def toggle(self, dev: dict) -> None:

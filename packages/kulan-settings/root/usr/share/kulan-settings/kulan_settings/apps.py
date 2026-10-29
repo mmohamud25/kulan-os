@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from gi.repository import Adw, Gio, Gtk
 
-from .common import Page, reset_keys, settings, switch_row
+from .common import Page, plain_error, reset_keys, settings, switch_row
 
 # (title, the type it's chosen by, the other types that follow it) — the
 # same groups GNOME Settings uses.
@@ -76,7 +76,7 @@ class AppsPage(Page):
                     if other in (app.get_supported_types() or []) or kind.startswith("x-scheme-handler"):
                         app.set_as_default_for_type(other)
             except Exception as exc:  # noqa: BLE001 - GLib.Error, or an app that refuses
-                self.toast(f"Couldn’t change it: {exc}")
+                self.toast(f"Couldn’t change it. {plain_error(exc)}")
                 return
             self.toast(f"{title}: {app.get_display_name()}")
         row.connect("notify::selected", chosen)

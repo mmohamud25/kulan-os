@@ -8,7 +8,15 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, launch, package_installed, plural, read_json, settings
+from .common import (
+    Page,
+    launch,
+    package_installed,
+    plural,
+    read_json,
+    restart_computer,
+    settings,
+)
 from .updates import auto_updates_on, when_text
 
 CHECKUP_FILE = Path("/var/lib/kulan/security-checkup.json")
@@ -314,12 +322,8 @@ class SecurityPage(Page):
 
     def on_signed_button(self) -> Adw.AlertDialog | None:
         if self.signed_phase in ("enroll", "switch"):
-            try:
-                Gio.DBus.system.call_sync("org.freedesktop.login1", "/org/freedesktop/login1",
-                                          "org.freedesktop.login1.Manager", "Reboot", GLib.Variant("(b)", (True,)),
-                                          None, Gio.DBusCallFlags.NONE, 10000, None)
-            except GLib.Error:
-                self.toast("Couldn’t restart. Use the menu at the top right")
+            restart_computer(lambda: self.toast("Couldn’t restart. Use the menu at the top right: the power button, "
+                                                "then Restart"))
             return None
         dialog = Adw.AlertDialog(heading="Turn on signed start-up?", body=(
             "This computer gets its own start-up key, and its start-up files are signed with it, so nobody can "

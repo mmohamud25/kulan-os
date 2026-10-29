@@ -10,7 +10,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, settings
+from .common import Page, plain_error, settings
 from .users import Accounts, call, prop
 
 LOCALE_DATA = Path("/usr/share/i18n/locales")
@@ -222,4 +222,4 @@ class RegionPage(Page):
                                   "org.gnome.SessionManager", "Logout", GLib.Variant("(u)", (0,)), None,
                                   Gio.DBusCallFlags.NONE, -1, None, None)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t sign out: {exc.message}")
+            self.toast(f"Couldn’t sign out. {plain_error(exc)}")

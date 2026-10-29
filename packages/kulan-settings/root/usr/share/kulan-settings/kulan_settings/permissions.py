@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from .common import plain_error
+
 STORE_NAME = "org.freedesktop.impl.portal.PermissionStore"
 STORE_PATH = "/org/freedesktop/impl/portal/PermissionStore"
 
@@ -102,6 +104,6 @@ class PermissionsDialog(Adw.PreferencesDialog):
             try:
                 proxy.call_finish(result)
             except GLib.Error as exc:
-                self.toast(f"Couldn’t change it: {exc.message}")
+                self.toast(f"Couldn’t change it. {plain_error(exc)}")
         self.proxy.call("SetPermission", GLib.Variant("(sbssas)", (table, True, ident, app_id, values)),
                         Gio.DBusCallFlags.NONE, 5000, None, done)

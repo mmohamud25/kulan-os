@@ -141,6 +141,9 @@ def run_update(action: str) -> int:
         if tty and shown:
             print()
             shown = ""
+        if kind == "say":  # update-run's plain explanation of a failure
+            print(rest, file=sys.stderr)
+            continue
         print(line)
     rc = proc.wait()
     if tty and shown:
@@ -152,21 +155,23 @@ def cmd_update(args: list[str]) -> int:
     if not Path(UPDATE_RUN).exists():
         print("Software Update isn't installed here.", file=sys.stderr)
         return 1
-    if "--check" in args:
+    def waiting_count() -> int:
+        """Updates as people count them (all of Firefox is one), as the top bar shows."""
+        now = status()
+        count = now.get("count")
+        return int(count) if isinstance(count, int) else len(now.get("available") or [])
+
+    if "--check" in args or not waiting_count():
         print("Checking for updates…")
         rc = run_update("check")
-        waiting = status().get("available") or []
-        print(f"{len(waiting)} update(s) waiting." if waiting else "Kulan OS is up to date.")
-        return rc
-    waiting = status().get("available") or []
-    if not waiting:
-        print("Checking for updates…")
-        run_update("check")
-        waiting = status().get("available") or []
-        if not waiting:
-            print("Kulan OS is up to date.")
+        if rc != 0:
+            print("Couldn't check for updates.", file=sys.stderr)
+            return rc
+        n = waiting_count()
+        if "--check" in args or not n:
+            print(f"{n} update(s) waiting." if n else "Kulan OS is up to date.")
             return 0
-    print(f"Installing {len(waiting)} update(s)…")
+    print(f"Installing {waiting_count()} update(s)…")
     rc = run_update("install --restore-point")
     if rc == 0 and restart_needed():
         print(f"{AMBER}Restart to finish updating.{OFF}")

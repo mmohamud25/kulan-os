@@ -95,7 +95,10 @@ async function api(body) {
   const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(body) });
   const out = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const text = out.error ? out.error[0].toUpperCase() + out.error.slice(1) : `Server error ${res.status}`;  // starts in lower case
+    const text = /^unknown op/i.test(out.error || "")
+      ? "This needs a newer Kulan Fleet server, which isn’t ready yet. Try again later."
+      : out.error ? out.error[0].toUpperCase() + out.error.slice(1)  // starts in lower case
+        : "Kulan Fleet’s server had a problem. Try again in a minute.";
     const err = new Error(text);
     err.twoStep = out.two_step;
     if (out.two_step) setTimeout(() => twoStepNeeded(out.two_step), 0);

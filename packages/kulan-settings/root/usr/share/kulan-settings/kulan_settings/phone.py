@@ -17,7 +17,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, settings
+from .common import Page, plain_error, settings
 
 UUID = "gsconnect@andyholmes.github.io"
 EXTENSION_DIRS = [Path("/usr/share/gnome-shell/extensions") / UUID,
@@ -42,7 +42,7 @@ class PhonePage(Page):
         self.shell = settings("org.gnome.shell")
         self.manager = None
         if self.shell is None:
-            self.add_group(None, "Phone link needs GNOME Shell.")
+            self.add_group(None, "Phone link works only on the Kulan desktop. If you’re on it, sign out and back in.")
             return
         if not installed():
             self.build_install()
@@ -182,7 +182,7 @@ class PhonePage(Page):
         try:
             Gio.Subprocess.new(["gnome-extensions", "prefs", UUID], Gio.SubprocessFlags.NONE)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t open them: {exc.message}")
+            self.toast(f"Couldn’t open them. {plain_error(exc)}")
 
     # --- phones -----------------------------------------------------------------------
     def connect_devices(self) -> None:
@@ -253,7 +253,7 @@ class PhonePage(Page):
                 conn.call_finish(result)
             except GLib.Error as exc:
                 if not self.torn_down:
-                    self.toast(f"Couldn’t {action}: {exc.message}")
+                    self.toast(f"Couldn’t {action}. {plain_error(exc)}")
                 return
             if not self.torn_down:
                 self.toast(f"Accept the request on {name}" if action == "pair" else f"{name} unpaired")

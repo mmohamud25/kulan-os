@@ -20,7 +20,7 @@ from pathlib import Path
 from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk
 
 from .about import kulan_conf
-from .common import Page
+from .common import Page, plain_error
 
 PUBLIC = Path("/var/lib/kulan/fleet-public.json")
 MINE_DIR = Path("/var/lib/kulan/fleet-help")
@@ -167,7 +167,7 @@ class HelpPage(Page):
         try:
             Gio.AppInfo.launch_default_for_uri(uri, None)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t open it: {exc.message}")
+            self.toast(f"Couldn’t open it. {plain_error(exc)}")
 
     # --- in an organisation ------------------------------------------------------------------------
     def render_form(self, org: str) -> None:
@@ -300,7 +300,7 @@ class HelpPage(Page):
             proc = Gio.Subprocess.new(["pkexec", HELPER], Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE
                                       | Gio.SubprocessFlags.STDERR_PIPE)
         except GLib.Error as exc:
-            self.toast(f"It wasn’t sent: {exc.message}")
+            self.toast(f"It wasn’t sent. {plain_error(exc)}")
             return
         self.sending = True
         self.spinner.set_visible(True)

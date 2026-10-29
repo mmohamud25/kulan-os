@@ -136,11 +136,31 @@ def size_text(size: int) -> str:
     return f"{size / GB:.0f} GB" if size >= 10 * GB else f"{size / GB:.1f} GB"
 
 
-def suggested_username(full_name: str) -> str:
-    first = re.sub(r"[^a-z0-9]", "", (full_name.strip().split() or [""])[0].lower())
+def taken_names() -> set[str]:
+    """Names the system already uses for its own accounts and groups (bin, man, mail…):
+    a person's user name can't be one of them."""
+    names = {"root", "kulan"}
+    for path in ("/etc/passwd", "/etc/group"):
+        try:
+            names |= {line.split(":", 1)[0] for line in Path(path).read_text().splitlines() if line}
+        except OSError:
+            pass
+    return names
+
+
+def suggested_username(full_name: str, taken: set[str] | None = None) -> str:
+    words = [re.sub(r"[^a-z0-9]", "", w.lower()) for w in full_name.strip().split()]
+    words = [w for w in words if w]
+    first = words[0] if words else ""
     if first and not first[0].isalpha():
         first = "u" + first
-    return first[:32]
+    first = first[:32]
+    taken = taken_names() if taken is None else taken
+    if first in taken:  # "Bin Li" isn't the system's bin: binl, else bin1, bin2…
+        candidates = [(first + words[1][0])[:32]] if len(words) > 1 else []
+        candidates += [f"{first[:30]}{n}" for n in range(1, 100)]
+        first = next(c for c in candidates if c not in taken)
+    return first
 
 
 def chassis() -> str:
@@ -557,6 +577,9 @@ class Installer(Adw.ApplicationWindow):
         if not NAME_RULE.match(self.username.get_text()):
             self.more.set_expanded(True)
             return "Use lowercase letters, digits, - or _ for the user name, starting with a letter"
+        if self.username.get_text() in taken_names():
+            self.more.set_expanded(True)
+            return f"The user name “{self.username.get_text()}” is used by the system. Choose another"
         if not HOST_RULE.match(self.hostname.get_text()):
             self.more.set_expanded(True)
             return "Use lowercase letters, digits and dashes for the computer’s name"
@@ -801,6 +824,8 @@ class App(Adw.Application):
     def walk(self, window: Installer) -> bool:
         """Every check and page with sample answers (no pkexec, no disks touched)."""
         try:
+            assert suggested_username("Bin Li", {"bin"}) == "binl", "not the system's bin account"
+            assert suggested_username("Man", {"man"}) == "man1", suggested_username("Man", {"man"})
             assert window.choice.get("disk"), "the sample disk is chosen"
             assert window.choice["mode"] == "free", "next to Windows first: nothing is lost"
             assert window.problem() == "Type your name", window.problem()

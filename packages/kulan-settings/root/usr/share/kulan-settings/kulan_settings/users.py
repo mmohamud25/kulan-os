@@ -37,12 +37,20 @@ def prop(proxy: Gio.DBusProxy, name: str, default=None):
     return value.unpack() if value is not None else default
 
 
-def user_name_from(full_name: str) -> str:
-    """"Amina Yusuf" -> "amina"; a suggestion people can change."""
-    first = re.sub(r"[^a-z0-9]", "", (full_name.strip().split() or [""])[0].lower())
+def user_name_from(full_name: str, taken: set[str] | None = None) -> str:
+    """"Amina Yusuf" -> "amina"; a suggestion people can change. Never a name in use:
+    "Bin Li" -> "binl" (bin is the system's), else amina1, amina2…"""
+    words = [w for w in (re.sub(r"[^a-z0-9]", "", w.lower()) for w in full_name.strip().split()) if w]
+    first = words[0] if words else ""
     if first and not first[0].isalpha():
         first = "u" + first
-    return first[:32]
+    first = first[:32]
+    taken = taken_names() if taken is None else taken
+    if first and first in taken:
+        candidates = [(first + words[1][0])[:32]] if len(words) > 1 else []
+        candidates += [f"{first[:30]}{n}" for n in range(1, 100)]
+        first = next((c for c in candidates if c not in taken), first)
+    return first
 
 
 def hash_password(password: str) -> str | None:
@@ -148,11 +156,24 @@ def call(proxy: Gio.DBusProxy, method: str, args: GLib.Variant | None,
         try:
             done(None, p.call_finish(result))
         except GLib.Error as exc:
-            message = exc.message
-            if "dismissed" in message.lower() or "not authorized" in message.lower():
-                message = "Not changed. An administrator’s password is needed."
-            done(message, None)
+            name = Gio.DBusError.get_remote_error(exc) or ""
+            message = exc.message.lower()
+            if "dismissed" in message or "not authorized" in message or name.endswith("PermissionDenied"):
+                done("Not changed. An administrator’s password is needed.", None)
+            elif name.endswith("UserExists"):
+                done("That user name is taken. Choose another.", None)
+            elif name.endswith("UserDoesNotExist"):
+                done("That account isn’t on this computer any more.", None)
+            else:
+                done("Not changed. Try again.", None)
     proxy.call(method, args, Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, 120000, None, finish)
+
+
+def taken_names() -> set[str]:
+    """User and group names already in use, by people or by the system (bin, man, mail…)."""
+    import grp
+    import pwd
+    return {p.pw_name for p in pwd.getpwall()} | {g.gr_name for g in grp.getgrall()}
 
 
 def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bool,
@@ -181,7 +202,9 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
 
     def check() -> None:
         name = user.get_text()
-        ok = (full.get_text().strip() != "" and NAME_RULE.match(name) is not None
+        taken = name in taken_names()
+        user.set_title("User name (taken, choose another)" if taken else "User name")
+        ok = (full.get_text().strip() != "" and NAME_RULE.match(name) is not None and not taken
               and len(password.get_text()) >= 1 and password.get_text() == again.get_text())
         dialog.set_response_enabled("add", ok)
 
@@ -204,13 +227,13 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
             return
         crypted = hash_password(password.get_text())
         if crypted is None:
-            toast("Couldn’t set the password because openssl is missing")
+            toast("The account wasn’t added: the password couldn’t be set up on this computer")
             return
         kind = ADMINISTRATOR if admin.get_active() and not standard_only else STANDARD
 
         def created(error: str | None, reply: GLib.Variant | None) -> None:
             if error:
-                toast(f"The account wasn’t added: {error}")
+                toast(f"The account wasn’t added. {error}")
                 return
             new_user = bus_proxy(reply.unpack()[0], USER_IFACE)
             if new_user is None:

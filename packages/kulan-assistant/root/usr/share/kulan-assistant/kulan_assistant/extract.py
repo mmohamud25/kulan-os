@@ -28,7 +28,8 @@ def text_of(path: Path, limit: int = 200_000) -> str:
         raise ExtractError("Kulan Assistant can summarise PDFs, Word and LibreOffice documents, and text files.")
     if suffix == ".pdf":
         if shutil.which("pdftotext") is None:
-            raise ExtractError("pdftotext (poppler-utils) is needed for PDFs.")
+            raise ExtractError("PDFs can’t be read on this computer: a part of Kulan OS that reads them was removed. "
+                               "To add it back, open Terminal and type: sudo apt install poppler-utils")
         out = _pdftotext(path)
         if out.returncode != 0:
             raise ExtractError("This PDF couldn't be read. It may be password-protected.")

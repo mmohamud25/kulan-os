@@ -5,6 +5,7 @@ import json
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -13,6 +14,93 @@ from gi.repository import Adw, Gio, GLib, GObject, Gtk
 OS_RELEASE = Path("/usr/lib/os-release")
 HELPER = "/usr/lib/kulan/update-run"
 KULAN_SCHEMA = "org.kulan.desktop"
+
+
+# Lines from programs rather than from Kulan: never shown to people as they are.
+RAW_LINE = (r"^(E|W|N|Err|Ign|Get|Hit|dpkg|error|warning|fatal)\b|^\S+: |Traceback|^\s+File |GDBus\.Error|"
+            r"\[Errno|/usr/|/var/|\bexit (status|code)\b|^[a-z]|^\W|\.\.\.|…$|^\d|"
+            r"^(Reading|Building|Setting up|Processing|Unpacking|Preparing|Selecting|Removing|Purging|"
+            r"Fetched|Need to get|After this operation|The following|Done|Calculating|Installing|Created|"
+            r"Removed|Synchronizing|Generating|Updating|Running|Adding|Scanning|Searching|Found|Skipping)\b")
+# Common failures of programs, in plain words with a next step.
+KNOWN_FAILURES = [
+    ((r"Temporary failure resolving|Could not resolve|Network is unreachable|No route to host|"
+      r"Failed to fetch|Unable to fetch|Can't load uri|Could not connect|Connection (timed out|refused)"),
+     "Not connected to the internet. Connect to Wi-Fi or a cable, then try again"),
+    (r"is not valid yet|is no longer valid|has expired",
+     "This computer’s date or time is wrong. Correct it in Kulan Settings › Date and time, then try again"),
+    (r"Could not get lock|is held by process|Unable to acquire the dpkg",
+     "Another update is running. Try again when it’s finished, in a few minutes"),
+    (r"dpkg was interrupted|dpkg --configure -a",
+     "An earlier update was interrupted. Restart the computer, then try again"),
+    (r"No space left on device|You don't have enough free space",
+     "Not enough free space. Free up space in Kulan Settings › Storage, then try again"),
+]
+
+
+def failure_text(lines: list[str], said: str | None = None) -> str:
+    """What to tell someone when a change failed: Kulan's own message (said: update-run's
+    "say:" line; else the last line that reads like one), else a known failure in plain
+    words, else a general one. Never a program's own output."""
+    import re
+    if said:
+        return said.rstrip(".")
+    for line in reversed(lines):
+        line = line.strip()
+        if line and not re.search(RAW_LINE, line):
+            return line.rstrip(".")
+    text = "\n".join(lines)
+    for pattern, message in KNOWN_FAILURES:
+        if re.search(pattern, text):
+            return message
+    return "That didn’t work. Try again, and if it keeps happening, restart the computer"
+
+
+# apt's own progress words ("Preparing to configure firefox-esr (amd64)"), in plain words.
+APT_STEPS = [(("preparing to configure", "configuring", "installed "), "Setting up"),
+             (("preparing for removal", "removing", "removed ", "completely removed", "purg"), "Removing"),
+             (("running", "trigger"), "Finishing")]
+
+
+def progress_text(kind: str, package: str, text: str) -> str:
+    """A progress line for people: "Downloading updates", "Installing Firefox". Kulan's own
+    steps ("Creating a restore point") already are."""
+    if kind == "dlstatus":
+        return "Downloading"
+    lower = text.strip().lower()
+    if not lower.startswith(("preparing", "unpacking", "installing", "installed", "configuring", "removing",
+                             "removed", "completely removed", "purg", "running", "trigger")):
+        return text.strip()
+    verb = next((v for keys, v in APT_STEPS if lower.startswith(keys)), "Installing")
+    if verb == "Finishing":
+        return "Finishing up"
+    from .updatelist import friendly_name  # only needed while updating
+    name = package.split(":")[0]
+    return f"{verb} {friendly_name({'name': name}) if name else 'updates'}"
+
+
+# A system service's own error, in plain words (the original goes to the log).
+PLAIN_ERRORS = [
+    (r"(?i)not ?authori[sz]ed|dismissed|permission denied|access ?denied", "Permission wasn’t given"),
+    (r"(?i)timed? ?out|timeout|no reply", "It took too long to answer. Try again"),
+    (r"(?i)serviceunknown|not provided by any \.service|namehasnoowner|unknownmethod|unknownobject",
+     "The part of Kulan OS that does this isn’t running. Restart the computer and try again"),
+    (r"(?i)no such file|not found|doesn.t exist", "It isn’t on this computer any more"),
+    (r"(?i)network|resolve|unreachable|connection refused", "Can’t reach the internet. Check the connection"),
+    (r"(?i)no space|disk full", "The disk is full. Free up some space in Storage"),
+    (r"(?i)busy|in progress|locked", "Something else is changing this right now. Try again in a minute"),
+]
+
+
+def plain_error(exc) -> str:
+    """What to say about an error (GLib.Error, exception or text): never a program's own words."""
+    import re
+    text = getattr(exc, "message", None) or str(exc)
+    print(f"kulan-settings: {text}", file=sys.stderr)
+    for pattern, message in PLAIN_ERRORS:
+        if re.search(pattern, text):
+            return message
+    return "Try again, and if it keeps happening, restart the computer"
 
 
 def read_json(path: Path, default):
@@ -72,7 +160,7 @@ def launch(desktop_id: str, toast: Callable[[str], None] | None = None) -> bool:
         return True
     except GLib.Error as exc:
         if toast:
-            toast(f"Couldn’t open it: {exc.message}")
+            toast(f"Couldn’t open it. {plain_error(exc)}")
         return False
 
 
@@ -153,6 +241,41 @@ def time_row(title: str, subtitle: str | None, get: Callable[[], float],
     return row
 
 
+def restart_computer(failed: Callable[[], None]) -> None:
+    """GNOME's restart dialog (open apps can save their work first), else systemd directly.
+    Never waits on a reply, so the window stays responsive; failed() if neither works."""
+    def by_systemd() -> None:
+        def got_bus(_src, result) -> None:
+            try:
+                Gio.bus_get_finish(result).call(
+                    "org.freedesktop.login1", "/org/freedesktop/login1", "org.freedesktop.login1.Manager", "Reboot",
+                    GLib.Variant("(b)", (True,)), None, Gio.DBusCallFlags.NONE, 60000, None, done)
+            except GLib.Error:
+                failed()
+
+        def done(bus, result) -> None:
+            try:
+                bus.call_finish(result)
+            except GLib.Error:
+                failed()
+        Gio.bus_get(Gio.BusType.SYSTEM, None, got_bus)
+
+    def by_session(bus, result) -> None:
+        try:
+            bus.call_finish(result)
+        except GLib.Error:
+            by_systemd()
+
+    def got_session(_src, result) -> None:
+        try:
+            Gio.bus_get_finish(result).call(
+                "org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager", "Reboot",
+                None, None, Gio.DBusCallFlags.NONE, 60000, None, by_session)
+        except GLib.Error:
+            by_systemd()
+    Gio.bus_get(Gio.BusType.SESSION, None, got_session)
+
+
 def reset_button(on_reset: Callable[[], None]) -> Gtk.Button:
     button = Gtk.Button(label="Reset to Kulan defaults", halign=Gtk.Align.CENTER,
                         margin_top=12, css_classes=["pill"])
@@ -192,7 +315,8 @@ class Helper:
                 on_done(False)
             return
         if shutil.which("pkexec") is None:
-            self.toast("pkexec isn’t installed, so this can’t be changed from here")
+            self.toast("Kulan Settings can’t ask for your password (pkexec is missing). Add it in Terminal with "
+                       "“sudo apt install pkexec”")
             if on_done:
                 on_done(False)
             return
@@ -202,7 +326,8 @@ class Helper:
                 flags |= Gio.SubprocessFlags.STDIN_PIPE
             proc = Gio.Subprocess.new(["pkexec", HELPER, *args], flags)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t start: {exc.message}")
+            print(f"kulan-settings: {exc.message}", file=sys.stderr)
+            self.toast("Couldn’t start that change. Try again")
             if on_done:
                 on_done(False)
             return
@@ -228,7 +353,12 @@ class Helper:
                 s.read_line_async(GLib.PRIORITY_DEFAULT, None, got)
             stream.read_line_async(GLib.PRIORITY_DEFAULT, None, got)
 
+        said: list[str] = []
+
         def progress(line: str) -> None:
+            if line.startswith("say:"):  # update-run's message for the person (die)
+                said.append(line[4:].strip())
+                return
             parts = line.split(":", 3)
             if on_progress is None or len(parts) != 4 or parts[0] not in ("pmstatus", "dlstatus"):
                 return
@@ -237,7 +367,7 @@ class Helper:
             except ValueError:
                 return
             fraction = fraction * 0.3 if parts[0] == "dlstatus" else 0.3 + fraction * 0.7
-            on_progress(fraction, parts[3][:80])
+            on_progress(fraction, progress_text(parts[0], parts[1], parts[3])[:80])
 
         def error(line: str) -> None:
             if line.strip():
@@ -260,13 +390,23 @@ class Helper:
             elif code in (126, 127):  # password dialog dismissed / not authorised
                 self.toast("Cancelled")
             else:
-                reason = next((e for e in reversed(errors) if not e.startswith(("W:", "N:"))),
-                              "Something went wrong")
-                self.toast(f"Couldn’t finish: {reason[:120]}")
+                self.failed(failure_text(errors, said[-1] if said else None))
             if on_done:
                 on_done(code == 0)
 
         proc.wait_async(None, exited)
+
+    def failed(self, reason: str) -> None:
+        """A short reason as a toast; a longer one in full, in a dialog (a toast cuts it off)."""
+        window = Gio.Application.get_default().get_active_window() if Gio.Application.get_default() else None
+        if len(reason) <= 70 or window is None:
+            self.toast(reason)
+            return
+        dialog = Adw.AlertDialog(heading="That didn’t work")
+        dialog.set_extra_child(Gtk.Label(label=reason, wrap=True, selectable=True, can_focus=False, xalign=0,
+                                         max_width_chars=48, css_classes=["body"]))
+        dialog.add_response("ok", "OK")
+        dialog.present(window)
 
     def set_busy(self, busy: bool) -> None:
         self.busy = busy

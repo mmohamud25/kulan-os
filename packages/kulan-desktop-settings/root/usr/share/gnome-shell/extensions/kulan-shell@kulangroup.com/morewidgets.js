@@ -185,6 +185,9 @@ function battery() {
         return null;
     }
     names = names.sort();
+    // All of the computer's batteries together (some ThinkPads have two), as the top bar shows:
+    // weighted by how much each holds, and charging if either is.
+    let now = 0, full = 0, levels = [], statuses = [];
     for (const name of names) {
         const base = `${dir}/${name}`;
         // The computer's own battery, not a mouse's or headphones'.
@@ -193,9 +196,24 @@ function battery() {
         const level = Number(readText(`${base}/capacity`).trim());
         if (!Number.isFinite(level))
             continue;
-        return {level: Math.max(0, Math.min(100, level)), status: readText(`${base}/status`).trim()};
+        levels.push(Math.max(0, Math.min(100, level)));
+        statuses.push(readText(`${base}/status`).trim());
+        const unit = readText(`${base}/energy_full`).trim() ? 'energy' : 'charge';
+        const n = Number(readText(`${base}/${unit}_now`).trim()), f = Number(readText(`${base}/${unit}_full`).trim());
+        if (Number.isFinite(n) && Number.isFinite(f) && f > 0) {
+            now += n;
+            full += f;
+        }
     }
-    return null;
+    if (!levels.length)
+        return null;
+    const level = levels.length > 1 && full > 0
+        ? Math.round(Math.max(0, Math.min(100, now / full * 100)))
+        : levels[0];
+    const status = statuses.includes('Charging') ? 'Charging'
+        : statuses.includes('Discharging') ? 'Discharging'
+        : statuses.every(x => x === 'Full') ? 'Full' : statuses[0];
+    return {level, status};
 }
 
 function size(bytes) {

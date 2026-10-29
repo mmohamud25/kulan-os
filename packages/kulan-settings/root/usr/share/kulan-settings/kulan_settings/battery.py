@@ -14,7 +14,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, choice_row, has_key, settings, switch_row
+from .common import Page, choice_row, has_key, plain_error, settings, switch_row
 
 UPOWER = "org.freedesktop.UPower"
 DISPLAY_DEVICE = "/org/freedesktop/UPower/devices/DisplayDevice"
@@ -205,7 +205,7 @@ class BatteryPage(Page):
         self.battery_group.set_visible(False)
 
         # The battery itself (UPower's device for it, not the combined display device).
-        self.health_proxy = None
+        self.health_proxies: list = []  # each battery powering this computer (some laptops have two)
         self.health_group = self.add_group("Battery health")
         self.health_row = Adw.ActionRow(title="Health", subtitle_lines=0)
         self.draw_row = Adw.ActionRow(title="Power in use")
@@ -349,7 +349,7 @@ class BatteryPage(Page):
         self.try_devices([p for p in paths if "battery" in p.lower()])
 
     def try_devices(self, paths: list[str]) -> None:
-        """The first device that's a battery powering this computer (not a mouse's)."""
+        """Every device that's a battery powering this computer (not a mouse's), one after another."""
         if not paths or self.torn_down:
             return
 
@@ -360,54 +360,57 @@ class BatteryPage(Page):
                 proxy = Gio.DBusProxy.new_for_bus_finish(result)
             except GLib.Error:
                 proxy = None
-            if proxy is None or self.prop(proxy, "Type", 0) != 2 or not self.prop(proxy, "PowerSupply", False):
-                self.try_devices(paths[1:])
-                return
-            self.health_proxy = proxy
-            self.watch(proxy, "g-properties-changed", lambda *_a: self.sync_health())
-            self.sync_health()
+            if proxy is not None and self.prop(proxy, "Type", 0) == 2 and self.prop(proxy, "PowerSupply", False):
+                self.health_proxies.append(proxy)
+                self.watch(proxy, "g-properties-changed", lambda *_a: self.sync_health())
+                self.sync_health()
+            self.try_devices(paths[1:])
 
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, UPOWER, paths[0],
                                   "org.freedesktop.UPower.Device", None, done)
 
     def sync_health(self) -> None:
-        proxy = self.health_proxy
-        if proxy is None or not self.prop(proxy, "IsPresent", False):
-            self.health_group.set_visible(False)
+        batteries = [p for p in self.health_proxies if self.prop(p, "IsPresent", False)]
+        self.health_group.set_visible(bool(batteries))
+        if not batteries:
             return
-        self.health_group.set_visible(True)
-        self.health_row.set_subtitle(health_text(float(self.prop(proxy, "EnergyFull", 0.0)),
-                                                 float(self.prop(proxy, "EnergyFullDesign", 0.0)),
-                                                 float(self.prop(proxy, "Capacity", 0.0)),
-                                                 int(self.prop(proxy, "ChargeCycles", -1))))
-        rate = float(self.prop(proxy, "EnergyRate", 0.0))
-        state = int(self.prop(proxy, "State", 0))
-        self.draw_row.set_visible(rate > 0 and state in (DISCHARGING, PENDING_DISCHARGE))
+        texts = [health_text(float(self.prop(p, "EnergyFull", 0.0)), float(self.prop(p, "EnergyFullDesign", 0.0)),
+                             float(self.prop(p, "Capacity", 0.0)), int(self.prop(p, "ChargeCycles", -1)))
+                 for p in batteries]
+        if len(texts) == 1:
+            self.health_row.set_subtitle(texts[0])
+        else:
+            self.health_row.set_subtitle("\n".join(f"Battery {i + 1}: {text}" for i, text in enumerate(texts)))
+        draining = [p for p in batteries if int(self.prop(p, "State", 0)) in (DISCHARGING, PENDING_DISCHARGE)]
+        rate = sum(float(self.prop(p, "EnergyRate", 0.0)) for p in draining)
+        self.draw_row.set_visible(rate > 0)
         self.draw_row.set_subtitle(f"{rate:.1f} W from the battery. Light use is usually under 10 W")
-        supported = bool(self.prop(proxy, "ChargeThresholdSupported", False))
-        self.limit_row.set_visible(supported)
-        if supported:
-            end = int(self.prop(proxy, "ChargeEndThreshold", 0)) or 80
+        limited = [p for p in batteries if self.prop(p, "ChargeThresholdSupported", False)]
+        self.limit_row.set_visible(bool(limited))
+        if limited:
+            end = int(self.prop(limited[0], "ChargeEndThreshold", 0)) or 80
             self.limit_row.set_title(f"Stop charging at {end}%")
             self.limit_row.handler_block(self.limit_handler)
-            self.limit_row.set_active(bool(self.prop(proxy, "ChargeThresholdEnabled", False)))
+            self.limit_row.set_active(all(self.prop(p, "ChargeThresholdEnabled", False) for p in limited))
             self.limit_row.handler_unblock(self.limit_handler)
 
     def set_limit(self) -> None:
-        proxy = self.health_proxy
         on = self.limit_row.get_active()
-        if proxy is None or on == bool(self.prop(proxy, "ChargeThresholdEnabled", False)):
-            return
+        changing = [p for p in self.health_proxies if self.prop(p, "ChargeThresholdSupported", False)
+                    and on != bool(self.prop(p, "ChargeThresholdEnabled", False))]
+        failed = []
 
         def done(source, result) -> None:
             try:
                 source.call_finish(result)
             except GLib.Error:
-                if not self.torn_down:
+                if not self.torn_down and not failed:
+                    failed.append(True)
                     self.toast("Couldn’t change the charge limit. Try again, or restart the computer first")
                     self.sync_health()
 
-        proxy.call("EnableChargeThreshold", GLib.Variant("(b)", (on,)), Gio.DBusCallFlags.NONE, 10000, None, done)
+        for proxy in changing:
+            proxy.call("EnableChargeThreshold", GLib.Variant("(b)", (on,)), Gio.DBusCallFlags.NONE, 10000, None, done)
 
     def sample_apps(self) -> bool:
         """Every few seconds while the page is open: each app's share of the processor."""
@@ -496,5 +499,5 @@ class BatteryPage(Page):
         try:
             proxy.call_finish(result)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t change the power mode: {exc.message}")
+            self.toast(f"Couldn’t change the power mode. {plain_error(exc)}")
             self.sync_profiles()

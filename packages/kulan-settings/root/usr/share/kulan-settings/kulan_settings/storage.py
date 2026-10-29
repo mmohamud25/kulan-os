@@ -10,7 +10,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, launch
+from .common import Page, launch, plain_error
 
 APT_ARCHIVES = Path("/var/cache/apt/archives")
 # Written by /usr/lib/kulan/restore-points (Settings can't read /timeshift).
@@ -226,7 +226,7 @@ class StoragePage(Page):
         try:
             proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDERR_SILENCE)
         except GLib.Error as exc:
-            self.toast(f"Couldn’t do that: {exc.message}")
+            self.toast(f"Couldn’t do that. {plain_error(exc)}")
             return
 
         def done(p, result) -> None:

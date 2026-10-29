@@ -240,7 +240,9 @@ def http(url: str, body: dict | None, headers: dict | None = None, method: str =
         if e.code == 429 and isinstance(message, str) and re.search(r"rate limit|only request this after", message, re.I):
             message = ("Too many sign-in emails for now. Wait a few minutes (up to an hour if you asked several "
                        "times), then try again.")
-        raise FleetError(message or f"Server error {e.code}", two_step) from e
+        if isinstance(message, str) and re.match(r"unknown op", message, re.I):
+            message = "This needs a newer Kulan Fleet server, which isn’t ready yet. Try again later."
+        raise FleetError(message or "Kulan Fleet’s server had a problem. Try again in a minute.", two_step) from e
     except (urllib.error.URLError, OSError) as e:
         print(f"kulan-fleet-admin: {getattr(e, 'reason', e)}", file=sys.stderr)  # the details, for whoever looks
         raise FleetOffline("Can't reach the Kulan Fleet server. Check your internet connection and try again.") from e
