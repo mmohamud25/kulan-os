@@ -26,6 +26,9 @@ WEB = ROOT / "website"
 NOTES = ROOT / "packages/kulan-update-center/root/usr/share/kulan/release-notes.json"
 REPO = os.environ.get("GITHUB_REPOSITORY", "mmohamud25/kulan-os")
 RELEASES = f"https://github.com/{REPO}/releases"
+# Kulan USB Maker, on every release (ci/make-release.sh).
+USB_MAKER_WINDOWS = f"{RELEASES}/latest/download/Kulan-USB-Maker-Windows.exe"
+USB_MAKER_MAC = f"{RELEASES}/latest/download/Kulan-USB-Maker-Mac.dmg"
 DOWNLOAD = f"{RELEASES}/latest/download"
 SUPPORT = "support@kulangroup.com"
 SECURITY = "security@kulangroup.com"
@@ -237,12 +240,12 @@ def download() -> str:
 
 def install() -> str:
     flow = (
-        '<div class="flow" role="img" aria-label="balenaEtcher: pick the .iso, pick the USB stick, then Flash">'
-        '<span><i><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg></i>Pick the .iso</span>'
-        '<svg viewBox="0 0 24 24" fill="none" stroke="#3a4d66" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>'
+        '<div class="flow" role="img" aria-label="Kulan USB Maker: pick the USB stick, click Make, wait until it says it’s ready">'
         '<span><i><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="7" y="9" width="10" height="13" rx="2"/><path d="M9 9V3h6v6"/></svg></i>Pick the USB stick</span>'
         '<svg viewBox="0 0 24 24" fill="none" stroke="#3a4d66" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>'
-        '<span><i class="go"><svg viewBox="0 0 24 24" fill="none" stroke="#04201d" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></i>Flash</span>'
+        '<span><i class="go"><svg viewBox="0 0 24 24" fill="none" stroke="#04201d" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></i>Make</span>'
+        '<svg viewBox="0 0 24 24" fill="none" stroke="#3a4d66" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>'
+        '<span><i><svg viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg></i>Ready</span>'
         '</div>')
     keys = "".join(f"<div><strong>{b}</strong> {k}</div>" for b, k in (
         ("Dell", "F12"), ("HP", "F9 or Esc"), ("Lenovo", "F12"), ("Acer", "F12"), ("ASUS", "F8 or Esc"),
@@ -257,7 +260,7 @@ def install() -> str:
 <h2>On a PC</h2>
 <div class="note">
 <h3>Will this delete Windows?</h3>
-<p>Only if you choose to. Trying {e(NAME)} from the USB stick changes nothing on your computer. When you install, choose <strong>Erase disk</strong> to have only {e(NAME)}, or <strong>Install next to Windows</strong> to keep both and pick one each time you start.</p>
+<p>Only if you choose to. Trying {e(NAME)} from the USB stick changes nothing on your computer. When you install, choose <strong>Erase</strong> to have only {e(NAME)}, or <strong>Next to Windows</strong> to keep both and pick one each time you start.</p>
 <p>To keep Windows, do this in Windows first:</p>
 <ol>
 <li><strong>Back up</strong> your important files.</li>
@@ -268,8 +271,8 @@ def install() -> str:
 </div>
 <div class="step"><div>
 <div class="step-title"><span class="num">1</span><h3>Make a USB stick</h3></div>
-<p><a href="/download/">Download {e(NAME)} for PC</a>, then open balenaEtcher, a free app for Windows, Mac and Linux. Choose Flash from file, pick the .iso, choose your USB stick and click Flash. Everything on the stick is erased.</p>
-<p class="muted">On Windows, Rufus works too. Choose “DD image” mode when it asks.</p>
+<p>Get Kulan USB Maker for <a href="{USB_MAKER_WINDOWS}">Windows</a> or <a href="{USB_MAKER_MAC}">Mac</a>, plug in a USB stick of 8 GB or more, pick it and click Make. It downloads {e(NAME)}, checks it’s genuine and writes the stick, then shows the key that starts your computer from it. Everything on the stick is erased.</p>
+<p class="muted">The first time you open it, Windows may say it protected your PC: choose More info, then Run anyway. On a Mac, open it once, then choose Open Anyway in System Settings › Privacy &amp; Security. Rather use your own tool? <a href="/download/">Download the .iso</a> and write it with balenaEtcher, Raspberry Pi Imager (Use custom) or, on Windows, Rufus in DD image mode.</p>
 </div><figure>{flow}</figure></div>
 <div class="step"><div>
 <div class="step-title"><span class="num">2</span><h3>Start from the USB stick</h3></div>
@@ -287,9 +290,10 @@ def install() -> str:
 <li><strong>You:</strong> your name and a password. The password signs you in and unlocks the encrypted disk when the computer starts.</li>
 <li><strong>Install.</strong> Language, keyboard and time zone are filled in for you. To change them, open More choices.</li>
 </ol>
-<p>Nothing on the computer changes until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, restart, remove the stick and sign in.</p>
-</div><figure><img src="/images/installer-disk.jpg" width="840" height="665" alt="Kulan Installer’s one screen, offering to install next to Windows" loading="lazy"></figure></div>
-<p class="muted" style="font-size:15px">Want to choose partitions yourself? Open Advanced install from the app grid instead.</p>
+<p>Nothing on the computer changes until you click Install. Installing takes about ten minutes and doesn’t need the internet. When it’s done, the last screen shows an eight-digit code: write it down, restart, and remove the stick when the screen goes dark.</p>
+<p>At that first restart, a blue screen asks once to enroll your computer’s own start-up key, so nobody can change how it starts without you knowing. Press any key, choose Enroll MOK, then Continue, then Yes, type the eight digits and choose Reboot. Then type your password to unlock the disk, and sign in. Missed the blue screen? {e(NAME)} starts as usual and asks again next time; the code is in Kulan Settings › Security.</p>
+</div><figure><img src="/images/installer-disk.jpg" width="840" height="718" alt="Kulan Installer’s one screen, offering to install next to Windows" loading="lazy"></figure></div>
+<p class="muted" style="font-size:15px">Want to choose partitions yourself? Open More choices in the installer, then Advanced install.</p>
 </section>
 <section class="band" id="mac">
 <div class="wrap">
@@ -363,7 +367,7 @@ def help_page() -> str:
         ("How do I back up my files?", "Open Backups from the app grid and choose an external drive or network "
                                        "folder. It can back up automatically every day."),
         ("My computer won’t start from the USB stick", "Try another USB port, make the stick again with "
-                                                       "balenaEtcher, and check the boot-menu key for your computer "
+                                                       "Kulan USB Maker, and check the boot-menu key for your computer "
                                                        "in the <a href=\"/install/\">install guide</a>."),
     ]
     items = "".join(f"<details><summary>{e(q)}</summary><p>{a}</p></details>" for q, a in faq)

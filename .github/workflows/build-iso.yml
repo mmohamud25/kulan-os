@@ -689,6 +689,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: read  # Kulan USB Maker from its own workflow's runs
     # The signing key is a secret of this environment only (main only; scripts/signing-key.sh).
     environment:
       name: github-pages

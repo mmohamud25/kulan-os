@@ -37,10 +37,49 @@ for arch in amd64 arm64; do
 	fi
 	mv "${iso}" "${OUT}/kulan-os-${arch}.iso"
 done
-(cd "${OUT}" && sha256sum kulan-os-amd64.iso kulan-os-arm64.iso > SHA256SUMS)
+# Kulan USB Maker, on every release under the same names, so the website's
+# links to releases/latest/download/ always work: from main's newest
+# successful usb-maker.yml run (waiting for one still running), else carried
+# over from the previous release.
+usb_maker() {
+	local run state tag
+	run="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow usb-maker.yml --branch main --limit 1 \
+		--json databaseId --jq '.[0].databaseId // empty')"
+	if [[ -n "${run}" ]]; then
+		state="$(gh run view "${run}" --repo "${GITHUB_REPOSITORY}" --json status --jq .status)"
+		[[ "${state}" == completed ]] || timeout 3600 gh run watch "${run}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || true
+		run="$(gh run list --repo "${GITHUB_REPOSITORY}" --workflow usb-maker.yml --branch main --status success --limit 1 \
+			--json databaseId --jq '.[0].databaseId // empty')"
+	fi
+	mkdir -p "${OUT}/usb-maker"
+	if [[ -n "${run}" ]] &&
+		gh run download "${run}" --repo "${GITHUB_REPOSITORY}" -n kulan-usb-maker-mac -D "${OUT}/usb-maker/mac" &&
+		gh run download "${run}" --repo "${GITHUB_REPOSITORY}" -n kulan-usb-maker-windows -D "${OUT}/usb-maker/windows"; then
+		mv "$(find "${OUT}/usb-maker/mac" -name '*.dmg' | head -n 1)" "${OUT}/Kulan-USB-Maker-Mac.dmg"
+		mv "$(find "${OUT}/usb-maker/windows" -name '*.exe' | head -n 1)" "${OUT}/Kulan-USB-Maker-Windows.exe"
+		echo "Kulan USB Maker from usb-maker.yml run ${run}"
+		return 0
+	fi
+	tag="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName 2>/dev/null || true)"
+	if [[ -n "${tag}" ]] && gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" -D "${OUT}" \
+		-p Kulan-USB-Maker-Mac.dmg -p Kulan-USB-Maker-Windows.exe; then
+		echo "Kulan USB Maker carried over from ${tag}"
+		return 0
+	fi
+	return 1
+}
+EXTRA=()
+if usb_maker && [[ -s "${OUT}/Kulan-USB-Maker-Mac.dmg" && -s "${OUT}/Kulan-USB-Maker-Windows.exe" ]]; then
+	EXTRA=(Kulan-USB-Maker-Mac.dmg Kulan-USB-Maker-Windows.exe)
+else
+	echo "::warning title=Release::Kulan USB Maker isn't on this release (no build of it from main, and none on the previous release)"
+fi
+
+(cd "${OUT}" && sha256sum kulan-os-amd64.iso kulan-os-arm64.iso "${EXTRA[@]}" > SHA256SUMS)
 cat "${OUT}/SHA256SUMS"
 
 ASSETS=("${OUT}/kulan-os-amd64.iso" "${OUT}/kulan-os-arm64.iso" "${OUT}/SHA256SUMS")
+for F in "${EXTRA[@]}"; do ASSETS+=("${OUT}/${F}"); done
 if [[ -n "${KULAN_APT_SIGNING_KEY:-}" ]]; then
 	GNUPGHOME="$(mktemp -d)"
 	export GNUPGHOME
