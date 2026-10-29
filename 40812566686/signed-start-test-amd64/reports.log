@@ -1,0 +1,38 @@
+kulan-signed-test login: KULAN-BOOT-REPORT-BEGIN
+state=running
+desktop_user=kulan
+time=Startup finished in 1.004s (kernel) + 3.188s (initrd) + 30.127s (userspace) = 34.320s 
+blame=22.352s plymouth-quit-wait.service
+blame=6.153s sys-devices-pnp0-00:02-printer-lp0.device
+blame=6.153s dev-lp0.device
+blame=5.716s dev-tpm0.device
+blame=5.716s sys-devices-pci0000:00-0000:00:1f.0-MSFT0101:00-tpm-tpm0.device
+blame=5.677s dev-tpmrm0.device
+blame=5.677s sys-devices-pci0000:00-0000:00:1f.0-MSFT0101:00-tpmrm-tpmrm0.device
+blame=5.535s sys-devices-platform-serial8250-serial8250:0-serial8250:0.3-tty-ttyS3.device
+chain=gdm.service +383ms
+chain=fwupd.service @24.704s +2.978s
+chain=dbus.service @5.892s +439ms
+chain=basic.target @5.818s
+chain=systemd-pcrphase-sysinit.service @5.561s +256ms
+chain=sysinit.target @5.539s
+chain=apparmor.service @4.245s +1.292s
+chain=local-fs.target @4.214s
+chain=run-user-1000-doc.mount @17.648s
+chain=run-user-1000.mount @8.391s
+memory=1271 MB used of 3883 MB
+timezone=Etc/UTC
+swap=/dev/zram0 3.8G;
+oomd=active active
+kexec=1 no x86_64
+needs_update=no
+unlock=
+boot_id=fac72776-352a-4ce6-8840-349caee2b56b
+loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 secureboot=1 signedstart=Signed start-up on
+statusservice=success 1793250203
+kulanshell='state': <1.0> 'error': <''> 
+lighter=on success search_nice=19 mem_kib=3977204
+appsandbox=0 
+appupdates=ok
+KULAN-BOOT-REPORT-END
+===
