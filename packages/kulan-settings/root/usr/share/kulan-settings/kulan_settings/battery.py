@@ -8,13 +8,20 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import time
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, choice_row, has_key, plain_error, settings, switch_row
+from .common import (
+    Page,
+    choice_row,
+    has_key,
+    plain_error,
+    run_async,
+    settings,
+    switch_row,
+)
 
 UPOWER = "org.freedesktop.UPower"
 DISPLAY_DEVICE = "/org/freedesktop/UPower/devices/DisplayDevice"
@@ -141,15 +148,20 @@ LIGHTER = "/usr/lib/kulan/lighter-mode"
 LIGHTER_CHOICES = [("auto", "Automatic"), ("on", "On"), ("off", "Off")]
 
 
-def lighter_status() -> dict | None:
-    """Lighter mode now (lighter-mode status), or None without it."""
+def lighter_status_async(done, page=None) -> None:
+    """Lighter mode now (lighter-mode status), without waiting: done(status, or None
+    without it) on the window's thread."""
     if not Path(LIGHTER).exists():
-        return None
-    try:
-        out = subprocess.run([LIGHTER, "status"], capture_output=True, text=True, timeout=10, check=True).stdout
-        return json.loads(out)
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
+        GLib.idle_add(lambda: (done(None), False)[1])
+        return
+
+    def finished(ok: bool, out: str, _err: str) -> None:
+        try:
+            done(json.loads(out) if ok else None)
+        except ValueError:
+            done(None)
+
+    run_async([LIGHTER, "status"], finished, timeout=10, page=page)
 
 
 def lighter_text(status: dict) -> str:
@@ -259,13 +271,13 @@ class BatteryPage(Page):
         if saving_rows:  # no heading with nothing under it
             self.add_rows(self.add_group("Saving power"), *saving_rows)
 
-        status = lighter_status()
-        if status is not None:
-            speed = self.add_group("Speed")
-            self.lighter_row = choice_row("Lighter mode", lighter_text(status), LIGHTER_CHOICES,
-                                          lambda: status.get("choice", "auto"), self.set_lighter)
-            self.lighter_row.set_subtitle_lines(0)
-            speed.add(self.lighter_row)
+        # Lighter mode: its status comes from a program, so it follows when that answers.
+        self.lighter_now: dict | None = None
+        self.speed_group = None
+        if Path(LIGHTER).exists():
+            self.speed_group = self.add_group("Speed")
+            self.speed_group.set_visible(False)
+            lighter_status_async(self.got_lighter, page=self)
 
         Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, UPOWER, DISPLAY_DEVICE,
                                   "org.freedesktop.UPower.Device", None, self.got_battery)
@@ -273,12 +285,26 @@ class BatteryPage(Page):
                                   "/org/freedesktop/UPower", UPOWER, None, self.got_upower)
         self.connect_profiles(0)
 
-    def set_lighter(self, choice: str) -> None:
-        status = lighter_status()
-        if status is None or status.get("choice") == choice:
+    def got_lighter(self, status: dict | None) -> None:
+        if status is None or self.speed_group is None:
             return
-        message = {"auto": "Lighter mode is automatic", "on": "Lighter mode on", "off": "Lighter mode off"}[choice]
-        self.window.helper.run(["lighter", choice], message, on_done=lambda _ok: self.window.reload_page(self))
+        self.lighter_now = status
+        self.lighter_row = choice_row("Lighter mode", lighter_text(status), LIGHTER_CHOICES,
+                                      lambda: status.get("choice", "auto"), self.set_lighter)
+        self.lighter_row.set_subtitle_lines(0)
+        self.speed_group.add(self.lighter_row)
+        self.speed_group.set_visible(True)
+
+    def set_lighter(self, choice: str) -> None:
+        # Checked again first (it may have changed since the page opened), without waiting on it.
+        def checked(status: dict | None) -> None:
+            if status is None or status.get("choice") == choice:
+                return
+            message = {"auto": "Lighter mode is automatic", "on": "Lighter mode on",
+                       "off": "Lighter mode off"}[choice]
+            self.window.helper.run(["lighter", choice], message, on_done=lambda _ok: self.window.reload_page(self))
+
+        lighter_status_async(checked, page=self)
 
     def sleep_row(self, source: str, title: str) -> Adw.ComboRow:
         type_key, timeout_key = f"sleep-inactive-{source}-type", f"sleep-inactive-{source}-timeout"

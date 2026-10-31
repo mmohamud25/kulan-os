@@ -1,7 +1,11 @@
 """Kulan Settings: the window, sidebar and command line."""
 from __future__ import annotations
 
+import os
+import shutil
 import sys
+import tempfile
+import time
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
@@ -290,6 +294,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
 
 
+# Programs the pages ask (self-test: made slow, to show none is waited for on the window's thread).
+SLOW_PROGRAMS = ("lscpu", "lspci", "gnome-shell", "systemctl", "findmnt", "lsblk", "dpkg-query", "flatpak",
+                 "locale", "openssl")
+SLOW_S = 3
+
+
 class KulanSettings(Adw.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -317,6 +327,37 @@ class KulanSettings(Adw.Application):
 
     def self_test(self, window: SettingsWindow) -> int:
         failures = []
+        # Mistakes in replies that arrive later (threads, D-Bus) count as failures too.
+        late_errors: list[str] = []
+        excepthook = sys.excepthook
+
+        def caught(kind, value, tb) -> None:
+            late_errors.append(f"{kind.__name__}: {value}")
+            excepthook(kind, value, tb)
+        sys.excepthook = caught
+        # Nothing slow on the window's thread (2.11): with the programs pages ask
+        # made slow, every page still opens at once and fills in afterwards.
+        slow = tempfile.mkdtemp(prefix="kulan-slow-")
+        for name in SLOW_PROGRAMS:
+            fake = os.path.join(slow, name)
+            with open(fake, "w") as f:
+                f.write(f"#!/bin/sh\nsleep {SLOW_S}\n")
+            os.chmod(fake, 0o755)
+        path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{slow}:{path}"
+        started = time.monotonic()
+        try:
+            for page_id, _cls in PAGES:
+                try:
+                    window.show_page(page_id)
+                except Exception:  # noqa: BLE001,S110 - reported by the pass below
+                    pass
+        finally:
+            os.environ["PATH"] = path
+        took = time.monotonic() - started
+        if took > SLOW_S * 2:
+            failures.append(f"opening every page took {took:.1f} s with slow programs: something waits for "
+                            "them on the window's thread")
         for page_id, _cls in PAGES:
             try:
                 window.show_page(page_id)
@@ -385,6 +426,15 @@ class KulanSettings(Adw.Application):
             assert users.user_name_from("Amina Yusuf", {"amina"}) not in ("amina", "")
         except (AssertionError, AttributeError) as exc:
             failures.append(f"messages: {exc!r}")
+        # Let the replies arrive (the slow programs answer after SLOW_S seconds).
+        context = GLib.MainContext.default()
+        deadline = time.monotonic() + SLOW_S + 2
+        while time.monotonic() < deadline:
+            if not context.iteration(False):
+                time.sleep(0.02)
+        sys.excepthook = excepthook
+        shutil.rmtree(slow, ignore_errors=True)
+        failures += [f"later: {error}" for error in late_errors]
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

@@ -16,6 +16,8 @@ import Shell from 'gi://Shell';
 import {InjectionManager} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as EndSessionDialog from 'resource:///org/gnome/shell/ui/endSessionDialog.js';
 
+import {readText, writeFile} from './files.js';
+
 const SAVE_DELAY_S = 8;
 const REOPEN_DELAY_S = 3;
 const MAX_APPS = 12;
@@ -101,20 +103,17 @@ export class ReopenApps {
     _save() {
         if (this._frozen)
             return;
-        try {
-            const path = stateFile();
-            GLib.mkdir_with_parents(GLib.path_get_dirname(path), 0o700);
-            GLib.file_set_contents(path, JSON.stringify({apps: this._runningIds(), saved: Date.now()}));
-        } catch (e) {
-            logError(e, 'Kulan Shell: could not save the open apps');
-        }
+        // Without making the desktop wait (files.js); written whole and renamed into place.
+        writeFile(stateFile(), JSON.stringify({apps: this._runningIds(), saved: Date.now()}), error => {
+            if (error)
+                logError(error, 'Kulan Shell: could not save the open apps');
+        });
     }
 
     _reopen() {
         let saved = [];
         try {
-            const [, bytes] = GLib.file_get_contents(stateFile());
-            saved = JSON.parse(new TextDecoder().decode(bytes)).apps ?? [];
+            saved = JSON.parse(readText(stateFile()) ?? '{}').apps ?? [];
         } catch (e) {
             saved = [];
         }

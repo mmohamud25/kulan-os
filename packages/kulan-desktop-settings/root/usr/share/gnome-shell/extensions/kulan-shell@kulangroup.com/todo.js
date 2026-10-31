@@ -5,53 +5,69 @@
 // Undo; if the list can't be saved (a full disk), it says so.
 
 import Clutter from 'gi://Clutter';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import {failureText, pending, readText, writeFile} from './files.js';
+
 export const TODO_FILE = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'todo.json']);
 const MAX_TASKS = 200;
 const MAX_CHARS = 200;
 const UNDO_SHOW_MS = 10000;
 let lastError = null;
+// The list as it was left when it couldn't be saved (a full disk): kept in
+// memory, so nothing typed is lost, and saved with the next change.
+let unsaved = null;
+let openPanel = null; // the panel, while it's open: told when a save fails
 
 function saveFailed() {
     Main.notify('To-do wasn’t saved', `The change couldn’t be saved (${lastError}). Free up some space and try again.`);
 }
 
 export function readTodos() {
+    // The newest list: on its way to the disk (files.js), or kept after a failed save.
+    const waiting = pending(TODO_FILE);
+    const text = typeof waiting === 'string' ? waiting : unsaved ?? readText(TODO_FILE);
+    if (!text)
+        return [];
     try {
-        const [ok, bytes] = GLib.file_get_contents(TODO_FILE);
-        if (!ok)
-            return [];
-        const data = JSON.parse(new TextDecoder().decode(bytes));
+        const data = JSON.parse(text);
         const items = Array.isArray(data?.items) ? data.items : [];
         return items.filter(i => i && typeof i.text === 'string' && i.text.trim() !== '')
             .map(i => ({id: String(i.id ?? GLib.uuid_string_random()), text: i.text.slice(0, MAX_CHARS), done: !!i.done}))
             .slice(0, MAX_TASKS);
     } catch {
-        return []; // missing or damaged: start a fresh list
+        return []; // damaged: start a fresh list
     }
 }
 
+// Saves the list without making the desktop wait (files.js): written whole and
+// renamed into place, so a crash never leaves half a list. Returns at once;
+// readTodos() already gives the new list. If the save fails, the list is kept
+// in memory, and the panel (or a notification) says so.
 export function writeTodos(items) {
-    try {
-        GLib.mkdir_with_parents(GLib.path_get_dirname(TODO_FILE), 0o700);
-        const text = JSON.stringify({version: 1, items: items.slice(0, MAX_TASKS)}, null, 1);
-        // Written whole and renamed into place, so a crash never leaves half a list.
-        Gio.File.new_for_path(TODO_FILE).replace_contents(new TextEncoder().encode(text), null, false,
-            Gio.FileCreateFlags.PRIVATE | Gio.FileCreateFlags.REPLACE_DESTINATION, null);
-        lastError = null;
-        return true;
-    } catch (e) {
-        logError(e, 'Kulan Shell: could not save the to-do list');
-        lastError = e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NO_SPACE)
-            ? 'the disk is full' : (e.message || 'unknown error');
-        return false;
-    }
+    const text = JSON.stringify({version: 1, items: items.slice(0, MAX_TASKS)}, null, 1);
+    writeFile(TODO_FILE, text, error => {
+        if (pending(TODO_FILE) !== undefined)
+            return; // a newer list is on its way; its answer counts
+        if (error) {
+            logError(error, 'Kulan Shell: could not save the to-do list');
+            lastError = failureText(error);
+            unsaved = text;
+            if (openPanel)
+                openPanel._refresh();
+            else
+                saveFailed();
+        } else {
+            lastError = null;
+            unsaved = null;
+            openPanel?._refresh();
+        }
+    }, {private: true});
+    return true;
 }
 
 export function setDone(id, done) {
@@ -60,8 +76,7 @@ export function setDone(id, done) {
     if (!item)
         return;
     item.done = done;
-    if (!writeTodos(items))
-        saveFailed();
+    writeTodos(items);
 }
 
 // A round tick box, as in Reminders.
@@ -177,6 +192,7 @@ export class TodoPanel {
             this.close();
             return;
         }
+        openPanel = this;
         this._refresh();
         this._entry.grab_key_focus();
         this._panel.opacity = 0;
@@ -281,6 +297,8 @@ export class TodoPanel {
         this._undoItems = null;
         if (lastError)
             saveFailed();
+        if (openPanel === this)
+            openPanel = null;
         if (this._grab) {
             Main.popModal(this._grab);
             this._grab = null;

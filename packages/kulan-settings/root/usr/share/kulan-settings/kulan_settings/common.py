@@ -488,3 +488,79 @@ class Page(Adw.Bin):
 
     def shown(self) -> None:
         """Called each time the page is opened; refresh live state here."""
+
+
+# --- off the window's thread (2.11) ------------------------------------------------------
+# Anything that can take more than a moment (a program, a blocking D-Bus call, the
+# keyring) runs here, never on the window's own thread, so no window ever freezes.
+
+def in_thread(work: Callable[[], object], done: Callable[[object], None] | None = None,
+              page: Page | None = None) -> None:
+    """Run work() on a worker thread, then done(result) back on the window's thread;
+    skipped when page has been torn down meanwhile. If work() raises, done gets None."""
+    import threading
+
+    def back(result) -> bool:
+        if done is not None and not (page is not None and page.torn_down):
+            done(result)
+        return GLib.SOURCE_REMOVE
+
+    def run() -> None:
+        try:
+            result = work()
+        except Exception:  # noqa: BLE001 - never lose the answer; say why (stderr, and the self-test)
+            sys.excepthook(*sys.exc_info())
+            result = None
+        GLib.idle_add(back, result)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def run_async(args: list[str], done: Callable[[bool, str, str], None], timeout: int = 10,
+              page: Page | None = None, env: dict[str, str] | None = None,
+              stdin: str | None = None) -> None:
+    """Run a program without waiting for it: done(ok, stdout, stderr) on the window's
+    thread when it ends (ok = exit status 0), or (False, "", reason) when it can't start
+    or takes longer than timeout seconds (it is then stopped). Skipped when page has
+    been torn down meanwhile."""
+    finished = [False]
+
+    def finish(ok: bool, out: str, err: str) -> bool:
+        if not finished[0]:
+            finished[0] = True
+            if not (page is not None and page.torn_down):
+                done(ok, out, err)
+        return GLib.SOURCE_REMOVE
+
+    launcher = Gio.SubprocessLauncher.new(
+        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        | (Gio.SubprocessFlags.STDIN_PIPE if stdin is not None else Gio.SubprocessFlags.NONE))
+    for key, value in (env or {}).items():
+        launcher.setenv(key, value, True)
+    try:
+        proc = launcher.spawnv(args)
+    except GLib.Error as exc:
+        GLib.idle_add(finish, False, "", exc.message)
+        return
+    cancellable = Gio.Cancellable()
+
+    def too_long() -> bool:
+        if not finished[0]:
+            proc.force_exit()
+            cancellable.cancel()
+            finish(False, "", f"{args[0]} took longer than {timeout} seconds")
+        return GLib.SOURCE_REMOVE
+
+    timer = GLib.timeout_add_seconds(max(1, timeout), too_long)
+
+    def communicated(_proc, result) -> None:
+        if not finished[0]:
+            GLib.source_remove(timer)
+        try:
+            _ok, out, err = proc.communicate_utf8_finish(result)
+        except GLib.Error as exc:
+            finish(False, "", exc.message)
+            return
+        finish(proc.get_if_exited() and proc.get_exit_status() == 0, out or "", err or "")
+
+    proc.communicate_utf8_async(stdin, cancellable, communicated)
