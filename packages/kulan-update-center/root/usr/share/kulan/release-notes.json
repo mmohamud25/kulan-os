@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.12.0",
+    "label": "2.12",
+    "title": "Restart when it suits you",
+    "items": [
+      "Restart to finish updating, like a Mac: after you install updates that need a restart, a 60-second countdown, with Cancel. After automatic updates, a notice with Restart Now and Later, which asks again 4 hours later. At night, once nobody has used the computer for half an hour, it restarts by itself. An app with unsaved work always stops it",
+      "Undo the last update works with signed start-up too: the start-up menu has it, and shows after a start-up that didn't reach the desktop",
+      "Signed start-up notes a start-up that worked again, so it never goes back to the previous version by mistake, and undoing an update signs the start-up files for the restored system",
+      "Block ads and trackers works on a new computer straight away, without downloading anything first",
+      "The sign-in screen comes up sooner: it no longer waits for the firmware update service",
+      "The live USB restarts at once in virtual machines, instead of waiting 90 seconds behind the splash",
+      "Kulan Fleet: the dashboard and the Fleet app show only the join code to type, with Copy"
+    ]
+  },
+  {
     "version": "2.11.0",
     "label": "2.11",
     "title": "Smooth, connected, dependable",
