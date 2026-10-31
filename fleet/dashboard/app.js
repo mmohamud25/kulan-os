@@ -864,7 +864,7 @@ function addPerson() {
       const name = full.value.trim() || user.value;
       showCode(name, code, true);
       if (out.mailbox_password) {
-        // The setup code first; the Google password after it's closed.
+        // The setup code first; the mailbox's password after it's closed.
         $("dlg").addEventListener("close", () => showMailboxPassword(name, out.mailbox, out.mailbox_password), { once: true });
       }
       if (out.mailbox_error) $("app-msg").textContent = `Added ${user.value}, but the mailbox wasn't made: ${out.mailbox_error}`;
@@ -874,7 +874,7 @@ function addPerson() {
   dialog("Add a person", [
     el("p", { class: "note" }, "They sign in with a setup code, then choose their own password."),
     field("Full name", full), field("Username", user),
-    domain ? el("label", {}, makeMailbox, ` Make a Google mailbox on ${domain}. Google asks them to choose a password at first sign-in.`) : "",
+    domain ? el("label", {}, makeMailbox, ` Make a ${mailLabel()} mailbox on ${domain}. ${mailShort()} asks them to choose a password at first sign-in.`) : "",
     mailboxField, emailField,
     field("Role", role), roleHelp, el("h4", {}, "Computers they can use"), ...picker.nodes, err],
     [closeButton(), add]);
@@ -953,8 +953,10 @@ function removePerson(p) {
   const err = errorLine();
   const mailbox = p.mailbox && p.mailbox_state !== "deleted" && orgNow()?.mail_domain ? p.mailbox : null;
   const choice = el("select", { "aria-label": "Their mailbox" },
-    el("option", { value: "suspend" }, "Suspend it, keeping the mail (Google may still charge for it)"),
-    el("option", { value: "delete" }, "Delete it (Google can restore it for 20 days)"));
+    el("option", { value: "suspend" }, orgNow()?.mail_provider === "microsoft"
+      ? "Block it, keeping the mail (its licence stays in use)" : "Suspend it, keeping the mail (Google may still charge for it)"),
+    el("option", { value: "delete" }, orgNow()?.mail_provider === "microsoft"
+      ? "Delete it (Microsoft 365 can restore it for 30 days)" : "Delete it (Google can restore it for 20 days)"));
   const go = el("button", { type: "button", class: "danger", disabled: "", onclick: async () => {
     try {
       const out = await api({ op: "remove-person", person_id: p.id, remove_files: files.checked, confirm: typed.value.trim(),
@@ -974,22 +976,35 @@ function removePerson(p) {
     [closeButton(), go]);
 }
 
-// --- Google Workspace mailboxes (2.8e) -----------------------------------------------------
+// --- Work email: Google Workspace (2.8e), Microsoft 365 (2.12) -----------------------------
 let mailOwner = false;
+let msPermissions = [];
+// The connected service, in words: "Google" or "Microsoft", "Google Workspace" or "Microsoft 365".
+const mailShort = () => orgNow()?.mail_provider === "microsoft" ? "Microsoft" : "Google";
+const mailLabel = () => orgNow()?.mail_provider === "microsoft" ? "Microsoft 365" : "Google Workspace";
 function renderMail(out) {
   const c = out?.connection;
   mailOwner = !!out?.is_owner;
+  msPermissions = out?.permissions || msPermissions;
   const org = orgNow();
-  if (org) org.mail_domain = c?.domain || null;
+  if (org) { org.mail_domain = c?.domain || null; org.mail_provider = c?.provider || null; }
+  const ms = c?.provider === "microsoft";
+  const n = `${out?.mailboxes || 0} mailbox${out?.mailboxes === 1 ? "" : "es"} managed`;
   $("mail-sub").textContent = !out ? "" : c
     ? "Mailboxes are made, suspended and removed along with people's accounts."
-    : "Connect Google Workspace to manage mailboxes with People. New people get a mailbox. Mailboxes are suspended when people are disabled, and suspended or deleted when they're removed.";
+    : "Connect Google Workspace or Microsoft 365 to manage mailboxes with People. New people get a mailbox. Mailboxes are suspended when people are disabled, and suspended or deleted when they're removed.";
   $("mail").replaceChildren(...(c ? [
-    el("li", {}, el("b", {}, c.domain), ` · acting as ${c.admin_email} · ${out.mailboxes || 0} mailbox${out.mailboxes === 1 ? "" : "es"} managed`),
-    el("li", { class: "small" }, `Service account ${c.client_email} (client ID ${c.client_id || "?"}) · connected ${ago(c.connected_at)} by ${c.connected_by || "–"}`),
+    el("li", {}, el("b", {}, c.domain), ms ? ` · Microsoft 365 · licence ${c.licence_name || "?"} · ${n}` : ` · acting as ${c.admin_email} · ${n}`),
+    el("li", { class: "small" }, ms
+      ? `App ${c.client_id} in tenant ${c.tenant_id} · mailboxes used in ${c.usage_location || "?"} · connected ${ago(c.connected_at)} by ${c.connected_by || "–"}`
+      : `Service account ${c.client_email} (client ID ${c.client_id || "?"}) · connected ${ago(c.connected_at)} by ${c.connected_by || "–"}`),
     ...(c.last_error ? [el("li", {}, el("span", { class: "tag bad" }, "problem"), ` ${c.last_error}`)] : [])] : []));
-  $("mail-connect").textContent = c ? "Connect again with a new key…" : "Connect Google Workspace…";
+  $("mail-connect").textContent = c && !ms ? "Connect again with a new key…" : "Connect Google Workspace…";
+  $("mail-connect").classList.toggle("hidden", ms);
   $("mail-connect").disabled = !mailOwner;
+  $("mail-connect-ms").textContent = ms ? "Connect again with a new secret…" : "Connect Microsoft 365…";
+  $("mail-connect-ms").classList.toggle("hidden", !!c && !ms);
+  $("mail-connect-ms").disabled = !mailOwner;
   $("mail-users").classList.toggle("hidden", !c);
   $("mail-users").disabled = !mailOwner;
   $("mail-disconnect").classList.toggle("hidden", !c);
@@ -1020,8 +1035,8 @@ function connectMail() {
       key = null;
       file.value = "";
       $("dlg").close();
-      $("app-msg").textContent = `Connected to ${out.domain}.`;
       await load();
+      $("app-msg").textContent = `Connected to ${out.domain}.`;
     } catch (e) { err.textContent = friendly(e); go.disabled = false; }
   } }, "Connect");
   dialog("Connect Google Workspace", [
@@ -1030,6 +1045,45 @@ function connectMail() {
     field("The service account's JSON key file", file), keyNote,
     field("Super admin's email", admin),
     el("p", { class: "note" }, "Kulan Fleet acts as that admin. The key is stored encrypted and can't be read back, so you can delete the file afterwards."), err],
+    [closeButton(), go]);
+}
+
+// Microsoft 365 (2.12): an app the Owner registers in Microsoft Entra, with application permissions.
+function connectMicrosoft() {
+  const c = orgNow()?.mail_provider === "microsoft";
+  const tenant = el("input", { autocomplete: "off", spellcheck: "false", placeholder: "00000000-0000-0000-0000-000000000000" });
+  const client = el("input", { autocomplete: "off", spellcheck: "false", placeholder: "00000000-0000-0000-0000-000000000000" });
+  const secret = el("input", { type: "password", autocomplete: "off", spellcheck: "false" });
+  const domain = el("input", { autocomplete: "off", spellcheck: "false", placeholder: "yourcompany.com", value: c ? orgNow()?.mail_domain || "" : "" });
+  const region = (navigator.language || "").split("-")[1];
+  const country = el("input", { autocomplete: "off", spellcheck: "false", maxlength: "2", style: "width: 70px",
+                                value: /^[A-Z]{2}$/.test(region || "") ? region : "US" });
+  const err = errorLine();
+  const go = el("button", { type: "button", class: "primary", onclick: async () => {
+    if (!tenant.value.trim() || !client.value.trim() || !secret.value.trim() || !domain.value.trim()) {
+      err.textContent = "Fill in all four: the tenant ID, the client ID, the secret's Value and your email domain."; return;
+    }
+    go.disabled = true;
+    err.textContent = "Checking it with Microsoft…";
+    try {
+      const out = await api({ op: "connect-mail", organisation_id: $("org").value, provider: "microsoft", tenant_id: tenant.value.trim(),
+                              client_id: client.value.trim(), client_secret: secret.value.trim(), domain: domain.value.trim().toLowerCase(),
+                              usage_location: country.value.trim().toUpperCase() });
+      secret.value = "";
+      $("dlg").close();
+      await load();
+      $("app-msg").textContent = `Connected to ${out.domain}. New mailboxes get ${out.licence || "a Microsoft 365 licence"}` +
+        ` (${out.free} free now).`;
+    } catch (e) { err.textContent = friendly(e); go.disabled = false; }
+  } }, "Connect");
+  dialog("Connect Microsoft 365", [
+    el("p", {}, "As a Microsoft 365 admin, open Microsoft Entra › App registrations › New registration, and register an app for Kulan Fleet (one tenant only, no redirect address). In its API permissions, add these Microsoft Graph application permissions, then choose Grant admin consent:"),
+    el("p", { class: "small", style: "font-family: ui-monospace, monospace" }, (msPermissions.length ? msPermissions
+      : ["User.ReadWrite.All", "User-PasswordProfile.ReadWrite.All", "Organization.Read.All", "RoleManagement.Read.Directory"]).join(", ")),
+    el("p", {}, "In Certificates & secrets, make a client secret, and copy its Value."),
+    field("Directory (tenant) ID", tenant), field("Application (client) ID", client), field("Client secret's Value", secret),
+    field("Your email domain", domain), field("Country people's mailboxes are used in (two letters)", country),
+    el("p", { class: "note" }, "New mailboxes get your first Microsoft 365 licence that includes email. The secret is stored encrypted and can't be read back. When it expires, connect again with a new one."), err],
     [closeButton(), go]);
 }
 
@@ -1042,15 +1096,15 @@ async function mailUsers() {
       el("p", { class: "note" }, `${users.length} mailbox${users.length === 1 ? "" : "es"}. To link one, choose Manage… next to the person, then Link an existing mailbox.`),
       el("ul", { class: "alerts" }, ...users.slice(0, 500).map((u) => el("li", {}, el("b", {}, u.address),
         ` · ${u.name || ""} · ${u.username ? `in People as ${u.username}` : "not in People"}`,
-        u.admin ? el("span", { class: "tag dim", style: "margin-left: 6px" }, "Google admin") : "",
+        u.admin ? el("span", { class: "tag dim", style: "margin-left: 6px" }, `${mailShort()} admin`) : "",
         u.suspended ? el("span", { class: "tag warn", style: "margin-left: 6px" }, "suspended") : "")))],
       [closeButton("Close")]);
   } catch (e) { dialog("Existing mailboxes", [el("p", { class: "error" }, friendly(e))], [closeButton("Close")]); }
 }
 
 function showMailboxPassword(name, address, password) {
-  dialog(`Google password for ${name}`, [
-    el("p", {}, `Give this to ${name} in person or by phone, not by email. They use it to sign in to Google as ${address}, then choose their own password. It's shown only once.`),
+  dialog(`${mailShort()} password for ${name}`, [
+    el("p", {}, `Give this to ${name} in person or by phone, not by email. They use it to sign in to ${mailShort()} as ${address}, then choose their own password. It's shown only once.`),
     el("div", { class: "code" }, password)],
     [el("button", { type: "button", onclick: () => navigator.clipboard?.writeText(password) }, "Copy password"),
      el("button", { type: "button", class: "primary", onclick: () => $("dlg").close() }, "Done")]);
@@ -1059,12 +1113,12 @@ function showMailboxPassword(name, address, password) {
 // A button for a mailbox action on someone (retry, forget, new-password, unlink, create, link).
 function mailboxButton(p, action, label, address) {
   return el("button", { type: "button", style: "margin-left: 6px", onclick: async () => {
-    if (action === "new-password" && !await askConfirm(`A new Google password for ${p.username}? Their current one stops working now. The new one is shown once.`)) return;
-    if (action === "unlink" && !await askConfirm(`Stop managing ${p.mailbox}? It stays in Google Workspace but is no longer suspended or removed with ${p.username}'s account.`)) return;
+    if (action === "new-password" && !await askConfirm(`A new ${mailShort()} password for ${p.username}? Their current one stops working now. The new one is shown once.`)) return;
+    if (action === "unlink" && !await askConfirm(`Stop managing ${p.mailbox}? It stays in ${mailLabel()} but is no longer suspended or removed with ${p.username}'s account.`)) return;
     try {
       const out = await api({ op: "mailbox", person_id: p.id, action, ...(address ? { address: address() } : {}) });
       if (out.mailbox_error) { $("app-msg").textContent = `Still not done: ${out.mailbox_error}`; }
-      else $("app-msg").textContent = { retry: "Done.", forget: "No longer retried.", "new-password": `New Google password for ${p.username}.`,
+      else $("app-msg").textContent = { retry: "Done.", forget: "No longer retried.", "new-password": `New ${mailShort()} password for ${p.username}.`,
                                         unlink: "Kulan Fleet no longer manages that mailbox.", create: "Mailbox made.", link: "Mailbox linked." }[action];
       if (out.mailbox_password) showMailboxPassword(p.full_name || p.username, out.mailbox, out.mailbox_password);
       else if ($("dlg").open) $("dlg").close();
@@ -1088,7 +1142,7 @@ function mailboxNodes(p, manages) {
   }
   if (!domain || !manages) return nodes;
   if (live) {
-    nodes.push(el("div", { class: "row" }, mailboxButton(p, "new-password", "New Google password…"), mailboxButton(p, "unlink", "Stop managing it…")));
+    nodes.push(el("div", { class: "row" }, mailboxButton(p, "new-password", `New ${mailShort()} password…`), mailboxButton(p, "unlink", "Stop managing it…")));
   } else {
     const address = el("input", { value: `${p.username}@${domain}`, autocomplete: "off", spellcheck: "false", "aria-label": "Mailbox address" });
     const where = () => address.value.trim().toLowerCase();
@@ -1902,10 +1956,15 @@ $("add-group").addEventListener("click", () => {
 });
 $("add-person").addEventListener("click", addPerson);
 $("mail-connect").addEventListener("click", connectMail);
+$("mail-connect-ms").addEventListener("click", connectMicrosoft);
 $("mail-users").addEventListener("click", mailUsers);
 $("mail-disconnect").addEventListener("click", async () => {
-  if (!await askConfirm("Disconnect Google Workspace? Kulan Fleet deletes its copy of the key. Mailboxes stay in Google but are no longer managed with People, and computers stop offering them. Unfinished suspensions or deletions are left for you to do by hand. To revoke the key, delete it in Google Cloud.")) return;
-  try { await api({ op: "disconnect-mail", organisation_id: $("org").value }); $("app-msg").textContent = "Google Workspace disconnected."; await load(); }
+  const ms = orgNow()?.mail_provider === "microsoft";
+  if (!await askConfirm(ms
+    ? "Disconnect Microsoft 365? Kulan Fleet deletes its copy of the client secret. Mailboxes stay in Microsoft 365 but are no longer managed with People, and computers stop offering them. Unfinished suspensions or deletions are left for you to do by hand. To revoke the secret, delete it in Microsoft Entra."
+    : "Disconnect Google Workspace? Kulan Fleet deletes its copy of the key. Mailboxes stay in Google but are no longer managed with People, and computers stop offering them. Unfinished suspensions or deletions are left for you to do by hand. To revoke the key, delete it in Google Cloud.")) return;
+  const label = mailLabel();
+  try { await api({ op: "disconnect-mail", organisation_id: $("org").value }); await load(); $("app-msg").textContent = `${label} disconnected.`; }
   catch (e) { $("app-msg").textContent = friendly(e); }
 });
 $("add-admin").addEventListener("submit", (ev) => { ev.preventDefault(); changeAdmin("add-admin", $("admin-email").value.trim()).then(() => { $("admin-email").value = ""; }); });

@@ -80,11 +80,35 @@ installed system's kernel (the same version) also reports extended
 capabilities (caps/extended), so its cache folder is another one
 (979b3ac6.0, not f6da0254.0). The boot report still lists the folders.
 
-## Not done yet
+9. **Microsoft 365 work email through Fleet.** The Owner connects an app
+   registered in Microsoft Entra (tenant ID, client ID, a client secret;
+   Microsoft Graph application permissions User.ReadWrite.All,
+   User-PasswordProfile.ReadWrite.All, Organization.Read.All,
+   RoleManagement.Read.Directory, admin consent). fleet-admin's microsoft.ts
+   has the same functions as google.ts; mail.ts picks one per organisation,
+   and every message names the service connected. New mailboxes get the
+   first licence with Exchange Online (chosen when connecting, its free count
+   checked first; a user whose licence is refused is deleted again, so none
+   is left without a mailbox) and the country Microsoft needs. Disabling
+   blocks sign-in and revokes sessions; Entra admin roles mean Owner only, as
+   Google admins do. One service at a time; switching needs the old
+   service's mailboxes unlinked first, so nothing is ever done to the wrong
+   account. Migration 20261102120000 (provider "microsoft", tenant_id,
+   licence, licence_name, usage_location). Dashboard and Fleet app: Work
+   email, Connect Microsoft 365, the wording per service. Computers: the
+   mailbox opens in Outlook on the web with the address filled in (GNOME's
+   Microsoft 365 account gives apps only the address, so Geary can't read it,
+   and computers aren't made to install Geary for it); opening it counts as
+   connected. Guide: docs/fleet-microsoft-365.md. Test server: a stand-in
+   Microsoft. Tests: functions.test.mjs (a stand-in Entra and Graph:
+   connecting, every refusal, mailboxes made with a licence and country,
+   blocked, renamed, new passwords, admin accounts, no free licence, Microsoft
+   down, removed, the log, switching services), dashboard.test.cjs, the Fleet
+   app's self-test, workmail-test.py, work-email-reminder-test.py.
+   Not tried against a real Microsoft 365 tenant yet.
 
-- **Microsoft 365 work email through Fleet.** Needs the Fleet server to make
-  and manage Microsoft 365 mailboxes (Microsoft Graph: an app registration
-  with User.ReadWrite.All, a licence with Exchange per person), the dashboard
-  and app to connect it, and computers to set it up (GNOME Online Accounts'
-  Microsoft 365 provider, then Geary). Testing it properly needs a Microsoft
-  365 tenant. Deploying the server part counts as a release.
+## Releasing
+
+The Fleet server part (migration 20261102120000 and the fleet and
+fleet-admin functions) is deployed with the release, before computers get
+2.12: computers before 2.12 ignore a "microsoft" mailbox.

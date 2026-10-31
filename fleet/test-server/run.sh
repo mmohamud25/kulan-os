@@ -18,5 +18,10 @@ if [ "${KULAN_FLEET_REAL_GOOGLE:-}" != 1 ]; then
   export FLEET_GOOGLE_TOKEN_URL="https://${IP}:8443/google/token"
   export FLEET_GOOGLE_API="https://${IP}:8443/google"
 fi
+# Microsoft 365 mailboxes (2.12): a stand-in Microsoft too, unless KULAN_FLEET_REAL_MICROSOFT=1.
+if [ "${KULAN_FLEET_REAL_MICROSOFT:-}" != 1 ]; then
+  export FLEET_MS_LOGIN="https://${IP}:8443/microsoft"
+  export FLEET_MS_GRAPH="https://${IP}:8443/msgraph"
+fi
 export DENO_DIR="${DIR}/cache"
 exec "${DIR}/deno" run --cert "${DIR}/ca.crt" --allow-net --allow-env --allow-read --allow-sys "${HERE}/serve.ts"

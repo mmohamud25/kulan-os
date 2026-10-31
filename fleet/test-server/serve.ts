@@ -250,6 +250,64 @@ async function google(req: Request, path: string): Promise<Response> {
   return json(400, { error: { message: "bad request" } });
 }
 
+// --- stand-in Microsoft 365 (2.12) ----------------------------------------------------------
+// Unless run.sh is told to use the real Microsoft (KULAN_FLEET_REAL_MICROSOFT=1),
+// fleet-admin's Microsoft calls come here: any tenant, client ID and secret are
+// accepted; users live in memory, with one licence that has email (25 of them).
+// Enough to try Microsoft 365 mailboxes with People without a real tenant.
+type MUser = { id: string; userPrincipalName: string; displayName: string; givenName?: string; surname?: string;
+               accountEnabled: boolean; licensed: boolean };
+const musers = new Map<string, MUser>();
+const MS_SKU = "6fd2c87f-b296-42f0-b197-1e91e994b900";
+async function microsoft(req: Request, path: string): Promise<Response> {
+  if (/^\/microsoft\/[^/]+\/oauth2\/v2\.0\/token$/.test(path)) {
+    return json(200, { access_token: "test-microsoft-token", expires_in: 3600, token_type: "Bearer" });
+  }
+  if (req.headers.get("Authorization") !== "Bearer test-microsoft-token") {
+    return json(401, { error: { message: "InvalidAuthenticationToken" } });
+  }
+  const p = path.replace(/^\/msgraph\/v1\.0/, "");
+  const body = req.method === "POST" || req.method === "PATCH" ? await req.json().catch(() => ({})) : {};
+  const show = (u: MUser) => ({ id: u.id, userPrincipalName: u.userPrincipalName, displayName: u.displayName,
+                                accountEnabled: u.accountEnabled });
+  if (p === "/subscribedSkus") {
+    const used = [...musers.values()].filter((u) => u.licensed).length;
+    return json(200, { value: [{ skuId: MS_SKU, skuPartNumber: "ENTERPRISEPACK", prepaidUnits: { enabled: 25 }, consumedUnits: used,
+                                 servicePlans: [{ servicePlanName: "EXCHANGE_S_ENTERPRISE" }] }] });
+  }
+  if (p === "/roleManagement/directory/roleAssignments") return json(200, { value: [] });
+  if (p === "/users" && req.method === "GET") return json(200, { value: [...musers.values()].map(show) });
+  if (p === "/users" && req.method === "POST") {
+    const upn = String(body.userPrincipalName ?? "").toLowerCase();
+    if (musers.has(upn)) return json(400, { error: { message: "Another object with the same value for property userPrincipalName already exists." } });
+    musers.set(upn, { id: crypto.randomUUID(), userPrincipalName: upn, displayName: body.displayName, givenName: body.givenName,
+                      surname: body.surname, accountEnabled: true, licensed: false });
+    console.log(`(stand-in Microsoft) made ${upn}`);
+    return json(201, show(musers.get(upn)!));
+  }
+  const m = p.match(/^\/users\/([^/]+)(?:\/(assignLicense|revokeSignInSessions))?$/);
+  if (!m) return json(404, { error: { message: "Resource not found" } });
+  const key = decodeURIComponent(m[1]).toLowerCase();
+  const u = musers.get(key) ?? [...musers.values()].find((x) => x.id === key);
+  if (!u) return json(404, { error: { message: "Request_ResourceNotFound" } });
+  if (m[2] === "assignLicense") { u.licensed = true; return json(200, show(u)); }
+  if (m[2] === "revokeSignInSessions") return json(200, { value: true });
+  if (req.method === "GET") return json(200, show(u));
+  if (req.method === "PATCH") {
+    for (const k of ["accountEnabled", "displayName", "givenName", "surname"] as const) {
+      if (k in body) (u as Record<string, unknown>)[k] = body[k];
+    }
+    console.log(`(stand-in Microsoft) changed ${u.userPrincipalName}: ${Object.keys(body).filter((k) => k !== "passwordProfile").join(", ")}`);
+    return new Response(null, { status: 204 });
+  }
+  if (req.method === "DELETE") {
+    musers.delete(u.userPrincipalName);
+    console.log(`(stand-in Microsoft) deleted ${u.userPrincipalName}`);
+    return new Response(null, { status: 204 });
+  }
+  return json(400, { error: { message: "bad request" } });
+}
+
 // --- stand-in Supabase Realtime (2.9a): broadcast topics, as computers use them ------------
 // Phoenix channels over WebSocket: phx_join and heartbeat answered; the
 // functions' broadcasts (REST, with the service key) go to whoever joined.
@@ -319,6 +377,8 @@ realServe({
     return realtime(req, path);
   } else if (path.startsWith("/google/") && Deno.env.get("FLEET_GOOGLE_API")) {
     res = await google(req, path);
+  } else if ((path.startsWith("/microsoft/") || path.startsWith("/msgraph/")) && Deno.env.get("FLEET_MS_GRAPH")) {
+    res = await microsoft(req, path);
   } else {
     res = json(404, { error: "not found" });
   }

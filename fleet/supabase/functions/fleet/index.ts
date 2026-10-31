@@ -30,8 +30,10 @@
 //
 // Work email (2.8e): someone with a mailbox Kulan Fleet manages gets
 // mail: {address, provider} in their account, for the computer to offer to
-// connect it (GNOME Online Accounts for "google"); computers with such
-// people on them get Geary, the mail app, as a required app (unless blocked).
+// connect it (GNOME Online Accounts for "google"; Outlook on the web for
+// "microsoft", 2.12, which computers before 2.12 ignore); computers with
+// Google Workspace mailboxes on them get Geary, the mail app, as a required
+// app (unless blocked).
 //
 // Remote help (2.9a, help.ts): each report reply gives the computer its wake
 // topic ("wake": {topic, url, key}, Supabase Realtime), where fleet-admin says
@@ -685,7 +687,8 @@ Deno.serve(async (req: Request) => {
       const mailers = people.filter(hasMail);
       const [conn] = mailers.length ? await sql`select provider from fleet.mail_connections where organisation_id = ${dev.organisation_id}` : [];
       const provider: string | null = conn?.provider ?? null;
-      if (provider && !(policy.blocked_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id) &&
+      // Geary for Google Workspace; Microsoft 365 mail opens in Outlook on the web (Geary can't read it).
+      if (provider === "google" && !(policy.blocked_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id) &&
           !(policy.required_apps ?? []).some((a) => a.source === MAIL_APP.source && a.id === MAIL_APP.id)) {
         sent.required_apps = [...(policy.required_apps ?? []), MAIL_APP];
       }

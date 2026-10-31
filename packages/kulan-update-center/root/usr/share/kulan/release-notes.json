@@ -10,6 +10,7 @@
       "Block ads and trackers works on a new computer straight away, without downloading anything first",
       "The sign-in screen comes up sooner: it no longer waits for the firmware update service",
       "The live USB restarts at once in virtual machines, instead of waiting 90 seconds behind the splash",
+      "Kulan Fleet works with Microsoft 365 as well as Google Workspace: connect it once, and mailboxes are made, blocked, renamed and removed along with people's accounts. On their computers, their work email opens in Outlook on the web",
       "Kulan Fleet: the dashboard and the Fleet app show only the join code to type, with Copy"
     ]
   },

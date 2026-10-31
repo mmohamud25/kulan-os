@@ -6,7 +6,8 @@ gnome-control-center notes what it was opened with and adds the account,
 and then a stand-in mail app (Geary) must open.
 
   dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py
-Prints "work email reminder: asked, connected, mail opened, then not asked again", or fails.
+Prints "work email reminder: asked, connected, mail opened, then not asked again; Microsoft 365
+opened in Outlook", or fails.
 """
 import json
 import os
@@ -32,6 +33,10 @@ goa = home / ".config" / "goa-1.0" / "accounts.conf"
 gcc.write_text(f"#!/bin/sh\necho \"$@\" > {opened}\nmkdir -p {goa.parent}\n"
                f"printf '[Account account_1]\\nProvider=google\\nIdentity=amina@acme.test\\n' > {goa}\n")
 gcc.chmod(0o755)
+gio = fakebin / "gio"
+gio_opened = fakebin / "gio-opened"
+gio.write_text(f"#!/bin/sh\necho \"$@\" > {gio_opened}\n")
+gio.chmod(0o755)
 mail_opened = fakebin / "mail-opened"
 geary = fakebin / "geary"
 geary.write_text(f"#!/bin/sh\ntouch {mail_opened}\n")
@@ -105,10 +110,26 @@ try:
     # The same day again: not asked.
     r = reminder(30)
     assert r.returncode == 0 and len(shown) == 1, (r.stderr, shown)
+    # Microsoft 365 (2.12): Open opens Outlook on the web as that address, and that's it connected.
+    PUBLIC.write_text(json.dumps({"address": "ayaan@acme365.test", "provider": "microsoft"}))
+    r = reminder()
+    assert r.returncode == 0 and len(shown) == 2, (r.stderr, shown)
+    _app, _rid, _icon, title, body, actions, _hints, _t = shown[1]
+    assert title == "Your work email" and "Outlook on the web" in body and "Open" in actions, shown[1]
+    for _ in range(50):
+        if gio_opened.exists():
+            break
+        time.sleep(0.1)
+    assert gio_opened.exists() and gio_opened.read_text().split() == \
+        ["open", "https://outlook.office.com/mail/?login_hint=ayaan%40acme365.test"], \
+        gio_opened.read_text() if gio_opened.exists() else "Outlook not opened"
+    assert "ayaan@acme365.test" in (home / ".local/state/kulan/work-email-opened").read_text(), "not noted as opened"
+    r = reminder(30)
+    assert r.returncode == 0 and len(shown) == 2, ("asked again after it was opened", r.stderr, shown)
     # Nobody with a mailbox: nothing, at once.
     PUBLIC.unlink()
     r = subprocess.run([REMINDER], env=env, capture_output=True, text=True, timeout=10)
-    assert r.returncode == 0 and len(shown) == 1, (r.stderr, shown)
+    assert r.returncode == 0 and len(shown) == 2, (r.stderr, shown)
 finally:
     if saved is None:
         PUBLIC.unlink(missing_ok=True)
@@ -116,4 +137,4 @@ finally:
         PUBLIC.write_bytes(saved)
     shutil.rmtree(home, ignore_errors=True)
     shutil.rmtree(fakebin, ignore_errors=True)
-print("work email reminder: asked, connected, mail opened, then not asked again")
+print("work email reminder: asked, connected, mail opened, then not asked again; Microsoft 365 opened in Outlook")

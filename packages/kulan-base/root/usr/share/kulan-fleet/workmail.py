@@ -5,8 +5,12 @@ connected it.
 Each report's reply gives, per person with a working mailbox,
 "mail": {address, provider}. Provider "google" (Google Workspace) is
 connected with GNOME Online Accounts (mail in Geary, Kulan's mail app and
-the default for email, calendar, contacts, Google Drive in Files); a later provider (Kulan's own mail server) only adds
-a branch here and to connect_command().
+the default for email, calendar, contacts, Google Drive in Files).
+Provider "microsoft" (Microsoft 365, 2.12) opens in Outlook on the web,
+signed in as that address: GNOME's Microsoft 365 account gives apps only the
+address, not a way to read the mail, so Geary can't use it. It counts as
+connected once the person has opened it from here (work-email-opened). A
+later provider only adds a branch here.
 
   /var/lib/kulan/fleet-mail/<username>   {address, provider}: each person's own,
                                          readable only by them (kept by kulan-fleet)
@@ -23,10 +27,12 @@ import pwd
 import re
 import shutil
 import time
+import urllib.parse
 from pathlib import Path
 
 PUBLIC = Path("/var/lib/kulan/fleet-mail")
-PROVIDERS = ("google",)
+PROVIDERS = ("google", "microsoft")
+OUTLOOK = "https://outlook.office.com/mail/"
 ADDRESS = re.compile(r"^[a-z0-9](?:[a-z0-9._'-]{0,62}[a-z0-9])?@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 USERNAME = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
@@ -115,8 +121,18 @@ def mine(username: str, public: Path | None = None) -> dict | None:
     return None
 
 
+def _opened_note(home: Path) -> Path:
+    return home / ".local" / "state" / "kulan" / "work-email-opened"
+
+
 def connected(mail: dict, home: Path) -> bool:
-    """Whether this person has connected that mailbox (a GNOME Online Accounts Google account for it)."""
+    """Whether this person has connected that mailbox: a GNOME Online Accounts Google account for it, or
+    (Microsoft 365) opened it in Outlook on the web from here."""
+    if mail.get("provider") == "microsoft":
+        try:
+            return mail.get("address", "").lower() in _opened_note(home).read_text().split()
+        except OSError:
+            return False
     conf = configparser.ConfigParser(interpolation=None, strict=False)
     try:
         conf.read(home / ".config" / "goa-1.0" / "accounts.conf", encoding="utf-8")
@@ -131,18 +147,50 @@ def connected(mail: dict, home: Path) -> bool:
     return False
 
 
+def outlook_url(mail: dict) -> str:
+    """Outlook on the web, with the work address filled in at Microsoft's sign-in."""
+    return OUTLOOK + "?" + urllib.parse.urlencode({"login_hint": mail.get("address", "")})
+
+
 def connect_command(mail: dict) -> list[str]:
-    """What opens the place to connect it: Settings › Online Accounts › Google."""
+    """What opens the place to connect it: Settings › Online Accounts › Google;
+    for Microsoft 365, the mailbox itself in Outlook on the web (see connect())."""
+    if mail.get("provider") == "microsoft":
+        return ["gio", "open", outlook_url(mail)]
     return ["gnome-control-center", "online-accounts", "add", "google"]
 
 
-def open_command(_mail: dict) -> list[str]:
+def open_command(mail: dict) -> list[str]:
     """What opens the mailbox once it's connected: the mail app (Geary, Kulan's
     default for email), which reads the Online Accounts account by itself.
-    Without it, the account in Online Accounts."""
+    Without it, the account in Online Accounts. Microsoft 365: Outlook on the web."""
+    if mail.get("provider") == "microsoft":
+        return ["gio", "open", outlook_url(mail)]
     if shutil.which("geary"):
         return ["geary"]
     return ["gnome-control-center", "online-accounts"]
+
+
+def connect(mail: dict, home: Path, popen=None) -> bool:
+    """Connect: opens connect_command() (as the person); for Microsoft 365, notes
+    that it was opened, which is all connecting it takes. popen: the tests' stand-in."""
+    import subprocess
+    popen = popen or (lambda argv: subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                    start_new_session=True))
+    try:
+        popen(connect_command(mail))
+    except OSError:
+        return False
+    if mail.get("provider") == "microsoft":
+        note = _opened_note(home)
+        try:
+            have = note.read_text().split() if note.exists() else []
+            if mail["address"].lower() not in have:
+                note.parent.mkdir(parents=True, exist_ok=True)
+                note.write_text("\n".join([*have, mail["address"].lower()]) + "\n")
+        except OSError:
+            pass
+    return True
 
 
 def ask_today(username: str, home: Path, public: Path | None = None, now: float | None = None) -> dict | None:

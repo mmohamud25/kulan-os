@@ -75,7 +75,9 @@
 //   second steps are listed in "people" (never their data), and
 //   POST {op: "reset-two-step", person_id} removes them (a lost key or phone).
 //
-// Google Workspace mailboxes (2.8e, google.ts): the Owner connects a service
+// Work email (2.8e Google Workspace, google.ts; 2.12 Microsoft 365, microsoft.ts; both through mail.ts):
+// connect-mail takes provider "google" (the default) or "microsoft" (tenant_id, client_id,
+// client_secret, domain, usage_location). Google Workspace: the Owner connects a service
 // account with domain-wide delegation; mailboxes are then made, suspended,
 // renamed and deleted with People.
 //   POST {op: "mail", organisation_id}                     -> the connection (never its key)
@@ -129,6 +131,8 @@
 // Every change is written to fleet.audit with the admin's email.
 import postgres from "npm:postgres@3.4.5";
 import * as google from "./google.ts";
+import * as mail from "./mail.ts";
+import * as microsoft from "./microsoft.ts";
 import * as acts from "./actions.ts";
 import * as help from "./help.ts";
 import { cleanPolicy, mergePolicies } from "./policy.ts";
@@ -566,20 +570,27 @@ Deno.serve(async (req: Request) => {
       return rows.length === ids.length ? ids as string[] : null;
     };
 
-    // --- Google Workspace (2.8e) ---------------------------------------------------------------
-    // The organisation's connection, its key opened; null if it has none.
-    const mailConn = async (org: string): Promise<google.Connection | null> => {
-      const [c] = await sql`select domain, admin_email, client_email, private_key from fleet.mail_connections
-                            where organisation_id = ${org}`;
+    // --- Work email: Google Workspace (2.8e), Microsoft 365 (2.12) -----------------------------
+    // The organisation's connection, its key (Google) or client secret (Microsoft) opened; null if it has none.
+    const mailConn = async (org: string): Promise<mail.Connection | null> => {
+      const [c] = await sql`select provider, domain, admin_email, client_email, client_id, private_key, tenant_id, licence,
+                                   usage_location
+                            from fleet.mail_connections where organisation_id = ${org}`;
       if (!c) return null;
-      const pem = await google.openText(c.private_key, org);
-      if (!pem) {
-        throw new google.GoogleError(500, "Kulan Fleet can't open the Google Workspace key. " +
-          "Connect Google Workspace again, or contact Kulan");
+      const secret = await mail.openText(c.private_key, org);
+      if (!secret) {
+        throw new mail.MailError(500, `Kulan Fleet can't open the ${mail.label(c.provider)} key. ` +
+          `Connect ${mail.label(c.provider)} again, or contact Kulan`);
       }
-      return { organisation_id: org, domain: c.domain, admin_email: c.admin_email, client_email: c.client_email, pem };
+      if (c.provider === "microsoft") {
+        return { provider: "microsoft", organisation_id: org, domain: c.domain, tenant_id: c.tenant_id, client_id: c.client_id,
+                 secret, licence: c.licence, usage_location: c.usage_location ?? "US" };
+      }
+      return { provider: "google", organisation_id: org, domain: c.domain, admin_email: c.admin_email,
+               client_email: c.client_email, pem: secret };
     };
-    const why = (e: unknown) => e instanceof google.GoogleError ? e.message : "something went wrong talking to Google";
+    const NOT_CONNECTED = "work email isn't connected (Google Workspace or Microsoft 365)";
+    const why = (e: unknown) => e instanceof mail.MailError ? e.message : "something went wrong talking to the mail service";
     // Remembered on the connection, so a broken one is an alert (and a working one clears it).
     const noteGoogle = async (org: string, error: string | null) => {
       await sql`update fleet.mail_connections set checked_at = now(), last_error = ${error ? error.slice(0, 300) : null}
@@ -587,18 +598,20 @@ Deno.serve(async (req: Request) => {
     };
     // Only the Owner manages admins' and the Owner's accounts; the same for their mailboxes.
     const mayManage = async (p: Record<string, any>) => p.role === "employee" || await isOwner(p.organisation_id);
-    const ADMIN_MAILBOX = "that mailbox is a Google admin account, so only the Owner can change it";
+    const adminMailbox = (c: mail.Connection | null) =>
+      `that mailbox is a ${mail.short(c?.provider)} admin account, so only the Owner can change it`;
     // What's left to do, strongest first: a rename never hides a suspend or a delete.
     const RANK: Record<string, number> = { rename: 1, suspend: 2, unsuspend: 2, delete: 3 };
     // The mailbox in Google that is this person's: by Google's id once known
     // (an address can be renamed, or become someone else's alias), else by an
     // address that is still its own. null if Google has no such mailbox.
-    const theirMailbox = async (conn: google.Connection, p: Record<string, any>) => {
-      const u = await google.getUser(conn, p.mailbox_google_id || p.mailbox);
+    const theirMailbox = async (conn: mail.Connection, p: Record<string, any>) => {
+      const u = await mail.getUser(conn, p.mailbox_google_id || p.mailbox);
       if (!u) return null;
       if (p.mailbox_google_id ? u.id !== p.mailbox_google_id : u.address !== p.mailbox) {
-        throw new google.GoogleError(409, `${p.mailbox} in Google is no longer the mailbox Kulan Fleet made or linked. ` +
-          "Check it in the Google Admin console, then link it again");
+        throw new mail.MailError(409, `${p.mailbox} in ${mail.short(conn.provider)} is no longer the mailbox Kulan Fleet ` +
+          `made or linked. Check it in the ${conn.provider === "microsoft" ? "Microsoft 365 admin center" : "Google Admin console"}, ` +
+          "then link it again");
       }
       if (!p.mailbox_google_id && u.id) {
         await sql`update fleet.people set mailbox_google_id = ${u.id} where id = ${p.id}`;
@@ -628,40 +641,40 @@ Deno.serve(async (req: Request) => {
         return await mailboxDo(p, "rename");
       }
       if (!(await mayManage(p))) return await fail("only the Owner changes an admin's or the Owner's mailbox");
-      let conn: google.Connection | null;
+      let conn: mail.Connection | null;
       try {
         conn = await mailConn(org);
       } catch (e) {
         return await fail(why(e));
       }
-      if (!conn) return await fail("Google Workspace isn't connected");
+      if (!conn) return await fail(NOT_CONNECTED);
       try {
         const u = await theirMailbox(conn, p);
         let state: string = p.mailbox_state ?? "active";
         if (!u) {
           if (todo !== "delete") {
             await noteGoogle(org, null);
-            return await fail(`Google has no mailbox ${p.mailbox} any more`);
+            return await fail(`${mail.short(conn.provider)} has no mailbox ${p.mailbox} any more`);
           }
           state = "deleted";
         } else {
-          if (u.admin && !(await isOwner(org))) return await fail(ADMIN_MAILBOX);
+          if (u.admin && !(await isOwner(org))) return await fail(adminMailbox(conn));
           if (todo === "suspend") {
-            await google.setSuspended(conn, u.id || p.mailbox, true);
+            await mail.setSuspended(conn, u.id || p.mailbox, true);
             state = "suspended";
           } else if (todo === "unsuspend") {
-            await google.setSuspended(conn, u.id || p.mailbox, false);
+            await mail.setSuspended(conn, u.id || p.mailbox, false);
             state = "active";
           } else if (todo === "delete") {
-            await google.deleteUser(conn, u.id || p.mailbox);
+            await mail.deleteUser(conn, u.id || p.mailbox);
             state = "deleted";
           } else {
             const [now] = await sql`select full_name, username from fleet.people where id = ${p.id}`;
-            await google.rename(conn, u.id || p.mailbox, google.splitName(now.full_name ?? "", now.username));
+            await mail.rename(conn, u.id || p.mailbox, mail.splitName(now.full_name ?? "", now.username));
           }
           // A rename still waiting is done too, after a suspend or unsuspend.
           if (pending === "rename" && (todo === "suspend" || todo === "unsuspend")) {
-            await google.rename(conn, u.id || p.mailbox, google.splitName(p.full_name ?? "", p.username));
+            await mail.rename(conn, u.id || p.mailbox, mail.splitName(p.full_name ?? "", p.username));
           }
         }
         await noteGoogle(org, null);
@@ -671,24 +684,24 @@ Deno.serve(async (req: Request) => {
         return null;
       } catch (e) {
         const msg = why(e);
-        if (!(e instanceof google.GoogleError) || e.status === 0 || e.status === 403 || e.status >= 500) await noteGoogle(org, msg);
+        if (!(e instanceof mail.MailError) || e.status === 0 || e.status === 403 || e.status >= 500) await noteGoogle(org, msg);
         return await fail(msg);
       }
     };
     // A mailbox address an admin gave: well-formed, and nobody else's in the organisation.
     const freeAddress = async (org: string, value: unknown, exceptPerson: string | null = null): Promise<string | Response> => {
       const address = typeof value === "string" ? value.trim().toLowerCase() : "";
-      if (!google.ADDRESS.test(address)) return reply(400, { error: "check the mailbox address" });
+      if (!mail.ADDRESS.test(address)) return reply(400, { error: "check the mailbox address" });
       const taken = await sql`select username from fleet.people where organisation_id = ${org} and mailbox = ${address}
                               and mailbox_state is distinct from 'deleted' and id is distinct from ${exceptPerson}`;
       if (taken.length) return reply(409, { error: `${taken[0].username} already has that mailbox` });
       return address;
     };
     // Makes or links a person's mailbox (they have none yet). Returns what to tell the admin.
-    const giveMailbox = async (p: Record<string, any>, action: unknown, address: string, conn: google.Connection) => {
+    const giveMailbox = async (p: Record<string, any>, action: unknown, address: string, conn: mail.Connection) => {
       if (action === "link") {
-        const u = await google.getUser(conn, address);
-        if (!u) return { status: 404, body: { error: `Google has no mailbox ${address}. Make one instead` } };
+        const u = await mail.getUser(conn, address);
+        if (!u) return { status: 404, body: { error: `${mail.short(conn.provider)} has no mailbox ${address}. Make one instead` } };
         if (u.address !== address) return { status: 400, body: { error: `that's an alias of ${u.address}. Link ${u.address} instead` } };
         await sql`update fleet.people set mailbox = ${address}, mailbox_state = ${u.suspended ? "suspended" : "active"},
                     mailbox_google_id = ${u.id || null}, mailbox_todo = null, mailbox_error = null where id = ${p.id}`;
@@ -704,11 +717,11 @@ Deno.serve(async (req: Request) => {
       if (address.split("@")[1] !== conn.domain && !(await isOwner(p.organisation_id))) {
         return { status: 403, body: { error: `mailboxes are made on ${conn.domain}. Only the Owner can choose another domain` } };
       }
-      if (await google.getUser(conn, address)) {
-        return { status: 409, body: { error: "that address is already in Google Workspace. The Owner can link it instead" } };
+      if (await mail.getUser(conn, address)) {
+        return { status: 409, body: { error: `that address is already in ${mail.label(conn.provider)}. The Owner can link it instead` } };
       }
-      const password = google.tempPassword();
-      const gid = await google.createUser(conn, address, google.splitName(p.full_name ?? "", p.username), password);
+      const password = mail.tempPassword();
+      const gid = await mail.createUser(conn, address, mail.splitName(p.full_name ?? "", p.username), password);
       await sql`update fleet.people set mailbox = ${address}, mailbox_state = 'active', mailbox_google_id = ${gid || null},
                   mailbox_todo = null, mailbox_error = null where id = ${p.id}`;
       await audit(p.organisation_id, null, `made a mailbox for ${p.username}`.slice(0, 80), { mailbox: address });
@@ -758,7 +771,8 @@ Deno.serve(async (req: Request) => {
 
     switch (body.op) {
       case "overview": {
-        const mailDomain = sql`(select m.domain from fleet.mail_connections m where m.organisation_id = o.id) as mail_domain`;
+        const mailDomain = sql`(select m.domain from fleet.mail_connections m where m.organisation_id = o.id) as mail_domain,
+                               (select m.provider from fleet.mail_connections m where m.organisation_id = o.id) as mail_provider`;
         const organisations = global
           ? await sql`select id, name, created_at, policy, owner_email, admin_two_step, allow_scripts, (${global} or owner_email = ${email}) as is_owner,
                              ${mailDomain}
@@ -808,7 +822,7 @@ Deno.serve(async (req: Request) => {
           }
         }
         // Google Workspace: a connection that stopped working, and mailboxes with something left to do.
-        const broken = await sql`select organisation_id, last_error from fleet.mail_connections
+        const broken = await sql`select organisation_id, provider, last_error from fleet.mail_connections
                                  where organisation_id = any(${ids}::uuid[]) and last_error is not null`;
         const waiting = await sql`select id, organisation_id, username, mailbox, mailbox_todo, mailbox_error from fleet.people
                                   where organisation_id = any(${ids}::uuid[]) and mailbox_todo is not null
@@ -818,11 +832,11 @@ Deno.serve(async (req: Request) => {
         for (const m of [...waiting].reverse()) {
           alerts.unshift({ kind: "mailbox", device_id: null, organisation_id: m.organisation_id, hostname: null, person_id: m.id,
                            title: "Mailbox", text: `${m.username}'s mailbox ${m.mailbox}: ${todoText[m.mailbox_todo]} ` +
-                                                    `(${m.mailbox_error ?? "Google didn't answer"}). Retry it from People.` } as any);
+                                                    `(${m.mailbox_error ?? "the mail service didn't answer"}). Retry it from People.` } as any);
         }
         for (const b of broken) {
           alerts.unshift({ kind: "mail", device_id: null, organisation_id: b.organisation_id, hostname: null,
-                           title: "Google Workspace", text: b.last_error } as any);
+                           title: mail.label(b.provider), text: b.last_error } as any);
         }
         // The admin-rights review, every 90 days (an alert for the organisation, not a computer).
         const reviews = await sql`select distinct on (organisation_id) organisation_id, reviewed_at
@@ -983,7 +997,7 @@ Deno.serve(async (req: Request) => {
         if (count >= MAX_PEOPLE) return reply(400, { error: "that's the most people an organisation can have" });
         // A mailbox with them (2.8e): checked before they're added, made after.
         let wantMailbox: { action: string; address: string } | null = null;
-        let conn: google.Connection | null = null;
+        let conn: mail.Connection | null = null;
         if (body.mailbox !== undefined && body.mailbox !== null) {
           const action = body.mailbox?.action;
           if (action !== "create" && action !== "link") return reply(400, { error: "the mailbox action is create or link" });
@@ -995,7 +1009,7 @@ Deno.serve(async (req: Request) => {
           } catch (e) {
             return reply(502, { error: why(e) });
           }
-          if (!conn) return reply(400, { error: "connect Google Workspace first" });
+          if (!conn) return reply(400, { error: "connect Google Workspace or Microsoft 365 first" });
           wantMailbox = { action, address };
         }
         let added: Record<string, any> | null = null;
@@ -1039,7 +1053,7 @@ Deno.serve(async (req: Request) => {
           if ((e as { code?: string }).code === "23505") {
             return reply(200, { id: added.id, uid: added.uid, mailbox_error: "someone else was given that mailbox just now" });
           }
-          if (!(e instanceof google.GoogleError) || e.status === 0 || e.status === 403 || e.status >= 500) await noteGoogle(org, why(e));
+          if (!(e instanceof mail.MailError) || e.status === 0 || e.status === 403 || e.status >= 500) await noteGoogle(org, why(e));
           return reply(200, { id: added.id, uid: added.uid, mailbox_error: why(e) });
         }
       }
@@ -1158,7 +1172,7 @@ Deno.serve(async (req: Request) => {
           try {
             const conn = await mailConn(p.organisation_id);
             const u = conn ? await theirMailbox(conn, p) : null;
-            if (u?.admin && !(await isOwner(p.organisation_id))) return reply(403, { error: ADMIN_MAILBOX });
+            if (u?.admin && !(await isOwner(p.organisation_id))) return reply(403, { error: adminMailbox(conn) });
           } catch { /* Google can't be reached: Fleet's change goes ahead, the mailbox is retried */ }
         }
         const removeFiles = body.remove_files === true;
@@ -1601,23 +1615,88 @@ Deno.serve(async (req: Request) => {
         await audit(p.organisation_id, null, `reset ${p.username}'s two-step sign-in`.slice(0, 80), { removed: gone.length });
         return reply(200, { removed: gone.length });
       }
-      // --- Google Workspace (2.8e) ---------------------------------------------------------------
+      // --- Work email: Google Workspace (2.8e), Microsoft 365 (2.12) ---------------------------
       case "mail": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
-        const [c] = await sql`select provider, domain, admin_email, client_email, client_id, connected_by, connected_at,
-                                     checked_at, last_error
+        const [c] = await sql`select provider, domain, admin_email, client_email, client_id, tenant_id, licence_name,
+                                     usage_location, connected_by, connected_at, checked_at, last_error
                               from fleet.mail_connections where organisation_id = ${org}`;
         const [{ n }] = await sql`select count(*)::int as n from fleet.people where organisation_id = ${org}
                                   and removed_at is null and mailbox is not null and mailbox_state is distinct from 'deleted'`;
         const [{ left }] = await sql`select count(*)::int as left from fleet.people where organisation_id = ${org}
                                      and mailbox_todo is not null`;
-        return reply(200, { connection: c ?? null, mailboxes: n, left_to_do: left, scope: google.SCOPE, is_owner: await isOwner(org) });
+        return reply(200, { connection: c ?? null, mailboxes: n, left_to_do: left, scope: google.SCOPE,
+                            permissions: microsoft.PERMISSIONS, is_owner: await isOwner(org) });
       }
       case "connect-mail": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
-        if (!(await isOwner(org))) return reply(403, { error: "only the Owner connects Google Workspace" });
+        const provider = body.provider === "microsoft" ? "microsoft" : "google";
+        if (!(await isOwner(org))) return reply(403, { error: `only the Owner connects ${mail.label(provider)}` });
+        // A connection to another provider is replaced only once it's been disconnected (its mailboxes are People's).
+        const [had] = await sql`select provider from fleet.mail_connections where organisation_id = ${org}`;
+        if (had && had.provider !== provider) {
+          return reply(409, { error: `${mail.label(had.provider)} is connected. Disconnect it first` });
+        }
+        // After switching services, mailboxes from the old one can't be looked after: unlinked first (and
+        // removed people's still to suspend or delete, stopped), so nothing is done to the wrong account.
+        const switchBlocked = async (): Promise<Response | null> => {
+          if (had) return null;
+          const [last] = await sql`select what from fleet.audit where organisation_id = ${org}
+                                   and what in ('connected Google Workspace', 'connected Microsoft 365')
+                                   order by at desc, id desc limit 1`;
+          const before = last ? (last.what === "connected Microsoft 365" ? "microsoft" : "google") : provider;
+          if (before === provider) return null;
+          const [{ n }] = await sql`select count(*)::int as n from fleet.people where organisation_id = ${org}
+                                    and mailbox is not null and mailbox_state is distinct from 'deleted'
+                                    and (removed_at is null or mailbox_todo is not null)`;
+          if (!n) return null;
+          return reply(409, { error: `${n === 1 ? "1 person still has a" : `${n} people still have`} ${mail.label(before)} ` +
+                                     `mailbox${n === 1 ? "" : "es"} in Kulan Fleet. Unlink ${n === 1 ? "it" : "them"} in People ` +
+                                     "first (for someone removed: Stop retrying)" });
+        };
+        const domainOk = (d: string) => /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(d);
+        // One organisation per mail domain (Kulan's own admins may decide otherwise).
+        const takenElsewhere = async (d: string) =>
+          !global && (await sql`select 1 from fleet.mail_connections where domain = ${d} and organisation_id <> ${org}`).length > 0;
+        if (provider === "microsoft") {
+          const app = microsoft.parseApp(body);
+          if (!app) {
+            return reply(400, { error: "enter the app's Directory (tenant) ID and Application (client) ID from its Overview " +
+                                       "page in Microsoft Entra, and a client secret's Value", permissions: microsoft.PERMISSIONS });
+          }
+          const domain = typeof body.domain === "string" ? body.domain.trim().toLowerCase() : "";
+          if (!domainOk(domain)) return reply(400, { error: "enter your email domain, for example acme.com" });
+          const country = typeof body.usage_location === "string" && body.usage_location.trim()
+            ? body.usage_location.trim().toUpperCase() : "US";
+          if (!microsoft.COUNTRY.test(country)) return reply(400, { error: "choose the country people's mailboxes are used in" });
+          if (await takenElsewhere(domain)) return reply(409, { error: `${domain} is connected to another organisation. Contact Kulan` });
+          const blocked = await switchBlocked();
+          if (blocked) return blocked;
+          const sealed = await mail.sealText(app.secret, org);
+          if (!sealed) return reply(500, { error: "the server's encryption key is missing. Contact Kulan" });
+          let licence: microsoft.Licence;
+          try {
+            licence = await microsoft.check({ organisation_id: org, domain, tenant_id: app.tenant_id, client_id: app.client_id,
+                                              secret: app.secret, licence: null, usage_location: country });
+          } catch (e) {
+            return reply(400, { error: why(e), permissions: microsoft.PERMISSIONS });
+          }
+          await sql`insert into fleet.mail_connections (organisation_id, provider, domain, admin_email, client_email, client_id,
+                                                        private_key, tenant_id, licence, licence_name, usage_location,
+                                                        connected_by, checked_at)
+                    values (${org}, 'microsoft', ${domain}, ${email}, ${app.client_id}, ${app.client_id}, ${sealed}, ${app.tenant_id},
+                            ${licence.sku}, ${licence.name}, ${country}, ${email}, now())
+                    on conflict (organisation_id) do update set provider = 'microsoft', domain = excluded.domain,
+                      admin_email = excluded.admin_email, client_email = excluded.client_email, client_id = excluded.client_id,
+                      private_key = excluded.private_key, tenant_id = excluded.tenant_id, licence = excluded.licence,
+                      licence_name = excluded.licence_name, usage_location = excluded.usage_location,
+                      connected_by = excluded.connected_by, connected_at = now(), checked_at = now(), last_error = null`;
+          await audit(org, null, "connected Microsoft 365", { domain, tenant: app.tenant_id, app: app.client_id,
+                                                              licence: licence.name, free: licence.free });
+          return reply(200, { domain, licence: licence.name, free: licence.free });
+        }
         const key = google.parseServiceAccount(body.key);
         if (!key) {
           return reply(400, { error: "that isn't a service account's JSON key. In Google Cloud, open the service account and " +
@@ -1626,15 +1705,11 @@ Deno.serve(async (req: Request) => {
         const adminEmail = cleanEmail(body.admin_email);
         if (!adminEmail) return reply(400, { error: "enter a Google super admin's email" });
         const domain = typeof body.domain === "string" && body.domain.trim() ? body.domain.trim().toLowerCase() : adminEmail.split("@")[1];
-        if (!/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) {
-          return reply(400, { error: "that domain doesn't look right" });
-        }
-        // One organisation per Google domain (Kulan's own admins may decide otherwise).
-        const elsewhere = await sql`select 1 from fleet.mail_connections where domain = ${domain} and organisation_id <> ${org}`;
-        if (elsewhere.length && !global) {
-          return reply(409, { error: `${domain} is connected to another organisation. Contact Kulan` });
-        }
-        const sealed = await google.sealText(key.private_key, org);
+        if (!domainOk(domain)) return reply(400, { error: "that domain doesn't look right" });
+        if (await takenElsewhere(domain)) return reply(409, { error: `${domain} is connected to another organisation. Contact Kulan` });
+        const blocked = await switchBlocked();
+        if (blocked) return blocked;
+        const sealed = await mail.sealText(key.private_key, org);
         if (!sealed) return reply(500, { error: "the server's encryption key is missing. Contact Kulan" });
         try {
           await google.check({ organisation_id: org, domain, admin_email: adminEmail, client_email: key.client_email,
@@ -1647,7 +1722,8 @@ Deno.serve(async (req: Request) => {
                   values (${org}, 'google', ${domain}, ${adminEmail}, ${key.client_email}, ${key.client_id}, ${sealed}, ${email}, now())
                   on conflict (organisation_id) do update set provider = 'google', domain = excluded.domain,
                     admin_email = excluded.admin_email, client_email = excluded.client_email, client_id = excluded.client_id,
-                    private_key = excluded.private_key, connected_by = excluded.connected_by, connected_at = now(),
+                    private_key = excluded.private_key, tenant_id = null, licence = null, licence_name = null,
+                    usage_location = null, connected_by = excluded.connected_by, connected_at = now(),
                     checked_at = now(), last_error = null`;
         await audit(org, null, "connected Google Workspace", { domain, acting_as: adminEmail, service_account: key.client_email });
         return reply(200, { domain });
@@ -1655,24 +1731,25 @@ Deno.serve(async (req: Request) => {
       case "disconnect-mail": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
-        if (!(await isOwner(org))) return reply(403, { error: "only the Owner disconnects Google Workspace" });
-        const gone = await sql`delete from fleet.mail_connections where organisation_id = ${org} returning domain`;
-        if (!gone.length) return reply(400, { error: "Google Workspace isn't connected" });
+        const [c] = await sql`select provider from fleet.mail_connections where organisation_id = ${org}`;
+        if (!(await isOwner(org))) return reply(403, { error: `only the Owner disconnects ${c ? mail.label(c.provider) : "work email"}` });
+        const gone = await sql`delete from fleet.mail_connections where organisation_id = ${org} returning domain, provider`;
+        if (!gone.length) return reply(400, { error: NOT_CONNECTED });
         // What was left to do stays (an alert), so it isn't forgotten: done by hand, or after connecting again.
         const [{ n }] = await sql`select count(*)::int as n from fleet.people where organisation_id = ${org} and mailbox_todo is not null`;
-        await audit(org, null, "disconnected Google Workspace", { domain: gone[0].domain, mailboxes_left_to_do: n });
+        await audit(org, null, `disconnected ${mail.label(gone[0].provider)}`, { domain: gone[0].domain, mailboxes_left_to_do: n });
         return reply(200, {});
       }
       case "mail-users": {
         const org = uuid(body.organisation_id);
         if (!org || !canOrg(org)) return reply(404, { error: "no such organisation" });
         if (!(await isOwner(org))) return reply(403, { error: "only the Owner links existing mailboxes" });
-        let conn: google.Connection | null;
-        let users: google.GoogleUser[];
+        let conn: mail.Connection | null;
+        let users: mail.MailUser[];
         try {
           conn = await mailConn(org);
-          if (!conn) return reply(400, { error: "Google Workspace isn't connected" });
-          users = await google.listUsers(conn);
+          if (!conn) return reply(400, { error: NOT_CONNECTED });
+          users = await mail.listUsers(conn);
           await noteGoogle(org, null);
         } catch (e) {
           await noteGoogle(org, why(e));
@@ -1712,13 +1789,13 @@ Deno.serve(async (req: Request) => {
           await audit(org, null, `unlinked ${p.username}'s mailbox`.slice(0, 80), { mailbox: p.mailbox });
           return reply(200, {});
         }
-        let conn: google.Connection | null;
+        let conn: mail.Connection | null;
         try {
           conn = await mailConn(org);
         } catch (e) {
           return reply(502, { error: why(e) });
         }
-        if (!conn) return reply(400, { error: "connect Google Workspace first" });
+        if (!conn) return reply(400, { error: "connect Google Workspace or Microsoft 365 first" });
         try {
           if (action === "create" || action === "link") {
             if (p.mailbox && p.mailbox_state !== "deleted") return reply(400, { error: `they already have a mailbox, ${p.mailbox}` });
@@ -1732,18 +1809,18 @@ Deno.serve(async (req: Request) => {
           if (action === "new-password") {
             if (!p.mailbox || p.mailbox_state === "deleted") return reply(400, { error: "they have no mailbox" });
             const u = await theirMailbox(conn, p);
-            if (!u) return reply(404, { error: `Google has no mailbox ${p.mailbox} any more` });
-            if (u.admin && !(await isOwner(org))) return reply(403, { error: ADMIN_MAILBOX });
-            const password = google.tempPassword();
-            await google.setPassword(conn, u.id || p.mailbox, password);
+            if (!u) return reply(404, { error: `${mail.short(conn.provider)} has no mailbox ${p.mailbox} any more` });
+            if (u.admin && !(await isOwner(org))) return reply(403, { error: adminMailbox(conn) });
+            const password = mail.tempPassword();
+            await mail.setPassword(conn, u.id || p.mailbox, password);
             await noteGoogle(org, null);
-            await audit(org, null, `gave ${p.username} a new Google password`.slice(0, 80), { mailbox: p.mailbox });
+            await audit(org, null, `gave ${p.username} a new ${mail.short(conn.provider)} password`.slice(0, 80), { mailbox: p.mailbox });
             return reply(200, { mailbox: p.mailbox, mailbox_password: password });
           }
         } catch (e) {
           if ((e as { code?: string }).code === "23505") return reply(409, { error: "someone else was given that mailbox just now" });
-          if (!(e instanceof google.GoogleError) || e.status === 0 || e.status === 403 || e.status >= 500) await noteGoogle(org, why(e));
-          return reply(e instanceof google.GoogleError && e.status === 409 ? 409 : 502, { error: why(e) });
+          if (!(e instanceof mail.MailError) || e.status === 0 || e.status === 403 || e.status >= 500) await noteGoogle(org, why(e));
+          return reply(e instanceof mail.MailError && e.status === 409 ? 409 : 502, { error: why(e) });
         }
         return reply(400, { error: "the action is create, link, unlink, new-password, retry or forget" });
       }

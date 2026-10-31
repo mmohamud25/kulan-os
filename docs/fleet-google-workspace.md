@@ -72,8 +72,8 @@ organisations made since May 2024. To allow it for this project only:
    can take up to 24 hours.
 
 ## 4. Connect it in Kulan Fleet (the Owner)
-1. Kulan Fleet app: your organisation › **Google Workspace › Connect
-   Google Workspace**. In the web dashboard, use the **Google Workspace** card.
+1. Kulan Fleet app: your organisation › **Work email › Connect Google
+   Workspace**. In the web dashboard, use the **Work email** card.
 2. Choose the `.json` key file.
 3. Give the email of a **super admin** Kulan Fleet acts as. Google records
    what Kulan Fleet does under that admin's name in its own audit log.
