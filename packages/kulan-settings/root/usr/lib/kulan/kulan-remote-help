@@ -265,7 +265,9 @@ class Help:
 
     def _answered(self, result, error, allow, control) -> bool:
         if error or not result:
-            self.ui.done(f"Remote help couldn't start ({error})" if error else "Remote help couldn't start")
+            if error:
+                print(f"kulan-remote-help: {error}", file=sys.stderr)
+            self.ui.done("Remote help couldn’t start. Check the internet connection and try again")
             self.finish(None, None)
             return False
         if not allow:

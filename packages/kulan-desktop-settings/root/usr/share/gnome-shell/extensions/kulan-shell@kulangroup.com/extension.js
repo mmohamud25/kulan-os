@@ -36,6 +36,7 @@ import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
 import {ReopenApps} from './reopen.js';
 import {LightEffects, ANIMATION_FACTOR} from './lighteffects.js';
+import {loadText, pending, writeFile, writeFileAsync} from './files.js';
 
 const APP_GRID_ICON_SIZE = 72;
 const STATUS_FILE = '/var/lib/kulan/updates.json';
@@ -85,7 +86,7 @@ const OLD_DEFAULT_FOLDERS = [
 
 function migrateAppFolders() {
     const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'app-folders-v4']);
-    if (GLib.file_test(marker, GLib.FileTest.EXISTS))
+    if (hasMarker(marker))
         return;
     try {
         const settings = new Gio.Settings({schema_id: 'org.gnome.desktop.app-folders'});
@@ -97,8 +98,7 @@ function migrateAppFolders() {
             userValue.every(v => KULAN_2_0_FOLDERS.includes(v));
         if (isOldDefault || isTrimmed2_0)
             settings.reset('folder-children');
-        GLib.mkdir_with_parents(GLib.path_get_dirname(marker), 0o700);
-        GLib.file_set_contents(marker, '');
+        writeMarker(marker);
     } catch (e) {
         logError(e, 'Kulan Shell: could not set up app folders');
     }
@@ -119,14 +119,13 @@ function isGappy(layout) {
 
 function tidyAppGrid() {
     const marker = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'app-grid-tidy-v1']);
-    if (GLib.file_test(marker, GLib.FileTest.EXISTS))
+    if (hasMarker(marker))
         return;
     try {
         const settings = new Gio.Settings({schema_id: 'org.gnome.shell'});
         if (isGappy(settings.get_value('app-picker-layout').recursiveUnpack()))
             settings.reset('app-picker-layout');
-        GLib.mkdir_with_parents(GLib.path_get_dirname(marker), 0o700);
-        GLib.file_set_contents(marker, '');
+        writeMarker(marker);
     } catch (e) {
         logError(e, 'Kulan Shell: could not tidy the app grid');
     }
@@ -149,25 +148,30 @@ const GTK_COPY = 'kulan-window-buttons.css';
 const GTK_IMPORT = `@import url("${GTK_COPY}");`;
 const GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK's own. */";
 
-function readText(path) {
-    try {
-        const [, bytes] = GLib.file_get_contents(path);
-        return new TextDecoder().decode(bytes);
-    } catch (e) {
-        return null;
-    }
+// "Done once" markers, written without making the desktop wait (files.js).
+function hasMarker(path) {
+    return pending(path) !== undefined || GLib.file_test(path, GLib.FileTest.EXISTS);
 }
 
-function installGtkStyle() {
+function writeMarker(path) {
+    writeFile(path, '', error => {
+        if (error)
+            logError(error, `Kulan Shell: could not write ${path}`);
+    });
+}
+
+// Reads and writes without making the desktop wait (files.js): the windows'
+// buttons first, then the look, one after the other (both change gtk.css).
+async function installGtkStyle() {
     const dataDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan']);
-    const firstTime = !GLib.file_test(GLib.build_filenamev([dataDir, 'gtk-style-v1']), GLib.FileTest.EXISTS) &&
-        !GLib.file_test(GLib.build_filenamev([dataDir, 'gtk-style-v2']), GLib.FileTest.EXISTS);
+    const firstTime = !hasMarker(GLib.build_filenamev([dataDir, 'gtk-style-v1'])) &&
+        !hasMarker(GLib.build_filenamev([dataDir, 'gtk-style-v2']));
     try {
         for (const dir of GTK_DIRS) {
             const folder = GLib.build_filenamev([GLib.get_user_config_dir(), dir]);
             const path = GLib.build_filenamev([folder, 'gtk.css']);
             const copy = GLib.build_filenamev([folder, GTK_COPY]);
-            const current = readText(path) ?? '';
+            const current = await loadText(path) ?? '';
             // Which style this person uses: an old import of /usr/share, the
             // name in the copy's first line, or Kulan's default the first time.
             let style = null;
@@ -175,27 +179,26 @@ function installGtkStyle() {
                 if (current.includes(`@import url("file://${files[dir]}");`))
                     style = name;
             }
+            const copied = await loadText(copy);
             if (!style && current.includes(GTK_IMPORT))
-                style = (readText(copy) ?? '').match(/^\/\* kulan-style: (\w+) \*\//)?.[1] ?? 'symbols';
+                style = (copied ?? '').match(/^\/\* kulan-style: (\w+) \*\//)?.[1] ?? 'symbols';
             if (!style && firstTime)
                 style = 'symbols';
             if (!style || !GTK_STYLE_FILES[style])
                 continue; // switched to GTK's own buttons
-            const source = readText(GTK_STYLE_FILES[style][dir]);
+            const source = await loadText(GTK_STYLE_FILES[style][dir]);
             if (source === null)
                 continue;
-            GLib.mkdir_with_parents(folder, 0o755);
             const fresh = `/* kulan-style: ${style} */\n${source}`;
-            if (readText(copy) !== fresh)
-                GLib.file_set_contents(copy, fresh);
+            if (copied !== fresh)
+                await writeFileAsync(copy, fresh, {dirMode: 0o755});
             const kept = current.split('\n').filter(l => !l.trim().startsWith('@import url("file:///usr/share/kulan/gtk/') &&
                 l.trim() !== GTK_IMPORT && l.trim() !== GTK_COMMENT);
             const text = [GTK_COMMENT, GTK_IMPORT, ...kept].join('\n').replace(/\n+$/, '') + '\n';
             if (text !== current)
-                GLib.file_set_contents(path, text);
+                await writeFileAsync(path, text, {dirMode: 0o755});
         }
-        GLib.mkdir_with_parents(dataDir, 0o700);
-        GLib.file_set_contents(GLib.build_filenamev([dataDir, 'gtk-style-v2']), '');
+        await writeFileAsync(GLib.build_filenamev([dataDir, 'gtk-style-v2']), '');
     } catch (e) {
         logError(e, 'Kulan Shell: could not set up the window buttons');
     }
@@ -211,23 +214,22 @@ const GTK_LOOK_COPY = 'kulan-look.css';
 const GTK_LOOK_IMPORT = `@import url("${GTK_LOOK_COPY}");`;
 const GTK_LOOK_COMMENT = "/* Kulan OS look. Delete this line to use GNOME's own colours. */";
 
-function installGtkLook() {
+async function installGtkLook() {
     const dataDir = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan']);
     const marker = GLib.build_filenamev([dataDir, 'gtk-look-v1']);
     try {
-        const source = readText(GTK_LOOK_SOURCE);
+        const source = await loadText(GTK_LOOK_SOURCE);
         if (source === null)
             return;
         const folder = GLib.build_filenamev([GLib.get_user_config_dir(), 'gtk-4.0']);
         const path = GLib.build_filenamev([folder, 'gtk.css']);
         const copy = GLib.build_filenamev([folder, GTK_LOOK_COPY]);
-        const current = readText(path) ?? '';
-        const firstTime = !GLib.file_test(marker, GLib.FileTest.EXISTS);
+        const current = await loadText(path) ?? '';
+        const firstTime = !hasMarker(marker);
         if (!firstTime && !current.includes(GTK_LOOK_IMPORT))
             return; // turned off by the user
-        GLib.mkdir_with_parents(folder, 0o755);
-        if (readText(copy) !== source)
-            GLib.file_set_contents(copy, source);
+        if (await loadText(copy) !== source)
+            await writeFileAsync(copy, source, {dirMode: 0o755});
         if (!current.includes(GTK_LOOK_IMPORT)) {
             // After the window buttons' import (imports must come first).
             const lines = current.split('\n');
@@ -237,13 +239,19 @@ function installGtkLook() {
                     at = i + 1;
             });
             lines.splice(at, 0, GTK_LOOK_COMMENT, GTK_LOOK_IMPORT);
-            GLib.file_set_contents(path, lines.join('\n').replace(/\n+$/, '') + '\n');
+            await writeFileAsync(path, lines.join('\n').replace(/\n+$/, '') + '\n', {dirMode: 0o755});
         }
-        GLib.mkdir_with_parents(dataDir, 0o700);
-        GLib.file_set_contents(marker, '');
+        await writeFileAsync(marker, '');
     } catch (e) {
         logError(e, 'Kulan Shell: could not set up the Kulan look for apps');
     }
+}
+
+// One set-up at a time, in order, even if Kulan Shell is turned off and on quickly.
+let gtkSetup = Promise.resolve();
+
+function setUpGtkFiles() {
+    gtkSetup = gtkSetup.then(installGtkStyle).then(installGtkLook);
 }
 
 function launchApp(desktopId) {
@@ -305,7 +313,7 @@ class KulanMenu extends PanelMenu.Button {
         this.menu.addAction('Store…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
-        this.menu.addAction('Log Out…', () => actions.activateLogout());
+        this.menu.addAction('Sign Out…', () => actions.activateLogout());
         this.menu.addAction('Restart…', () => actions.activateRestart());
         this.menu.addAction('Shut Down…', () => actions.activatePowerOff());
         this.menu.actor.add_style_class_name('kulan-menu');
@@ -412,8 +420,7 @@ export default class KulanShellExtension extends Extension {
         if (!Main.sessionMode.isLocked) {
             migrateAppFolders();
             tidyAppGrid();
-            installGtkStyle();
-            installGtkLook();
+            setUpGtkFiles(); // window buttons, then the look
         }
 
         this._oldSlowDown = St.Settings.get().slow_down_factor;

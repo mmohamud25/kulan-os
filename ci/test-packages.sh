@@ -249,7 +249,11 @@ check "Update status refresh" "refresh runs and stays idle" bash -c '/usr/lib/ku
 check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/kulan/update-run auto-off && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"0\"" && /usr/lib/kulan/update-run auto-on && apt-config dump APT::Periodic::Unattended-Upgrade | grep -q "\"1\""'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Interrupted update finished" "update-run install first finishes a package an earlier update left half-installed" bash -c 'd=$(mktemp -d); cd "$d" && apt-get download -q hello >/dev/null 2>&1 && dpkg --unpack hello_*.deb >/dev/null 2>&1 && dpkg --audit | grep -q hello && out="$(/usr/lib/kulan/update-run install 2>&1)"; echo "$out" | grep -i "interrupted" | head -n 2; ok=0; dpkg-query -W -f="\${Status}" hello 2>/dev/null | grep -qx "install ok installed" && test -z "$(dpkg --audit)" && ok=1; dpkg --purge hello >/dev/null 2>&1; [ "$ok" = 1 ]'
-check "Restore point before automatic updates" "apt hook present; outside an automatic update it does nothing" bash -c 'apt-config dump | grep -q "restore-points before-auto-update" && rm -f /var/lib/kulan/auto-update-restore-point && /usr/lib/kulan/restore-points before-auto-update && test ! -e /var/lib/kulan/auto-update-restore-point'
+check "Restore point before automatic updates" "taken before automatic updates take apt's lock (apt-daily-upgrade.service), not in apt's hook; without restore points set up it does nothing" bash -c '! apt-config dump | grep -q "restore-points before-auto-update" && grep -q "restore-points before-auto-update" /usr/lib/systemd/system/apt-daily-upgrade.service.d/60-kulan-restore-point.conf && rm -f /var/lib/kulan/auto-update-restore-point && /usr/lib/kulan/restore-points before-auto-update && test ! -e /var/lib/kulan/auto-update-restore-point'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Updates can't leave it broken" "installs run as their own service and survive their caller; waits for automatic updates; interrupted and running states; the start-up menu after a failed start-up, with Undo the last update; signed start-up's boot counting; undo needs power; timers and time limits" bash -c 'out="$(bash ci/update-recovery-test.sh / 2>&1)"; echo "$out" | grep -qx "update recovery: every case passed" || { echo "$out" | grep -v "^ok:" | tail -n 6; exit 1; }'
+# shellcheck disable=SC2016  # expanded by the inner bash
+check "Start-up repair and menu services" "an interrupted update is finished at start-up (only then), start-ups are noted, the start-up menu's undo is ready" bash -c 'for u in kulan-update-repair.service kulan-boot-ok.service kulan-undo-at-start.service; do systemctl is-enabled "$u" >/dev/null || { echo "$u not enabled"; exit 1; }; done; /usr/lib/kulan/update-run needs-repair && { echo "says repair is needed on a healthy system"; exit 1; }; test -x /etc/grub.d/01_kulan-boot-check && test -x /etc/grub.d/12_kulan-undo'
 check "Restart after automatic updates" "a new kernel from automatic updates shows as restart needed" bash -c 'mkdir -p /run && echo linux-image-test > /run/reboot-required.pkgs && touch /run/reboot-required && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); assert \"linux-image-test\" in d[\"restart_required\"], d[\"restart_required\"]"; ok=$?; rm -f /run/reboot-required /run/reboot-required.pkgs; /usr/lib/kulan/update-status refresh; exit $ok'
 check "Wi-Fi password words" "GNOME Shell's network password box says it in Kulan's words in English (the texts it replaces are GNOME Shell's own)" python3 -I - <<'PY'
 import gettext
@@ -462,7 +466,7 @@ check "Undo last update" "restores the newest pre-update point after saving the 
 	for n in 2026-01-01_00-00-00 2026-01-03_00-00-00; do printf "{\"tags\":\"O\",\"comments\":\"Before installing updates\"}" > "$D/snaps/$n/info.json"; done
 	printf "{\"tags\":\"D\",\"comments\":\"\"}" > "$D/snaps/2026-01-02_00-00-00/info.json"
 	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" -e "s/^MIN_FREE_PERCENT=.*/MIN_FREE_PERCENT=0/" -e "s/^MIN_FREE_GIB=.*/MIN_FREE_GIB=0/" /usr/lib/kulan/restore-points > "$D/rp"; echo "{}" > "$D/ts.json"
-	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" bash "$D/rp" undo-update >/dev/null
+	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" KULAN_POWER_SUPPLIES="$D/no-power-supplies" bash "$D/rp" undo-update >/dev/null
 	grep -q -- "--create --scripted --comments Before undoing an update" "$D/calls"
 	grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "$D/calls"
 	grep -q "systemctl reboot" "$D/calls"
@@ -642,7 +646,7 @@ SH
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Apps ready after sign-in" "kulan-prewarm timer on for every account; skips the live session and low memory" bash -c 'test -L /etc/systemd/user/timers.target.wants/kulan-prewarm.timer && sh -n /usr/lib/kulan/prewarm && grep -q "run/live/medium" /usr/lib/kulan/prewarm && grep -qx "IOSchedulingClass=idle" /usr/lib/systemd/user/kulan-prewarm.service'
 # shellcheck disable=SC2016  # expanded by the inner python
-check "One search" "Kulan Settings' search finds its pages (Printers, Sharing and Get help too) and GNOME's (Online accounts); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
+check "One search" "Kulan Settings' search finds its pages (Printers, Sharing and Get help too) and Online accounts (now Kulan's own page); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("sp", "/usr/lib/kulan/settings-search-provider")
 spec = importlib.util.spec_from_loader("sp", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
@@ -651,7 +655,7 @@ assert m.search(pages, ["printer"]) == ["printers"], m.search(pages, ["printer"]
 assert m.search(pages, ["sharing"]) == ["sharing"], m.search(pages, ["sharing"])
 assert m.search(pages, ["remote", "desktop"])[0] == "sharing", m.search(pages, ["remote", "desktop"])
 assert m.search(pages, ["get", "help"]) == ["help"], m.search(pages, ["get", "help"])
-assert m.search(pages, ["online", "accounts"]) == ["gnome:online-accounts"], m.search(pages, ["online", "accounts"])
+assert m.search(pages, ["online", "accounts"]) == ["accounts"], m.search(pages, ["online", "accounts"])
 assert "appearance" in m.search(pages, ["dark", "mode"]) and "wifi" in m.search(pages, ["wi-fi"])
 sys.path.insert(0, "/usr/share/kulan-assistant")
 from kulan_assistant import search
@@ -683,7 +687,7 @@ PY
 # Every Debian package an add-on installs, and the security and privacy apps
 # the ISO adds in 2.2, must exist in Debian 13 (main).
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting fzf ripgrep fd-find bat eza zoxide btop qt5-gtk-platformtheme qt6-gtk-platformtheme; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
+check "Package names" "add-on and security packages exist in Debian 13" bash -c 'missing=""; for p in $(python3 -c "import json; print(\" \".join(p for a in json.load(open(\"/usr/share/kulan/addons.json\")) for p in a.get(\"packages\", []) + a.get(\"includes\", []) if not p.startswith(\"kulan-\")))") keepassxc metadata-cleaner network-manager-openvpn-gnome apparmor-profiles-extra lynis gnome-sushi gnome-characters gnome-weather gnome-clocks baobab gnome-shell-extension-tiling-assistant tesseract-ocr tesseract-ocr-eng power-profiles-daemon gir1.2-dbusmenu-glib-0.4 systemd-zram-generator gnome-shell-extension-desktop-icons-ng python3-nautilus poppler-utils tracker-miner-fs gir1.2-tsparql-3.0 ptyxis zsh zsh-autosuggestions zsh-syntax-highlighting fzf ripgrep fd-find bat eza zoxide btop qt5-gtk-platformtheme qt6-gtk-platformtheme geary simple-scan gir1.2-goa-1.0; do apt-cache show "$p" >/dev/null 2>&1 || missing="$missing $p"; done; [ -z "$missing" ] || { echo "missing:$missing"; exit 1; }'
 check "Developer kit" "kulan-devkit installs cleanly (simulated)" apt-get -s -q install "./${DEVKIT[0]}"
 check "Office and media apps" "kulan-apps installs cleanly (simulated)" apt-get -s -q install "./${APPS[0]}"
 # shellcheck disable=SC2016  # ${Depends} and ${Status} are dpkg-query fields
@@ -803,7 +807,7 @@ else
 fi
 check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built" && ! echo "$out" | grep -q Traceback'
+check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "([0-9]+)/\\1 steps built" && ! echo "$out" | grep -q Traceback'
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -879,7 +883,7 @@ check "Fleet two-step helper" "only through pkexec, for yourself; polkit asks yo
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet work email" "2.8e: who has a work mailbox, whether it's connected (Online Accounts), once a day; the Settings row" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 -I -B ci/workmail-test.py /usr/share/kulan-fleet/workmail.py /usr/share/kulan-settings 2>&1)"; echo "$out" | grep -qx "workmail: every case passed" || { echo "$out" | tail -n 6; exit 1; }'
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Fleet work email at sign-in" "2.8e: offered once a day; Connect opens Settings › Online Accounts › Google" bash -c 'out="$(timeout 120 dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py 2>&1)"; echo "$out" | grep -qx "work email reminder: asked, connected, then not asked again" || { echo "$out" | tail -n 6; exit 1; }; grep -qx "Exec=/usr/lib/kulan/fleet-work-email" /etc/xdg/autostart/org.kulan.WorkEmail.desktop'
+check "Fleet work email at sign-in" "2.8e: offered once a day; Connect opens Settings › Online Accounts › Google; 2.11: then Mail opens" bash -c 'out="$(timeout 120 dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py 2>&1)"; echo "$out" | grep -qx "work email reminder: asked, connected, mail opened, then not asked again" || { echo "$out" | tail -n 6; exit 1; }; grep -qx "Exec=/usr/lib/kulan/fleet-work-email" /etc/xdg/autostart/org.kulan.WorkEmail.desktop'
 check "Fleet actions" "2.9b and 2.9c: Kulan's fixes, the organisation's scripts (only when allowed, only unchanged, stopped after the time limit), messages, Wi-Fi networks and printers from a group, and Get help" python3 -I -B ci/fleet-actions-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
 check "Organisation USB sticks" "2.10: the installer finds the settings Kulan USB Maker put on a stick (none on a plain one, damaged or odd ones refused), and kulan-fleet-autojoin joins with them once, stopping when joined, refused or after 14 days" python3 -I -B ci/stick-join-test.py
 check "Fleet remote help" "2.9a: who is at the computer, the request picked up (the helper gets only the session's key), input checked, the wake listener" python3 -I -B ci/remotehelp-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
@@ -909,11 +913,14 @@ assert kf.do_action("install-app", None)[0] is False
 assert any("USB" in line for line in kf.SHARED)
 PY
 check "Fleet erase" "allowed only by this computer's user, and only on an encrypted disk" python3 -I -B - <<'PY'
-import importlib.machinery, importlib.util, subprocess
-assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode == 0
+import importlib.machinery, importlib.util, json, subprocess
+# 2.11: not on a disk that isn't encrypted (the test container's): it couldn't be erased.
+assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode != 0
 loader = importlib.machinery.SourceFileLoader("kf", "/usr/bin/kulan-fleet")
 spec = importlib.util.spec_from_loader("kf", loader); kf = importlib.util.module_from_spec(spec); loader.exec_module(kf)
-assert kf.read_json(kf.CONFIG, {})["allow_erase"] is True
+assert not kf.read_json(kf.CONFIG, {}).get("allow_erase")
+# As if it had been allowed before (an older Kulan OS): erase still refuses without encryption.
+conf = kf.read_json(kf.CONFIG, {}); conf["allow_erase"] = True; kf.CONFIG.parent.mkdir(parents=True, exist_ok=True); kf.CONFIG.write_text(json.dumps(conf))
 ok, detail = kf.erase()
 assert not ok and "can't be erased from afar" in detail, detail  # the test container's disk isn't encrypted
 # Encrypted: every LUKS partition is erased, and only a full success counts.

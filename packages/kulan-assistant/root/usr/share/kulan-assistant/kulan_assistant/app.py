@@ -185,16 +185,32 @@ class Turn:
         self.window.save(self.conv)
         return False
 
+    # Undoing, in the background too: it runs programs (wpctl, nmcli) and moves files.
     def undo(self) -> None:
-        failed = 0
-        for fn in reversed(self.undos):
-            try:
-                fn()
-            except Exception:  # noqa: BLE001 - try every undo, then say how it went
-                failed += 1
-        self.undos = []
+        if not self.undos or self.window.running:
+            return
+        self.window.running = True
+        undos, self.undos = list(reversed(self.undos)), []
+        for child in list(self._buttons()):
+            child.set_sensitive(False)
+        self.say("Undoing…")
+
+        def work() -> None:
+            failed = 0
+            for fn in undos:
+                try:
+                    fn()
+                except Exception:  # noqa: BLE001 - try every undo, then say how it went
+                    failed += 1
+            GLib.idle_add(self.undone, failed)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def undone(self, failed: int) -> bool:
+        self.window.running = False
         self.say("Undone." if not failed else "Some changes couldn’t be undone.")
         self.update_buttons()
+        return False
 
 
 class AskKulanWindow(Adw.ApplicationWindow):
@@ -522,7 +538,8 @@ class AskKulanWindow(Adw.ApplicationWindow):
         except engine.EngineError as e:
             GLib.idle_add(self.answered, conv, str(e), [], cancel)
         except Exception as e:  # noqa: BLE001 - never leave it thinking
-            GLib.idle_add(self.answered, conv, f"The assistant stopped unexpectedly: {e}", [], cancel)
+            print(f"kulan-assistant: {e!r}", file=sys.stderr)
+            GLib.idle_add(self.answered, conv, engine.UNEXPECTED, [], cancel)
 
     def answered(self, conv: conversation.Conversation, reply: str, steps: list[agent.Step],
                  cancel: threading.Event) -> bool:
@@ -651,7 +668,8 @@ def self_test() -> None:
             assert calls[-1] == "dark" and turn.undos and not turn.pending()
             assert store.list()[0].messages[-1]["steps"][0]["message"] == "dark done"
             turn.undo()
-            assert calls[-1] == "undo dark"
+            spin(lambda: not w.running)
+            assert calls[-1] == "undo dark" and not turn.undos and turn.status.get_label() == "Undone."
             # A new conversation, then back to the first: it's all there, not doable again.
             first = w.current.id
             w.new_conversation()

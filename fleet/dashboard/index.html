@@ -482,9 +482,14 @@ dialog.help[open] { display: flex; flex-direction: column; }
   <div class="dlg-actions" id="dlg-actions"></div>
 </dialog>
 
+<dialog id="ask-dlg" aria-label="Are you sure?">
+  <div id="ask-dlg-body"></div>
+  <div class="dlg-actions" id="ask-dlg-actions"></div>
+</dialog>
+
 <dialog id="add-dialog" aria-labelledby="add-title">
   <h2 id="add-title" class="dlg-title">Add computers</h2>
-  <p class="note">Make a join code. Then on each computer open Kulan Settings › About › Join an organisation, and type the server address and the code.</p>
+  <p class="note">Make a join code. Then on each computer open Kulan Settings › About Kulan OS › Join an organisation, and type the code.</p>
   <p class="note">Installing Kulan OS on new computers? Put the code on the USB stick with Kulan USB Maker (For an organisation): every computer installed from it joins by itself. Make it work for as many computers as you’ll install, and for long enough.</p>
   <div class="row">
     <label class="small" for="hours">Valid for</label>

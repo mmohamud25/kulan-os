@@ -253,13 +253,20 @@ def http(url: str, body: dict | None, headers: dict | None = None, method: str =
 
 
 class Session:
-    """Supabase Auth with an emailed one-time code; refresh token in the keyring."""
+    """Supabase Auth with an emailed one-time code; refresh token in the keyring.
+    The window reads the keyring (load()) in the background: it can take a
+    moment, or ask to be unlocked, and the window shows first."""
 
     def __init__(self) -> None:
         self.access_token: str | None = None
         self.expires = 0.0
-        self.refresh_token: str | None = keyring_get()
+        self.refresh_token: str | None = None
         self.email = ""
+
+    def load(self) -> str | None:
+        """The sign-in kept in the keyring, if any. Waits for the keyring: never on the window's thread."""
+        self.refresh_token = keyring_get()
+        return self.refresh_token
 
     def _take(self, data: dict) -> None:
         self.access_token = data.get("access_token")
@@ -771,12 +778,30 @@ class FleetWindow(Adw.ApplicationWindow):
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.toasts.set_child(self.stack)
         self.set_content(self.toasts)
+        self.stack.add_named(self.build_starting(), "starting")
         self.stack.add_named(self.build_signin(), "signin")
         self.stack.add_named(self.build_main(), "main")
         if sample is not None:
             self.stack.set_visible_child_name("main")
             self.show_data()
-        elif session.refresh_token:
+        else:
+            # The window first; the keyring (which can be slow, or ask to be
+            # unlocked) is read in the background, then the sign-in or the fleet.
+            self.stack.set_visible_child_name("starting")
+            self.background(session.load, self.got_sign_in)
+
+    def build_starting(self) -> Gtk.Widget:
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        status = Adw.StatusPage(icon_name="org.kulan.Fleet", title="Kulan Fleet")
+        status.set_child(Gtk.Spinner(spinning=True, width_request=32, height_request=32))
+        view.set_content(status)
+        return view
+
+    def got_sign_in(self, token, _error) -> None:
+        if self.stack.get_visible_child_name() != "starting":
+            return  # signed in some other way meanwhile
+        if token:
             self.stack.set_visible_child_name("main")
             self.reload()
         else:
@@ -793,7 +818,9 @@ class FleetWindow(Adw.ApplicationWindow):
                 if e.two_step:
                     GLib.idle_add(lambda kind=e.two_step: (self.two_step_needed(kind), False)[1])
             except Exception as e:  # noqa: BLE001 - never leave the app hanging
-                result, error = None, f"Something went wrong: {e}"
+                print(f"kulan-fleet-admin: {e!r}", file=sys.stderr)
+                result, error = None, ("Something went wrong. Try again, and if it keeps happening, sign out of "
+                                       "Kulan Fleet and back in")
             GLib.idle_add(lambda: (done(result, error), False)[1])
         threading.Thread(target=run, daemon=True).start()
 
@@ -909,7 +936,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
             def done(_r, error):
                 if error:
-                    self.toast(f"Not signed in: {error}")
+                    self.toast(f"Not signed in. {error}")
                     return
                 self.toast("Signed in with your authenticator app")
                 self.reload()
@@ -950,7 +977,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
             def done(_r, error):
                 if error:
-                    self.toast(f"Not set up: {error}")
+                    self.toast(f"Not set up. {error}")
                     return
                 self.toast("Authenticator app set up")
                 self.reload()
@@ -1670,7 +1697,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def add_computers_dialog(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Add computers",
-                                 body="Make a join code. On each computer, open Kulan Settings › About › Organisation › "
+                                 body="Make a join code. On each computer, open Kulan Settings › About Kulan OS › "
                                       "Join an organisation, and type it there. Installing on new computers? Put the code "
                                       "on the USB stick with Kulan USB Maker (For an organisation): every computer "
                                       "installed from it joins by itself.")
@@ -4179,7 +4206,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 ok, data, _etag = f.load_contents(None)
                 take(data[:20000].decode("utf-8", "replace") if ok else "")
             except GLib.Error as e:
-                key_row.set_subtitle(GLib.markup_escape_text(f"Couldn't read it: {e.message}"))
+                print(f"kulan-fleet-admin: {e.message}", file=sys.stderr)
+                key_row.set_subtitle("Couldn’t read that file. Choose the key file again")
 
         def pick(*_a) -> None:
             files = Gtk.FileDialog(title="The service account's JSON key")

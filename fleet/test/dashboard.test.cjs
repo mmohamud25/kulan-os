@@ -14,7 +14,7 @@ const signedBy = (key, sig, message) => nodeCrypto.verify(null, Buffer.from(mess
   Buffer.from(sig || "", "base64"));
 const sha256 = (t) => nodeCrypto.createHash("sha256").update(t).digest("hex");
 const root = path.resolve(process.argv[2] || path.join(__dirname, "../dashboard"));
-const srv = http.createServer((q, r) => { const f = path.join(root, q.url.split("?")[0] === "/" ? "index.html" : q.url.split("?")[0]);
+const srv = http.createServer((q, r) => { if (q.url === "/favicon.ico") { r.writeHead(204); r.end(); return; } const f = path.join(root, q.url.split("?")[0] === "/" ? "index.html" : q.url.split("?")[0]);
   fs.readFile(f, (e, b) => { if (e) { r.writeHead(404); r.end(); return; } r.writeHead(200, { "content-type": f.endsWith(".js") ? "text/javascript" : "text/html" }); r.end(b); }); });
 srv.listen(18899);
 const org = "11111111-1111-4111-8111-111111111111";
@@ -103,7 +103,23 @@ function reply(b) {
   state.approvedD2 = false;
   const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true, colorScheme: process.env.DARK ? "dark" : "light" });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && !m.text().includes("status of 403") && errors.push(m.text()));
-  page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().includes("name you'll") ? "Finance drive" : ""); else await d.accept(); });
+  // The page asks with its own dialog (#ask-dlg), never confirm() or prompt().
+  // Answer it the way a person would: OK, with the text window.__answer gives.
+  page.on("dialog", (d) => { errors.push("browser dialog: " + d.message()); d.dismiss(); });
+  await page.addInitScript(() => {
+    window.__answer = (text) => text.includes("name you'll") ? "Finance drive" : "";
+    new MutationObserver(() => {
+      const d = document.getElementById("ask-dlg");
+      if (!d || !d.open || d.dataset.answering) return;
+      d.dataset.answering = "1";
+      setTimeout(() => {
+        const input = d.querySelector("input");
+        if (input) input.value = window.__answer(d.querySelector("p").textContent);
+        d.querySelector("#ask-dlg-actions button:last-child").click();
+        delete d.dataset.answering;
+      }, 50);
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["open"] });
+  });
   await page.route("**/functions/v1/fleet-admin", async (r) => {
     const body = JSON.parse(r.request().postData() || "{}");
     const aal2 = (r.request().headers().authorization || "").includes(AAL2);
@@ -396,7 +412,7 @@ function reply(b) {
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/help-request.png` });
   await page.fill("#dlg textarea", "  I restarted the printer. Try again now.  ");
   await page.click("#dlg-actions >> text=Mark as done");
-  await page.waitForFunction(() => !document.getElementById("dlg").open);
+  await page.waitForSelector("#dlg:not([open])", { state: "attached" });
   if (JSON.stringify(last("close-help")) !== JSON.stringify({ op: "close-help", request_id: "h1", reply: "I restarted the printer. Try again now." })) throw "close-help " + JSON.stringify(last("close-help"));
   await page.waitForSelector("#help-requests >> text=Done");
   if (await page.locator("#detail >> text=asked for help").count()) throw "a done help request is still an alert";
@@ -419,8 +435,7 @@ function reply(b) {
   if (!last("approve-computer") || last("approve-computer").device_id !== "d2") throw "approve-computer " + JSON.stringify(last("approve-computer"));
   await page.click("#devices tr:has-text('new-pc')");
   await page.waitForSelector("#detail >> text=Remove from the organisation…");
-  page.removeAllListeners("dialog");
-  page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().startsWith("Remove new-pc") ? "new-pc" : ""); else await d.accept(); });
+  await page.evaluate(() => { window.__answer = (text) => text.startsWith("Remove new-pc") ? "new-pc" : ""; });
   await page.click("#detail >> text=Remove from the organisation…");
   await page.waitForTimeout(300);
   if (JSON.stringify(last("remove-computer")) !== JSON.stringify({ op: "remove-computer", device_id: "d2", confirm: "new-pc" })) throw "remove-computer " + JSON.stringify(last("remove-computer"));

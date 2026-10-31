@@ -188,8 +188,10 @@ export class Dictation {
                 return;
             const text = (out ?? '').trim();
             if (!proc.get_successful()) {
-                Main.notify(TITLE, (err ?? '').replace(/^kulan-assistant: /, '').trim() ||
-                    'Couldn’t turn the recording into text.');
+                // Only Kulan's own last message, never a program's output.
+                const said = (err ?? '').trim().split('\n').pop().replace(/^kulan-assistant: /, '').trim();
+                Main.notify(TITLE, said && !/error|Traceback|Errno|\(\d{3}\)/.test(said)
+                    ? said : 'Couldn’t turn the recording into text. Try again.');
                 return;
             }
             if (!text) {

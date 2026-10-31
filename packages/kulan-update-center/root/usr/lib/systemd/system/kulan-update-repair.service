@@ -1,0 +1,26 @@
+[Unit]
+Description=Finish an update that was interrupted (Kulan OS)
+Documentation=file:///usr/lib/kulan/update-run
+ConditionKernelCommandLine=!boot=live
+ConditionKernelCommandLine=!kulan.undo-update
+# After a power cut or a crash during an update, dpkg is left half-way and
+# nothing can be installed until it's finished: finish it at start-up, before
+# the daily update jobs. Nothing waits for it, the sign-in screen included.
+After=local-fs.target kulan-undo-at-start.service
+Before=apt-daily.service apt-daily-upgrade.service kulan-app-updates.service kulan-update-status.service
+
+[Service]
+Type=oneshot
+# Quick (dpkg's own records) when nothing was interrupted: then it stops here.
+ExecCondition=/usr/lib/kulan/update-run needs-repair
+# update-run itself keeps the computer on while it works.
+Environment=KULAN_UPDATE_UNIT=1 KULAN_DEFER_STATUS=1
+ExecStart=/usr/lib/kulan/update-run repair
+ExecStopPost=-/usr/lib/kulan/update-status refresh
+TimeoutStartSec=1h
+# A shutdown in the middle waits a little for dpkg rather than cutting it off.
+KillMode=mixed
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=multi-user.target

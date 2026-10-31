@@ -6,21 +6,30 @@ kulan-welcome \- Kulan OS welcome tour
 [\fB\-\-autostart\fR]
 .SH DESCRIPTION
 .B kulan-welcome
-opens the Kulan OS welcome tour: choose light or dark mode and an accent
-color, install popular apps from Flathub in one go (only apps that run on
-this computer are offered), and see which security protections are on.
+opens the Kulan OS Setup Assistant: get online (Wi-Fi, when the computer
+isn't connected), choose light or dark mode and an accent color, install
+popular apps from Flathub in one go (only apps that run on this computer are
+offered; the list fills in by itself once online), download Ask Kulan's
+model when the assistant is installed, and see which security protections
+are on.
 .PP
-It opens automatically once per user at first login, and never in the live
-session. It can be reopened at any time from the app grid.
+It opens automatically at first login, and never in the live session. It is
+marked done when it's finished; closed early, it opens once more at the next
+login, and then not again. It can be reopened at any time from the app grid.
 .SH OPTIONS
 .TP
 .B \-\-autostart
-Exit straight away if the tour has already been shown to this user or if
-running in the live session. Used by the login autostart entry.
+Exit straight away if Setup is done for this user or if running in the
+live session. Used by the login autostart entry.
 .SH FILES
 .TP
 .I ~/.config/kulan-welcome/done
-Created when the tour is closed; delete it to see the tour at next login.
+Created when Setup is finished (or after it has opened twice); delete it
+to see Setup at next login. The autostart entry checks it too
+(AutostartCondition), so nothing starts once it exists.
+.TP
+.I ~/.config/kulan-welcome/reminded
+Setup opened at login but wasn't finished: it opens once more.
 .TP
 .I /usr/share/kulan/kulan.conf
 Product name and website shown in the tour.

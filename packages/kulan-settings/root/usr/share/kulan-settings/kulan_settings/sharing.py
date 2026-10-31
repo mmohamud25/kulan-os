@@ -44,7 +44,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from .common import Page, plain_error, settings
+from .common import Page, in_thread, plain_error, settings
 
 SCHEMA_ID = "org.gnome.desktop.remote-desktop.rdp"
 CREDENTIALS_SCHEMA = "org.gnome.RemoteDesktop.RdpCredentials"
@@ -327,6 +327,7 @@ class SharingPage(Page):
         self.media = sharing_settings(MEDIA_SERVICE)
         self.file_sharing = settings(FILE_SHARING_SCHEMA)
         self.network: tuple[str, str] | None = None
+        self.sharing_busy = False  # the Public folder's password being made
         group = self.add_group("Files and media",
                                "With computers, TVs and players on the same network. It’s on only for the networks "
                                "you turn it on for, and the firewall lets it in from local networks only.")
@@ -384,9 +385,27 @@ class SharingPage(Page):
         group.add(self.share_still_open)
 
     def sync_sharing(self) -> None:
+        """Refresh file and media sharing. NetworkManager and the keyring (which may
+        even ask to be unlocked) are asked on a worker thread, never the window's."""
         if self.torn_down or (self.files_switch is None and self.media_switch is None):
             return
-        self.network = current_network()
+        self.share_turn = getattr(self, "share_turn", 0) + 1
+        turn = self.share_turn
+        files_networks = self.files.get_strv("enabled-connections") if self.files is not None else []
+
+        def look() -> None:
+            network = current_network()
+            password = files_password() if network and network[0] in files_networks else None
+            ip = local_address()
+            GLib.idle_add(lambda: (self.show_sharing(turn, network, password, ip), False)[1])
+
+        threading.Thread(target=look, daemon=True).start()
+
+    def show_sharing(self, turn: int, network: tuple[str, str] | None, password: str | None,
+                     ip: str | None) -> None:
+        if self.torn_down or turn != self.share_turn:
+            return
+        self.network = network
         uuid = self.network[0] if self.network else None
         self.network_row.set_subtitle(GLib.markup_escape_text(self.network[1]) if self.network else
                                       "Not connected. Connect to a network to share on it")
@@ -401,7 +420,7 @@ class SharingPage(Page):
                 switch.handler_block(handler)
                 switch.set_active(on)
                 switch.handler_unblock(handler)
-            switch.set_sensitive(uuid is not None)
+            switch.set_sensitive(uuid is not None and not self.sharing_busy)
         if self.files_switch is not None:
             on = self.files_switch.get_active()
             self.files_switch.set_subtitle(
@@ -412,10 +431,9 @@ class SharingPage(Page):
             for row in (self.files_address, self.files_password_row, self.files_always):
                 row.set_visible(on)
             if on:
-                ip = local_address()
                 self.set_row(self.files_address, f"http://{GLib.get_host_name()}.local:{FILES_PORT}"
                              + (f" or http://{ip}:{FILES_PORT}" if ip else ""))
-                self.set_row(self.files_password_row, files_password() or "")
+                self.set_row(self.files_password_row, password or "")
                 always = self.file_sharing is not None and self.file_sharing.get_string("require-password") == "always"
                 if self.files_always.get_active() != always:
                     self.files_always.handler_block(self.always_handler)
@@ -427,20 +445,44 @@ class SharingPage(Page):
 
     def on_share(self, service: str, row: Adw.SwitchRow) -> None:
         gsettings = self.files if service == FILES_SERVICE else self.media
-        if not self.network or gsettings is None:
+        if not self.network or gsettings is None or self.sharing_busy:
             self.sync_sharing()
             return
         on = row.get_active()
-        if on and service == FILES_SERVICE:
-            # Never shared writable without a password: adding or changing files always needs one.
-            if not files_password() and not store_files_password(new_password()):
-                self.toast("Your keyring couldn’t keep the sharing password")
-                self.sync_sharing()
-                return
-            if self.file_sharing is not None and self.file_sharing.get_string("require-password") not in ("on_write", "always"):
-                self.file_sharing.set_string("require-password", "on_write")
-            write_passwd(files_password() or "")
-        set_shared_on(gsettings, self.network[0], on)
+        uuid = self.network[0]
+        if not (on and service == FILES_SERVICE):
+            self.share_on(gsettings, uuid, on)
+            return
+        # Never shared writable without a password: adding or changing files always needs one.
+        # The keyring may take a moment (or ask to be unlocked): on a worker thread.
+        self.sharing_busy = True
+        row.set_sensitive(False)
+
+        def prepare() -> None:
+            password = files_password()
+            if not password:
+                password = new_password()
+                if not store_files_password(password):
+                    password = None
+            ok = password is not None and write_passwd(password)
+            GLib.idle_add(lambda: (self.files_prepared(ok, gsettings, uuid), False)[1])
+
+        threading.Thread(target=prepare, daemon=True).start()
+
+    def files_prepared(self, ok: bool, gsettings: Gio.Settings, uuid: str) -> None:
+        if self.torn_down:
+            return
+        self.sharing_busy = False
+        if not ok:
+            self.toast("Your keyring couldn’t keep the sharing password")
+            self.sync_sharing()
+            return
+        if self.file_sharing is not None and self.file_sharing.get_string("require-password") not in ("on_write", "always"):
+            self.file_sharing.set_string("require-password", "on_write")
+        self.share_on(gsettings, uuid, True)
+
+    def share_on(self, gsettings: Gio.Settings, uuid: str, on: bool) -> None:
+        set_shared_on(gsettings, uuid, on)
         self.sync_sharing()
         if on and firewall_on() and not SHARING_FIREWALL_MARK.exists():
             self.allow_sharing_firewall()
@@ -450,11 +492,15 @@ class SharingPage(Page):
             self.file_sharing.set_string("require-password", "always" if row.get_active() else "on_write")
 
     def new_files_password(self) -> None:
-        if store_files_password(new_password()):
-            self.toast("New password for your Public folder")
-        else:
-            self.toast("Your keyring couldn’t keep the new password")
-        self.sync_sharing()
+        def work() -> bool:
+            return store_files_password(new_password())
+
+        def done(ok: bool | None) -> None:
+            self.toast("New password for your Public folder" if ok else
+                       "Your keyring couldn’t keep the new password")
+            self.sync_sharing()
+
+        in_thread(work, done, page=self)
 
     def allow_sharing_firewall(self) -> None:
         if getattr(self, "allowing", False):
@@ -638,10 +684,15 @@ class SharingPage(Page):
                                on_done=lambda _ok: self.sync())
 
     def change_password(self) -> None:
-        creds = load_credentials()
-        username = creds[0] if creds else GLib.get_user_name()
-        if store_credentials(username, new_password()):
-            self.toast("New password. Anyone connected keeps going until they disconnect")
-        else:
-            self.toast("Your keyring couldn’t keep the new password")
-        self.sync()
+        def work() -> bool:
+            # The keyring may take a moment, or ask to be unlocked: never on the window's thread.
+            creds = load_credentials()
+            username = creds[0] if creds else GLib.get_user_name()
+            return store_credentials(username, new_password())
+
+        def done(ok: bool | None) -> None:
+            self.toast("New password. Anyone connected keeps going until they disconnect" if ok else
+                       "Your keyring couldn’t keep the new password")
+            self.sync()
+
+        in_thread(work, done, page=self)

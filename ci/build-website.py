@@ -354,7 +354,7 @@ def help_page() -> str:
                                 "choose Install next to Windows in Kulan Installer. You pick which one to start "
                                 "each time you turn the computer on. The <a href=\"/install/\">install guide</a> "
                                 "has every step."),
-        ("How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic Updates there. A "
+        ("How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic updates there. A "
                                   "restore point is taken first, so you can undo an update if anything goes wrong."),
         ("How do I connect to work or school Wi-Fi?", "Open Kulan Settings › Wi-Fi and network. It handles networks "
                                                       "that need a sign-in, like eduroam, as well as hidden "
@@ -363,7 +363,8 @@ def help_page() -> str:
                                                  "files safe. Without it, the disk has to be erased and Kulan OS "
                                                  "installed again."),
         ("Does Kulan Assistant send my text anywhere?", "No. It runs on your computer. Select text and press "
-                                                        "Cmd+Shift+W for writing tools, or Cmd+Shift+D to dictate."),
+                                                        "Shift+Super+W for writing tools, or Shift+Super+D to dictate. "
+                                                        "(Super is the Windows key, or ⌘ on a Mac.)"),
         ("How do I back up my files?", "Open Backups from the app grid and choose an external drive or network "
                                        "folder. It can back up automatically every day."),
         ("My computer won’t start from the USB stick", "Try another USB port, make the stick again with "

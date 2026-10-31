@@ -293,16 +293,76 @@ def reset_keys(gsettings: Gio.Settings | None, keys: list[str]) -> None:
 
 # --- privileged helper ---------------------------------------------------------------
 
+# update-run's changes that run as their own system service (kulan-update.service):
+# they carry on if Kulan Settings closes, and the window says so when it's closed.
+LONG_ACTIONS = {"install": "Updates are installing", "undo-update": "The last update is being undone",
+                "repair": "An interrupted update is being finished", "install-devkit": "Software is installing",
+                "install-apps": "Software is installing", "addon-install": "An add-on is installing",
+                "addon-remove": "An add-on is being removed", "cleanup": "Old system files are being removed"}
+
+
 class Helper:
     """Runs /usr/lib/kulan/update-run through pkexec and reports progress.
 
     One action at a time. Progress lines are apt's status lines
-    (pmstatus/dlstatus); on_progress gets (fraction, text)."""
+    (pmstatus/dlstatus); on_progress gets (fraction, text). While a long change
+    runs (LONG_ACTIONS), closing the window asks first and can only hide it: the
+    change carries on either way, and Kulan Settings closes once it's done."""
 
     def __init__(self, toast: Callable[[str], None]) -> None:
         self.toast = toast
         self.busy = False
+        self.action: str | None = None  # update-run's action while one runs
+        self.hidden = False  # the window was hidden until the change is done
         self.listeners: list[Callable[[bool], None]] = []
+        self._hooked: set[int] = set()
+
+    def window(self) -> Gtk.Window | None:
+        owner = getattr(self.toast, "__self__", None)  # the window whose toast this is
+        if isinstance(owner, Gtk.Window):
+            return owner
+        app = Gio.Application.get_default()
+        return app.get_active_window() if app else None
+
+    def hook_close(self) -> None:
+        window = self.window()
+        if window is not None and id(window) not in self._hooked:
+            self._hooked.add(id(window))
+            window.connect("close-request", self.on_close_request)
+
+    def on_close_request(self, window: Gtk.Window) -> bool:
+        """Closing while a long change runs: say it carries on, keep the window or hide it."""
+        if not self.busy or self.action not in LONG_ACTIONS:
+            return False  # close
+        dialog = Adw.AlertDialog(heading=LONG_ACTIONS[self.action],
+                                 body="Kulan Settings can close when they’re done. They carry on even if you hide "
+                                      "it, sign out or close the lid, and the computer stays on until they’re "
+                                      "finished.")
+        dialog.add_response("keep", "Keep open")
+        dialog.add_response("hide", "Hide")
+        dialog.set_default_response("keep")
+        dialog.set_close_response("keep")
+
+        def answered(_d, response: str) -> None:
+            if response == "hide" and self.busy:
+                self.hidden = True
+                window.set_visible(False)
+        dialog.connect("response", answered)
+        dialog.present(window)
+        return True  # stay open
+
+    def finished_hidden(self, ok: bool, message: str | None) -> None:
+        """The change is done while the window was hidden: say so, then close."""
+        self.hidden = False
+        app = Gio.Application.get_default()
+        window = self.window()
+        if app is not None:
+            note = Gio.Notification.new(message or ("Done" if ok else "That didn’t work"))
+            if not ok:
+                note.set_body("Open Kulan Settings › Software Update to try again")
+            app.send_notification("kulan-settings-change", note)
+        if window is not None and not window.get_visible():
+            GLib.timeout_add(500, lambda: bool(window.close()))
 
     def run(self, args: list[str], success: str | None = None,
             on_progress: Callable[[float, str], None] | None = None,
@@ -315,8 +375,8 @@ class Helper:
                 on_done(False)
             return
         if shutil.which("pkexec") is None:
-            self.toast("Kulan Settings can’t ask for your password (pkexec is missing). Add it in Terminal with "
-                       "“sudo apt install pkexec”")
+            self.toast("Kulan Settings can’t ask for your password: part of Kulan OS is missing. Update Kulan OS, or "
+                       "ask for help in Get help")
             if on_done:
                 on_done(False)
             return
@@ -331,6 +391,9 @@ class Helper:
             if on_done:
                 on_done(False)
             return
+        self.action = args[0] if args else None
+        if self.action in LONG_ACTIONS:
+            self.hook_close()
         self.set_busy(True)
         if stdin is not None:
             pipe = proc.get_stdin_pipe()
@@ -384,7 +447,13 @@ class Helper:
             except GLib.Error:
                 code = 1
             self.set_busy(False)
-            if code == 0:
+            self.action = None
+            window = self.window()
+            self.hidden = self.hidden and window is not None and not window.get_visible()  # not opened again since
+            if self.hidden:  # nobody to see a toast: a notification, then close
+                self.finished_hidden(code == 0, success if code == 0 else
+                                     failure_text(errors, said[-1] if said else None))
+            elif code == 0:
                 if success:
                     self.toast(success)
             elif code in (126, 127):  # password dialog dismissed / not authorised
@@ -488,3 +557,79 @@ class Page(Adw.Bin):
 
     def shown(self) -> None:
         """Called each time the page is opened; refresh live state here."""
+
+
+# --- off the window's thread (2.11) ------------------------------------------------------
+# Anything that can take more than a moment (a program, a blocking D-Bus call, the
+# keyring) runs here, never on the window's own thread, so no window ever freezes.
+
+def in_thread(work: Callable[[], object], done: Callable[[object], None] | None = None,
+              page: Page | None = None) -> None:
+    """Run work() on a worker thread, then done(result) back on the window's thread;
+    skipped when page has been torn down meanwhile. If work() raises, done gets None."""
+    import threading
+
+    def back(result) -> bool:
+        if done is not None and not (page is not None and page.torn_down):
+            done(result)
+        return GLib.SOURCE_REMOVE
+
+    def run() -> None:
+        try:
+            result = work()
+        except Exception:  # noqa: BLE001 - never lose the answer; say why (stderr, and the self-test)
+            sys.excepthook(*sys.exc_info())
+            result = None
+        GLib.idle_add(back, result)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def run_async(args: list[str], done: Callable[[bool, str, str], None], timeout: int = 10,
+              page: Page | None = None, env: dict[str, str] | None = None,
+              stdin: str | None = None) -> None:
+    """Run a program without waiting for it: done(ok, stdout, stderr) on the window's
+    thread when it ends (ok = exit status 0), or (False, "", reason) when it can't start
+    or takes longer than timeout seconds (it is then stopped). Skipped when page has
+    been torn down meanwhile."""
+    finished = [False]
+
+    def finish(ok: bool, out: str, err: str) -> bool:
+        if not finished[0]:
+            finished[0] = True
+            if not (page is not None and page.torn_down):
+                done(ok, out, err)
+        return GLib.SOURCE_REMOVE
+
+    launcher = Gio.SubprocessLauncher.new(
+        Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
+        | (Gio.SubprocessFlags.STDIN_PIPE if stdin is not None else Gio.SubprocessFlags.NONE))
+    for key, value in (env or {}).items():
+        launcher.setenv(key, value, True)
+    try:
+        proc = launcher.spawnv(args)
+    except GLib.Error as exc:
+        GLib.idle_add(finish, False, "", exc.message)
+        return
+    cancellable = Gio.Cancellable()
+
+    def too_long() -> bool:
+        if not finished[0]:
+            proc.force_exit()
+            cancellable.cancel()
+            finish(False, "", f"{args[0]} took longer than {timeout} seconds")
+        return GLib.SOURCE_REMOVE
+
+    timer = GLib.timeout_add_seconds(max(1, timeout), too_long)
+
+    def communicated(_proc, result) -> None:
+        if not finished[0]:
+            GLib.source_remove(timer)
+        try:
+            _ok, out, err = proc.communicate_utf8_finish(result)
+        except GLib.Error as exc:
+            finish(False, "", exc.message)
+            return
+        finish(proc.get_if_exited() and proc.get_exit_status() == 0, out or "", err or "")
+
+    proc.communicate_utf8_async(stdin, cancellable, communicated)

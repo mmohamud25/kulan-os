@@ -10,11 +10,13 @@ from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import (
     Page,
+    in_thread,
     launch,
     package_installed,
     plural,
     read_json,
     restart_computer,
+    run_async,
     settings,
 )
 from .updates import auto_updates_on, when_text
@@ -139,6 +141,7 @@ class SecurityPage(Page):
         passwords.add(self.password_row)
         self.password_button: Gtk.Button | None = None
 
+        self.status_asked = 0  # which refresh of the cards is the latest
         self.listen_busy(self.on_busy)
         self.shown()
 
@@ -159,13 +162,37 @@ class SecurityPage(Page):
         return row
 
     def shown(self) -> None:
+        """Refresh: the checks that need programs (systemctl, findmnt, lsblk,
+        apt-config, dpkg-query) run on a worker thread; the cards follow."""
+        self.render_checkup()
+        self.load_compliance()
+        self.load_tpm()
+        self.load_signed_start()
+        if not self.status_rows:
+            checking = Adw.ActionRow(title="Checking…")
+            self.status_group.add(checking)
+            self.status_rows.append(checking)
+        self.status_asked += 1
+        asked = self.status_asked
+        live = is_live()
+
+        def work() -> dict:
+            return {"firewall": firewall_on(), "encrypted": not live and disk_encrypted(),
+                    "auto_updates": auto_updates_on(), "keepassxc": package_installed("keepassxc")}
+
+        def done(facts: dict | None) -> None:
+            if asked == self.status_asked:  # only the latest answer, if several overlap
+                self.render_status(facts or {}, live)
+
+        in_thread(work, done, page=self)
+
+    def render_status(self, facts: dict, live: bool) -> None:
         for row in self.status_rows:
             self.status_group.remove(row)
         self.status_rows = []
-        live = is_live()
         cards = []
 
-        if firewall_on():
+        if facts.get("firewall"):
             cards.append(self.card("Firewall", "Other computers can’t connect to this one", GOOD))
         else:
             cards.append(self.card("Firewall", "Off. Other computers on the network can try to connect", WARN,
@@ -173,14 +200,14 @@ class SecurityPage(Page):
 
         if live:
             cards.append(self.card("Disk encryption", "Chosen when you install Kulan OS", INFO))
-        elif disk_encrypted():
+        elif facts.get("encrypted"):
             cards.append(self.card("Disk encryption", "Your files can’t be read if the disk is taken", GOOD))
         else:
             cards.append(self.card("Disk encryption",
                                    "Off. Anyone with the disk can read your files. It can only be turned "
                                    "on when installing", WARN))
 
-        if auto_updates_on():
+        if facts.get("auto_updates"):
             cards.append(self.card("Automatic updates", "Security fixes install every day", GOOD))
         else:
             cards.append(self.card("Automatic updates", "Off. Security fixes wait until you install them", WARN,
@@ -217,12 +244,7 @@ class SecurityPage(Page):
         for row in cards:
             self.status_group.add(row)
             self.status_rows.append(row)
-
-        self.render_checkup()
-        self.render_passwords()
-        self.load_compliance()
-        self.load_tpm()
-        self.load_signed_start()
+        self.render_passwords(bool(facts.get("keepassxc")))
 
     # --- TPM unlock -------------------------------------------------------------------
     def load_tpm(self) -> None:
@@ -480,9 +502,11 @@ class SecurityPage(Page):
                 return  # cancelled
             if picked is None or picked.get_path() is None:
                 return
-            ok = subprocess.run([COMPLIANCE, "report", picked.get_path()], capture_output=True,
-                                timeout=60, check=False).returncode == 0
-            self.toast("Report saved" if ok else "The report couldn’t be saved")
+            # Takes up to a minute: never on the window's thread.
+            self.toast("Saving the report…")
+            run_async([COMPLIANCE, "report", picked.get_path()],
+                      lambda ok, _out, _err: self.toast("Report saved" if ok else "The report couldn’t be saved"),
+                      timeout=90)
 
         dialog.save(self.window, None, done)
 
@@ -540,11 +564,11 @@ class SecurityPage(Page):
                                on_done=lambda _ok: (self.checkup_button.set_label("Run checkup"), self.shown()))
 
     # --- passwords ----------------------------------------------------------------
-    def render_passwords(self) -> None:
+    def render_passwords(self, installed: bool) -> None:
         if self.password_button is not None:
             self.password_row.remove(self.password_button)
             self.password_button = None
-        if package_installed("keepassxc"):
+        if installed:
             self.password_button = Gtk.Button(label="Open", valign=Gtk.Align.CENTER)
             self.password_button.connect("clicked", lambda _b: launch("org.keepassxc.KeePassXC.desktop", self.toast))
         else:

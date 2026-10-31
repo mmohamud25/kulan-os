@@ -6,6 +6,14 @@ case "$1" in
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 		fi
+		# The start-up menu without Kulan's entries and notes (its /etc/grub.d
+		# files stay until purged, and do nothing without this package).
+		if command -v grub-editenv >/dev/null 2>&1 && [ -e /boot/grub/grubenv ]; then
+			grub-editenv /boot/grub/grubenv unset kulan_boot_pending kulan_undo >/dev/null 2>&1 || true
+		fi
+		if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1; then
+			update-grub >/dev/null 2>&1 || true
+		fi
 		# Encrypted DNS chosen in Kulan Settings goes with it: no setting
 		# should stay that can no longer be changed from Kulan Settings.
 		if [ -e /etc/systemd/resolved.conf.d/60-kulan-dns.conf ]; then
@@ -22,6 +30,10 @@ case "$1" in
 		deb-systemd-helper purge kulan-update-status.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-app-updates.timer >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-countme.timer >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-update-repair.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-boot-ok.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-undo-at-start.service >/dev/null 2>&1 || true
+		rm -f /var/lib/kulan/auto-update-restore-point
 		rm -rf /var/lib/kulan-countme
 		rm -f /etc/kulan/no-countme
 		rm -f /var/lib/kulan/app-updates.tsv /var/lib/kulan/restore-points.json

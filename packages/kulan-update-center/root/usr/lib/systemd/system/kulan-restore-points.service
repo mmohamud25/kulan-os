@@ -9,6 +9,9 @@ Type=oneshot
 ExecStart=/usr/lib/kulan/restore-points scheduled
 Nice=19
 IOSchedulingClass=idle
+# The first restore point copies the whole system (Timeshift picks up where
+# it left off next time); never longer than this.
+TimeoutStartSec=2h
 # Hardening that can't get in the way of what it does.
 LockPersonality=yes
 RestrictRealtime=yes

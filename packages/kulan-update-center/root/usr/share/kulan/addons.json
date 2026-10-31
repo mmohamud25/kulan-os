@@ -5,7 +5,7 @@
     "description": "Private writing help for selected text, summaries in Files, Translate and Explain after Live Text, and search with questions. Runs on this computer",
     "icon": "kulan-assistant-symbolic",
     "size": "about 40 MB, plus a model of 1.8 to 5 GB",
-    "note": "Choose and download a model in Kulan Settings > Assistant.",
+    "note": "Choose and download a model in Kulan Settings › Assistant.",
     "packages": [
       "kulan-assistant",
       "kulan-assistant-engine"
@@ -20,6 +20,13 @@
     "size": "about 500 MB",
     "packages": [
       "kulan-apps"
+    ],
+    "includes": [
+      "libreoffice-writer",
+      "libreoffice-calc",
+      "libreoffice-impress",
+      "vlc",
+      "gimp"
     ]
   },
   {
@@ -31,7 +38,7 @@
     "packages": [
       "chromium"
     ],
-    "note": "Open Chromium from the app grid. Firefox stays your default browser; to change it, go to Settings > Apps > Default Apps. Netflix and other protected videos don't play in Chromium."
+    "note": "Open Chromium from the app grid. Firefox stays your default browser; to change it, go to Kulan Settings › Default apps. Netflix and other protected videos don’t play in Chromium."
   },
   {
     "id": "devkit",
@@ -39,7 +46,7 @@
     "description": "Git, Python with pip and virtual environments, build tools, Docker and Docker Compose, curl",
     "icon": "utilities-terminal-symbolic",
     "size": "about 600 MB",
-    "note": "To use Docker without sudo, run: sudo usermod -aG docker $USER, then sign out and in again.",
+    "note": "Every administrator on this computer can use Docker without typing a password. Sign out and back in once for that to start working.",
     "packages": [
       "kulan-devkit"
     ]
@@ -69,11 +76,11 @@
   },
   {
     "id": "phone-link",
-    "title": "Phone Link",
+    "title": "Phone link",
     "description": "Connect your Android phone: notifications, texts, shared clipboard, files and media controls (GSConnect, works with the KDE Connect app)",
     "icon": "phone-symbolic",
     "size": "about 5 MB",
-    "note": "Install KDE Connect on your phone. After you log out and back in, pair it from Phone Link in the top bar.",
+    "note": "Sign out and back in to finish. Then install KDE Connect on your phone and pair it in Kulan Settings › Phone.",
     "packages": [
       "gnome-shell-extension-gsconnect"
     ],
@@ -104,7 +111,7 @@
     "description": "Tools for learning network and system defence: Wireshark and tcpdump to see network traffic, Nmap to check your own network, YARA and The Sleuth Kit for malware and forensics practice, TestDisk to recover files, a hex editor, and DNS, traceroute and whois tools",
     "icon": "system-search-symbolic",
     "size": "about 250 MB",
-    "note": "To capture network traffic without sudo, run: sudo dpkg-reconfigure wireshark-common (choose Yes), then sudo usermod -aG wireshark $USER, then sign out and in again. Only scan networks you own or have permission to test.",
+    "note": "Every administrator on this computer can capture network traffic with Wireshark without typing a password. Sign out and back in once for that to start working. Only scan networks you own or have permission to test.",
     "packages": [
       "wireshark",
       "tshark",

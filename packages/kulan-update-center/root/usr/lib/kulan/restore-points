@@ -9,11 +9,16 @@
 #   restore-points usage             record how many there are and the space
 #                                    they use (for Kulan Settings > Storage)
 #   restore-points delete-all        delete every restore point
-#   restore-points before-auto-update  (apt hook) a restore point before automatic
-#                                    updates, once a day
+#   restore-points before-auto-update  a restore point before automatic updates
+#                                    (apt-daily-upgrade.service), once a day;
+#                                    exits 75 when it left too little room for them
 #   restore-points undo-update       put the system back to before the last
 #                                    update (a restore point of how it is now
-#                                    is taken first), then restart
+#                                    is taken first), then restart. Needs the
+#                                    charger or a charged battery; the computer
+#                                    stays on until it's done.
+#   restore-points undo-at-start     the same, chosen in the start-up menu
+#                                    ("Undo the last update", kulan-undo-at-start.service)
 #
 # Snapshots made here are Timeshift's on-demand kind (its default for
 # --create; passing "--tags O" is refused by Timeshift 24/25).
@@ -171,26 +176,6 @@ for name, kind in sorted(rows):
 PY
 }
 
-# Whether this was started by an automatic update: unattended-upgrade is
-# one of the parent processes.
-auto_update_running() {
-	local pid=$$ comm i
-	for (( i = 0; i < 12 && pid > 1; i++ )); do
-		comm="$(cat "/proc/${pid}/comm" 2>/dev/null || true)"
-		[[ "${comm}" == unattended-upgr* ]] && return 0
-		# Run as "python3 /usr/bin/unattended-upgrade": the program itself,
-		# not just any command line that mentions it.
-		if tr '\0' '\n' < "/proc/${pid}/cmdline" 2>/dev/null | head -n 2 | grep -qE '(^|/)unattended-upgrade$'; then
-			return 0
-		fi
-		# The parent's id: the 2nd field after the name, which is in brackets
-		# and may itself contain spaces.
-		pid="$(sed 's/.*) //' "/proc/${pid}/stat" 2>/dev/null | awk '{print $2}')"
-		[[ "${pid}" =~ ^[0-9]+$ ]] || return 1
-	done
-	return 1
-}
-
 delete_snapshot() {
 	log "deleting restore point $1"
 	timeshift --delete --snapshot "$1" --scripted >&2 || log "couldn't delete $1"
@@ -244,6 +229,84 @@ enforce_cap() {
 	done
 }
 
+# The start-up menu offers "Undo the last update" only while there's a restore
+# point from before an update (a flag in GRUB's environment block, which GRUB
+# reads at start-up). Not with signed start-up (no GRUB) or in tests.
+GRUBENV="${KULAN_GRUBENV:-/boot/grub/grubenv}"
+record_undo_entry() {
+	command -v grub-editenv >/dev/null 2>&1 || return 0
+	[[ -e "$(dirname "${GRUBENV}")/grub.cfg" ]] || return 0
+	if [[ -n "$1" ]]; then
+		grub-editenv "${GRUBENV}" set kulan_undo=1 2>/dev/null || log "couldn't offer the undo in the start-up menu"
+	else
+		grub-editenv "${GRUBENV}" unset kulan_undo 2>/dev/null || true
+	fi
+}
+
+# Enough power to finish: the charger, no battery (a desktop), or a battery
+# at least 30% full. An undo cut short by a flat battery leaves the system
+# half old, half new. KULAN_POWER_SUPPLIES: tests only.
+enough_power() {
+	local dir="${KULAN_POWER_SUPPLIES:-/sys/class/power_supply}" supply type batteries=0 charged=0
+	for supply in "${dir}"/*; do
+		[[ -r "${supply}/type" ]] || continue
+		type="$(cat "${supply}/type" 2>/dev/null || true)"
+		case "${type}" in
+			Mains | USB | USB_C | USB_PD)
+				[[ "$(cat "${supply}/online" 2>/dev/null || echo 0)" == 1 ]] && return 0
+				;;
+			Battery)
+				# Not a mouse's or a keyboard's battery: the computer's own.
+				[[ "$(cat "${supply}/scope" 2>/dev/null || echo System)" == Device ]] && continue
+				batteries=$((batteries + 1))
+				(( $(cat "${supply}/capacity" 2>/dev/null || echo 0) >= 30 )) && charged=1
+				;;
+		esac
+	done
+	(( batteries == 0 || charged == 1 ))
+}
+
+# The restore point an undo goes back to: the newest one from before an update.
+undo_target() {
+	local name kind target=""
+	while read -r name kind; do
+		[[ "${kind}" == update ]] && target="${name}"
+	done < <(list_snapshots)
+	echo "${target}"
+}
+
+undo_update() {
+	is_live_or_build && { log "not available in the live session"; exit 1; }
+	TARGET="$(undo_target)"
+	[[ -n "${TARGET}" ]] || { log "there is no restore point from before an update"; echo "say:There's no restore point from before an update to go back to."; exit 1; }
+	[[ "${TARGET}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] || { log "unexpected restore point name"; exit 1; }
+	if ! enough_power; then
+		log "not enough battery to undo the update"
+		echo "say:Plug in the charger first. Undoing an update takes a few minutes and mustn't stop half-way."
+		exit 1
+	fi
+	# How things are now, so the undo can itself be undone (best effort:
+	# skipped when the disk is low on space).
+	echo "pmstatus:undo:10:Saving how things are now"
+	if have_space; then
+		timeshift --create --scripted --comments "${UNDO_NOTE}" >&2 || log "couldn't save the current state; undoing anyway"
+	fi
+	echo "pmstatus:undo:40:Putting the system back to before the update"
+	# Only the system is restored (Timeshift leaves home folders alone);
+	# the boot loader stays as it is.
+	timeshift --restore --snapshot "${TARGET}" --scripted --yes --skip-grub >&2
+	# The same updates would install themselves again tonight: pause
+	# automatic updates for 3 days (update-status lifts the pause after
+	# that; turning automatic updates on in Kulan Settings lifts it now).
+	printf '// Set by Kulan OS after undoing an update. Until: %s\nAPT::Periodic::Unattended-Upgrade "0";\n' \
+		"$(( $(date +%s) + 3 * 86400 ))" > "${PAUSE_FILE}"
+	chmod 0644 "${PAUSE_FILE}"
+	echo "pmstatus:undo:100:Restarting"
+	sync
+	# Past this command's own hold on shutdown (and anyone else's: the undo is done).
+	systemctl reboot --check-inhibitors=no
+}
+
 # Writes the usage file Kulan Settings reads (it can't read /timeshift itself).
 record_usage() {
 	local count=0 own=0 last_update="" name kind size total
@@ -261,6 +324,46 @@ record_usage() {
 		"${count}" "${own}" "${size:-0}" "${total:-0}" "$(date +%s)" "${last_update}" > "${tmp}"
 	chmod 0644 "${tmp}"
 	mv -f "${tmp}" "${USAGE_FILE}"
+	record_undo_entry "${last_update}"
+}
+
+# Room for the automatic updates after the restore point: what apt would
+# download and unpack for every waiting update, and 500 MB to work with, on
+# the disks apt uses. Succeeds when there's room (or apt can't say).
+room_for_updates() {
+	local plan need dir avail margin=$((500 * 1000 * 1000))
+	plan="$(apt-get -o Debug::NoLocking=1 --assume-no --with-new-pkgs upgrade 2>/dev/null || true)"
+	need="$(python3 -I -c '
+import re, sys
+units = {"B": 1, "kB": 1e3, "MB": 1e6, "GB": 1e9}
+need = 0
+for line in sys.stdin:
+    m = re.match(r"(?:Need to get|After this operation,) ([\d.,]+) (\w+)", line)
+    if m and "freed" not in line:
+        need += float(m.group(1).replace(",", "")) * units.get(m.group(2), 1)
+print(int(need))
+' <<<"${plan}" 2>/dev/null || echo 0)"
+	[[ "${need}" =~ ^[0-9]+$ ]] || need=0
+	for dir in /var/cache/apt/archives /usr; do
+		avail="$(df --output=avail -B1 "${dir}" 2>/dev/null | tail -n 1 | tr -dc 0-9)"
+		[[ -n "${avail}" ]] || continue
+		if (( avail < need + margin )); then
+			log "only $(( avail / 1000000 )) MB free on ${dir}; automatic updates need about $(( (need + margin) / 1000000 )) MB"
+			return 1
+		fi
+	done
+}
+
+# Automatic updates will install something now: they're on, due (the same
+# rule as apt.systemd.daily's) and there are updates waiting.
+auto_update_due() {
+	local days stamp=/var/lib/apt/periodic/unattended-upgrades-stamp
+	days="$(apt-config shell D APT::Periodic::Unattended-Upgrade 2>/dev/null | sed -n "s/^D='\{0,1\}\([0-9]*\).*/\1/p")"
+	[[ "${days}" =~ ^[0-9]+$ ]] && (( days > 0 )) || return 1
+	if [[ -f "${stamp}" ]] && (( $(date +%s) - $(stat -c %Y "${stamp}") < days * 86400 )); then
+		return 1
+	fi
+	apt-get -s -q -o Debug::NoLocking=1 --with-new-pkgs upgrade 2>/dev/null | grep -q '^Inst '
 }
 
 case "${1:-}" in
@@ -289,32 +392,35 @@ case "${1:-}" in
 		;;
 	undo-update)
 		[[ $# -eq 1 ]] || { echo 'usage: restore-points undo-update' >&2; exit 2; }
-		is_live_or_build && { log "not available in the live session"; exit 1; }
-		TARGET=""
-		while read -r name kind; do
-			[[ "${kind}" == update ]] && TARGET="${name}"
-		done < <(list_snapshots)
-		[[ -n "${TARGET}" ]] || { log "there is no restore point from before an update"; exit 1; }
-		[[ "${TARGET}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] || { log "unexpected restore point name"; exit 1; }
-		# How things are now, so the undo can itself be undone (best effort:
-		# skipped when the disk is low on space).
-		echo "pmstatus:undo:10:Saving how things are now"
-		if have_space; then
-			timeshift --create --scripted --comments "${UNDO_NOTE}" >&2 || log "couldn't save the current state; undoing anyway"
+		# The computer stays on (no sleep, no shutdown, lid closed or not) until it's
+		# done; kulan-update.service already holds that.
+		if [[ -z "${KULAN_INHIBITED:-}" && -d /run/systemd/system ]] && command -v systemd-inhibit >/dev/null 2>&1; then
+			KULAN_INHIBITED=1 exec systemd-inhibit --what=shutdown:sleep:handle-lid-switch --mode=block \
+				--who="Kulan OS" --why="Undoing the last update" "$0" "$@"
 		fi
-		echo "pmstatus:undo:40:Putting the system back to before the update"
-		# Only the system is restored (Timeshift leaves home folders alone);
-		# the boot loader stays as it is.
-		timeshift --restore --snapshot "${TARGET}" --scripted --yes --skip-grub >&2
-		# The same updates would install themselves again tonight: pause
-		# automatic updates for 3 days (update-status lifts the pause after
-		# that; turning automatic updates on in Kulan Settings lifts it now).
-		printf '// Set by Kulan OS after undoing an update. Until: %s\nAPT::Periodic::Unattended-Upgrade "0";\n' \
-			"$(( $(date +%s) + 3 * 86400 ))" > "${PAUSE_FILE}"
-		chmod 0644 "${PAUSE_FILE}"
-		echo "pmstatus:undo:100:Restarting"
-		sync
-		systemctl reboot
+		undo_update
+		;;
+	undo-at-start)
+		# Chosen in the start-up menu: the desktop may not even start. Said on the
+		# start-up screen (Plymouth) and in the log; start-up carries on if it can't.
+		[[ $# -eq 1 ]] || { echo 'usage: restore-points undo-at-start' >&2; exit 2; }
+		show() {
+			log "$1"
+			plymouth display-message --text="$1" 2>/dev/null || true
+		}
+		if [[ -z "$(undo_target)" ]]; then
+			show "There's no restore point from before an update. Starting Kulan OS as it is."
+			sleep 5
+			exit 0
+		fi
+		if ! enough_power; then
+			show "Plug in the charger, then restart and choose Undo the last update again."
+			sleep 10
+			exit 0
+		fi
+		show "Undoing the last update. This takes a few minutes. Don't switch off the computer."
+		# Its own process, so a failed step stops it (and nothing after it runs).
+		KULAN_INHIBITED=1 "${BASH}" "$0" undo-update >/dev/null || { show "The update couldn't be undone. Starting Kulan OS as it is."; sleep 10; exit 0; }
 		;;
 	delete-all)
 		[[ $# -eq 1 ]] || { echo 'usage: restore-points delete-all' >&2; exit 2; }
@@ -325,24 +431,30 @@ case "${1:-}" in
 		record_usage
 		;;
 	before-auto-update)
-		# Run by apt before every dpkg run (DPkg::Pre-Invoke). Only for
-		# automatic updates (unattended-upgrade), once per run and at most
-		# once in 20 hours: a restore point like the one Kulan Settings
-		# takes before installing updates, so "Undo last update" also
-		# covers updates that installed themselves. Never stops an update.
+		# apt-daily-upgrade.service's ExecCondition (50-kulan-restore-point.conf),
+		# before automatic updates take apt's lock: a restore point like the one
+		# Kulan Settings takes before installing updates, so "Undo the last update"
+		# also covers updates that installed themselves. At most once in 20 hours,
+		# only when updates will really install, never in the way of them: only
+		# exit status 75 (the restore point left too little room for them) skips
+		# this run of automatic updates.
 		is_live_or_build && exit 0
-		auto_update_running || exit 0
+		[[ -f "${CONFIG}" ]] || exit 0 # restore points not set up
 		STAMP=/var/lib/kulan/auto-update-restore-point
 		if [[ -f "${STAMP}" ]] && (( $(date +%s) - $(stat -c %Y "${STAMP}") < 20 * 3600 )); then
 			exit 0
 		fi
-		mkdir -p /var/lib/kulan
-		touch "${STAMP}" # once, even if the snapshot is skipped for space
-		[[ -f "${CONFIG}" ]] || exit 0 # restore points not set up
+		auto_update_due || exit 0
 		have_space || exit 0
-		timeshift --create --scripted --comments "${UPDATE_NOTE}" >&2 || log "couldn't take a restore point before automatic updates"
+		if timeshift --create --scripted --comments "${UPDATE_NOTE}" >&2; then
+			mkdir -p /var/lib/kulan
+			touch "${STAMP}" # once a day: only once it's really made
+		else
+			log "couldn't take a restore point before automatic updates"
+		fi
 		prune_updates || true
 		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || true
+		room_for_updates || exit 75
 		;;
 	create)
 		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
@@ -362,7 +474,7 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|before-auto-update' >&2
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|undo-at-start|before-auto-update' >&2
 		exit 2
 		;;
 esac

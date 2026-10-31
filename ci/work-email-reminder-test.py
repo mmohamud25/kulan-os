@@ -2,10 +2,11 @@
 """Kulan Fleet 2.8e: the work email offer at sign-in (fleet-work-email), on
 an installed Kulan OS, as root, inside dbus-run-session. A stand-in
 notification service shows it and clicks Connect; a stand-in
-gnome-control-center notes what it was opened with.
+gnome-control-center notes what it was opened with and adds the account,
+and then a stand-in mail app (Geary) must open.
 
   dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py
-Prints "work email reminder: asked, connected, then not asked again", or fails.
+Prints "work email reminder: asked, connected, mail opened, then not asked again", or fails.
 """
 import json
 import os
@@ -27,8 +28,14 @@ home = Path(tempfile.mkdtemp())
 fakebin = Path(tempfile.mkdtemp())
 opened = fakebin / "opened"
 gcc = fakebin / "gnome-control-center"
-gcc.write_text(f"#!/bin/sh\necho \"$@\" > {opened}\n")
+goa = home / ".config" / "goa-1.0" / "accounts.conf"
+gcc.write_text(f"#!/bin/sh\necho \"$@\" > {opened}\nmkdir -p {goa.parent}\n"
+               f"printf '[Account account_1]\\nProvider=google\\nIdentity=amina@acme.test\\n' > {goa}\n")
 gcc.chmod(0o755)
+mail_opened = fakebin / "mail-opened"
+geary = fakebin / "geary"
+geary.write_text(f"#!/bin/sh\ntouch {mail_opened}\n")
+geary.chmod(0o755)
 saved = PUBLIC.read_bytes() if PUBLIC.exists() else None
 shown = []
 
@@ -94,6 +101,7 @@ try:
         time.sleep(0.1)
     assert opened.exists() and opened.read_text().split() == ["online-accounts", "add", "google"], \
         opened.read_text() if opened.exists() else "not opened"
+    assert mail_opened.exists(), "the mail app didn't open once the account was connected"
     # The same day again: not asked.
     r = reminder(30)
     assert r.returncode == 0 and len(shown) == 1, (r.stderr, shown)
@@ -108,4 +116,4 @@ finally:
         PUBLIC.write_bytes(saved)
     shutil.rmtree(home, ignore_errors=True)
     shutil.rmtree(fakebin, ignore_errors=True)
-print("work email reminder: asked, connected, then not asked again")
+print("work email reminder: asked, connected, mail opened, then not asked again")

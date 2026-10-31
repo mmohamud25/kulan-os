@@ -1,0 +1,124 @@
+#!/bin/sh
+# Kulan OS: note when a start-up worked, so the next one knows if it didn't
+# (kulan-boot-ok.service, at every start-up).
+#
+# A start-up worked once someone has used the desktop for a minute: a
+# person's desktop session (not the sign-in screen) still there 60 seconds
+# after it started. Until then:
+#  - GRUB: kulan_boot_pending=1 in its environment block (GRUB sets it too,
+#    where it can write there). While it's set, the next start-up shows the
+#    menu, with the earlier Linux and "Undo the last update"
+#    (/etc/grub.d/01_kulan-boot-check).
+#  - Signed start-up (systemd-boot and Kulan's signed start-up files): the file
+#    this start came from keeps its try counter (EFI/Linux/kulan-<version>+2-1.efi);
+#    after three tries that never got this far, systemd-boot starts the
+#    previous version by itself. Once it worked, the counter goes
+#    (kulan-<version>.efi), as systemd-bless-boot does it.
+#  - /run/kulan/boot-ok is missing (fast-restart then restarts the Linux
+#    that's running rather than a newer one).
+#
+#   boot-ok          wait for that, then note it (the service)
+#   boot-ok now      note it now
+#   boot-ok status   "ok" or "pending" (this start-up)
+set -u
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
+
+GRUBENV="${KULAN_GRUBENV:-/boot/grub/grubenv}"
+ESP="${KULAN_ESP:-/boot/efi}"
+EFIVARS="${KULAN_EFIVARS:-/sys/firmware/efi/efivars}"
+LOADER_GUID=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+MARK="${KULAN_BOOT_OK_MARK:-/run/kulan/boot-ok}"
+NEEDED=60 # seconds of desktop
+POLL=10
+
+log() { echo "kulan boot-ok: $*" >&2; }
+
+# GRUB starts this computer (not signed start-up, which removes it).
+have_grub() {
+	command -v grub-editenv >/dev/null 2>&1 && [ -e "$(dirname "${GRUBENV}")/grub.cfg" ]
+}
+
+uptime_s() { cut -d. -f1 /proc/uptime; }
+
+# The ID of a person's desktop session (Wayland or X11, not the sign-in
+# screen's own), if there is one.
+desktop_session() {
+	loginctl list-sessions --no-legend 2>/dev/null | while read -r id _rest; do
+		[ -n "${id}" ] || continue
+		[ "$(loginctl show-session "${id}" -p Class --value 2>/dev/null)" = user ] || continue
+		case "$(loginctl show-session "${id}" -p Type --value 2>/dev/null)" in
+			wayland | x11)
+				echo "${id}"
+				return 0
+				;;
+		esac
+	done
+}
+
+# The signed start-up file this start came from, if it still has a try counter
+# (systemd-boot's LoaderBootCountPath, "\EFI\Linux\kulan-6.12.48+deb13-amd64+2-1.efi"):
+# rename it without the counter, so systemd-boot knows it works.
+bless_signed_start() {
+	var="${EFIVARS}/LoaderBootCountPath-${LOADER_GUID}"
+	[ -r "${var}" ] || return 0
+	path="$(tail -c +5 "${var}" | iconv -f UTF-16LE -t UTF-8 2>/dev/null | tr -d '\000' | tr '\134' /)"
+	case "${path}" in
+		/EFI/Linux/kulan-*.efi | /efi/linux/kulan-*.efi) ;;
+		*) return 0 ;;
+	esac
+	name="${path##*/}"
+	good="$(printf '%s\n' "${name}" | sed -E 's/\+[0-9]+(-[0-9]+)?\.efi$/.efi/')"
+	[ "${good}" != "${name}" ] || return 0
+	dir="$(dirname "${ESP}${path}")"
+	[ -e "${dir}/${name}" ] || return 0
+	if [ -e "${dir}/${good}" ]; then
+		return 0 # made again since (an update): that one has its own tries
+	fi
+	if mv "${dir}/${name}" "${dir}/${good}"; then
+		sync -f "${dir}" 2>/dev/null || sync
+		log "signed start-up file ${good} works"
+	else
+		log "couldn't mark ${name} as working"
+	fi
+}
+
+mark_ok() {
+	if have_grub; then
+		grub-editenv "${GRUBENV}" unset kulan_boot_pending 2>/dev/null || log "couldn't update GRUB's environment block"
+	fi
+	bless_signed_start
+	mkdir -p "$(dirname "${MARK}")"
+	: >"${MARK}"
+	log "this start-up worked"
+}
+
+case "${1:-wait}" in
+	wait)
+		# Not yet: noted here too, for disks where GRUB can't note it itself.
+		if have_grub; then
+			[ -e "${GRUBENV}" ] || grub-editenv "${GRUBENV}" create 2>/dev/null || true
+			grub-editenv "${GRUBENV}" set kulan_boot_pending=1 2>/dev/null || log "couldn't update GRUB's environment block"
+		fi
+		seen="" since=0
+		while :; do
+			id="$(desktop_session)"
+			if [ -z "${id}" ]; then
+				seen=""
+			elif [ "${id}" != "${seen}" ]; then
+				seen="${id}" since="$(uptime_s)"
+			elif [ $(($(uptime_s) - since)) -ge "${NEEDED}" ]; then
+				break
+			fi
+			sleep "${POLL}"
+		done
+		mark_ok
+		;;
+	now) mark_ok ;;
+	status)
+		if [ -e "${MARK}" ]; then echo ok; else echo pending; fi
+		;;
+	*)
+		echo "usage: boot-ok [wait|now|status]" >&2
+		exit 2
+		;;
+esac

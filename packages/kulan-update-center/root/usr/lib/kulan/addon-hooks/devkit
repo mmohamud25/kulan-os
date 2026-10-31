@@ -1,0 +1,17 @@
+#!/bin/sh
+# Kulan OS add-on set-up: the Developer Kit.
+#
+# Every administrator can use Docker without typing a password (the docker
+# group). Only administrators: being in the docker group is as good as being
+# an administrator, so standard accounts are left out. Run as root by
+# update-run addon-install devkit, after the packages are in place; it takes
+# effect at the next sign-in.
+set -eu
+
+GROUP=docker
+getent group "${GROUP}" >/dev/null 2>&1 || exit 0
+for USER_NAME in $(getent group sudo | cut -d: -f4 | tr ',' ' '); do
+	getent passwd "${USER_NAME}" >/dev/null 2>&1 || continue
+	gpasswd -a "${USER_NAME}" "${GROUP}" >/dev/null || echo "W: couldn't add ${USER_NAME} to ${GROUP}" >&2
+done
+exit 0

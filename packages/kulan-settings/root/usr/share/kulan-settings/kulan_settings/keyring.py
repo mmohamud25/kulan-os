@@ -106,7 +106,7 @@ class Keyring:
             self.session = self.call(SERVICE_PATH, SERVICE, "OpenSession",
                                      GLib.Variant("(sv)", ("plain", GLib.Variant("s", ""))), "(vo)")[1]
         except GLib.Error as e:
-            raise KeyringError("Saved passwords can't be changed now. The keyring service isn't running.") from e
+            raise KeyringError("Saved passwords can't be changed now. Sign out and back in, then try again.") from e
 
     def call(self, path: str, iface: str, method: str, args: GLib.Variant | None, reply: str | None = None):
         out = self.bus.call_sync(SECRETS, path, iface, method, args,
@@ -217,7 +217,7 @@ def stop_asking(password: str, keyring: Keyring | None = None, folder: Path | No
         if keyring.exists(path) and path not in paths:
             paths.append(path)
     if not paths:
-        raise KeyringError("There's no keyring to change yet.")
+        raise KeyringError("There are no saved passwords to change yet.")
     changed, wrong = [], []
     for path in paths:
         name = keyring.label(path)

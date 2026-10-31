@@ -1,0 +1,18 @@
+[Unit]
+Description=Undo the last update, as chosen in the start-up menu (Kulan OS)
+Documentation=file:///usr/lib/kulan/restore-points
+# "Undo the last update" in the start-up menu (/etc/grub.d/12_kulan-undo).
+ConditionKernelCommandLine=kulan.undo-update
+ConditionKernelCommandLine=!boot=live
+After=local-fs.target plymouth-start.service systemd-logind.service
+# Before the sign-in screen: it works even when the desktop doesn't start.
+Before=display-manager.service systemd-user-sessions.service apt-daily.service apt-daily-upgrade.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/restore-points undo-at-start
+TimeoutStartSec=2h
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

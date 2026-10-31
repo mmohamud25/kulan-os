@@ -2,11 +2,12 @@
 Description=Daily Kulan OS app (Flatpak) updates
 ConditionKernelCommandLine=!boot=live
 
+# An hour after start-up, then every day the computer stays on; never a
+# catch-up right after you switch on.
 [Timer]
-OnBootSec=30min
-OnCalendar=daily
-Persistent=true
-RandomizedDelaySec=1h
+OnBootSec=1h
+OnUnitActiveSec=1d
+RandomizedDelaySec=30min
 
 [Install]
 WantedBy=timers.target

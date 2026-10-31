@@ -18,6 +18,8 @@ import GLib from 'gi://GLib';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import {readText, removeFile, writeFile} from './files.js';
+
 const BLUR_UUID = 'blur-my-shell@aunetx';
 const BLUR_SCHEMA = 'org.gnome.shell.extensions.blur-my-shell';
 // Blurred live, every frame: the expensive ones.
@@ -35,8 +37,7 @@ function stateFile() {
 
 function readState() {
     try {
-        const [, bytes] = GLib.file_get_contents(stateFile());
-        return JSON.parse(new TextDecoder().decode(bytes));
+        return JSON.parse(readText(stateFile()) ?? 'null');
     } catch (e) {
         return null;
     }
@@ -107,13 +108,11 @@ export class LightEffects {
             }
             if (Object.keys(before).length === 0)
                 return; // Blur my Shell isn't there (yet)
-            try {
-                const path = stateFile();
-                GLib.mkdir_with_parents(GLib.path_get_dirname(path), 0o700);
-                GLib.file_set_contents(path, JSON.stringify({blur: before}));
-            } catch (e) {
-                logError(e, 'Kulan Shell: could not save the effects state');
-            }
+            // Without making the desktop wait (files.js); readState() sees it at once.
+            writeFile(stateFile(), JSON.stringify({blur: before}), error => {
+                if (error)
+                    logError(error, 'Kulan Shell: could not save the effects state');
+            });
         } else if (!this.software && saved) {
             // Acceleration works now: put back what was there before.
             for (const [part, value] of Object.entries(saved.blur ?? {})) {
@@ -121,7 +120,10 @@ export class LightEffects {
                 if (settings && value === true)
                     settings.set_boolean('blur', true);
             }
-            GLib.unlink(stateFile());
+            removeFile(stateFile(), error => {
+                if (error)
+                    logError(error, 'Kulan Shell: could not forget the effects state');
+            });
         }
     }
 

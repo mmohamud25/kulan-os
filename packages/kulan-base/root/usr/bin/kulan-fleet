@@ -2,9 +2,11 @@
 """Kulan OS fleet management, the computer's side.
 
   kulan-fleet status [--json]          show whether it's managed and what it shares
-  kulan-fleet join SERVER [--allow-erase]  join an organisation, with the one-time code on stdin (root)
+  kulan-fleet join [SERVER] [--allow-erase]  join an organisation, with the one-time code on stdin (root;
+                                       without SERVER, Kulan's own Kulan Fleet server, joining.py)
   kulan-fleet report                   send this computer's status now (root; also runs hourly)
-  kulan-fleet allow-erase on|off       let the organisation erase this computer if it's lost (root)
+  kulan-fleet allow-erase on|off       let the organisation erase this computer if it's lost (root;
+                                       only with an encrypted disk)
   kulan-fleet leave                    stop reporting and leave the organisation (root)
   kulan-fleet listen                   report as soon as the organisation asks (root; used by
                                        kulan-fleet-listen.service)
@@ -105,6 +107,7 @@ import fixes  # noqa: E402
 import scriptkey  # noqa: E402
 import gethelp  # noqa: E402
 import helpsession  # noqa: E402
+import joining
 import twostep  # noqa: E402
 import wake  # noqa: E402
 import workmail  # noqa: E402
@@ -607,6 +610,9 @@ def remove_policy() -> None:
 
 
 # --- actions ------------------------------------------------------------------------------
+INSTALL_WAIT_S = 3 * 3600  # how long a report waits for "install updates" to finish
+
+
 def do_action(kind: str, payload=None) -> tuple[bool, str]:
     if kind == "refresh":
         return True, "reported"
@@ -616,8 +622,14 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
             return False, "which app? (not one Kulan OS can install)"
         return fleetpolicy.install(run, app[0])
     if kind == "install-updates":
-        r = run(["/usr/lib/kulan/update-run", "install"], timeout=3600)
-        return r.returncode == 0, (r.stderr.strip().splitlines() or ["updated"])[-1][:200]
+        # update-run installs as its own system service (kulan-update.service), with
+        # shutdown and sleep held off, and only follows it here: if this stops
+        # waiting, or the report ends, the install carries on and finishes by itself.
+        r = run(["/usr/lib/kulan/update-run", "install"], timeout=INSTALL_WAIT_S)
+        if r.returncode == 127 and "timed out" in (r.stderr or ""):
+            return False, f"still installing after {INSTALL_WAIT_S // 3600} hours; it finishes by itself"
+        said = [line[4:].strip() for line in (r.stdout or "").splitlines() if line.startswith("say:")]
+        return r.returncode == 0, (said or r.stderr.strip().splitlines() or ["updated"])[-1][:200]
     if kind == "compliance-on":
         r = run(["kulan-compliance", "on"], timeout=1800)
         return r.returncode == 0, (r.stdout.strip().splitlines() or ["done"])[-1][:200]
@@ -976,10 +988,14 @@ def publish(config: dict | None, last_report: int | None = None, error: str | No
     }, 0o644)
 
 
-def join(server: str, allow_erase: bool = False) -> int:
+NOT_ENCRYPTED = ("This computer’s disk isn’t encrypted, so it can’t be erased from afar. Kulan OS must be "
+                 "installed again with encryption on")
+
+
+def join(server: str | None = None, allow_erase: bool = False) -> int:
     need_root()
     try:
-        server = check_server(server)
+        server = check_server(server or joining.KULAN_SERVER)
     except ValueError as e:
         say(str(e))
         return 64
@@ -999,6 +1015,11 @@ def join(server: str, allow_erase: bool = False) -> int:
     if not device_id or not token:
         say("Couldn't join: the server didn't give this computer an ID and a key")
         return 1
+    # Erasing from afar destroys the disk's encryption keys: without encryption
+    # there is nothing it could do, so it stays off (and joining still works).
+    erase_note = ""
+    if allow_erase and not encrypted():
+        allow_erase, erase_note = False, ". Erasing it from afar stays off: the disk isn’t encrypted"
     config = {"server": server, "device_id": device_id, "token": token,
               "organisation": str(reply.get("organisation", "")).strip()[:80] or urllib.parse.urlsplit(server).hostname,
               "since": int(time.time()), "allow_erase": allow_erase}
@@ -1010,8 +1031,12 @@ def join(server: str, allow_erase: bool = False) -> int:
     publish(config, pending=reply.get("pending") is True)
     run(["systemctl", "enable", "--now", "kulan-fleet.timer"])
     say(f"Joined {config['organisation']}" + (". It waits for the organisation's Owner to approve it"
-                                               if reply.get("pending") is True else ""))
-    return report()
+                                               if reply.get("pending") is True else "") + erase_note)
+    # Joined is joined: if the first report can't be sent now (the server is
+    # busy, the Wi-Fi dropped), the hourly timer started above sends it.
+    if report() != 0:
+        say("Joined. Its first report will be sent within the hour")
+    return 0
 
 
 def report() -> int:
@@ -1219,6 +1244,9 @@ def allow_erase(value: str) -> int:
     if not config:
         say("This computer hasn't joined an organisation")
         return 3
+    if value == "on" and not encrypted():
+        say(NOT_ENCRYPTED)
+        return 1
     config["allow_erase"] = value == "on"
     write_json(CONFIG, config, 0o600)
     publish(config)
@@ -1353,7 +1381,9 @@ def main(argv: list[str]) -> int:
         return get_help(argv[2])
     if command == "run-job" and len(argv) == 3:
         return run_job_now(argv[2])
-    if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]):
+    if command == "join" and argv[2:] in ([], ["--allow-erase"]):
+        return locked(join)(None, allow_erase=len(argv) == 3)
+    if command == "join" and len(argv) in (3, 4) and argv[3:] in ([], ["--allow-erase"]) and argv[2] != "--allow-erase":
         return locked(join)(argv[2], allow_erase=len(argv) == 4)
     if command == "allow-erase" and argv[2:] in (["on"], ["off"]):
         return locked(allow_erase)(argv[2])

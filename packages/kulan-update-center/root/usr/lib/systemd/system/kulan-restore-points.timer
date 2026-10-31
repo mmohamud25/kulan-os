@@ -2,11 +2,14 @@
 Description=Daily Kulan OS restore points
 ConditionKernelCommandLine=!boot=live
 
+# Not right after you switch on (no catch-up at start-up): 50 minutes in, then
+# every day the computer stays on. The service only makes a restore point
+# when one is due (Timeshift's daily and weekly schedule), so a computer
+# switched on every day still gets its daily one.
 [Timer]
-OnBootSec=20min
-OnCalendar=daily
-Persistent=true
-RandomizedDelaySec=30min
+OnBootSec=50min
+OnUnitActiveSec=1d
+RandomizedDelaySec=15min
 
 [Install]
 WantedBy=timers.target

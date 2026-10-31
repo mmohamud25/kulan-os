@@ -32,7 +32,7 @@ def standard_accounts() -> list[tuple[str, str]]:
 
 
 class FamilyPage(Page):
-    title = "Parental Controls"
+    title = "Parental controls"
     icon = "preferences-system-parental-controls-symbolic|system-users-symbolic"
     keywords = ("parental", "parents", "child", "children", "kids", "family", "screen time", "filter",
                 "restrictions", "safe")

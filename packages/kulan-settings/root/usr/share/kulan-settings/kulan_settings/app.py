@@ -1,12 +1,17 @@
 """Kulan Settings: the window, sidebar and command line."""
 from __future__ import annotations
 
+import os
+import shutil
 import sys
+import tempfile
+import time
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .about import AboutPage
 from .accessibility import AccessibilityPage
+from .accounts import AccountsPage
 from .addons import AddonsPage
 from .apps import AppsPage
 from .appearance import AppearancePage
@@ -57,6 +62,7 @@ PAGES = [
     ("focus", FocusPage),
     ("notifications", NotificationsPage),
     ("users", UsersPage),
+    ("accounts", AccountsPage),
     ("parental-controls", FamilyPage),
     # How it looks
     ("appearance", AppearancePage),
@@ -93,7 +99,7 @@ GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-
 # rounded square, like a Mac's System Settings.
 TILE_COLOURS = {
     "wifi": "#0d9488", "bluetooth": "#3b82f6", "phone": "#16a34a", "printers": "#475569", "sharing": "#0ea5e9",
-    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
+    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "accounts": "#2563eb", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
     "security": "#0f766e", "privacy": "#2563eb", "backups": "#0891b2",
@@ -120,10 +126,9 @@ preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px
     + f".kulan-tile.tile-external {{ background-color: {EXTERNAL_TILE}; }}\n"
 
 
-# Pages that live in GNOME Settings, listed so everything is findable from here.
-GNOME_PANELS = [
-    ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
-]
+# Pages that live in GNOME Settings, listed so everything is findable from here
+# (Online accounts has its own page now: accounts.py).
+GNOME_PANELS: list[tuple[str, str, tuple[str, ...]]] = []
 
 
 class SettingsWindow(Adw.ApplicationWindow):
@@ -154,7 +159,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                                     margin_top=12, margin_start=6))
         heading.page_id = None
         heading.keywords = ""
-        self.sidebar_list.append(heading)
+        if GNOME_PANELS:
+            self.sidebar_list.append(heading)
         self.heading = heading
         for title, icon, panel in GNOME_PANELS:
             row = self.sidebar_row(title, icon, external=True)
@@ -290,6 +296,12 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
 
 
+# Programs the pages ask (self-test: made slow, to show none is waited for on the window's thread).
+SLOW_PROGRAMS = ("lscpu", "lspci", "gnome-shell", "systemctl", "findmnt", "lsblk", "dpkg-query", "flatpak",
+                 "locale", "openssl")
+SLOW_S = 3
+
+
 class KulanSettings(Adw.Application):
     def __init__(self) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -317,6 +329,37 @@ class KulanSettings(Adw.Application):
 
     def self_test(self, window: SettingsWindow) -> int:
         failures = []
+        # Mistakes in replies that arrive later (threads, D-Bus) count as failures too.
+        late_errors: list[str] = []
+        excepthook = sys.excepthook
+
+        def caught(kind, value, tb) -> None:
+            late_errors.append(f"{kind.__name__}: {value}")
+            excepthook(kind, value, tb)
+        sys.excepthook = caught
+        # Nothing slow on the window's thread (2.11): with the programs pages ask
+        # made slow, every page still opens at once and fills in afterwards.
+        slow = tempfile.mkdtemp(prefix="kulan-slow-")
+        for name in SLOW_PROGRAMS:
+            fake = os.path.join(slow, name)
+            with open(fake, "w") as f:
+                f.write(f"#!/bin/sh\nsleep {SLOW_S}\n")
+            os.chmod(fake, 0o755)
+        path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{slow}:{path}"
+        started = time.monotonic()
+        try:
+            for page_id, _cls in PAGES:
+                try:
+                    window.show_page(page_id)
+                except Exception:  # noqa: BLE001,S110 - reported by the pass below
+                    pass
+        finally:
+            os.environ["PATH"] = path
+        took = time.monotonic() - started
+        if took > SLOW_S * 2:
+            failures.append(f"opening every page took {took:.1f} s with slow programs: something waits for "
+                            "them on the window's thread")
         for page_id, _cls in PAGES:
             try:
                 window.show_page(page_id)
@@ -385,6 +428,26 @@ class KulanSettings(Adw.Application):
             assert users.user_name_from("Amina Yusuf", {"amina"}) not in ("amina", "")
         except (AssertionError, AttributeError) as exc:
             failures.append(f"messages: {exc!r}")
+        try:  # Connected the first time (2.11): hotspot code, models for the memory, accounts in words
+            from . import accounts, assistant, netextras
+            assert netextras.wifi_qr_text("Home;Net", "p:w\\1") == "WIFI:T:WPA;S:Home\\;Net;P:p\\:w\\\\1;;"
+            writing = [{"id": "s", "memory_gb": 3}, {"id": "m", "memory_gb": 4}, {"id": "l", "memory_gb": 7}]
+            assert assistant.recommended(writing, 2) is None, "a model recommended that can't run"
+            assert assistant.recommended(writing, 4) == "s" and assistant.recommended(writing, 16) == "l"
+            assert assistant.recommended(writing, 0) == "s" and not assistant.can_run(writing[2], 6)
+            assert accounts.account_subtitle("ms_graph", "", True).startswith("Microsoft 365 · Signed out")
+            assert accounts.provider_label("google") == "Google"
+        except (AssertionError, AttributeError) as exc:
+            failures.append(f"connected: {exc!r}")
+        # Let the replies arrive (the slow programs answer after SLOW_S seconds).
+        context = GLib.MainContext.default()
+        deadline = time.monotonic() + SLOW_S + 2
+        while time.monotonic() < deadline:
+            if not context.iteration(False):
+                time.sleep(0.02)
+        sys.excepthook = excepthook
+        shutil.rmtree(slow, ignore_errors=True)
+        failures += [f"later: {error}" for error in late_errors]
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

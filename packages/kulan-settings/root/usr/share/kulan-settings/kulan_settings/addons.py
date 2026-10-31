@@ -8,7 +8,7 @@ from pathlib import Path
 
 from gi.repository import Adw, GLib, Gtk
 
-from .common import Page, package_installed, read_json, settings
+from .common import Page, in_thread, read_json, settings
 
 REGISTRY = Path("/usr/share/kulan/addons.json")
 
@@ -17,19 +17,50 @@ def machine_arch() -> str:
     return {"x86_64": "amd64", "aarch64": "arm64"}.get(platform.machine(), platform.machine())
 
 
-def flatpak_installed(app_id: str) -> bool:
-    if shutil.which("flatpak") is None:
-        return False
+def installed_packages(names: list[str]) -> set[str]:
+    """Which of these Debian packages are installed: one dpkg-query for all of them."""
+    if not names:
+        return set()
     try:
-        return subprocess.run(["flatpak", "info", "--system", app_id], capture_output=True,
-                              timeout=10, check=False).returncode == 0
+        out = subprocess.run(["dpkg-query", "-W", "-f=${Package}\t${Status}\n", "--", *names],
+                             capture_output=True, text=True, timeout=20, check=False).stdout
     except (OSError, subprocess.TimeoutExpired):
-        return False
+        return set()
+    found = set()
+    for line in out.splitlines():
+        name, _sep, status = line.partition("\t")
+        if status.strip() == "install ok installed":
+            found.add(name.split(":")[0])
+    return found
 
 
-def addon_installed(addon: dict) -> bool:
-    return (all(package_installed(p) for p in addon.get("packages") or [])
-            and all(flatpak_installed(a) for a in addon.get("flatpak") or []))
+def installed_flatpaks() -> set[str]:
+    """The apps and runtimes installed system-wide with Flatpak: one flatpak list."""
+    if shutil.which("flatpak") is None:
+        return set()
+    try:
+        out = subprocess.run(["flatpak", "list", "--system", "--columns=application"],
+                             capture_output=True, text=True, timeout=20, check=False).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    return {line.strip() for line in out.splitlines() if line.strip()}
+
+
+def installed_addons(addons: list[dict]) -> tuple[set[str], set[str]]:
+    """(installed, built in): the IDs of the add-ons whose packages and Flatpak apps
+    are all installed, and of the bundles whose apps came with Kulan OS ("includes":
+    installed from the ISO, so the bundle's own package isn't there). A built-in one
+    shows as installed and is never removed from here, so the built-in apps can't go
+    with it. Runs programs: on a worker thread, never the window's."""
+    packages = installed_packages(sorted({p for a in addons for p in (a.get("packages") or [])
+                                          + (a.get("includes") or [])}))
+    flatpaks = installed_flatpaks() if any(a.get("flatpak") for a in addons) else set()
+    own = {a["id"] for a in addons
+           if all(p in packages for p in a.get("packages") or [])
+           and all(f in flatpaks for f in a.get("flatpak") or [])}
+    builtin = {a["id"] for a in addons
+               if a.get("includes") and a["id"] not in own and all(p in packages for p in a["includes"])}
+    return own | builtin, builtin
 
 
 def set_extension(uuid: str, on: bool) -> None:
@@ -58,6 +89,9 @@ class AddonsPage(Page):
             "Optional add-ons",
             "Extra bundles for Kulan OS. Installing or removing one asks for your password.")
         self.rows: list[Gtk.Widget] = []
+        self.buttons: list[Gtk.Button] = []
+        self.asked = 0  # which refresh is the latest
+        self.builtin: set[str] = set()  # bundles whose apps came with Kulan OS
         self.listen_busy(self.on_busy)
         self.shown()
 
@@ -69,18 +103,38 @@ class AddonsPage(Page):
                 and (not a.get("arch") or arch in a["arch"])]
 
     def shown(self) -> None:
+        addons = self.addons()
+        if not addons:
+            self.render(addons, set())
+            return
+        if not self.rows:
+            self.set_rows([Adw.ActionRow(title="Checking…")])
+        self.asked += 1
+        asked = self.asked
+
+        def done(found: tuple[set[str], set[str]] | None) -> None:
+            if asked == self.asked:  # only the latest answer, if several overlap
+                installed, self.builtin = found or (set(), set())
+                self.render(addons, installed)
+
+        in_thread(lambda: installed_addons(addons), done, page=self)
+
+    def set_rows(self, rows: list[Gtk.Widget]) -> None:
         for row in self.rows:
             self.group.remove(row)
         self.rows = []
-        self.buttons: list[Gtk.Button] = []
-        addons = self.addons()
-        if not addons:
-            row = Adw.ActionRow(title="No add-ons available for this computer")
+        for row in rows:
             self.group.add(row)
             self.rows.append(row)
+
+    def render(self, addons: list[dict], installed_ids: set[str]) -> None:
+        self.set_rows([])
+        self.buttons: list[Gtk.Button] = []
+        if not addons:
+            self.set_rows([Adw.ActionRow(title="No add-ons available for this computer")])
             return
         for addon in addons:
-            installed = addon_installed(addon)
+            installed = addon["id"] in installed_ids
             subtitle = addon.get("description", "")
             if addon.get("size") and not installed:
                 subtitle += f" · {addon['size']}"
@@ -108,6 +162,13 @@ class AddonsPage(Page):
 
     def on_clicked(self, button: Gtk.Button, addon: dict, installed: bool) -> None:
         title = addon.get("title", addon["id"])
+        if installed and addon["id"] in self.builtin:
+            dialog = Adw.AlertDialog(heading=f"{title} come with Kulan OS",
+                                     body="They’re part of this computer, so they aren’t removed here. To remove "
+                                          "one of them, find it in Store and choose Uninstall.")
+            dialog.add_response("ok", "OK")
+            dialog.present(self.window)
+            return
         if installed:
             dialog = Adw.AlertDialog(heading=f"Remove {title}?",
                                      body="The apps in this add-on, and anything only they needed, are removed. "

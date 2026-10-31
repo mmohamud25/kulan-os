@@ -28,8 +28,8 @@ class DockPage(Page):
         super().__init__(window)
         self.dock = settings(DOCK_SCHEMA)
         if self.dock is None:
-            group = self.add_group(description="The dock isn’t installed.")
-            group.add(Adw.ActionRow(title="Install gnome-shell-extension-dashtodock to use the dock"))
+            self.add_group(description="The dock is missing from this computer. Updating Kulan OS in "
+                                        "Software Update puts it back.")
             return
 
         behaviour = self.add_group("Showing and hiding")

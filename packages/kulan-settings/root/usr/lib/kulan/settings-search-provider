@@ -4,9 +4,10 @@
 A GNOME Shell search provider (org.gnome.Shell.SearchProvider2), started by
 D-Bus when someone searches and gone after a few idle minutes. Typing
 "restore points", "dark mode" or "prayer" finds the Kulan Settings page.
-The page that still lives in GNOME Settings (Online accounts) is listed
-here too, and GNOME Settings' own search source is off
-(org.gnome.desktop.search-providers), so nothing shows up twice.
+Any page that still lives in GNOME Settings (GNOME_PANELS; none since
+Online accounts got its own page) is listed here too, and GNOME Settings'
+own search source is off (org.gnome.desktop.search-providers), so nothing
+shows up twice.
 """
 from __future__ import annotations
 

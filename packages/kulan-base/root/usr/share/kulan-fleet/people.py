@@ -15,7 +15,7 @@ and this computer makes its accounts match:
 - new person: an account with the organisation's uid (the same on every
   computer), their password hash and, for a setup code, "change at first
   sign-in", so typing the code at the sign-in screen asks for a new password
-  at once; admins and the Owner join the sudo group;
+  at once; admins and the Owner join the sudo group (and lpadmin, for printers);
 - changed: name, role, a password new on the server (chosen on another
   computer, or a new setup code);
 - disabled: password locked, account expired, their sessions ended;
@@ -32,6 +32,7 @@ Commands go through `run` (kulan-fleet's), so the tests can watch them.
 from __future__ import annotations
 
 import datetime
+import grp
 import json
 import os
 import re
@@ -52,6 +53,7 @@ ROLES = ("owner", "admin", "employee")
 RESERVED = {"root", "daemon", "bin", "sys", "sync", "games", "man", "lp", "mail", "news", "uucp", "proxy",
             "www-data", "backup", "list", "irc", "nobody", "admin", "sudo", "kulan", "gdm", "systemd"}
 ADMIN_GROUP = "sudo"
+PRINTER_GROUP = "lpadmin"  # adds and changes printers without a password
 
 
 def clean(raw) -> list[dict]:
@@ -132,8 +134,21 @@ def _ok(r) -> bool:
 def _set_role(run, user: str, role: str) -> None:
     if role in ("admin", "owner"):
         run(["usermod", "-aG", ADMIN_GROUP, user])
+        # Administrators manage printers too (Debian's lpadmin group), as on
+        # every Kulan OS computer (kulan-admins-print.path); only where CUPS is.
+        if _group_exists(PRINTER_GROUP):
+            run(["usermod", "-aG", PRINTER_GROUP, user])
     else:
         run(["gpasswd", "-d", user, ADMIN_GROUP])  # fails harmlessly if they weren't in it
+        run(["gpasswd", "-d", user, PRINTER_GROUP])  # likewise
+
+
+def _group_exists(name: str) -> bool:
+    try:
+        grp.getgrnam(name)
+        return True
+    except KeyError:
+        return False
 
 
 def _set_hash(run, user: str, pw: str | None, must_change: bool) -> None:

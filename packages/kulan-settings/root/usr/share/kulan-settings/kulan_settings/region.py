@@ -2,15 +2,17 @@
 and the language of the login screen."""
 from __future__ import annotations
 
+import locale as pylocale
 import os
 import re
 import subprocess
+import time
 from functools import lru_cache
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, plain_error, settings
+from .common import Page, in_thread, plain_error, settings
 from .users import Accounts, call, prop
 
 LOCALE_DATA = Path("/usr/share/i18n/locales")
@@ -81,36 +83,49 @@ class RegionPage(Page):
         super().__init__(window)
         self.locale = settings("org.gnome.system.locale")
         self.accounts = Accounts()
-        self.me = self.accounts.me()
+        self.me = None
         self.localed = None
-        try:
-            self.localed = Gio.DBusProxy.new_for_bus_sync(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None,
-                                                          "org.freedesktop.locale1", "/org/freedesktop/locale1",
-                                                          "org.freedesktop.locale1", None)
-        except GLib.Error:
-            self.localed = None
-        self.locales = installed_locales()
+        self.locales: list[str] = []
+        # AccountsService, `locale -a` and localed can each take a moment: they're
+        # asked on a worker thread and over D-Bus without waiting, and the rows follow.
+        self.mine = self.add_group("Your language", "Apps use it from the next time you sign in.")
+        self.waiting = Adw.ActionRow(title="Language", subtitle="…")
+        self.mine.add(self.waiting)
+        self.formats = self.add_group("Formats", "Dates, times, numbers and money.") if self.locale is not None else None
+        if self.formats is not None:
+            self.formats.set_visible(False)
+        self.system = self.add_group("Sign-in screen", "The language of the sign-in screen and of new accounts.")
+        self.system.set_visible(False)
+        accounts = self.accounts
 
-        mine = self.add_group("Your language", "Apps use it from the next time you sign in.")
-        current = normalise((prop(self.me, "Language", "") if self.me else "") or os.environ.get("LANG", "en_US.UTF-8"))
+        def work():
+            me = accounts.me()
+            return me, installed_locales(), (prop(me, "Language", "") if me else "")
+
+        in_thread(work, self.build, page=self)
+
+    def build(self, loaded) -> None:
+        me, self.locales, language = loaded or (None, ["en_US.UTF-8"], "")
+        self.me = me
+        self.mine.remove(self.waiting)
+        current = normalise(language or os.environ.get("LANG", "en_US.UTF-8"))
         if current not in self.locales:
             self.locales.insert(0, current)
         self.language_row = self.locale_combo("Language", self.locales, current)
         self.language_row.connect("notify::selected", self.on_language)
-        mine.add(self.language_row)
+        self.mine.add(self.language_row)
         self.sign_out_row = Adw.ActionRow(title="Sign out to finish changing the language", visible=False)
         sign_out = Gtk.Button(label="Sign out", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         sign_out.connect("clicked", lambda _b: self.sign_out())
         self.sign_out_row.add_suffix(sign_out)
-        mine.add(self.sign_out_row)
+        self.mine.add(self.sign_out_row)
         add = Adw.ActionRow(title="Add a language…", subtitle="Only languages added to this computer are listed",
                             activatable=True)
         add.add_suffix(Gtk.Image(icon_name="list-add-symbolic"))
         add.connect("activated", lambda _r: self.add_language_dialog())
-        mine.add(add)
+        self.mine.add(add)
 
-        if self.locale is not None:
-            formats = self.add_group("Formats", "Dates, times, numbers and money.")
+        if self.formats is not None:
             region = self.locale.get_string("region")
             choices = ["", *self.locales]
             if region and normalise(region) not in choices:
@@ -118,20 +133,30 @@ class RegionPage(Page):
             row = self.locale_combo("Formats", choices, normalise(region) if region else "",
                                     same_label="Same as language")
             row.connect("notify::selected", lambda r, _p: self.locale.set_string("region", choices[r.get_selected()]))
-            formats.add(row)
+            self.formats.add(row)
             self.example = Adw.ActionRow(title="Example", subtitle=self.format_example(region or current))
-            formats.add(self.example)
+            self.formats.add(self.example)
+            self.formats.set_visible(True)
             self.watch(self.locale, "changed::region",
                        lambda s, _k: self.example.set_subtitle(self.format_example(s.get_string("region") or current)))
 
-        if self.localed is not None:
-            system = self.add_group("Login screen", "The language of the login screen and of new accounts.")
-            lang = self.system_language()
-            row = Adw.ActionRow(title="Login screen language", subtitle=locale_label(lang) if lang else "Not set")
-            use = Gtk.Button(label="Use my language", valign=Gtk.Align.CENTER)
-            use.connect("clicked", lambda _b: self.set_system_language(row))
-            row.add_suffix(use)
-            system.add(row)
+        Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, "org.freedesktop.locale1",
+                                  "/org/freedesktop/locale1", "org.freedesktop.locale1", None, self.got_localed)
+
+    def got_localed(self, _source, result) -> None:
+        if self.torn_down:
+            return
+        try:
+            self.localed = Gio.DBusProxy.new_for_bus_finish(result)
+        except GLib.Error:
+            return
+        lang = self.system_language()
+        row = Adw.ActionRow(title="Sign-in screen language", subtitle=locale_label(lang) if lang else "Not set")
+        use = Gtk.Button(label="Use my language", valign=Gtk.Align.CENTER)
+        use.connect("clicked", lambda _b: self.set_system_language(row))
+        row.add_suffix(use)
+        self.system.add(row)
+        self.system.set_visible(True)
 
     def locale_combo(self, title: str, names: list[str], current: str, same_label: str = "") -> Adw.ComboRow:
         labels = [same_label if not n else locale_label(n) for n in names]
@@ -142,16 +167,25 @@ class RegionPage(Page):
 
     @staticmethod
     def format_example(name: str) -> str:
-        """Today's date and a number, as that region writes them."""
-        env = dict(os.environ, LC_ALL=normalise(name))
+        """Today's date and time and a number, as that region writes them. In this
+        process (no programs run): the formats are switched for a moment, on the
+        window's thread, and put back straight away."""
+        categories = (pylocale.LC_TIME, pylocale.LC_NUMERIC)
+        saved = [(c, pylocale.setlocale(c)) for c in categories]
         try:
-            out = subprocess.run(["date", "+%x · %X"], capture_output=True, text=True, timeout=5, env=env,
-                                 check=False).stdout.strip()
-            number = subprocess.run(["printf", "%'.2f", "1234567.89"], capture_output=True, text=True, timeout=5,
-                                    env=env, check=False).stdout.strip()
-        except (OSError, subprocess.TimeoutExpired):
+            for category in categories:
+                pylocale.setlocale(category, normalise(name))
+            date = time.strftime("%x · %X")
+            number = pylocale.format_string("%.2f", 1234567.89, grouping=True)
+        except (pylocale.Error, ValueError):
             return ""
-        return f"{out} · {number}" if out else number
+        finally:
+            for category, value in saved:
+                try:
+                    pylocale.setlocale(category, value)
+                except pylocale.Error:
+                    pass
+        return f"{date} · {number}"
 
     def on_language(self, row: Adw.ComboRow, _pspec) -> None:
         name = self.locales[row.get_selected()]

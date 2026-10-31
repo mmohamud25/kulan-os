@@ -191,6 +191,35 @@ elif [ ! -e "${STATE}/checked" ]; then
 	say "half=$(dpkg-query -W -f '${db:Status-Abbrev} ${Package}\n' | grep -vE '^(ii|rc) ' | awk '{print $2}' | tr '\n' ' ')"
 	say "pending=$(apt-get -s -q -o Debug::NoLocking=1 --with-new-pkgs upgrade 2>/dev/null | awk '/^Inst /{print $2}' | grep -E '^(kulan|nautilus|libnautilus)' | tr '\n' ' ')"
 	say "system=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release | tr -d '"')"
+	# 2.11: this build's own install runs as its own service (kulan-update.service),
+	# followed by the caller, with the same output and exit status.
+	/usr/lib/kulan/update-run install >"${STATE}/detach.out" 2>"${STATE}/detach.err"
+	say "detach=$? $(grep -c . "${STATE}/detach.out") $(systemctl is-active kulan-update.service 2>/dev/null)"
+	tail -n 4 "${STATE}/detach.err" | sed 's/^/KULAN-UPGRADE: detachlog=/' > "${OUT}"
+	# After a minute on the desktop, the start-up is noted as good (no start-up menu next time).
+	sleep 75
+	say "bootok=$([ -e /run/kulan/boot-ok ] && echo yes || echo no) pending=$(grub-editenv /boot/grub/grubenv list 2>/dev/null | sed -n 's/^kulan_boot_pending=//p')"
+	# A power cut during an update: a package unpacked but never set up, then a restart.
+	DEB="$(ls /var/cache/apt/archives/kulan-base_*.deb 2>/dev/null | tail -n 1)"
+	if [ -n "${DEB}" ] && dpkg --unpack "${DEB}" >/dev/null 2>&1; then
+		say "interrupted=$(dpkg --audit 2>&1 | grep -c .)"
+		touch "${STATE}/interrupted"
+		sync
+		systemctl reboot
+	else
+		say "interrupted=skipped"
+		say "done"
+	fi
+elif [ -e "${STATE}/interrupted" ] && [ ! -e "${STATE}/repaired" ]; then
+	touch "${STATE}/repaired"
+	# kulan-update-repair.service finishes it at start-up, by itself.
+	for _ in $(seq 1 120); do
+		case "$(systemctl show -P ActiveState kulan-update-repair.service 2>/dev/null)" in
+			activating | active | reloading) sleep 5 ;;
+			*) break ;;
+		esac
+	done
+	say "repair=$(systemctl show -P Result kulan-update-repair.service 2>/dev/null) audit=$(dpkg --audit 2>&1 | grep -c .) state=$(python3 -c 'import json; print(json.load(open("/var/lib/kulan/updates.json")).get("state", "?"))' 2>/dev/null)"
 	say "done"
 fi
 EOF
@@ -300,6 +329,35 @@ if [[ -n "${R2}" ]]; then
 	else
 		result pass "After the update: services" "none failed"
 	fi
+fi
+
+# 2.11: updates as their own service, the start-up noted as good, a power cut repaired at start-up.
+read -r DRC DLINES DUNIT <<<"$(say_field detach)"
+if [[ -z "${DRC:-}" ]]; then
+	result fail "Install as its own service" "not reported"
+elif [[ "${DRC}" == 0 && "${DUNIT:-}" != active ]]; then
+	result pass "Install as its own service" "update-run install ran as kulan-update.service and finished (${DLINES} progress lines)"
+else
+	result fail "Install as its own service" "exit ${DRC}, service ${DUNIT:-?}: $(sed -n 's/^KULAN-UPGRADE: detachlog=//p' <<<"${LOG}" | paste -sd ' ' - | cut -c1-300)"
+fi
+BOOTOK="$(say_field bootok)"
+if [[ "${BOOTOK}" == "yes pending=" || "${BOOTOK}" == "yes pending=0" ]]; then
+	result pass "Start-up noted as good" "after a minute on the desktop (no start-up menu next time)"
+elif [[ -n "${BOOTOK}" ]]; then
+	result fail "Start-up noted as good" "${BOOTOK}"
+fi
+INTERRUPTED="$(say_field interrupted)"
+REPAIR="$(say_field repair)"
+if [[ "${INTERRUPTED}" == skipped ]]; then
+	result info "Power cut during an update" "skipped: no package left to unpack"
+elif [[ -n "${INTERRUPTED}" && "${INTERRUPTED}" != 0 ]]; then
+	if [[ "${REPAIR}" == "success audit=0"* ]]; then
+		result pass "Power cut during an update" "a half-installed package was finished by itself at the next start-up (${REPAIR})"
+	else
+		result fail "Power cut during an update" "not finished at start-up: ${REPAIR:-no report after restarting}"
+	fi
+elif [[ -n "${INTERRUPTED}" ]]; then
+	result fail "Power cut during an update" "unpacking didn't leave the package half-installed"
 fi
 
 AFTER="$(say_field after)"

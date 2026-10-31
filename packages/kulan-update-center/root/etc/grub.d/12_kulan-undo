@@ -1,0 +1,30 @@
+#! /bin/sh
+# Kulan OS: "Undo the last update" in the start-up menu, while there's a
+# restore point from before an update (kulan_undo=1 in GRUB's environment
+# block, kept by /usr/lib/kulan/restore-points). It starts Kulan OS like the
+# first entry, with "kulan.undo-update" added: kulan-undo-at-start.service
+# then puts the system back to before the update and restarts, before the
+# sign-in screen (so it works even when the desktop doesn't start).
+set -e
+
+LINUX_ENTRIES=/etc/grub.d/10_linux
+[ -x "${LINUX_ENTRIES}" ] || exit 0
+[ -x /usr/lib/kulan/restore-points ] && command -v timeshift >/dev/null 2>&1 || exit 0
+
+# The first entry 10_linux makes (the newest Linux), whole.
+ENTRY="$(GRUB_DISABLE_SUBMENU=true GRUB_DISABLE_RECOVERY=true "${LINUX_ENTRIES}" 2>/dev/null | awk '
+	/^menuentry / && !found { found = 1; inside = 1 }
+	inside { print }
+	inside && /^}/ { exit }
+')" || exit 0
+printf '%s\n' "${ENTRY}" | grep -q '^[[:space:]]*linux[[:space:]]' || exit 0
+printf '%s\n' "${ENTRY}" | tail -n 1 | grep -qx '}' || exit 0
+
+echo "# Kulan OS: undo the last update (while a restore point from before it exists)."
+# shellcheck disable=SC2016  # GRUB's variable, for GRUB
+echo 'if [ "${kulan_undo}" = "1" ]; then'
+printf '%s\n' "${ENTRY}" | sed \
+	-e "1c\\
+menuentry 'Undo the last update' --class kulan --class os \$menuentry_id_option 'kulan-undo-update' {" \
+	-e '/^[[:space:]]*linux[[:space:]]/s/$/ kulan.undo-update/'
+echo 'fi'

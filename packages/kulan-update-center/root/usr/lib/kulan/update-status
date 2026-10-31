@@ -2,8 +2,15 @@
 """Keep /var/lib/kulan/updates.json current for the Update Center and the
 top-bar indicator.
 
-  update-status refresh   recompute available updates (apt hooks, at boot)
-  update-status running   mark an install as in progress (apt hook)
+  update-status refresh     recompute available updates (at boot, after checking)
+  update-status running     mark an install as in progress (apt hook, update-run)
+  update-status after-dpkg  refresh after a dpkg run (apt hook), unless whatever
+                            runs apt refreshes once at its end (KULAN_DEFER_STATUS=1:
+                            automatic updates and kulan-update.service)
+
+States: "running" (an install is under way: running_pid is the process doing it,
+running_start its start time, so a crashed one isn't shown as running), "idle",
+and "interrupted" (an earlier update stopped half-way, dpkg must finish it).
 
 Called from apt's own hooks (/etc/apt/apt.conf.d/60kulan-update-status), so
 it must be quick, never prompt, and never make apt fail: every error is
@@ -11,9 +18,11 @@ swallowed and the previous status file is left in place.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -226,6 +235,90 @@ def last_run() -> dict:
     return {}
 
 
+def dpkg_busy() -> bool:
+    """dpkg's lock is held (asked with F_GETLK: never taken here)."""
+    fmt = "hhqqi4x"  # struct flock on Linux: type, whence, start, len, pid
+    try:
+        fd = os.open("/var/lib/dpkg/lock", os.O_RDONLY)
+    except OSError:
+        return False
+    try:
+        got = fcntl.fcntl(fd, fcntl.F_GETLK, struct.pack(fmt, fcntl.F_WRLCK, 0, 0, 0, 0))
+        return struct.unpack(fmt, got)[0] != fcntl.F_UNLCK
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def interrupted() -> bool:
+    """dpkg was stopped half-way (a power cut, a crash): packages unpacked but not
+    set up. apt installs nothing until it's finished (update-run repair). Not
+    while dpkg is running (its own lock is held): that's an install under way."""
+    if dpkg_busy():
+        return False
+    try:
+        if any(name.isdigit() for name in os.listdir("/var/lib/dpkg/updates")):
+            return True
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["dpkg", "--audit"], capture_output=True, text=True, timeout=60, check=False,
+                             env={**os.environ, "LC_ALL": "C.UTF-8"}).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return bool(out.strip())
+
+
+def start_time(pid: int) -> int | None:
+    """A process's start time (clock ticks after boot), so a reused process ID
+    isn't taken for the install that had it; None when it isn't running."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            return int(fh.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def parent(pid: int) -> int:
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            return int(fh.read().rsplit(")", 1)[1].split()[1])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def ancestors() -> list[int]:
+    pids, pid = [], os.getppid()
+    while pid > 1 and len(pids) < 16:
+        pids.append(pid)
+        pid = parent(pid)
+    return pids
+
+
+def installer_pid() -> int:
+    """The program that's installing (update-run, apt, unattended-upgrade): the
+    first parent that isn't the shell or timeout apt's hook runs through."""
+    for pid in ancestors():
+        try:
+            with open(f"/proc/{pid}/comm", encoding="utf-8") as fh:
+                comm = fh.read().strip()
+        except OSError:
+            continue
+        if comm not in ("sh", "dash", "bash", "timeout"):
+            return pid
+    return os.getppid()
+
+
+def still_running(status: dict) -> bool:
+    """The recorded install's process is still there, and isn't the one asking
+    (an install refreshes at its own end; apt's hook after its dpkg run)."""
+    pid, started = status.get("running_pid"), status.get("running_start")
+    if status.get("state") != "running" or not isinstance(pid, int) or pid <= 1 or pid == installer_pid():
+        return False
+    return start_time(pid) == started
+
+
 def read_status() -> dict:
     try:
         with open(STATUS_FILE, encoding="utf-8") as fh:
@@ -274,33 +367,55 @@ def counted(updates: list[dict]) -> tuple[int, int]:
 
 def main(argv: list[str]) -> int:
     action = argv[1] if len(argv) > 1 else ""
-    if action not in ("refresh", "running"):
-        print("usage: update-status refresh|running", file=sys.stderr)
+    if action not in ("refresh", "running", "after-dpkg"):
+        print("usage: update-status refresh|running|after-dpkg", file=sys.stderr)
         return 2
     if in_build_chroot():
         return 0
+    if action == "after-dpkg" and os.environ.get("KULAN_DEFER_STATUS") == "1":
+        return 0  # automatic updates in steps, or kulan-update.service: once, at their end
 
     status = read_status()
     status["version"] = 1
     if action == "running":
-        status["state"] = "running"
-        status["running_since"] = int(time.time())
-    else:
-        updates = available_updates() + app_updates() + firmware_updates()
-        count, security_count = counted(updates)
-        status.update({
-            "state": "idle",
-            "checked": int(time.time()),
-            "available": updates,
-            "security": sum(1 for u in updates if u["security"]),
-            # What a person counts (Software Update and the top bar show these).
-            "count": count,
-            "security_count": security_count,
-            "last_run": last_run(),
-            "restart_required": restart_required(),
-            "paused_until": paused_until(),
-        })
-        status.pop("running_since", None)
+        # Keep the install already recorded while it's running (update-run's,
+        # or unattended-upgrade's across its many dpkg runs).
+        if not still_running(status):
+            pid = installer_pid()
+            status.update({"state": "running", "running_since": int(time.time()),
+                           "running_pid": pid, "running_start": start_time(pid)})
+        write_status(status)
+        return 0
+    running = still_running(status)
+    try:
+        updates = available_updates()
+        status["check_failed"] = False
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        # apt can't work out the updates (dpkg interrupted, broken packages): keep
+        # the last list, never leave "running" behind.
+        print(f"kulan update-status: {str(exc)[:300]}", file=sys.stderr)
+        updates = [u for u in status.get("available") or [] if isinstance(u, dict)
+                   and u.get("kind") not in ("app", "runtime", "firmware")]
+        status["check_failed"] = True
+    updates += app_updates() + firmware_updates()
+    count, security_count = counted(updates)
+    broken = interrupted()
+    status.update({
+        "state": "running" if running else ("interrupted" if broken else "idle"),
+        "interrupted": broken,
+        "checked": int(time.time()) if not status["check_failed"] else status.get("checked", 0),
+        "available": updates,
+        "security": sum(1 for u in updates if u.get("security")),
+        # What a person counts (Software Update and the top bar show these).
+        "count": count,
+        "security_count": security_count,
+        "last_run": last_run(),
+        "restart_required": restart_required(),
+        "paused_until": paused_until(),
+    })
+    if not running:
+        for key in ("running_since", "running_pid", "running_start"):
+            status.pop(key, None)
     write_status(status)
     return 0
 

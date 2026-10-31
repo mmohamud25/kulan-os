@@ -24,6 +24,9 @@ from . import updatelist
 from .common import Page, launch, os_release, plural, read_json, restart_computer
 
 STATUS_FILE = Path("/var/lib/kulan/updates.json")
+# kulan-update.service's progress lines (update-run): followed when Kulan Settings
+# is opened while an install it didn't start (or started before closing) runs.
+PROGRESS_FILE = Path("/run/kulan/update-run.out")
 HISTORY_LOG = Path("/var/log/apt/history.log")
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 RESTORE_USAGE = Path("/var/lib/kulan/restore-points.json")  # written by /usr/lib/kulan/restore-points
@@ -77,6 +80,44 @@ def when_text(stamp: float) -> str:
     if delta < 86400:
         return plural(int(delta // 3600), "hour") + " ago"
     return datetime.fromtimestamp(stamp).strftime("%-d %b %Y, %H:%M")
+
+
+def process_start(pid: int) -> int | None:
+    """A process's start time (as update-status records it), None when it's gone."""
+    try:
+        with open(f"/proc/{pid}/stat", encoding="utf-8", errors="replace") as fh:
+            return int(fh.read().rsplit(")", 1)[1].split()[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def last_progress(text: str) -> tuple[float, str] | None:
+    """The newest progress line of update-run's output, as (fraction, words)."""
+    from .common import progress_text
+    for line in reversed(text.splitlines()):
+        parts = line.split(":", 3)
+        if len(parts) == 4 and parts[0] in ("pmstatus", "dlstatus"):
+            try:
+                fraction = max(0.0, min(1.0, float(parts[2]) / 100))
+            except ValueError:
+                continue
+            fraction = fraction * 0.3 if parts[0] == "dlstatus" else 0.3 + fraction * 0.7
+            return fraction, progress_text(parts[0], parts[1], parts[3])[:80]
+    return None
+
+
+def history_groups(packages: list[str]) -> tuple[list[str], int]:
+    """What an install in the history changed, by the names Software Update uses
+    (all of Firefox's packages are one), and how many packages had no such name."""
+    names: list[str] = []
+    unknown = 0
+    for name in packages:
+        label = updatelist.known_name(name)
+        if label is None:
+            unknown += 1
+        elif label not in names:
+            names.append(label)
+    return names, unknown
 
 
 def history(limit: int = 8) -> list[dict]:
@@ -185,7 +226,7 @@ class UpdatesPage(Page):
         self.release = os_release()
         self.status: dict = {}
         self.summary: dict = {}
-        self.working = False
+        self.working = ""  # what this window is doing: "check", "change" or nothing
         self.restore_on = RESTORE_CONFIG.exists() and shutil.which("timeshift") is not None
         self.remote_notes: list[dict] = []  # every version's notes, from the website (newest first)
         self.notes_fetched = False
@@ -196,6 +237,8 @@ class UpdatesPage(Page):
 
         self.listen_busy(self.on_busy)
         self.reload_id = 0
+        self.progress_id = 0
+        self.progress_watched = False
         self.monitor_file(str(STATUS_FILE), self.queue_reload)
         self.reload()
 
@@ -211,9 +254,10 @@ class UpdatesPage(Page):
         return GLib.SOURCE_REMOVE
 
     def teardown(self) -> None:
-        if self.reload_id:
-            GLib.source_remove(self.reload_id)
-            self.reload_id = 0
+        for source in ("reload_id", "progress_id"):
+            if getattr(self, source):
+                GLib.source_remove(getattr(self, source))
+                setattr(self, source, 0)
         super().teardown()
 
     def shown(self) -> None:
@@ -230,10 +274,10 @@ class UpdatesPage(Page):
 
     def build_top_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup()
-        self.auto_nav, self.auto_value = self.nav_row("Automatic Updates")
+        self.auto_nav, self.auto_value = self.nav_row("Automatic updates")
         self.auto_nav.connect("activated", lambda _r: self.show_settings())
         group.add(self.auto_nav)
-        self.history_nav, self.history_value = self.nav_row("Update History")
+        self.history_nav, self.history_value = self.nav_row("Update history")
         self.history_nav.connect("activated", lambda _r: self.show_history())
         group.add(self.history_nav)
         return group
@@ -252,7 +296,7 @@ class UpdatesPage(Page):
         self.action_button = Gtk.Button(css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER,
                                         margin_top=12, visible=False)
         self.action_button.connect("clicked", lambda _b: self.on_action())
-        self.details_button = Gtk.Button(label="More Details", css_classes=["flat", "accent"],
+        self.details_button = Gtk.Button(label="More details", css_classes=["flat", "accent"],
                                          halign=Gtk.Align.CENTER)
         self.details_button.connect("clicked", lambda _b: self.more_details())
         self.check_button = Gtk.Button(css_classes=["flat", "dim-label", "caption"], halign=Gtk.Align.CENTER,
@@ -275,8 +319,19 @@ class UpdatesPage(Page):
         return False
 
     def running(self) -> bool:
+        """An install is under way: its process is still there (a power cut or a
+        crash leaves "running" behind), or, for status files without one, it
+        started less than STALE_RUNNING_S ago."""
+        if self.status.get("state") != "running":
+            return False
+        pid, started = self.status.get("running_pid"), self.status.get("running_start")
+        if isinstance(pid, int) and pid > 1:
+            return process_start(pid) == started
         since = self.status.get("running_since") or 0
-        return self.status.get("state") == "running" and time.time() - since < STALE_RUNNING_S
+        return time.time() - since < STALE_RUNNING_S
+
+    def interrupted(self) -> bool:
+        return bool(self.status.get("interrupted")) or self.status.get("state") == "interrupted"
 
     def available(self) -> list[dict]:
         items = self.status.get("available")
@@ -292,8 +347,8 @@ class UpdatesPage(Page):
         self.history_value.set_label(when_text(runs[0]["time"]) if runs and runs[0]["time"] else "")
 
     def render_status(self) -> None:
-        if self.working:
-            return  # the running action owns the status area
+        if self.working and self.working != "check":
+            return  # the running action owns the status area (a check shows what it found so far)
         # Read again each time: automatic updates can install a new Kulan OS
         # version while this page is open, and it must say so.
         self.release = os_release()
@@ -312,9 +367,18 @@ class UpdatesPage(Page):
         if self.running():
             self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
-            self.status_subtitle.set_label("You can keep working.")
+            self.status_subtitle.set_label("You can keep working. The computer stays on until they’re done.")
             self.details_button.set_visible(False)
             self.check_button.set_visible(False)
+            self.follow_progress()
+        elif self.interrupted():
+            # A power cut or a crash stopped an update half-way: nothing installs until it's finished.
+            self.status_icon.set_from_icon_name("dialog-warning-symbolic")
+            self.status_title.set_label("An update was interrupted")
+            self.status_subtitle.set_label("Finish it now, so updates can install again. Your files aren’t touched.")
+            self.details_button.set_visible(False)
+            self.check_button.set_visible(False)
+            self.action = "repair"
         elif new_version:
             # A new Kulan OS version: the headline, with its name from the website.
             self.status_icon.set_from_icon_name("kulan-logo")
@@ -346,10 +410,50 @@ class UpdatesPage(Page):
             self.status_subtitle.set_label(f"{name} {current}".strip())
         if self.action != "" or self.running():
             self.status_icon.set_css_classes([])
-        labels = {"install": "Update Now" if new_version else "Install Now", "restart": "Restart Now"}
+        if not self.running() and not self.working:
+            self.progress.set_visible(False)
+        labels = {"install": "Update Now" if new_version else "Install Now", "restart": "Restart Now",
+                  "repair": "Finish now"}
         self.action_button.set_label(labels.get(self.action, ""))
-        self.action_button.set_visible(bool(self.action) and not self.running())
+        self.action_button.set_visible(bool(self.action) and not self.running() and not self.working)
         self.action_button.set_sensitive(not self.window.helper.busy)
+        if self.working == "check":  # still looking for app and firmware updates
+            for widget in (self.details_button, self.check_button):
+                widget.set_visible(False)
+
+    def follow_progress(self) -> None:
+        """An install that isn't this window's own (started before Kulan Settings
+        opened, or by automatic updates): its progress from update-run's output."""
+        if self.working:
+            return
+        if not self.progress_watched:
+            self.progress_watched = True
+            self.monitor_file(str(PROGRESS_FILE), self.queue_progress)
+        try:
+            # Only this install's own lines (the file is kept after one ends).
+            fresh = PROGRESS_FILE.stat().st_mtime >= (self.status.get("running_since") or 0) - 5
+            text = PROGRESS_FILE.read_text(encoding="utf-8", errors="replace")[-8192:] if fresh else ""
+        except OSError:
+            text = ""
+        got = last_progress(text)
+        self.progress.set_visible(True)
+        if got:
+            self.progress.set_fraction(got[0])
+            self.progress.set_text(got[1] or f"{round(got[0] * 100)}%")
+        else:
+            self.progress.pulse()
+            self.progress.set_text("Installing")
+
+    def queue_progress(self) -> None:
+        if self.progress_id:
+            return
+        self.progress_id = GLib.timeout_add(300, self.progress_settled)
+
+    def progress_settled(self) -> bool:
+        self.progress_id = 0
+        if not self.torn_down and self.running():
+            self.follow_progress()
+        return GLib.SOURCE_REMOVE
 
     def short_list(self) -> str:
         """"Includes security fixes for Firefox and OpenSSL", "LibreOffice and 2 more"."""
@@ -376,6 +480,8 @@ class UpdatesPage(Page):
             self.install()
         elif self.action == "restart":
             self.restart()
+        elif self.action == "repair":
+            self.run(["repair"], "Finishing the interrupted update…", "The interrupted update is finished")
 
     def restart(self) -> None:
         restart_computer(lambda: self.toast("Couldn’t restart. Use the menu at the top right: the power button, "
@@ -496,8 +602,18 @@ class UpdatesPage(Page):
             row = Adw.ExpanderRow(
                 title=GLib.markup_escape_text(updatelist.history_title(run["packages"], run.get("kulan_series"))),
                 subtitle=f"{when_text(run['time'])}{how}")
-            for name in run["packages"][:40]:
-                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name), css_classes=["property"]))
+            # By the names Software Update's list uses; package names only under Technical details.
+            names, unknown = history_groups(run["packages"])
+            for name in names[:20]:
+                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name)))
+            if unknown or len(names) > 20:
+                others = unknown + max(0, len(names) - 20)
+                row.add_row(Adw.ActionRow(title="Other system updates" if names else "System updates",
+                                          subtitle=plural(others, "more update")))
+            details = Adw.ExpanderRow(title="Technical details", subtitle=plural(len(run["packages"]), "package"))
+            for name in run["packages"][:60]:
+                details.add_row(Adw.ActionRow(title=GLib.markup_escape_text(name), css_classes=["property"]))
+            row.add_row(details)
             group.add(row)
         page.add(group)
         notes = Adw.PreferencesGroup()
@@ -507,7 +623,7 @@ class UpdatesPage(Page):
         link.connect("activated", lambda _r: self.open_url(notes_url(self.release.get("VERSION_ID", ""))))
         notes.add(link)
         page.add(notes)
-        self.sheet("Update History", page)
+        self.sheet("Update history", page)
 
     # --- Automatic Updates ----------------------------------------------------------
     def show_settings(self) -> None:
@@ -534,7 +650,7 @@ class UpdatesPage(Page):
             subtitle="Daily, keeping the last 2 days and 1 week" if self.restore_on
             else "Set up automatically after you install Kulan OS")
         if shutil.which("timeshift"):
-            create = Gtk.Button(label="Create Now", valign=Gtk.Align.CENTER, sensitive=self.restore_on)
+            create = Gtk.Button(label="Create now", valign=Gtk.Align.CENTER, sensitive=self.restore_on)
             create.connect("clicked", lambda _b: self.run(
                 ["restore-point"], "Creating a restore point…", "Restore point created"))
             points.add_suffix(create)
@@ -549,7 +665,7 @@ class UpdatesPage(Page):
         undo.add_suffix(undo_button)
         restore.add(undo)
         pause = Adw.ActionRow(title="Automatic updates are paused", css_classes=["warning"])
-        resume = Gtk.Button(label="Resume Now", valign=Gtk.Align.CENTER)
+        resume = Gtk.Button(label="Resume now", valign=Gtk.Align.CENTER)
         resume.connect("clicked", lambda _b: self.window.helper.run(
             ["auto-on"], "Automatic updates on", on_done=lambda _ok: self.reload()))
         pause.add_suffix(resume)
@@ -558,7 +674,7 @@ class UpdatesPage(Page):
 
         self.dialog_rows = {"undo": undo, "pause": pause}
         self.render_undo()
-        dialog = self.sheet("Automatic Updates", page, height=520)
+        dialog = self.sheet("Automatic updates", page, height=520)
         dialog.connect("closed", lambda _d: self.dialog_rows.clear())
 
     def last_update_point(self) -> datetime | None:
@@ -627,7 +743,7 @@ class UpdatesPage(Page):
 
     # --- actions --------------------------------------------------------------------------
     def check(self) -> None:
-        self.run(["check"], "Checking for updates…", None)
+        self.run(["check"], "Checking for updates…", None, working="check")
 
     def install(self) -> None:
         args = ["install"]
@@ -635,11 +751,11 @@ class UpdatesPage(Page):
             args.append("--restore-point")
         self.run(args, "Installing updates…", "Updates installed")
 
-    def run(self, args: list[str], label: str, success: str | None) -> None:
+    def run(self, args: list[str], label: str, success: str | None, working: str = "change") -> None:
         if self.window.helper.busy:
             self.toast("Another change is still running")
             return
-        self.working = True
+        self.working = working
         self.progress.set_fraction(0)
         self.progress.set_text(label)
         self.progress.set_visible(True)
@@ -655,7 +771,7 @@ class UpdatesPage(Page):
             self.progress.set_text(text or f"{round(fraction * 100)}%")
 
         def done(_ok: bool) -> None:
-            self.working = False
+            self.working = ""
             self.progress.set_visible(False)
             self.reload()
 

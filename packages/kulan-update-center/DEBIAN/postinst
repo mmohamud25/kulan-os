@@ -18,12 +18,29 @@ case "$1" in
 		# The anonymous weekly count (off: Kulan Settings > Privacy).
 		systemd-sysusers kulan-countme.conf >/dev/null 2>&1 || true
 		deb-systemd-helper enable kulan-countme.timer >/dev/null || true
+		# Never left broken by an update: an interrupted one is finished at
+		# start-up; a start-up that didn't reach the desktop shows the start-up
+		# menu next time; "Undo the last update" there undoes before signing in.
+		deb-systemd-helper enable kulan-update-repair.service >/dev/null || true
+		deb-systemd-helper enable kulan-boot-ok.service >/dev/null || true
+		deb-systemd-helper enable kulan-undo-at-start.service >/dev/null || true
 		if [ -d /run/systemd/system ]; then
 			systemctl --system daemon-reload >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-restore-points.timer >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-update-status.timer >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-app-updates.timer >/dev/null 2>&1 || true
 			deb-systemd-invoke start kulan-countme.timer >/dev/null 2>&1 || true
+			# New schedules (2.11: midday, no catch-up straight after start-up).
+			systemctl try-restart kulan-restore-points.timer kulan-app-updates.timer apt-daily-upgrade.timer \
+				>/dev/null 2>&1 || true
+		fi
+		# This start-up already works (it's running the update): no menu next time.
+		if [ -d /run/systemd/system ] && [ -e /boot/grub/grub.cfg ] && command -v grub-editenv >/dev/null 2>&1 &&
+			! grep -qw 'boot=live' /proc/cmdline 2>/dev/null; then
+			[ -e /boot/grub/grubenv ] || grub-editenv /boot/grub/grubenv create >/dev/null 2>&1 || true
+			if [ -z "$2" ] || dpkg --compare-versions "$2" lt 2.11~; then
+				/usr/lib/kulan/boot-ok now >/dev/null 2>&1 || true
+			fi
 		fi
 		# Both helpers skip the ISO build and the live session by themselves.
 		/usr/lib/kulan/restore-points setup || true
@@ -33,6 +50,12 @@ case "$1" in
 			systemctl start --no-block kulan-restore-points-tidy.service >/dev/null 2>&1 || true
 		fi
 		/usr/lib/kulan/update-status refresh || true
+		# The start-up menu's "Undo the last update" and after-a-failed-start menu
+		# (/etc/grub.d), on installed systems (not during the ISO build).
+		if [ -e /boot/grub/grub.cfg ] && command -v update-grub >/dev/null 2>&1 &&
+			! grep -qw 'boot=live' /proc/cmdline 2>/dev/null; then
+			update-grub >/dev/null 2>&1 || echo "W: update-grub failed; the start-up menu changes apply after the next kernel update" >&2
+		fi
 		;;
 	abort-upgrade|abort-remove|abort-deconfigure)
 		;;

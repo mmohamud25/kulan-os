@@ -29,6 +29,7 @@ FLEET = Path(sys.argv[2]) if len(sys.argv) > 2 else HERE.parent / "packages/kula
 sys.path.insert(0, str(LIB))
 import fixes  # noqa: E402
 import gethelp  # noqa: E402
+import joining
 import pushed  # noqa: E402
 import scriptkey  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
@@ -450,6 +451,60 @@ check("get-help sends it as that person, with the computer's key", rc == 0 and s
 check("and shows it to them as open", json.loads((help_dir / "mo.json").read_text())["requests"][0]["id"] == R1)
 check("nothing written, not a person, or too many: not sent", rc_empty == 1 and rc_nobody == 64 and rc_busy == 1 and len(sent) == 1)
 gethelp.remove_all()
+
+# --- Joining (2.11): only the code, Kulan's server filled in; joined even if the first report fails ----
+K = joining.KULAN_SERVER
+cases = [("abcd-efgh-jk2m", (K, "ABCD-EFGH-JK2M")), (" ABCD - EFGH-JK2M\n", (K, "ABCD-EFGH-JK2M")),
+         ("https://fleet.example/functions/v1/fleet#Ab12-cd", ("https://fleet.example/functions/v1/fleet", "Ab12-cd")),
+         ("fleet.example#TEST-CODE", ("https://fleet.example", "TEST-CODE")),
+         ("https://fleet.example/fleet?code=TEST-CODE", ("https://fleet.example/fleet", "TEST-CODE")),
+         (K + "/#abcd-efgh", (K, "ABCD-EFGH"))]
+for text, want in cases:
+    got = joining.parse(text)
+    check(f"join code {text!r}", got == want, got)
+check("another organisation's server, typed under Use a different server",
+      joining.parse("TEST-CODE", "https://fleet.example/") == ("https://fleet.example", "TEST-CODE"))
+for bad in ("", "https://fleet.example/fleet", "not a code!", "x#"):
+    try:
+        joining.parse(bad)
+        check(f"refused: {bad!r}", False)
+    except joining.JoinError as e:
+        check(f"refused in plain words: {bad!r}", str(e)[:1].isupper() and "http" not in str(e), str(e))
+
+written, enrolled = [], []
+kf_mod.need_root = lambda: None
+kf_mod.write_json = lambda path, data, mode: written.append((path, dict(data)))
+kf_mod.publish = lambda *a, **k: None
+kf_mod.run = lambda argv, timeout=60, input=None: R(0)
+kf_mod.post = lambda server, path, body, token=None: enrolled.append((server, path, body["code"])) or {
+    "device_id": "d9", "token": "t9", "organisation": "Acme"}
+kf_mod.report = lambda: 1  # the first report can't be sent
+encrypted = [False]
+kf_mod.encrypted = lambda: encrypted[0]
+real_stdin, real_stderr = sys.stdin, sys.stderr
+try:
+    sys.stdin, sys.stderr = io.StringIO("ABCD-EFGH-JK2M\n"), io.StringIO()
+    rc = kf_mod.join(None, allow_erase=True)
+    said = sys.stderr.getvalue()
+finally:
+    sys.stdin, sys.stderr = real_stdin, real_stderr
+check("no server given: Kulan's", enrolled == [(K, "/v1/enrol", "ABCD-EFGH-JK2M")], enrolled)
+check("joined even though the first report failed", rc == 0 and "within the hour" in said, (rc, said))
+check("erasing stays off without an encrypted disk, and says so",
+      written and written[-1][1]["allow_erase"] is False and "isn’t encrypted" in said, (written, said))
+kf_mod.read_json = lambda path, default: dict(computer) if path == kf_mod.CONFIG else default
+written.clear()
+try:
+    sys.stderr = io.StringIO()
+    rc_off = kf_mod.allow_erase("on")
+    encrypted[0] = True
+    rc_on = kf_mod.allow_erase("on")
+    said = sys.stderr.getvalue()
+finally:
+    sys.stderr = real_stderr
+check("allow erasing: refused without encryption, allowed with it",
+      rc_off == 1 and rc_on == 0 and len(written) == 1 and written[0][1]["allow_erase"] is True and
+      "installed again with encryption" in said, (rc_off, rc_on, written, said))
 
 if failures:
     sys.exit(1)

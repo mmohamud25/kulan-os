@@ -8,6 +8,9 @@ Type=oneshot
 ExecStart=/usr/bin/kulan-signed-start finish
 Nice=10
 IOSchedulingClass=idle
+# Signing the start-up files again (and removing GRUB, once) takes minutes,
+# never this long: a hang can't hold up start-up or shutdown for ever.
+TimeoutStartSec=30min
 
 [Install]
 WantedBy=multi-user.target

@@ -1,12 +1,14 @@
 """Wi-Fi and network: turn Wi-Fi on or off, see nearby networks and join one,
-and see the wired connection. Uses NetworkManager (libnm). Enterprise and
-hidden networks, VPN, hotspot and proxy are in netextras.py."""
+see and forget saved networks or change their password, and see the wired
+connection. Uses NetworkManager (libnm), always asynchronously, so the window
+never waits for it. Enterprise and hidden networks, VPN, hotspot and proxy
+are in netextras.py."""
 from __future__ import annotations
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import Page, plain_error
-from .netextras import NetworkExtras, details_text
+from .netextras import HOTSPOT_ID, NetworkExtras, details_text
 
 try:
     import gi
@@ -69,6 +71,26 @@ def strongest_per_network(points: list[dict]) -> list[dict]:
     return sorted(best.values(), key=lambda p: (not p["active"], -p["strength"], p["ssid"].lower()))
 
 
+def saved_wifi(connections) -> list:
+    """Saved Wi-Fi networks (not this computer's own hotspot), by name."""
+    found = []
+    for conn in connections:
+        wireless = conn.get_setting_wireless()
+        if wireless is None or conn.get_id() == HOTSPOT_ID or wireless.get_mode() == "ap":
+            continue
+        found.append(conn)
+    return sorted(found, key=lambda c: (ssid_text(c.get_setting_wireless().get_ssid()) or c.get_id()).lower())
+
+
+def password_kind(conn) -> str | None:
+    """'psk' or 'sae' when the saved network uses a password that can be changed here, else None."""
+    security = conn.get_setting_wireless_security()
+    if security is None:
+        return None
+    key_mgmt = security.get_key_mgmt()
+    return "sae" if key_mgmt == "sae" else "psk" if key_mgmt == "wpa-psk" else None
+
+
 def signal_icon(strength: int) -> str:
     level = "excellent" if strength > 75 else "good" if strength > 50 else "ok" if strength > 25 else "weak"
     return f"network-wireless-signal-{level}-symbolic"
@@ -108,11 +130,21 @@ class WifiPage(Page):
         scan.connect("clicked", lambda _b: self.scan())
         self.networks.set_header_suffix(scan)
 
+        # Saved networks: forget one, or change its password.
+        self.known_group = self.add_group("Known networks", "Networks this computer has joined. Forget one, or "
+                                                                  "change its saved password.")
+        self.known = Adw.ExpanderRow(title="Known networks")
+        self.known_group.add(self.known)
+        self.known_rows: list[Gtk.Widget] = []
+        self.known_ids: list[str] = []
+        self.pending_saved: str | None = None  # the uuid of a saved network being joined
+
         self.wired_group = self.add_group("Wired")
 
         self.extras = None
         self.wifi_group.set_visible(False)
         self.networks.set_visible(False)
+        self.known_group.set_visible(False)
         self.wired_group.set_visible(False)
         NM.Client.new_async(None, self.got_client)
 
@@ -129,6 +161,7 @@ class WifiPage(Page):
             self.unavailable("NetworkManager isn’t running.")
             return
         self.extras = NetworkExtras(self)
+        self.install_actions()
         self.watch(self.client, "connection-added", lambda *_a: self.queue_refresh())
         self.watch(self.client, "connection-removed", lambda *_a: self.queue_refresh())
         self.watch(self.client, "active-connection-added", lambda *_a: self.queue_refresh())
@@ -142,7 +175,7 @@ class WifiPage(Page):
         self.scan()
 
     def unavailable(self, why: str) -> None:
-        for name in ("wifi_group", "networks", "wired_group"):
+        for name in ("wifi_group", "networks", "known_group", "wired_group"):
             if hasattr(self, name):
                 getattr(self, name).set_visible(False)
         self.add_group("Wi-Fi", why)
@@ -172,6 +205,8 @@ class WifiPage(Page):
                 if signal == "notify::active-access-point" and not isinstance(device, NM.DeviceWifi):
                     continue
                 self.device_watches.append((device, device.connect(signal, lambda *_a: self.queue_refresh())))
+            if isinstance(device, NM.DeviceWifi):
+                self.device_watches.append((device, device.connect("state-changed", self.on_wifi_state)))
         self.queue_refresh()
 
     def teardown(self) -> None:
@@ -259,6 +294,8 @@ class WifiPage(Page):
             for net in nets[:20]:
                 self.add_row(self.networks, self.network_row(device, net))
 
+        self.fill_known(device)
+
         wired = self.wired_devices()
         self.wired_group.set_visible(bool(wired))
         for dev in wired:
@@ -318,7 +355,49 @@ class WifiPage(Page):
             row.add_suffix(button)
         else:
             row.connect("activated", lambda _r: self.join(device, net))
+        saved = self.saved_connection(device, net["ssid"])
+        if saved is not None:
+            if not net["active"]:
+                row.set_subtitle("Saved")
+            row.add_suffix(self.options_button(saved))
         return row
+
+    def options_button(self, conn) -> Gtk.MenuButton:
+        """⋯ on a saved network: change its password, or forget it."""
+        name = ssid_text(conn.get_setting_wireless().get_ssid()) or conn.get_id()
+        menu = Gio.Menu()
+        if password_kind(conn) is not None:
+            menu.append("Change password…", f"wifi.password::{conn.get_uuid()}")
+        menu.append("Forget this network", f"wifi.forget::{conn.get_uuid()}")
+        button = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, valign=Gtk.Align.CENTER,
+                                css_classes=["flat"], tooltip_text="Options")
+        button.update_property([Gtk.AccessibleProperty.LABEL], [f"Options for {name}"])
+        return button
+
+    def fill_known(self, device) -> None:
+        conns = saved_wifi(self.client.get_connections())
+        ids = [f"{c.get_uuid()}:{c.get_id()}" for c in conns]
+        self.known_group.set_visible(bool(conns) and device is not None)
+        if ids == self.known_ids:  # unchanged: keep the list open where it is
+            return
+        self.known_ids = ids
+        for row in self.known_rows:
+            self.known.remove(row)
+        self.known_rows = []
+        self.known.set_subtitle(f"{len(conns)} saved" if conns else "")
+        for conn in conns:
+            name = ssid_text(conn.get_setting_wireless().get_ssid()) or conn.get_id()
+            setting = conn.get_setting_connection()
+            auto = setting.get_autoconnect() if setting is not None else True
+            row = Adw.ActionRow(title=GLib.markup_escape_text(name),
+                                subtitle="Joins by itself" if auto else "Joins only when you choose it")
+            row.add_prefix(Gtk.Image(icon_name="network-wireless-symbolic"))
+            row.add_suffix(self.options_button(conn))
+            self.known.add_row(row)
+            self.known_rows.append(row)
+
+    def connection_by_uuid(self, uuid: str):
+        return self.client.get_connection_by_uuid(uuid) if self.client is not None and uuid else None
 
     # --- actions ---------------------------------------------------------------------
 
@@ -346,6 +425,114 @@ class WifiPage(Page):
             self.queue_refresh()
         return done
 
+    def install_actions(self) -> None:
+        """wifi.forget / wifi.password, by the saved network's uuid (the ⋯ menus)."""
+        group = Gio.SimpleActionGroup()
+        for name, handler in (("forget", self.forget), ("password", self.change_password)):
+            action = Gio.SimpleAction.new(name, GLib.VariantType.new("s"))
+            action.connect("activate", lambda _a, value, h=handler: h(value.get_string()))
+            group.add_action(action)
+        self.insert_action_group("wifi", group)
+
+    def forget(self, uuid: str) -> None:
+        conn = self.connection_by_uuid(uuid)
+        if conn is None:
+            return
+        name = ssid_text(conn.get_setting_wireless().get_ssid()) or conn.get_id()
+        dialog = Adw.AlertDialog(heading=f"Forget “{name}”?",
+                                 body="This computer stops joining it by itself, and its saved password is "
+                                      "removed. You can join it again any time.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("forget", "Forget")
+        dialog.set_response_appearance("forget", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_close_response("cancel")
+
+        def answered(_d, response: str) -> None:
+            if response != "forget":
+                return
+
+            def done(c, result) -> None:
+                try:
+                    c.delete_finish(result)
+                except GLib.Error as exc:
+                    if not self.torn_down:
+                        self.toast(f"Couldn’t forget it. {plain_error(exc)}")
+                    return
+                if not self.torn_down:
+                    self.toast(f"Forgot {name}")
+                    self.queue_refresh()
+            conn.delete_async(None, done)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def change_password(self, uuid: str, why: str = "") -> None:
+        conn = self.connection_by_uuid(uuid)
+        kind = password_kind(conn) if conn is not None else None
+        if kind is None:
+            return
+        name = ssid_text(conn.get_setting_wireless().get_ssid()) or conn.get_id()
+        dialog = Adw.AlertDialog(heading=f"Password for “{name}”",
+                                 body=(why + " " if why else "") + "Enter the network’s password. It replaces the "
+                                      "saved one.")
+        entry = Gtk.PasswordEntry(show_peek_icon=True, activates_default=True)
+        entry.update_property([Gtk.AccessibleProperty.LABEL], ["Wi-Fi password"])
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("save", "Save and join")
+        dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("save")
+        dialog.set_close_response("cancel")
+        dialog.set_response_enabled("save", False)
+        entry.connect("changed", lambda e: dialog.set_response_enabled("save", 8 <= len(e.get_text()) <= 63))
+
+        def answered(_d, response: str) -> None:
+            if response == "save":
+                self.save_password(conn, kind, entry.get_text(), name)
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+        entry.grab_focus()
+
+    def save_password(self, conn, kind: str, password: str, name: str) -> None:
+        """The new password into the saved network (where it keeps its secrets), then join it."""
+        updated = NM.SimpleConnection.new_clone(conn)
+        security = updated.get_setting_wireless_security()
+        security.set_property(NM.SETTING_WIRELESS_SECURITY_KEY_MGMT, "sae" if kind == "sae" else "wpa-psk")
+        security.set_property(NM.SETTING_WIRELESS_SECURITY_PSK, password)
+
+        def saved(c, result) -> None:
+            try:
+                c.update2_finish(result)
+            except GLib.Error as exc:
+                if not self.torn_down:
+                    self.toast(f"Couldn’t save the password. {plain_error(exc)}")
+                return
+            if self.torn_down:
+                return
+            device = self.wifi_device()
+            nearby = device is not None and any(ssid_text(ap.get_ssid()) == name for ap in device.get_access_points())
+            if nearby:
+                self.pending_saved = c.get_uuid()
+                self.client.activate_connection_async(c, device, None, None,
+                                                      self.finish_quietly("activate_connection_finish",
+                                                                          "Couldn’t connect"))
+                self.toast(f"Joining {name}…")
+            else:
+                self.toast("Password saved")
+        conn.update2(updated.to_dbus(NM.ConnectionSerializationFlags.ALL), NM.SettingsUpdate2Flags.TO_DISK, None,
+                     None, saved)
+
+    def on_wifi_state(self, _device, new_state: int, _old: int, reason: int) -> None:
+        """A saved network that didn't take its password: offer to change it, once."""
+        if self.torn_down or self.pending_saved is None:
+            return
+        if new_state == NM.DeviceState.ACTIVATED:
+            self.pending_saved = None
+        elif new_state == NM.DeviceState.FAILED:
+            uuid, self.pending_saved = self.pending_saved, None
+            if reason in (NM.DeviceStateReason.NO_SECRETS, NM.DeviceStateReason.SUPPLICANT_DISCONNECT,
+                          NM.DeviceStateReason.SUPPLICANT_FAILED, NM.DeviceStateReason.SUPPLICANT_TIMEOUT):
+                GLib.idle_add(lambda: (self.change_password(uuid, "The saved password didn’t work."), False)[1])
+
     def saved_connection(self, device, ssid: str):
         """A saved Wi-Fi connection for this network name, if there is one."""
         for conn in device.filter_connections(self.client.get_connections()):
@@ -357,6 +544,7 @@ class WifiPage(Page):
     def join(self, device, net: dict) -> None:
         saved = self.saved_connection(device, net["ssid"])
         if saved is not None:
+            self.pending_saved = saved.get_uuid()
             self.client.activate_connection_async(saved, device, net["ap"].get_path(), None,
                                                   self.finish_quietly("activate_connection_finish",
                                                                       "Couldn’t connect"))

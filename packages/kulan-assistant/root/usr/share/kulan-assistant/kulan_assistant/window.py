@@ -119,7 +119,8 @@ class AssistantWindow(Adw.ApplicationWindow):
         except engine.EngineError as exc:
             GLib.idle_add(self.done, str(exc), cancel)
         except Exception as exc:  # noqa: BLE001 - show it rather than hang
-            GLib.idle_add(self.done, f"Something went wrong: {exc}", cancel)
+            print(f"kulan-assistant: {exc!r}", file=sys.stderr)
+            GLib.idle_add(self.done, engine.UNEXPECTED, cancel)
 
     def not_ready(self) -> bool:
         """Says so (with a button to fix it) when the assistant can't answer yet."""

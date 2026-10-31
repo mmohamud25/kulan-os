@@ -8,7 +8,7 @@ import shutil
 import string
 from typing import Callable
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .common import has_key, settings
 
@@ -22,6 +22,13 @@ except (ImportError, ValueError):
 
 HOTSPOT_ID = "Kulan Hotspot"
 PROXY = "org.gnome.system.proxy"
+
+
+def wifi_qr_text(name: str, password: str) -> str:
+    """What a phone's camera reads to join a Wi-Fi network (the WIFI: format)."""
+    def esc(text: str) -> str:
+        return "".join("\\" + c if c in '\\;,:"' else c for c in text)
+    return f"WIFI:T:WPA;S:{esc(name)};P:{esc(password)};;"
 
 
 def entry_row(title: str, password: bool = False, text: str = "") -> Adw.EntryRow:
@@ -118,10 +125,19 @@ class NetworkExtras:
         self.hotspot_group = page.add_group("Hotspot", "Share this computer’s internet over Wi-Fi.")
         self.hotspot_switch = Adw.SwitchRow(title="Hotspot")
         self.hotspot_switch.connect("notify::active", self.on_hotspot)
+        # One network name and password, kept in the saved hotspot and read
+        # back from it: it stays the same each time, so phones join by themselves.
         self.hotspot_details = Adw.ActionRow(title="Network name and password", subtitle_selectable=True,
-                                             visible=False)
+                                             subtitle_lines=0, visible=False)
+        self.hotspot_qr = Gtk.Picture(can_shrink=True, visible=False, margin_top=6, margin_bottom=6,
+                                      halign=Gtk.Align.CENTER)
+        self.hotspot_qr.set_size_request(180, 180)
+        self.hotspot_qr.update_property([Gtk.AccessibleProperty.LABEL],
+                                        ["Code to scan with a phone’s camera to join the hotspot"])
+        self.hotspot_qr_text = ""
         self.hotspot_group.add(self.hotspot_switch)
         self.hotspot_group.add(self.hotspot_details)
+        self.hotspot_group.add(self.hotspot_qr)
         self.proxy_group = page.add_group("Proxy")
         self.build_proxy()
         more = self.more_group = page.add_group()
@@ -131,6 +147,7 @@ class NetworkExtras:
         more.add(hidden)
         self.syncing = False
         self.hotspot_password = ""
+        self.hotspot_secrets_for = ""  # the saved hotspot whose password was read
 
     # --- called by the Wi-Fi page ------------------------------------------------------
     @property
@@ -342,14 +359,72 @@ class NetworkExtras:
         self.syncing = True
         self.hotspot_switch.set_active(active is not None)
         self.syncing = False
-        if connection is not None and active is not None:
-            wireless = connection.get_setting_wireless()
-            name = (wireless.get_ssid().get_data() or b"").decode("utf-8", "replace") if wireless else ""
-            self.hotspot_details.set_subtitle(f"{name} · password {self.hotspot_password}" if self.hotspot_password
-                                              else f"{name} · Restart the hotspot to see a new password")
-            self.hotspot_details.set_visible(True)
-        else:
+        if connection is None:
             self.hotspot_details.set_visible(False)
+            self.hotspot_qr.set_visible(False)
+            return
+        # The password, read from the saved hotspot once (NetworkManager asks
+        # for permission to show it, like any saved Wi-Fi password).
+        key = f"{connection.get_uuid()}:{connection.get_path()}"
+        if key != self.hotspot_secrets_for:
+            self.hotspot_secrets_for = key
+            connection.get_secrets_async(NM.SETTING_WIRELESS_SECURITY_SETTING_NAME, None, self.got_hotspot_secrets)
+        self.show_hotspot(connection, active is not None)
+
+    def got_hotspot_secrets(self, connection, result) -> None:
+        try:
+            secrets_ = connection.get_secrets_finish(result)
+            psk = secrets_.lookup_value(NM.SETTING_WIRELESS_SECURITY_SETTING_NAME, None)
+            psk = psk.lookup_value(NM.SETTING_WIRELESS_SECURITY_PSK, None) if psk is not None else None
+            self.hotspot_password = psk.get_string() if psk is not None else self.hotspot_password
+        except GLib.Error as exc:
+            print(f"kulan-settings: hotspot password: {exc.message}")
+        if not self.page.torn_down:
+            self.sync_hotspot()
+
+    @staticmethod
+    def hotspot_name(connection) -> str:
+        wireless = connection.get_setting_wireless()
+        ssid = wireless.get_ssid() if wireless is not None else None
+        return (ssid.get_data() or b"").decode("utf-8", "replace") if ssid is not None else ""
+
+    def show_hotspot(self, connection, on: bool) -> None:
+        name = self.hotspot_name(connection)
+        password = self.hotspot_password
+        self.hotspot_details.set_title("Network name and password" if on else "When the hotspot is on")
+        self.hotspot_details.set_subtitle(GLib.markup_escape_text(
+            f"{name} · password {password}" if password else f"{name} · password saved on this computer"))
+        self.hotspot_details.set_visible(True)
+        text = wifi_qr_text(name, password) if password and on else ""
+        if text != self.hotspot_qr_text:
+            self.hotspot_qr_text = text
+            self.hotspot_qr.set_visible(False)
+            if text:
+                self.make_qr(text)
+        elif text:
+            self.hotspot_qr.set_visible(self.hotspot_qr.get_paintable() is not None)
+
+    def make_qr(self, text: str) -> None:
+        """A code a phone's camera can scan to join (qrencode, without waiting for it)."""
+        if shutil.which("qrencode") is None:
+            return
+        try:
+            proc = Gio.Subprocess.new(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", text],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            return
+
+        def made(p, result) -> None:
+            try:
+                _ok, png, _err = p.communicate_finish(result)
+                texture = Gdk.Texture.new_from_bytes(png) if p.get_successful() and png else None
+            except GLib.Error:
+                texture = None
+            if self.page.torn_down or text != self.hotspot_qr_text:
+                return
+            self.hotspot_qr.set_paintable(texture)
+            self.hotspot_qr.set_visible(texture is not None)
+        proc.communicate_async(None, None, made)
 
     def on_hotspot(self, row: Adw.SwitchRow, _pspec) -> None:
         if self.syncing or self.client is None:
@@ -365,10 +440,15 @@ class NetworkExtras:
                                                         self.page.finish_quietly("deactivate_connection_finish",
                                                                                  "Couldn’t stop the hotspot"))
             return
+        if existing is not None:
+            # The same name and password as last time.
+            self.client.activate_connection_async(existing, device, None, None,
+                                                  self.page.finish_quietly("activate_connection_finish",
+                                                                           "Couldn’t start the hotspot"))
+            self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
+            return
         password = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(12))
         name = f"{GLib.get_host_name()} hotspot"[:32]
-        if existing is not None:
-            existing.delete_async(None, None)
         connection = wifi_connection(name)
         general = connection.get_setting_connection()
         general.set_property(NM.SETTING_CONNECTION_ID, HOTSPOT_ID)
@@ -383,7 +463,7 @@ class NetworkExtras:
             connection, device, None, None,
             self.page.finish_quietly("add_and_activate_connection_finish", "Couldn’t start the hotspot"))
         self.hotspot_password = password
-        self.hotspot_details.set_subtitle(f"{name} · password {password}")
+        self.hotspot_details.set_subtitle(GLib.markup_escape_text(f"{name} · password {password}"))
         self.hotspot_details.set_visible(True)
         self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
 
