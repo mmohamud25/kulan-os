@@ -1,0 +1,8 @@
+1 s: 
+MOK screen after 3 s: Booting in 10 seconds  Shim UEFI key management  Press any key to perform MOK managenent  
+1 s: BdsDxe: loading Boot0006 “Kulan OS” from HD (1,GPT. DFSSBB7?-GE30-48604-BA20-E6CAC4AIIIF? , Ox800 .0x10000 0) /NEFI\kulan\shimx64 efi  BdsDxe: starting Boot0006
+11 s: @ SATURDAY  31  October 2026 Nothing else today  Sat Oct 31 15:43  4  ao O 
+21 s: @ SATURDAY  31  October 2026 Nothing else today  Sat Oct 31 15:43  4  ao O 
+31 s: Starting systemd-logind.service - User Login Management... Starting systemd-perphase.service - TPM PCR Barrier (User)... Starting udisks2.service - Disk Manager
+41 s: 
+51 s: @ SATURDAY  31  October 2026 Nothing else today  Sat Oct 31 15:46  4  ao O 
