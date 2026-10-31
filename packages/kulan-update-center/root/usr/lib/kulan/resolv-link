@@ -1,0 +1,23 @@
+#!/bin/sh
+# Kulan OS: names are looked up through systemd-resolved when it's installed
+# and on (kulan-resolv-link.service, early at every start-up).
+#
+# /etc/resolv.conf has to point at resolved's stub, or programs ask the
+# network's DNS directly and Kulan Settings' encrypted DNS ("Block ads and
+# trackers") does nothing. The image build and the installer put a plain copy
+# there while they work; this puts the link back. Nothing changes when
+# resolved is off, or when /etc/resolv.conf already points at one of its files.
+set -u
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
+ETC="${KULAN_RESOLV_ETC:-/etc}"
+STUB=../run/systemd/resolve/stub-resolv.conf
+
+case "$(readlink "${ETC}/resolv.conf" 2>/dev/null)" in
+	*/run/systemd/resolve/stub-resolv.conf | */run/systemd/resolve/resolv.conf) exit 0 ;;
+esac
+if [ -z "${KULAN_RESOLV_ETC:-}" ]; then
+	systemctl --quiet is-enabled systemd-resolved.service 2>/dev/null || exit 0
+fi
+ln -s "${STUB}" "${ETC}/.resolv.conf.kulan" 2>/dev/null || { rm -f "${ETC}/.resolv.conf.kulan"; ln -s "${STUB}" "${ETC}/.resolv.conf.kulan"; } || exit 0
+mv -fT "${ETC}/.resolv.conf.kulan" "${ETC}/resolv.conf" && echo "kulan resolv-link: /etc/resolv.conf points at systemd-resolved again" >&2
+exit 0

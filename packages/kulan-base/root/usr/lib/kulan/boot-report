@@ -42,6 +42,8 @@ sleep 5 # let the session settle
 	echo "timezone=$(readlink /etc/localtime 2>/dev/null | sed "s|.*/zoneinfo/||")"
 	echo "background=$(systemctl show -p CPUWeight --value apt-daily-upgrade.service 2>/dev/null) $(systemctl is-failed thermald.service 2>/dev/null)"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
+	# Names through systemd-resolved (Kulan Settings' encrypted DNS), and whether a lookup works.
+	echo "dns=$(readlink /etc/resolv.conf 2>/dev/null || echo file) $(systemctl is-active systemd-resolved.service 2>/dev/null) lookup=$(timeout 8 getent hosts deb.debian.org >/dev/null 2>&1 && echo yes || echo no)"
 	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
 	# Kernel loading switched off (1) on PCs; left on (0) with fast restart
 	# set up in ARM VMs, where a normal restart freezes.

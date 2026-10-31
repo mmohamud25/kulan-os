@@ -1,0 +1,15 @@
+[Unit]
+Description=Look up names through systemd-resolved (Kulan OS)
+Documentation=file:///usr/lib/kulan/resolv-link
+DefaultDependencies=no
+ConditionPathExists=/usr/lib/systemd/systemd-resolved
+After=local-fs.target
+Before=systemd-resolved.service NetworkManager.service network-pre.target nss-lookup.target sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/resolv-link
+
+[Install]
+WantedBy=sysinit.target

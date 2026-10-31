@@ -425,6 +425,17 @@ check "Restart in ARM VMs" "fast restart only in ARM QEMU VMs; kexec hardening k
 	/usr/lib/systemd/system-generators/kulan-fast-restart "$D" || { echo "generator failed"; exit 1; }
 	if test -e "$D/systemd-reboot.service.d/50-kulan-fast-restart.conf"; then echo "generator set up kexec on $(uname -m)"; exit 1; fi
 	echo ok'
+check "DNS through systemd-resolved" "the link to resolved's stub put back when it's a plain file, left alone otherwise" bash -c '
+	systemctl is-enabled kulan-resolv-link.service >/dev/null || { echo "service not enabled"; exit 1; }
+	D=$(mktemp -d)
+	echo "nameserver 192.0.2.1" >"$D/resolv.conf"
+	KULAN_RESOLV_ETC="$D" /usr/lib/kulan/resolv-link 2>/dev/null
+	[ "$(readlink "$D/resolv.conf")" = ../run/systemd/resolve/stub-resolv.conf ] || { ls -l "$D"; exit 1; }
+	rm "$D/resolv.conf"; ln -s ../run/systemd/resolve/resolv.conf "$D/resolv.conf"
+	KULAN_RESOLV_ETC="$D" /usr/lib/kulan/resolv-link 2>/dev/null
+	[ "$(readlink "$D/resolv.conf")" = ../run/systemd/resolve/resolv.conf ] || { echo "changed a link that was already resolved'"'"'s"; exit 1; }
+	[ "$(ls -A "$D" | wc -l)" = 1 ] || { ls -A "$D"; exit 1; }
+	echo ok'
 check "Firmware service" "the sign-in screen doesn't wait for fwupd; the rest of its unit is Debian's" bash -c '
 	G=/usr/lib/systemd/system-generators/kulan-fwupd-later
 	test -x "$G" || { echo "generator missing"; exit 1; }

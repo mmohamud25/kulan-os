@@ -190,6 +190,13 @@ else
 	result fail "Memory guard" "systemd-oomd / notice: ${OOMD:-not reported}"
 fi
 
+DNS="$(field dns)"
+if [[ "${DNS}" == "../run/systemd/resolve/stub-resolv.conf active "* ]]; then
+	result pass "Encrypted DNS ready" "names go through systemd-resolved, so Block ads and trackers works without a download (${DNS##* })"
+else
+	result fail "Encrypted DNS ready" "resolv.conf and systemd-resolved: ${DNS:-not reported}"
+fi
+
 KEXEC="$(field kexec)"
 case "${KEXEC}" in
 	"1 no x86_64") result pass "Kernel hardening" "loading another kernel is switched off" ;;
