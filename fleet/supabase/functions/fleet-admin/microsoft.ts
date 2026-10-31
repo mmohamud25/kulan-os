@@ -9,7 +9,8 @@
 // rename, disable and delete users, give them a licence),
 // User-PasswordProfile.ReadWrite.All (first passwords) and
 // Organization.Read.All (the licences there are); RoleManagement.Read.Directory
-// to tell admin accounts apart. The client secret is kept sealed, as Google's
+// and GroupMember.Read.All to tell admin accounts apart (roles given,
+// eligible, or through a group that can hold roles). The client secret is kept sealed, as Google's
 // key is (google.ts sealText, bound to the organisation).
 //
 // A mailbox is a user whose licence includes Exchange Online: the licence is
@@ -21,7 +22,7 @@
 import { GoogleError as MailError } from "./google.ts";
 
 export const PERMISSIONS = ["User.ReadWrite.All", "User-PasswordProfile.ReadWrite.All", "Organization.Read.All",
-                            "RoleManagement.Read.Directory"];
+                            "RoleManagement.Read.Directory", "GroupMember.Read.All"];
 const loginUrl = () => Deno.env.get("FLEET_MS_LOGIN") ?? "https://login.microsoftonline.com";
 const graphUrl = () => Deno.env.get("FLEET_MS_GRAPH") ?? "https://graph.microsoft.com";
 const TIMEOUT_MS = 15_000;
@@ -87,7 +88,7 @@ export async function accessToken(c: Connection, fresh = false): Promise<string>
       throw new MailError(403, "Microsoft has no app with that client ID in your tenant. Copy the Application (client) ID " +
         "from the app's Overview page");
     }
-    if (/AADSTS90002|AADSTS900023/.test(said) || code === "invalid_request") {
+    if (/AADSTS90002|AADSTS900023/.test(said)) {
       throw new MailError(400, "Microsoft has no tenant with that ID. Copy the Directory (tenant) ID from the app's Overview page");
     }
     throw new MailError(res.status >= 500 ? 502 : 400, `Microsoft refused the request (${code.slice(0, 60) || res.status})`);
@@ -130,89 +131,160 @@ function failed(r: { status: number; body: any }, what: string): MailError {
   return new MailError(r.status >= 500 ? 502 : 400, `Microsoft couldn't ${what}` + (said ? `: ${said}` : ""));
 }
 
-// The same shape as google.ts's GoogleUser. id: Microsoft's object id, which never changes.
+// The same shape as google.ts's GoogleUser. id: Microsoft's object id, which
+// never changes. address: the mailbox's address (mail), else the sign-in name
+// (userPrincipalName), which can differ (an onmicrosoft.com sign-in name).
 export type MailUser = { id: string; address: string; name: string; suspended: boolean; admin: boolean };
 
-const SELECT = "id,userPrincipalName,displayName,accountEnabled";
+const SELECT = "id,userPrincipalName,mail,displayName,accountEnabled";
 
 function user(u: any, admin: boolean): MailUser {
   return {
     id: typeof u?.id === "string" ? u.id : "",
-    address: String(u?.userPrincipalName ?? "").toLowerCase(),
+    address: String(u?.mail || u?.userPrincipalName || "").toLowerCase(),
     name: String(u?.displayName ?? "").slice(0, 120),
     suspended: u?.accountEnabled === false,
     admin,
   };
 }
 
-const at = (key: string) => `/users/${encodeURIComponent(key)}`;
+// By id only: every call that changes a user is made with Microsoft's id.
+const at = (id: string) => `/users/${encodeURIComponent(id)}`;
+const quoted = (v: string) => `'${v.replaceAll("'", "''")}'`;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Microsoft takes a few seconds to know a user it has just made (or changed):
+// a 404 for an id is asked again, a little later.
+// (FLEET_MS_SETTLE_MS, milliseconds between tries: only the tests set it.)
+const settle = {
+  get delays(): number[] {
+    const v = Deno.env.get("FLEET_MS_SETTLE_MS");
+    return v ? v.split(",").map(Number).filter((n) => n >= 0) : [1000, 3000];
+  },
+};
 
-// Whether the user holds a Microsoft Entra admin role (Global, User, Exchange...):
-// such accounts are changed only by the Owner, as Google admins are. Unknown
-// counts as an admin.
+// Every page of a Graph list (up to 6 pages of 999).
+async function all(c: Connection, first: string): Promise<{ status: number; body: any; value: any[] }> {
+  const value: any[] = [];
+  let next = first;
+  for (let i = 0; i < 6 && next; i++) {
+    const r = await call(c, "GET", next);
+    if (r.status !== 200) return { ...r, value };
+    value.push(...(Array.isArray(r.body?.value) ? r.body.value : []));
+    next = typeof r.body?.["@odata.nextLink"] === "string" ? r.body["@odata.nextLink"] : "";
+  }
+  return { status: 200, body: null, value };
+}
+
+// Whether the user holds a Microsoft Entra admin role (Global, User, Exchange...)
+// or could: a role given to them, one they're eligible to switch on (PIM), or
+// membership of a group that can hold roles. Such accounts are changed only by
+// the Owner, as Google admins are. Anything Microsoft doesn't answer counts as
+// an admin.
 async function isAdmin(c: Connection, id: string): Promise<boolean> {
-  const q = new URLSearchParams({ $filter: `principalId eq '${id}'`, $select: "id" });
-  const r = await call(c, "GET", `/roleManagement/directory/roleAssignments?${q}`);
-  if (r.status !== 200) return true;
-  return Array.isArray(r.body?.value) && r.body.value.length > 0;
+  if (!GUID.test(id)) return true;
+  const who = new URLSearchParams({ $filter: `principalId eq ${quoted(id)}` });
+  const direct = await call(c, "GET", `/roleManagement/directory/roleAssignments?${who}`);
+  if (direct.status !== 200 || (direct.body?.value ?? []).length) return true;
+  const eligible = await call(c, "GET", `/roleManagement/directory/roleEligibilityScheduleInstances?${who}`);
+  if (eligible.status !== 200 || (eligible.body?.value ?? []).length) return true;
+  const groups = await all(c, `${at(id)}/transitiveMemberOf/microsoft.graph.group?$select=id,isAssignableToRole`);
+  return groups.status !== 200 || groups.value.some((g) => g?.isAssignableToRole === true);
+}
+
+async function find(c: Connection, key: string): Promise<any | null> {
+  if (GUID.test(key)) {
+    for (let attempt = 0; ; attempt++) {
+      const r = await call(c, "GET", `${at(key)}?$select=${SELECT}`);
+      if (r.status === 200) return r.body;
+      if (r.status !== 404) throw failed(r, "look up that mailbox");
+      if (attempt >= settle.delays.length) return null;
+      await sleep(settle.delays[attempt]);
+    }
+  }
+  // An address: the mailbox's address or the sign-in name.
+  const k = key.toLowerCase();
+  const q = new URLSearchParams({ $filter: `userPrincipalName eq ${quoted(k)} or mail eq ${quoted(k)}`, $select: SELECT });
+  const r = await call(c, "GET", `/users?${q}`);
+  if (r.status !== 200) throw failed(r, "look up that mailbox");
+  const hits = (r.body?.value ?? []) as any[];
+  return hits.find((u) => String(u?.mail ?? "").toLowerCase() === k) ?? hits[0] ?? null;
 }
 
 // The mailbox, or null if Microsoft 365 has none with that address (or id).
 export async function getUser(c: Connection, key: string): Promise<MailUser | null> {
-  const r = await call(c, "GET", `${at(key)}?$select=${SELECT}`);
-  if (r.status === 404) return null;
-  if (r.status !== 200) throw failed(r, "look up that mailbox");
-  return user(r.body, await isAdmin(c, String(r.body?.id ?? "")));
+  const u = await find(c, key);
+  return u ? user(u, await isAdmin(c, String(u?.id ?? ""))) : null;
 }
 
-// The domain's users (up to 5000), for linking existing mailboxes.
+// The domain's users (up to 5000), for linking existing mailboxes. Who could be
+// an admin, from every page of role assignments and eligibilities (unknown:
+// everyone is shown as an admin).
 export async function listUsers(c: Connection): Promise<MailUser[]> {
-  const out: MailUser[] = [];
   const admins = new Set<string>();
-  const roles = await call(c, "GET", "/roleManagement/directory/roleAssignments?$select=principalId&$top=999");
-  for (const a of roles.status === 200 && Array.isArray(roles.body?.value) ? roles.body.value : []) admins.add(String(a.principalId));
-  let next: string = `/users?${new URLSearchParams({ $select: SELECT, $top: "999" })}`;
-  for (let i = 0; i < 6 && next; i++) {
-    const r = await call(c, "GET", next);
-    if (r.status !== 200) throw failed(r, "list your mailboxes");
-    for (const u of Array.isArray(r.body?.value) ? r.body.value : []) {
-      const x = user(u, roles.status !== 200 || admins.has(String(u?.id)));
-      if (x.address.endsWith(`@${c.domain}`)) out.push(x);
-    }
-    next = typeof r.body?.["@odata.nextLink"] === "string" ? r.body["@odata.nextLink"] : "";
+  const direct = await all(c, "/roleManagement/directory/roleAssignments?$select=principalId");
+  const eligible = await all(c, "/roleManagement/directory/roleEligibilityScheduleInstances?$select=principalId");
+  for (const a of [...direct.value, ...eligible.value]) admins.add(String(a?.principalId));
+  const unknown = direct.status !== 200 || eligible.status !== 200;
+  const users = await all(c, `/users?${new URLSearchParams({ $select: SELECT, $top: "999" })}`);
+  if (users.status !== 200) throw failed(users, "list your mailboxes");
+  const out: MailUser[] = [];
+  for (const u of users.value) {
+    // A role given to a group: its members aren't listed here, so groups count by the user's own lookup.
+    const x = user(u, unknown || admins.has(String(u?.id)));
+    if (x.address.endsWith(`@${c.domain}`)) out.push(x);
   }
   return out.sort((a, b) => a.address.localeCompare(b.address));
 }
 
-// The tenant's licences that include Exchange Online (mail), with how many are free.
+// The tenant's licences that give a mailbox (an Exchange Online plan with one:
+// Plan 1 or 2, Kiosk, Essentials, Business Basic and up; not the Exchange
+// "foundation" every Power BI, Visio or Project licence carries), with how
+// many are free.
 export type Licence = { sku: string; name: string; free: number };
+const MAILBOX_PLANS = /^(EXCHANGE_S_STANDARD|EXCHANGE_S_ENTERPRISE|EXCHANGE_S_DESKLESS|EXCHANGE_S_ESSENTIALS|EXCHANGE_B_STANDARD)(_[A-Z0-9]+)?$/;
 
 export async function licences(c: Connection, fresh = false): Promise<Licence[]> {
-  const r = await call(c, "GET", "/subscribedSkus?$select=skuId,skuPartNumber,prepaidUnits,consumedUnits,servicePlans",
+  const r = await call(c, "GET", "/subscribedSkus?$select=skuId,skuPartNumber,capabilityStatus,prepaidUnits,consumedUnits,servicePlans",
                        undefined, fresh);
   if (r.status !== 200) throw failed(r, "see your Microsoft 365 licences");
   const out: Licence[] = [];
   for (const s of Array.isArray(r.body?.value) ? r.body.value : []) {
-    const mail = (s?.servicePlans ?? []).some((p: any) => /^EXCHANGE_S_/.test(String(p?.servicePlanName ?? "")));
-    if (!mail || typeof s?.skuId !== "string") continue;
+    const mail = (s?.servicePlans ?? []).some((p: any) => MAILBOX_PLANS.test(String(p?.servicePlanName ?? "")));
+    if (!mail || typeof s?.skuId !== "string" || (s?.capabilityStatus && s.capabilityStatus !== "Enabled")) continue;
     const free = Number(s?.prepaidUnits?.enabled ?? 0) - Number(s?.consumedUnits ?? 0);
     out.push({ sku: s.skuId, name: String(s?.skuPartNumber ?? "").slice(0, 64), free: Math.max(0, free) });
   }
   return out;
 }
 
-// Checks the connection works: a token, the users of the domain, and a licence
-// with mail. Returns the licence mailboxes are given.
-export async function check(c: Connection): Promise<Licence> {
+// Checks the connection works: a token, the users of the domain, admin roles,
+// and a licence with a mailbox. Returns the licence mailboxes are given: the
+// one asked for (by name, ENTERPRISEPACK...), else the first with a free seat.
+export async function check(c: Connection, wanted = ""): Promise<Licence> {
   const r = await call(c, "GET", `/users?${new URLSearchParams({ $select: "id", $top: "1" })}`, undefined, true);
   if (r.status !== 200) throw failed(r, `list the users of ${c.domain}`);
   // Without seeing admin roles, every mailbox would count as an admin's (Owner only): said now.
-  const roles = await call(c, "GET", "/roleManagement/directory/roleAssignments?$select=id&$top=1");
-  if (roles.status !== 200) throw failed(roles, "see who has admin roles (RoleManagement.Read.Directory)");
-  const all = await licences(c);
-  const chosen = all.find((l) => l.sku === c.licence) ?? all.find((l) => l.free > 0) ?? all[0];
+  const global = new URLSearchParams({ $filter: "roleDefinitionId eq '62e90394-69f5-4237-9190-012177145e10'" });
+  for (const path of ["roleAssignments", "roleEligibilityScheduleInstances"]) {
+    const roles = await call(c, "GET", `/roleManagement/directory/${path}?${global}`);
+    if (roles.status !== 200) throw failed(roles, "see who has admin roles (RoleManagement.Read.Directory)");
+  }
+  const groups = await call(c, "GET", `/groups?${new URLSearchParams({ $select: "id", $top: "1" })}`);
+  if (groups.status !== 200) throw failed(groups, "see groups that hold admin roles (GroupMember.Read.All)");
+  const mine = await licences(c);
+  const name = wanted.trim().toUpperCase();
+  if (name) {
+    const one = mine.find((l) => l.name === name || l.sku === wanted.trim().toLowerCase());
+    if (!one) {
+      throw new MailError(400, `there's no licence ${name} with a mailbox` +
+        (mine.length ? `. You have: ${mine.map((l) => l.name).join(", ")}` : ""));
+    }
+    return one;
+  }
+  const chosen = mine.find((l) => l.sku === c.licence) ?? mine.find((l) => l.free > 0) ?? mine[0];
   if (!chosen) {
-    throw new MailError(400, "your Microsoft 365 has no licence with email (Exchange Online). Buy or add one, then connect again");
+    throw new MailError(400, "your Microsoft 365 has no licence with a mailbox (Exchange Online). Buy or add one, then " +
+      "connect again");
   }
   return chosen;
 }
@@ -221,6 +293,8 @@ const mailNickname = (address: string) => address.split("@")[0].replace(/[^A-Za-
 
 // Returns the new mailbox's Microsoft id. The user gets the connection's
 // licence (that's what makes the mailbox); without a free one, nothing is made.
+// If the licence isn't given, the user is taken away again: none is left
+// without a mailbox, or with a licence Kulan Fleet doesn't know about.
 export async function createUser(c: Connection, address: string, name: { given: string; family: string }, password: string):
     Promise<string> {
   const free = (await licences(c)).find((l) => l.sku === c.licence);
@@ -237,36 +311,57 @@ export async function createUser(c: Connection, address: string, name: { given: 
   });
   if (r.status !== 201 && r.status !== 200) throw failed(r, "make that mailbox");
   const id = typeof r.body?.id === "string" ? r.body.id : "";
-  const lic = await call(c, "POST", `${at(id || address)}/assignLicense`, { addLicenses: [{ skuId: c.licence, disabledPlans: [] }],
-                                                                            removeLicenses: [] });
-  if (lic.status !== 200) {
-    // A user without the licence has no mailbox: taken away again, so a retry starts clean.
-    await call(c, "DELETE", at(id || address)).catch(() => null);
-    throw failed(lic, "give the new mailbox its licence");
+  if (!GUID.test(id)) throw new MailError(502, "Microsoft made the user but didn't say its id. Check it in the Microsoft 365 admin center");
+  let done = false;
+  try {
+    for (let attempt = 0; ; attempt++) {
+      const lic = await call(c, "POST", `${at(id)}/assignLicense`, { addLicenses: [{ skuId: c.licence, disabledPlans: [] }],
+                                                                    removeLicenses: [] });
+      if (lic.status === 200) break;
+      // Not known yet (made a moment ago): asked again.
+      if (lic.status === 404 && attempt < settle.delays.length) {
+        await sleep(settle.delays[attempt]);
+        continue;
+      }
+      throw failed(lic, "give the new mailbox its licence");
+    }
+    done = true;
+    return id;
+  } finally {
+    if (!done) await deleteUser(c, id).catch(() => null);
   }
-  return id;
 }
 
-export async function setSuspended(c: Connection, key: string, suspended: boolean) {
-  const r = await call(c, "PATCH", at(key), { accountEnabled: !suspended });
-  if (r.status !== 204 && r.status !== 200) throw failed(r, suspended ? "suspend that mailbox" : "unsuspend that mailbox");
+// A change Microsoft refuses for an admin account: the app itself needs an
+// admin role for those. Not a broken connection (status 400, not 403).
+async function refused(c: Connection, r: { status: number; body: any }, id: string, what: string): Promise<MailError> {
+  if ((r.status === 403 || r.status === 401) && await isAdmin(c, id)) {
+    return new MailError(400, `Microsoft only lets Kulan Fleet ${what} of an admin account if the Kulan Fleet app has an ` +
+      "admin role itself (Privileged Authentication Administrator). Do it in the Microsoft 365 admin center instead");
+  }
+  return failed(r, what);
+}
+
+export async function setSuspended(c: Connection, id: string, suspended: boolean) {
+  const r = await call(c, "PATCH", at(id), { accountEnabled: !suspended });
+  if (r.status !== 204 && r.status !== 200) throw await refused(c, r, id, suspended ? "block sign-in" : "allow sign-in");
   // Signed out everywhere at once, as Google does when suspending (best effort).
-  if (suspended) await call(c, "POST", `${at(key)}/revokeSignInSessions`).catch(() => null);
+  if (suspended) await call(c, "POST", `${at(id)}/revokeSignInSessions`).catch(() => null);
 }
 
-export async function rename(c: Connection, key: string, name: { given: string; family: string }) {
-  const r = await call(c, "PATCH", at(key), { givenName: name.given, surname: name.family,
-                                              displayName: `${name.given} ${name.family}`.trim().slice(0, 256) });
-  if (r.status !== 204 && r.status !== 200) throw failed(r, "change the name on that mailbox");
+export async function rename(c: Connection, id: string, name: { given: string; family: string }) {
+  const r = await call(c, "PATCH", at(id), { givenName: name.given, surname: name.family,
+                                             displayName: `${name.given} ${name.family}`.trim().slice(0, 256) });
+  if (r.status !== 204 && r.status !== 200) throw await refused(c, r, id, "change the name");
 }
 
-export async function setPassword(c: Connection, key: string, password: string) {
-  const r = await call(c, "PATCH", at(key), { passwordProfile: { password, forceChangePasswordNextSignIn: true } });
-  if (r.status !== 204 && r.status !== 200) throw failed(r, "give that mailbox a new password");
+export async function setPassword(c: Connection, id: string, password: string) {
+  const r = await call(c, "PATCH", at(id), { passwordProfile: { password, forceChangePasswordNextSignIn: true } });
+  if (r.status !== 204 && r.status !== 200) throw await refused(c, r, id, "change the password");
 }
 
 // Microsoft keeps a deleted user 30 days (Deleted users in the admin center), then removes it.
-export async function deleteUser(c: Connection, key: string) {
-  const r = await call(c, "DELETE", at(key));
-  if (r.status !== 204 && r.status !== 200 && r.status !== 404) throw failed(r, "delete that mailbox");
+export async function deleteUser(c: Connection, id: string) {
+  const r = await call(c, "DELETE", at(id));
+  if (r.status !== 204 && r.status !== 200 && r.status !== 404) throw await refused(c, r, id, "delete the account");
 }

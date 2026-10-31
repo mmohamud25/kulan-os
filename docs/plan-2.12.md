@@ -84,7 +84,7 @@ capabilities (caps/extended), so its cache folder is another one
    registered in Microsoft Entra (tenant ID, client ID, a client secret;
    Microsoft Graph application permissions User.ReadWrite.All,
    User-PasswordProfile.ReadWrite.All, Organization.Read.All,
-   RoleManagement.Read.Directory, admin consent). fleet-admin's microsoft.ts
+   RoleManagement.Read.Directory, GroupMember.Read.All, admin consent). fleet-admin's microsoft.ts
    has the same functions as google.ts; mail.ts picks one per organisation,
    and every message names the service connected. New mailboxes get the
    first licence with Exchange Online (chosen when connecting, its free count
@@ -105,6 +105,20 @@ capabilities (caps/extended), so its cache folder is another one
    blocked, renamed, new passwords, admin accounts, no free licence, Microsoft
    down, removed, the log, switching services), dashboard.test.cjs, the Fleet
    app's self-test, workmail-test.py, work-email-reminder-test.py.
+   A separate review then found, and these were fixed (each with a test):
+   any SKU with an EXCHANGE_S_ plan counted as a mailbox licence (Power BI
+   and Visio carry EXCHANGE_S_FOUNDATION, which gives none; now only the
+   plans with a mailbox, enabled SKUs, and the Owner can name one); admins by
+   PIM eligibility or through a role-assignable group weren't seen (now:
+   roleAssignments, roleEligibilityScheduleInstances, transitiveMemberOf,
+   GroupMember.Read.All, every page, unknown = admin); Graph's delay after
+   making a user (404s, now asked again); a licensed user could be left
+   behind (try/finally, and deleted when People can't keep it); Microsoft's
+   refusal for admin accounts read as a broken connection (now explained:
+   the app would need Privileged Authentication Administrator); addresses
+   that aren't the sign-in name (mail vs userPrincipalName, looked up with
+   a filter, apostrophes doubled); each person's mailbox now records its
+   service (mailbox_provider) and is never looked for in the other.
    Not tried against a real Microsoft 365 tenant yet.
 
 ## Releasing

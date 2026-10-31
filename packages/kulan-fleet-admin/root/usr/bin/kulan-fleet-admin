@@ -128,7 +128,7 @@ GOOGLE_SCOPE = "https://www.googleapis.com/auth/admin.directory.user"
 GOOGLE_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md"
 # Microsoft 365 (2.12): an app registration with these Microsoft Graph application permissions.
 MS_PERMISSIONS = ["User.ReadWrite.All", "User-PasswordProfile.ReadWrite.All", "Organization.Read.All",
-                  "RoleManagement.Read.Directory"]
+                  "RoleManagement.Read.Directory", "GroupMember.Read.All"]
 MS_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-microsoft-365.md"
 GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
@@ -4210,8 +4210,9 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def connect_microsoft(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Connect Microsoft 365",
-                                 body="From the app you registered in Microsoft Entra for Kulan Fleet. New mailboxes "
-                                      "get your first Microsoft 365 licence that includes email. The secret is stored "
+                                 body="From the app you registered in Microsoft Entra for Kulan Fleet. Without a "
+                                      "licence named, new mailboxes get your first Microsoft 365 licence with a mailbox "
+                                      "that has seats free. The secret is stored "
                                       "encrypted and can't be read back. When it expires, connect again with a new one.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         tenant = Adw.EntryRow(title="Directory (tenant) ID")
@@ -4221,7 +4222,8 @@ class FleetWindow(Adw.ApplicationWindow):
         region = (GLib.get_language_names()[0].split(".")[0].split("_") + [""])[1]
         country = Adw.EntryRow(title="Country people's mailboxes are used in (two letters)",
                                text=region if re.fullmatch(r"[A-Z]{2}", region) else "US")
-        for row in (tenant, client, secret, domain, country):
+        licence = Adw.EntryRow(title="Licence for new mailboxes (optional: ENTERPRISEPACK…)")
+        for row in (tenant, client, secret, domain, country, licence):
             box.append(row)
         note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"], margin_top=6)
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -4250,7 +4252,8 @@ class FleetWindow(Adw.ApplicationWindow):
             body = {"op": "connect-mail", "organisation_id": org["id"], "provider": "microsoft",
                     "tenant_id": tenant.get_text().strip(), "client_id": client.get_text().strip(),
                     "client_secret": secret.get_text().strip(), "domain": domain.get_text().strip().lower(),
-                    "usage_location": country.get_text().strip().upper()}
+                    "usage_location": country.get_text().strip().upper(),
+                    **({"licence": licence.get_text().strip()} if licence.get_text().strip() else {})}
             secret.set_text("")
 
             def done(r, error):

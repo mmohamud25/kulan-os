@@ -24,3 +24,8 @@ alter table fleet.mail_connections add column if not exists usage_location text
 alter table fleet.mail_connections drop constraint if exists mail_connections_microsoft_check;
 alter table fleet.mail_connections add constraint mail_connections_microsoft_check
   check (provider <> 'microsoft' or (tenant_id is not null and licence is not null and usage_location is not null));
+-- Which service a person's mailbox is in, so it's never looked for in the other
+-- one after switching (before 2.12 there was only Google Workspace).
+alter table fleet.people add column if not exists mailbox_provider text
+  check (mailbox_provider is null or mailbox_provider in ('google', 'microsoft'));
+update fleet.people set mailbox_provider = 'google' where mailbox is not null and mailbox_provider is null;

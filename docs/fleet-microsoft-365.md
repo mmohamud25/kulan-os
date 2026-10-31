@@ -5,8 +5,10 @@ mailboxes along with their accounts on the computers (Kulan OS 2.12), as it
 does for Google Workspace:
 
 - Adding someone in People can make their mailbox (`name@yourdomain`). Kulan
-  Fleet gives it your first Microsoft 365 licence that includes email
-  (Exchange Online). You see its first password once; Microsoft asks them
+  Fleet gives it the licence you chose, or your first Microsoft 365 licence
+  with a mailbox (Exchange Online) that has seats free. Licences that only
+  carry Exchange's basic "foundation" (Power BI, Visio, Project) don't count:
+  they give no mailbox. You see its first password once; Microsoft asks them
   for a new one at their first sign-in.
 - Disabling someone blocks their sign-in and signs them out everywhere;
   enabling them lets them sign in again.
@@ -31,7 +33,8 @@ these Microsoft Graph **application permissions** and nothing else:
 | `User.ReadWrite.All` | make, rename, block and delete users, and give them a licence |
 | `User-PasswordProfile.ReadWrite.All` | first passwords, and new ones when you ask |
 | `Organization.Read.All` | see your licences and how many are free |
-| `RoleManagement.Read.Directory` | tell admin accounts apart (only the Owner changes those) |
+| `RoleManagement.Read.Directory` | tell admin accounts apart, including people eligible for a role (only the Owner changes those) |
+| `GroupMember.Read.All` | the same for people who get a role through a group |
 
 It can't read anyone's mail, files or calendar. Kulan Fleet keeps the app's
 client secret encrypted with a key only Kulan Fleet's server has. Nobody can
@@ -54,7 +57,7 @@ Every mailbox uses a Microsoft 365 licence, billed by Microsoft as usual.
 ## 2. Give it its permissions
 1. In the app: **API permissions › Add a permission › Microsoft Graph ›
    Application permissions**.
-2. Search for and tick each of the four permissions above, then **Add
+2. Search for and tick each of the five permissions above, then **Add
    permissions**.
 3. **Grant admin consent for** *your organisation* › **Yes**. Each
    permission's status must say **Granted**.
@@ -77,6 +80,9 @@ Every mailbox uses a Microsoft 365 licence, billed by Microsoft as usual.
    verified domains in Microsoft 365).
 3. Choose the country people's mailboxes are used in (two letters, `US`,
    `GB`, `SO`...). Microsoft needs it before it gives anyone a licence.
+   If you have more than one licence with a mailbox, you can name the one
+   new mailboxes get, as Microsoft names it in **Billing › Licenses**
+   (`O365_BUSINESS_ESSENTIALS`, `ENTERPRISEPACK`...).
 4. **Connect**. Kulan Fleet checks the app with Microsoft before saving
    anything, and says which licence new mailboxes get and how many are
    free. If Microsoft refuses, it says why.
@@ -107,6 +113,13 @@ and link each person's new mailbox.
   **Value**, not its ID, or make a new secret.
 - **"there's no free licence".** Buy or free up a licence with email in the
   Microsoft 365 admin center (**Billing › Licenses**), then try again.
+- **"Microsoft only lets Kulan Fleet … of an admin account".** Microsoft
+  protects admin accounts from apps that aren't admins themselves. Change
+  that account in the Microsoft 365 admin center, or give the Kulan Fleet app
+  the **Privileged Authentication Administrator** role (Microsoft Entra ›
+  Roles and admins), which lets it change any account.
+- **A new mailbox takes a few minutes to work.** Microsoft sets the mailbox
+  up after the licence is given; sign-in works at once, mail shortly after.
 - **To stop it**, choose **Disconnect** in Kulan Fleet. Mailboxes stay as
   they are. To make the secret useless too, delete it in Microsoft Entra
   (**App registrations › Kulan Fleet › Certificates & secrets**), or delete

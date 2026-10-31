@@ -526,7 +526,7 @@ Deno.serve(async (req: Request) => {
     const person = async (id: string | null, removedToo = false) => {
       if (!id) return null;
       const rows = await sql`select id, organisation_id, username, full_name, email, role, enabled, all_computers,
-                                    mailbox, mailbox_state, mailbox_todo, mailbox_google_id, removed_at,
+                                    mailbox, mailbox_state, mailbox_todo, mailbox_google_id, mailbox_provider, removed_at,
                                     coalesce((select array_agg(pc.device_id::text order by pc.device_id)
                                               from fleet.person_computers pc where pc.person_id = fleet.people.id), '{}') as computers,
                                     coalesce((select array_agg(pg.group_id::text order by pg.group_id)
@@ -606,6 +606,12 @@ Deno.serve(async (req: Request) => {
     // (an address can be renamed, or become someone else's alias), else by an
     // address that is still its own. null if Google has no such mailbox.
     const theirMailbox = async (conn: mail.Connection, p: Record<string, any>) => {
+      // Made or linked with the other service (before switching): never looked for in this one.
+      const theirs = p.mailbox_provider ?? "google";
+      if (theirs !== conn.provider) {
+        throw new mail.MailError(409, `${p.mailbox} is a ${mail.label(theirs)} mailbox, and ${mail.label(conn.provider)} is ` +
+          `connected now. Unlink it in People, then make or link their ${mail.label(conn.provider)} mailbox`);
+      }
       const u = await mail.getUser(conn, p.mailbox_google_id || p.mailbox);
       if (!u) return null;
       if (p.mailbox_google_id ? u.id !== p.mailbox_google_id : u.address !== p.mailbox) {
@@ -635,7 +641,8 @@ Deno.serve(async (req: Request) => {
       if (todo === "rename" && pending && pending !== "rename") {
         const err = await mailboxDo(p, pending as "suspend" | "unsuspend" | "delete");
         if (err) return err;
-        const [now] = await sql`select mailbox, mailbox_state, mailbox_todo, mailbox_google_id from fleet.people where id = ${p.id}`;
+        const [now] = await sql`select mailbox, mailbox_state, mailbox_todo, mailbox_google_id, mailbox_provider
+                                from fleet.people where id = ${p.id}`;
         if (now.mailbox_state === "deleted") return null;
         p = { ...p, ...now };
         return await mailboxDo(p, "rename");
@@ -704,12 +711,13 @@ Deno.serve(async (req: Request) => {
         if (!u) return { status: 404, body: { error: `${mail.short(conn.provider)} has no mailbox ${address}. Make one instead` } };
         if (u.address !== address) return { status: 400, body: { error: `that's an alias of ${u.address}. Link ${u.address} instead` } };
         await sql`update fleet.people set mailbox = ${address}, mailbox_state = ${u.suspended ? "suspended" : "active"},
-                    mailbox_google_id = ${u.id || null}, mailbox_todo = null, mailbox_error = null where id = ${p.id}`;
+                    mailbox_google_id = ${u.id || null}, mailbox_provider = ${conn.provider}, mailbox_todo = null,
+                    mailbox_error = null where id = ${p.id}`;
         await audit(p.organisation_id, null, `linked ${p.username}'s mailbox`.slice(0, 80), { mailbox: address });
         // Linked to someone disabled: their mailbox is suspended too.
         if (!p.enabled && !u.suspended) {
           const err = await mailboxDo({ ...p, mailbox: address, mailbox_state: "active", mailbox_google_id: u.id || null,
-                                        mailbox_todo: null }, "suspend");
+                                        mailbox_provider: conn.provider, mailbox_todo: null }, "suspend");
           return { status: 200, body: { mailbox: address, ...(err ? { mailbox_error: err } : {}) } };
         }
         return { status: 200, body: { mailbox: address } };
@@ -722,12 +730,19 @@ Deno.serve(async (req: Request) => {
       }
       const password = mail.tempPassword();
       const gid = await mail.createUser(conn, address, mail.splitName(p.full_name ?? "", p.username), password);
-      await sql`update fleet.people set mailbox = ${address}, mailbox_state = 'active', mailbox_google_id = ${gid || null},
-                  mailbox_todo = null, mailbox_error = null where id = ${p.id}`;
+      try {
+        await sql`update fleet.people set mailbox = ${address}, mailbox_state = 'active', mailbox_google_id = ${gid || null},
+                    mailbox_provider = ${conn.provider}, mailbox_todo = null, mailbox_error = null where id = ${p.id}`;
+      } catch (e) {
+        // Not kept in People (someone was given that address just now): the new mailbox goes again,
+        // so none is left that Kulan Fleet doesn't know about.
+        await mail.deleteUser(conn, gid || address).catch(() => null);
+        throw e;
+      }
       await audit(p.organisation_id, null, `made a mailbox for ${p.username}`.slice(0, 80), { mailbox: address });
       let err: string | null = null;
       if (!p.enabled) err = await mailboxDo({ ...p, mailbox: address, mailbox_state: "active", mailbox_google_id: gid || null,
-                                              mailbox_todo: null }, "suspend");
+                                              mailbox_provider: conn.provider, mailbox_todo: null }, "suspend");
       return { status: 200, body: { mailbox: address, mailbox_password: password, ...(err ? { mailbox_error: err } : {}) } };
     };
 
@@ -1679,7 +1694,8 @@ Deno.serve(async (req: Request) => {
           let licence: microsoft.Licence;
           try {
             licence = await microsoft.check({ organisation_id: org, domain, tenant_id: app.tenant_id, client_id: app.client_id,
-                                              secret: app.secret, licence: null, usage_location: country });
+                                              secret: app.secret, licence: null, usage_location: country },
+                                            typeof body.licence === "string" ? body.licence.slice(0, 64) : "");
           } catch (e) {
             return reply(400, { error: why(e), permissions: microsoft.PERMISSIONS });
           }
@@ -1784,7 +1800,8 @@ Deno.serve(async (req: Request) => {
         }
         if (action === "unlink") {
           if (!p.mailbox) return reply(400, { error: "they have no mailbox in Kulan Fleet" });
-          await sql`update fleet.people set mailbox = null, mailbox_state = null, mailbox_google_id = null, mailbox_todo = null,
+          await sql`update fleet.people set mailbox = null, mailbox_state = null, mailbox_google_id = null, mailbox_provider = null,
+                      mailbox_todo = null,
                       mailbox_error = null where id = ${p.id}`;
           await audit(org, null, `unlinked ${p.username}'s mailbox`.slice(0, 80), { mailbox: p.mailbox });
           return reply(200, {});

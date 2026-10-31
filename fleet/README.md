@@ -66,8 +66,8 @@ lock-screen, restart):
   picks the organisation's service): the Owner connects an app registered
   in Microsoft Entra (tenant ID, client ID, a client secret, sealed like
   Google's key) with the Graph application permissions User.ReadWrite.All,
-  User-PasswordProfile.ReadWrite.All, Organization.Read.All and
-  RoleManagement.Read.Directory. New mailboxes get the licence with
+  User-PasswordProfile.ReadWrite.All, Organization.Read.All,
+  RoleManagement.Read.Directory and GroupMember.Read.All. New mailboxes get the licence with
   Exchange Online chosen when connecting. The guide is
   `docs/fleet-microsoft-365.md`. One service per organisation at a time.
 

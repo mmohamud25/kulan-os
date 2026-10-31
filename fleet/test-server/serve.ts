@@ -275,7 +275,14 @@ async function microsoft(req: Request, path: string): Promise<Response> {
     return json(200, { value: [{ skuId: MS_SKU, skuPartNumber: "ENTERPRISEPACK", prepaidUnits: { enabled: 25 }, consumedUnits: used,
                                  servicePlans: [{ servicePlanName: "EXCHANGE_S_ENTERPRISE" }] }] });
   }
-  if (p === "/roleManagement/directory/roleAssignments") return json(200, { value: [] });
+  if (p === "/roleManagement/directory/roleAssignments" || p === "/roleManagement/directory/roleEligibilityScheduleInstances" ||
+      p === "/groups" || /^\/users\/[^/]+\/transitiveMemberOf\/microsoft\.graph\.group$/.test(p)) {
+    return json(200, { value: [] });
+  }
+  if (p === "/users" && req.method === "GET" && new URL(req.url).searchParams.get("$filter")) {
+    const k = (new URL(req.url).searchParams.get("$filter")!.match(/eq '((?:[^']|'')*)'/)?.[1] ?? "").replaceAll("''", "'");
+    return json(200, { value: [...musers.values()].filter((u) => u.userPrincipalName === k).map(show) });
+  }
   if (p === "/users" && req.method === "GET") return json(200, { value: [...musers.values()].map(show) });
   if (p === "/users" && req.method === "POST") {
     const upn = String(body.userPrincipalName ?? "").toLowerCase();

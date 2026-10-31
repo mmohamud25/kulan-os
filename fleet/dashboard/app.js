@@ -1058,6 +1058,7 @@ function connectMicrosoft() {
   const region = (navigator.language || "").split("-")[1];
   const country = el("input", { autocomplete: "off", spellcheck: "false", maxlength: "2", style: "width: 70px",
                                 value: /^[A-Z]{2}$/.test(region || "") ? region : "US" });
+  const licence = el("input", { autocomplete: "off", spellcheck: "false", placeholder: "Leave empty for the first with a mailbox" });
   const err = errorLine();
   const go = el("button", { type: "button", class: "primary", onclick: async () => {
     if (!tenant.value.trim() || !client.value.trim() || !secret.value.trim() || !domain.value.trim()) {
@@ -1068,7 +1069,8 @@ function connectMicrosoft() {
     try {
       const out = await api({ op: "connect-mail", organisation_id: $("org").value, provider: "microsoft", tenant_id: tenant.value.trim(),
                               client_id: client.value.trim(), client_secret: secret.value.trim(), domain: domain.value.trim().toLowerCase(),
-                              usage_location: country.value.trim().toUpperCase() });
+                              usage_location: country.value.trim().toUpperCase(),
+                              ...(licence.value.trim() ? { licence: licence.value.trim() } : {}) });
       secret.value = "";
       $("dlg").close();
       await load();
@@ -1079,11 +1081,13 @@ function connectMicrosoft() {
   dialog("Connect Microsoft 365", [
     el("p", {}, "As a Microsoft 365 admin, open Microsoft Entra › App registrations › New registration, and register an app for Kulan Fleet (one tenant only, no redirect address). In its API permissions, add these Microsoft Graph application permissions, then choose Grant admin consent:"),
     el("p", { class: "small", style: "font-family: ui-monospace, monospace" }, (msPermissions.length ? msPermissions
-      : ["User.ReadWrite.All", "User-PasswordProfile.ReadWrite.All", "Organization.Read.All", "RoleManagement.Read.Directory"]).join(", ")),
+      : ["User.ReadWrite.All", "User-PasswordProfile.ReadWrite.All", "Organization.Read.All", "RoleManagement.Read.Directory",
+         "GroupMember.Read.All"]).join(", ")),
     el("p", {}, "In Certificates & secrets, make a client secret, and copy its Value."),
     field("Directory (tenant) ID", tenant), field("Application (client) ID", client), field("Client secret's Value", secret),
     field("Your email domain", domain), field("Country people's mailboxes are used in (two letters)", country),
-    el("p", { class: "note" }, "New mailboxes get your first Microsoft 365 licence that includes email. The secret is stored encrypted and can't be read back. When it expires, connect again with a new one."), err],
+    field("Licence for new mailboxes (optional, as Microsoft names it: O365_BUSINESS_ESSENTIALS, ENTERPRISEPACK…)", licence),
+    el("p", { class: "note" }, "Without a licence named, new mailboxes get your first Microsoft 365 licence with a mailbox that has seats free. The secret is stored encrypted and can't be read back. When it expires, connect again with a new one."), err],
     [closeButton(), go]);
 }
 
