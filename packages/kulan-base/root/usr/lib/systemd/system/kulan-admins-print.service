@@ -1,0 +1,7 @@
+[Unit]
+Description=Kulan OS: let every administrator manage printers
+Documentation=https://github.com/mmohamud25/kulan-os
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/admins-print

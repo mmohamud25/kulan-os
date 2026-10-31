@@ -50,10 +50,19 @@ def downloaded(model: dict) -> bool:
     return path.is_file() and path.stat().st_size == model.get("size")
 
 
+def can_run(model: dict, memory: float) -> bool:
+    """Whether this computer has the memory the model needs at all (unknown memory: assume so)."""
+    return not memory or model.get("memory_gb", 99) <= memory
+
+
 def recommended(all_models: list[dict], memory: float) -> str | None:
-    """The largest model that leaves room for everything else (half the memory, at least 4 GB free)."""
+    """The largest model that leaves room for everything else (half the memory, at least 4 GB free);
+    else the smallest one this computer can run; None when it can run none of them."""
     fits = [m for m in all_models if m.get("memory_gb", 99) <= max(memory - 4, memory / 2)]
-    return (fits[-1] if fits else (all_models[0] if all_models else {})).get("id")
+    if fits:
+        return fits[-1].get("id")
+    runnable = [m for m in all_models if can_run(m, memory)]
+    return runnable[0].get("id") if runnable else None
 
 
 def size_text(size: int) -> str:
@@ -90,7 +99,8 @@ class AssistantPage(Page):
             "never leaves it, and it works offline once a model is downloaded.")
         memory = f"This computer has {self.memory:.0f} GB of memory. " if self.memory else ""
         self.groups["writing"] = self.add_group("Writing model", memory + KINDS["writing"][1] + " Models are "
-                                                "downloaded once, for everyone on this computer, from Hugging Face.")
+                                                "downloaded once, for everyone on this computer, from Hugging Face. "
+                                                "Anyone using this computer can download one.")
         self.progress = Gtk.ProgressBar(show_text=True, margin_top=6, visible=False)
         self.progress.update_property([Gtk.AccessibleProperty.LABEL], ["Model download"])
 
@@ -243,6 +253,18 @@ class AssistantPage(Page):
         picked = self.settings.get_user_value(key)
         chosen = picked.get_string() if picked is not None else (best or self.settings.get_string(key))
         rows: list[Gtk.Widget] = []
+        if kind == "writing" and all_models and best is None:
+            # Not one model fits in this computer's memory: say so plainly, and don't offer a download
+            # that couldn't run.
+            need = min(m.get("memory_gb", 99) for m in all_models)
+            note = Adw.ActionRow(title="This computer doesn’t have enough memory for Ask Kulan",
+                                 subtitle=f"Writing help needs at least {need} GB of memory, and this computer "
+                                          f"has {self.memory:.0f} GB."
+                                          + (" Dictation still works." if "dictation" in self.groups else ""),
+                                 subtitle_lines=0)
+            note.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+            group.add(note)
+            rows.append(note)
         first_radio = None
         for model in all_models:
             title = model.get("title", model["id"])
@@ -267,6 +289,13 @@ class AssistantPage(Page):
                                     tooltip_text="Delete this model", css_classes=["flat"])
                 button.update_property([Gtk.AccessibleProperty.LABEL], [f"Delete the {model.get('title')} model"])
                 button.connect("clicked", self.on_remove, model)
+            elif not can_run(model, self.memory):
+                row.add_suffix(Gtk.Label(label=f"Needs {model.get('memory_gb')} GB of memory",
+                                         css_classes=["dim-label", "caption"]))
+                radio.set_sensitive(False)
+                group.add(row)
+                rows.append(row)
+                continue
             else:
                 button = Gtk.Button(label="Download", valign=Gtk.Align.CENTER,
                                     css_classes=["suggested-action"] if model["id"] == chosen else [])

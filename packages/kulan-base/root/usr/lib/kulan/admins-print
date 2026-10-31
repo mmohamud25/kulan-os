@@ -1,0 +1,21 @@
+#!/bin/sh
+# Kulan OS: every administrator can add and change printers.
+#
+# Debian lets members of the lpadmin group manage printers without a
+# password, but only the first account is put in it: an administrator added
+# later (Kulan Settings › Users, GNOME Settings, Kulan Fleet) couldn't add a
+# printer. This adds every member of the sudo group to lpadmin. It runs once
+# when kulan-base is set up and whenever the groups change
+# (kulan-admins-print.path). It only adds: someone put in lpadmin by hand
+# stays in it.
+set -eu
+
+getent group lpadmin >/dev/null 2>&1 || exit 0  # no printing system (CUPS) here
+ADMINS="$(getent group sudo | cut -d: -f4 | tr ',' ' ')"
+PRINTERS=",$(getent group lpadmin | cut -d: -f4),"
+for USER_NAME in ${ADMINS}; do
+	case "${PRINTERS}" in *",${USER_NAME},"*) continue ;; esac
+	getent passwd "${USER_NAME}" >/dev/null 2>&1 || continue
+	gpasswd -a "${USER_NAME}" lpadmin >/dev/null || echo "kulan: couldn't add ${USER_NAME} to lpadmin" >&2
+done
+exit 0

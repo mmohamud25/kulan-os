@@ -4,8 +4,8 @@ connected it.
 
 Each report's reply gives, per person with a working mailbox,
 "mail": {address, provider}. Provider "google" (Google Workspace) is
-connected with GNOME Online Accounts (mail in Geary, calendar, contacts,
-Google Drive in Files); a later provider (Kulan's own mail server) only adds
+connected with GNOME Online Accounts (mail in Geary, Kulan's mail app and
+the default for email, calendar, contacts, Google Drive in Files); a later provider (Kulan's own mail server) only adds
 a branch here and to connect_command().
 
   /var/lib/kulan/fleet-mail/<username>   {address, provider}: each person's own,
@@ -21,6 +21,7 @@ import json
 import os
 import pwd
 import re
+import shutil
 import time
 from pathlib import Path
 
@@ -133,6 +134,15 @@ def connected(mail: dict, home: Path) -> bool:
 def connect_command(mail: dict) -> list[str]:
     """What opens the place to connect it: Settings › Online Accounts › Google."""
     return ["gnome-control-center", "online-accounts", "add", "google"]
+
+
+def open_command(_mail: dict) -> list[str]:
+    """What opens the mailbox once it's connected: the mail app (Geary, Kulan's
+    default for email), which reads the Online Accounts account by itself.
+    Without it, the account in Online Accounts."""
+    if shutil.which("geary"):
+        return ["geary"]
+    return ["gnome-control-center", "online-accounts"]
 
 
 def ask_today(username: str, home: Path, public: Path | None = None, now: float | None = None) -> dict | None:

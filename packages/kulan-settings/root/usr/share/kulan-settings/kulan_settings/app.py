@@ -7,6 +7,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .about import AboutPage
 from .accessibility import AccessibilityPage
+from .accounts import AccountsPage
 from .addons import AddonsPage
 from .apps import AppsPage
 from .appearance import AppearancePage
@@ -57,6 +58,7 @@ PAGES = [
     ("focus", FocusPage),
     ("notifications", NotificationsPage),
     ("users", UsersPage),
+    ("accounts", AccountsPage),
     ("parental-controls", FamilyPage),
     # How it looks
     ("appearance", AppearancePage),
@@ -93,7 +95,7 @@ GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-
 # rounded square, like a Mac's System Settings.
 TILE_COLOURS = {
     "wifi": "#0d9488", "bluetooth": "#3b82f6", "phone": "#16a34a", "printers": "#475569", "sharing": "#0ea5e9",
-    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "parental-controls": "#f97316",
+    "sound": "#ef4444", "focus": "#8b5cf6", "notifications": "#f43f5e", "users": "#0ea5e9", "accounts": "#2563eb", "parental-controls": "#f97316",
     "appearance": "#475569", "desktop": "#f59e0b", "dock": "#0ea5e9", "top-bar": "#64748b", "display": "#6366f1",
     "battery": "#10b981", "storage": "#64748b", "login-items": "#94a3b8", "apps": "#8b5cf6",
     "security": "#0f766e", "privacy": "#2563eb", "backups": "#0891b2",
@@ -120,10 +122,9 @@ preferencespage > scrolledwindow > viewport > clamp > box { border-spacing: 30px
     + f".kulan-tile.tile-external {{ background-color: {EXTERNAL_TILE}; }}\n"
 
 
-# Pages that live in GNOME Settings, listed so everything is findable from here.
-GNOME_PANELS = [
-    ("Online accounts", "org.gnome.Settings-online-accounts-symbolic|goa-panel-symbolic", ("online-accounts",)),
-]
+# Pages that live in GNOME Settings, listed so everything is findable from here
+# (Online accounts has its own page now: accounts.py).
+GNOME_PANELS: list[tuple[str, str, tuple[str, ...]]] = []
 
 
 class SettingsWindow(Adw.ApplicationWindow):
@@ -154,7 +155,8 @@ class SettingsWindow(Adw.ApplicationWindow):
                                     margin_top=12, margin_start=6))
         heading.page_id = None
         heading.keywords = ""
-        self.sidebar_list.append(heading)
+        if GNOME_PANELS:
+            self.sidebar_list.append(heading)
         self.heading = heading
         for title, icon, panel in GNOME_PANELS:
             row = self.sidebar_row(title, icon, external=True)
@@ -385,6 +387,17 @@ class KulanSettings(Adw.Application):
             assert users.user_name_from("Amina Yusuf", {"amina"}) not in ("amina", "")
         except (AssertionError, AttributeError) as exc:
             failures.append(f"messages: {exc!r}")
+        try:  # Connected the first time (2.11): hotspot code, models for the memory, accounts in words
+            from . import accounts, assistant, netextras
+            assert netextras.wifi_qr_text("Home;Net", "p:w\\1") == "WIFI:T:WPA;S:Home\\;Net;P:p\\:w\\\\1;;"
+            writing = [{"id": "s", "memory_gb": 3}, {"id": "m", "memory_gb": 4}, {"id": "l", "memory_gb": 7}]
+            assert assistant.recommended(writing, 2) is None, "a model recommended that can't run"
+            assert assistant.recommended(writing, 4) == "s" and assistant.recommended(writing, 16) == "l"
+            assert assistant.recommended(writing, 0) == "s" and not assistant.can_run(writing[2], 6)
+            assert accounts.account_subtitle("ms_graph", "", True).startswith("Microsoft 365 · Signed out")
+            assert accounts.provider_label("google") == "Google"
+        except (AssertionError, AttributeError) as exc:
+            failures.append(f"connected: {exc!r}")
         window.destroy()
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)

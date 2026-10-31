@@ -28,8 +28,22 @@ def flatpak_installed(app_id: str) -> bool:
 
 
 def addon_installed(addon: dict) -> bool:
+    """Installed: its packages and apps are here, or (for a bundle Kulan OS
+    already comes with, "includes") the apps it would bring are."""
+    if addon_builtin(addon):
+        return True
     return (all(package_installed(p) for p in addon.get("packages") or [])
             and all(flatpak_installed(a) for a in addon.get("flatpak") or []))
+
+
+def addon_builtin(addon: dict) -> bool:
+    """A bundle whose apps came with Kulan OS (installed from the ISO, so its own
+    package isn't there): shown as included, and never removed from here, so the
+    built-in apps can't go with it."""
+    includes = addon.get("includes") or []
+    packages = addon.get("packages") or []
+    return bool(includes) and not all(package_installed(p) for p in packages) \
+        and all(package_installed(p) for p in includes)
 
 
 def set_extension(uuid: str, on: bool) -> None:
@@ -108,6 +122,13 @@ class AddonsPage(Page):
 
     def on_clicked(self, button: Gtk.Button, addon: dict, installed: bool) -> None:
         title = addon.get("title", addon["id"])
+        if installed and addon_builtin(addon):
+            dialog = Adw.AlertDialog(heading=f"{title} come with Kulan OS",
+                                     body="They’re part of this computer, so they aren’t removed here. To remove "
+                                          "one of them, find it in Software and choose Uninstall.")
+            dialog.add_response("ok", "OK")
+            dialog.present(self.window)
+            return
         if installed:
             dialog = Adw.AlertDialog(heading=f"Remove {title}?",
                                      body="The apps in this add-on, and anything only they needed, are removed. "

@@ -350,6 +350,7 @@ case "${1:-}" in
 					done
 				done
 			fi
+			if [[ -x "/usr/lib/kulan/addon-hooks/$2" ]]; then "/usr/lib/kulan/addon-hooks/$2" 1>&2 || echo "W: the add-on's own set-up didn't finish" >&2; fi  # 2.11 (211-connected): the add-on's own set-up, addon-hooks/<id>
 		else
 			if [[ ${#PORTS[@]} -gt 0 ]] && command -v ufw >/dev/null 2>&1; then
 				for PORT in "${PORTS[@]}"; do

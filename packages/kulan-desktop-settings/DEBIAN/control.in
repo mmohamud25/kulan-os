@@ -5,7 +5,7 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: x11
 Priority: optional
 Depends: kulan-base (= @VERSION@), libglib2.0-bin, dconf-cli, plymouth, plymouth-themes, adwaita-icon-theme, bibata-cursor-theme, fonts-inter, fonts-jetbrains-mono, fonts-manrope, gnome-shell-extension-dashtodock, gnome-shell-extension-blur-my-shell, kulan-update-center (= @VERSION@), kulan-settings (= @VERSION@)
-Recommends: gnome-shell-extension-appindicator, gnome-shell-extension-desktop-icons-ng, gir1.2-dbusmenu-glib-0.4, gtk-update-icon-cache, initramfs-tools, console-setup, gnome-shell-extension-tiling-assistant, power-profiles-daemon, gnome-sushi, gnome-characters, gnome-weather, gnome-clocks, baobab, tesseract-ocr, tesseract-ocr-eng, tesseract-ocr-ara, fwupd, systemd-timesyncd, python3-nautilus, xdg-user-dirs, ptyxis, zsh, zsh-autosuggestions, zsh-syntax-highlighting, fzf, ripgrep, fd-find, bat, eza, zoxide, btop, qt5-gtk-platformtheme, qt6-gtk-platformtheme
+Recommends: gnome-shell-extension-appindicator, gnome-shell-extension-desktop-icons-ng, gir1.2-dbusmenu-glib-0.4, gtk-update-icon-cache, initramfs-tools, console-setup, gnome-shell-extension-tiling-assistant, power-profiles-daemon, gnome-sushi, gnome-characters, gnome-weather, gnome-clocks, baobab, tesseract-ocr, tesseract-ocr-eng, tesseract-ocr-ara, fwupd, systemd-timesyncd, python3-nautilus, xdg-user-dirs, ptyxis, zsh, zsh-autosuggestions, zsh-syntax-highlighting, fzf, ripgrep, fd-find, bat, eza, zoxide, btop, qt5-gtk-platformtheme, qt6-gtk-platformtheme, geary, simple-scan
 Homepage: @HOME_URL@
 Description: @NAME@ desktop look and defaults
  The @NAME@ wallpapers, logo, fonts and icons, the dock and top bar, and

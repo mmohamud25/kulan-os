@@ -1,0 +1,24 @@
+#!/bin/sh
+# Kulan OS add-on set-up: the Learning Pack.
+#
+# Wireshark captures network traffic without an administrator password for
+# members of the wireshark group (Debian's "install-setuid" choice, which a
+# non-interactive install leaves off). Every administrator is put in it;
+# standard accounts are left out, because capturing shows everyone's network
+# traffic on this computer. Run as root by update-run addon-install
+# learning-pack; it takes effect at the next sign-in.
+set -eu
+
+if command -v dpkg-reconfigure >/dev/null 2>&1 && dpkg-query -W -f='${Status}' wireshark-common 2>/dev/null |
+	grep -q "ok installed"; then
+	echo "wireshark-common wireshark-common/install-setuid boolean true" | debconf-set-selections
+	DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive wireshark-common >/dev/null 2>&1 ||
+		echo "W: couldn't let the wireshark group capture traffic" >&2
+fi
+GROUP=wireshark
+getent group "${GROUP}" >/dev/null 2>&1 || exit 0
+for USER_NAME in $(getent group sudo | cut -d: -f4 | tr ',' ' '); do
+	getent passwd "${USER_NAME}" >/dev/null 2>&1 || continue
+	gpasswd -a "${USER_NAME}" "${GROUP}" >/dev/null || echo "W: couldn't add ${USER_NAME} to ${GROUP}" >&2
+done
+exit 0

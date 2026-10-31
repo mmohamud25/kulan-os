@@ -3,8 +3,11 @@ files, see its notifications, and read and send texts from the computer.
 
 GSConnect does it (a GNOME Shell extension speaking KDE Connect's protocol;
 the phone runs the KDE Connect app). It isn't in the image: it's the Phone
-Link add-on (about 5 MB), which this page installs when asked. It's off until
-switched on here or installed,
+link add-on (about 5 MB), which this page installs when asked. GNOME Shell
+only finds extensions installed since you signed in after you sign out and
+back in (on Wayland it can't look again), so a fresh install says that once:
+FINISH. When the shell already knows it, it's turned on at once instead.
+It's off until switched on here or installed,
 because it listens on the network: switching it on enables the extension for
 this account and opens KDE Connect's ports in the firewall (update-run
 phone-link-on); off closes them again. Only phones on the same network can
@@ -25,6 +28,33 @@ EXTENSION_DIRS = [Path("/usr/share/gnome-shell/extensions") / UUID,
 BUS_NAME = "org.gnome.Shell.Extensions.GSConnect"
 OBJECT_PATH = "/org/gnome/Shell/Extensions/GSConnect"
 DEVICE_IFACE = "org.gnome.Shell.Extensions.GSConnect.Device"
+SHELL_EXTENSIONS = ("org.gnome.Shell.Extensions", "/org/gnome/Shell/Extensions", "org.gnome.Shell.Extensions")
+# The one instruction, everywhere (here and the add-on's note in addons.json).
+FINISH = ("Sign out and back in to finish. Then install KDE Connect on your phone and pair it in "
+          "Kulan Settings › Phone.")
+
+
+def shell_call(method: str, args: GLib.Variant, done) -> None:
+    """Ask GNOME Shell about its extensions without waiting; done(result or None)."""
+    def got(bus, result) -> None:
+        try:
+            done(bus.call_finish(result))
+        except GLib.Error:
+            done(None)
+
+    def have_bus(_src, result) -> None:
+        try:
+            bus = Gio.bus_get_finish(result)
+        except GLib.Error:
+            done(None)
+            return
+        bus.call(*SHELL_EXTENSIONS, method, args, None, Gio.DBusCallFlags.NO_AUTO_START, 5000, None, got)
+    Gio.bus_get(Gio.BusType.SESSION, None, have_bus)
+
+
+def shell_knows(info: GLib.Variant | None) -> bool:
+    """Whether GetExtensionInfo's answer is a real extension (unknown ones come back empty)."""
+    return info is not None and bool(info.unpack()[0])
 
 
 def installed() -> bool:
@@ -50,6 +80,13 @@ class PhonePage(Page):
 
         intro = self.add_group(None, "Share files, see your phone’s notifications and send texts from this "
                                      "computer. On iPhone, only files and the clipboard work.")
+        # Installed since this session started: the shell can't use it until you sign in again.
+        self.finish_row = Adw.ActionRow(title="Almost ready", subtitle=FINISH, subtitle_lines=0, visible=False)
+        self.finish_row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+        intro.add(self.finish_row)
+        shell_call("GetExtensionInfo", GLib.Variant("(s)", (UUID,)),
+                   lambda info: None if self.torn_down else self.finish_row.set_visible(
+                       info is not None and not shell_knows(info)))
         self.switch = Adw.SwitchRow(title="Phone link",
                                     subtitle="Phones on the same network can find this computer. "
                                              "Only a paired phone can connect", subtitle_lines=0,
@@ -117,12 +154,18 @@ class PhonePage(Page):
                 return
             from .addons import set_extension
             set_extension(UUID, True)
-            dialog = Adw.AlertDialog(heading="Phone link is installed",
-                                     body="Log out and back in to finish. Then install KDE Connect on your phone "
-                                          "and pair it here.")
-            dialog.add_response("ok", "Close")
-            dialog.present(self.window)
-            GLib.idle_add(lambda: self.window.reload_page(self) and False)
+
+            def known(info) -> None:
+                if shell_knows(info):  # the shell already has it: on now, no signing out
+                    shell_call("EnableExtension", GLib.Variant("(s)", (UUID,)), lambda _r: None)
+                    self.toast("Phone link is on. Install KDE Connect on your phone, then pair it below")
+                else:
+                    dialog = Adw.AlertDialog(heading="Phone link is installed", body=FINISH)
+                    dialog.add_response("ok", "Close")
+                    dialog.present(self.window)
+                if not self.torn_down:
+                    GLib.idle_add(lambda: self.window.reload_page(self) and False)
+            shell_call("GetExtensionInfo", GLib.Variant("(s)", (UUID,)), known)
 
         self.window.helper.run(["addon-install", "phone-link"], "Phone link installed", on_done=done)
 

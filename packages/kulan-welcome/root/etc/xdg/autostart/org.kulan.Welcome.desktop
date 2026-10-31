@@ -9,3 +9,5 @@ NoDisplay=true
 OnlyShowIn=GNOME;
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=3
+# Once Setup is finished (~/.config/kulan-welcome/done), GNOME doesn't start it at all.
+AutostartCondition=unless-exists kulan-welcome/done
