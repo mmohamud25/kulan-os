@@ -8,6 +8,8 @@ Type=oneshot
 ExecStart=/usr/lib/kulan/restore-points tidy
 Nice=19
 IOSchedulingClass=idle
+# Measuring large restore points takes a while; never longer than this.
+TimeoutStartSec=1h
 # Hardening that can't get in the way of what it does.
 LockPersonality=yes
 RestrictRealtime=yes

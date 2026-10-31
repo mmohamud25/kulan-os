@@ -293,16 +293,76 @@ def reset_keys(gsettings: Gio.Settings | None, keys: list[str]) -> None:
 
 # --- privileged helper ---------------------------------------------------------------
 
+# update-run's changes that run as their own system service (kulan-update.service):
+# they carry on if Kulan Settings closes, and the window says so when it's closed.
+LONG_ACTIONS = {"install": "Updates are installing", "undo-update": "The last update is being undone",
+                "repair": "An interrupted update is being finished", "install-devkit": "Software is installing",
+                "install-apps": "Software is installing", "addon-install": "An add-on is installing",
+                "addon-remove": "An add-on is being removed", "cleanup": "Old system files are being removed"}
+
+
 class Helper:
     """Runs /usr/lib/kulan/update-run through pkexec and reports progress.
 
     One action at a time. Progress lines are apt's status lines
-    (pmstatus/dlstatus); on_progress gets (fraction, text)."""
+    (pmstatus/dlstatus); on_progress gets (fraction, text). While a long change
+    runs (LONG_ACTIONS), closing the window asks first and can only hide it: the
+    change carries on either way, and Kulan Settings closes once it's done."""
 
     def __init__(self, toast: Callable[[str], None]) -> None:
         self.toast = toast
         self.busy = False
+        self.action: str | None = None  # update-run's action while one runs
+        self.hidden = False  # the window was hidden until the change is done
         self.listeners: list[Callable[[bool], None]] = []
+        self._hooked: set[int] = set()
+
+    def window(self) -> Gtk.Window | None:
+        owner = getattr(self.toast, "__self__", None)  # the window whose toast this is
+        if isinstance(owner, Gtk.Window):
+            return owner
+        app = Gio.Application.get_default()
+        return app.get_active_window() if app else None
+
+    def hook_close(self) -> None:
+        window = self.window()
+        if window is not None and id(window) not in self._hooked:
+            self._hooked.add(id(window))
+            window.connect("close-request", self.on_close_request)
+
+    def on_close_request(self, window: Gtk.Window) -> bool:
+        """Closing while a long change runs: say it carries on, keep the window or hide it."""
+        if not self.busy or self.action not in LONG_ACTIONS:
+            return False  # close
+        dialog = Adw.AlertDialog(heading=LONG_ACTIONS[self.action],
+                                 body="Kulan Settings can close when they’re done. They carry on even if you hide "
+                                      "it, sign out or close the lid, and the computer stays on until they’re "
+                                      "finished.")
+        dialog.add_response("keep", "Keep Open")
+        dialog.add_response("hide", "Hide")
+        dialog.set_default_response("keep")
+        dialog.set_close_response("keep")
+
+        def answered(_d, response: str) -> None:
+            if response == "hide" and self.busy:
+                self.hidden = True
+                window.set_visible(False)
+        dialog.connect("response", answered)
+        dialog.present(window)
+        return True  # stay open
+
+    def finished_hidden(self, ok: bool, message: str | None) -> None:
+        """The change is done while the window was hidden: say so, then close."""
+        self.hidden = False
+        app = Gio.Application.get_default()
+        window = self.window()
+        if app is not None:
+            note = Gio.Notification.new(message or ("Done" if ok else "That didn’t work"))
+            if not ok:
+                note.set_body("Open Kulan Settings › Software Update to try again")
+            app.send_notification("kulan-settings-change", note)
+        if window is not None and not window.get_visible():
+            GLib.timeout_add(500, lambda: bool(window.close()))
 
     def run(self, args: list[str], success: str | None = None,
             on_progress: Callable[[float, str], None] | None = None,
@@ -331,6 +391,9 @@ class Helper:
             if on_done:
                 on_done(False)
             return
+        self.action = args[0] if args else None
+        if self.action in LONG_ACTIONS:
+            self.hook_close()
         self.set_busy(True)
         if stdin is not None:
             pipe = proc.get_stdin_pipe()
@@ -384,7 +447,13 @@ class Helper:
             except GLib.Error:
                 code = 1
             self.set_busy(False)
-            if code == 0:
+            self.action = None
+            window = self.window()
+            self.hidden = self.hidden and window is not None and not window.get_visible()  # not opened again since
+            if self.hidden:  # nobody to see a toast: a notification, then close
+                self.finished_hidden(code == 0, success if code == 0 else
+                                     failure_text(errors, said[-1] if said else None))
+            elif code == 0:
                 if success:
                     self.toast(success)
             elif code in (126, 127):  # password dialog dismissed / not authorised

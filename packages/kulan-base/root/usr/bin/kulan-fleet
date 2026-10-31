@@ -610,6 +610,9 @@ def remove_policy() -> None:
 
 
 # --- actions ------------------------------------------------------------------------------
+INSTALL_WAIT_S = 3 * 3600  # how long a report waits for "install updates" to finish
+
+
 def do_action(kind: str, payload=None) -> tuple[bool, str]:
     if kind == "refresh":
         return True, "reported"
@@ -619,8 +622,14 @@ def do_action(kind: str, payload=None) -> tuple[bool, str]:
             return False, "which app? (not one Kulan OS can install)"
         return fleetpolicy.install(run, app[0])
     if kind == "install-updates":
-        r = run(["/usr/lib/kulan/update-run", "install"], timeout=3600)
-        return r.returncode == 0, (r.stderr.strip().splitlines() or ["updated"])[-1][:200]
+        # update-run installs as its own system service (kulan-update.service), with
+        # shutdown and sleep held off, and only follows it here: if this stops
+        # waiting, or the report ends, the install carries on and finishes by itself.
+        r = run(["/usr/lib/kulan/update-run", "install"], timeout=INSTALL_WAIT_S)
+        if r.returncode == 127 and "timed out" in (r.stderr or ""):
+            return False, f"still installing after {INSTALL_WAIT_S // 3600} hours; it finishes by itself"
+        said = [line[4:].strip() for line in (r.stdout or "").splitlines() if line.startswith("say:")]
+        return r.returncode == 0, (said or r.stderr.strip().splitlines() or ["updated"])[-1][:200]
     if kind == "compliance-on":
         r = run(["kulan-compliance", "on"], timeout=1800)
         return r.returncode == 0, (r.stdout.strip().splitlines() or ["done"])[-1][:200]

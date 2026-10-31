@@ -177,7 +177,7 @@ for SRC in "${ROOT}"/packages/*/; do
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type d -exec chmod 0755 {} +
 	find "${STAGE}" -path "${STAGE}/DEBIAN" -prune -o -type f -exec chmod 0644 {} +
 	for EXEC in usr/bin usr/sbin usr/lib/kulan usr/lib/kulan-assistant usr/lib/systemd/user-environment-generators usr/lib/systemd/system-generators usr/share/initramfs-tools/hooks \
-		etc/kernel/postinst.d etc/kernel/postrm.d etc/initramfs/post-update.d; do
+		etc/kernel/postinst.d etc/kernel/postrm.d etc/initramfs/post-update.d etc/grub.d; do
 		[[ -d "${STAGE}/${EXEC}" ]] && find "${STAGE}/${EXEC}" -type f -exec chmod 0755 {} +
 	done
 

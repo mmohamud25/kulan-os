@@ -9,28 +9,91 @@ stuck, or lose something? Ordered by that.
 
 ## 1. Never lose work, never end up broken (must have)
 
+Status: done in branch 211-recovery, except where noted. Tests:
+ci/update-recovery-test.sh (in ci/test-packages.sh, "Updates can't leave it broken").
+
 1. **Updates survive closing the window, signing out, sleep and power cuts.**
-   Today Install runs inside the Kulan Settings window: closing it, signing out
-   or closing the lid stops apt half-way. Run installs as their own system
-   service that Settings only watches, keep the computer awake while it runs,
-   and say so if you try to close it. Same for Fleet's "install updates" and
-   "Undo update".
-2. **An interrupted update finishes itself at the next start-up.** Nothing
-   repairs dpkg at boot today; after a power cut the computer can't install
-   anything until someone presses Install. Add a start-up repair service, and a
-   plain "An update was interrupted — Finish now" in Software Update.
+   Done. update-run runs its long changes (install, install-devkit,
+   install-apps, add-ons, cleanup, undo-update, repair) as their own system
+   service, kulan-update.service (systemd-run, gone when done), under
+   systemd-inhibit (shutdown, sleep and the lid held off). Whoever started it
+   (Kulan Settings, `kulan update`, Kulan Fleet) only follows it: the same
+   progress lines, "say:" messages and exit status as before, from
+   /run/kulan/update-run.out and .err. If the caller goes away, the change
+   carries on; one change at a time ("Another change is still being made").
+   Kulan Settings asks before closing while one runs ("Updates are
+   installing. Kulan Settings can close when they're done", Keep Open or
+   Hide; hidden, it sends a notification when done and closes), and shows an
+   install it didn't start, with its progress, when opened. Ctrl+C in
+   `kulan update` stops watching, not the install. Fleet's install-updates
+   waits up to 3 hours and then reports "still installing" instead of
+   killing apt. Without systemd (containers, the ISO build) it runs as before.
+2. **An interrupted update finishes itself at the next start-up.** Done:
+   kulan-update-repair.service (only when dpkg was left half-way: `update-run
+   needs-repair`), `dpkg --configure -a` then `apt-get -f install` with
+   confold, waiting for the lock, before the daily update jobs, nothing
+   (the sign-in screen included) waiting for it; one hour at most. Software
+   Update shows "An update was interrupted" with Finish Now (`update-run
+   repair`). updates.json: state "interrupted"; "running" now records the
+   process that's installing (running_pid, running_start), so a crashed
+   install never shows as running, and a failed apt simulation keeps the last
+   list instead of leaving "Installing…" for 3 hours. Not while dpkg runs
+   (its lock is checked).
 3. **A broken update can always be undone, even if the desktop won't start.**
-   The start menu is hidden with no fallback. Count successful start-ups; after
-   a failed one, show the menu with the previous version and "Restore points".
-   Signed start-up gets the same through boot counting.
-4. **Automatic updates stay out of the way.** The daily restore point runs while
-   holding the update lock (so Install waits 5 minutes and fails), and every
-   small update step re-runs a full update check. Take the restore point before
-   updates start, check updates once at the end, re-check disk space after the
-   snapshot, and start daily jobs mid-day instead of right after you turn the
-   computer on.
-5. **No job can hang start-up or shutdown**: timeouts on app updates, restore
-   points and signed start-up.
+   Done for GRUB: /etc/grub.d/01_kulan-boot-check (GRUB notes each start-up
+   with save_env, where it can write: ext2/3/4 or FAT, no LVM/RAID/LUKS
+   under /boot) and kulan-boot-ok.service (notes it too, and clears it once
+   a desktop session has lasted a minute). After a start-up that didn't get
+   that far, the menu shows for 10 seconds: each Linux on its own line
+   (GRUB_DISABLE_SUBMENU, no recovery entries: they need a root password),
+   then "Undo the last update" (/etc/grub.d/12_kulan-undo, only while a
+   pre-update restore point exists: kulan_undo in grubenv, kept by
+   restore-points), which undoes before the sign-in screen
+   (kulan-undo-at-start.service). Signed start-up (shim + systemd-boot +
+   UKIs): boot counting, new files are kulan-<version>+3.efi; boot-ok removes
+   the counter once the desktop worked (as systemd-bless-boot does, without
+   installing the systemd-boot package, whose kernel-install hooks would add
+   unsigned entries); systemd-boot starts the previous version after three
+   failed tries. fast-restart (ARM VMs) restarts the running Linux, not a
+   newer one, until the start-up has reached the desktop.
+   Left: with signed start-up there's no "Undo the last update" entry (a
+   signed UKI's kernel options can't be changed at start-up; it would need a
+   second signed UKI per kernel, which doesn't fit the EFI partition); and
+   choosing the earlier Linux in the menu works for that start only (GRUB
+   keeps starting the newest by default).
+4. **Automatic updates stay out of the way.** Done. The restore point is taken
+   in apt-daily-upgrade.service's ExecCondition, before unattended-upgrades
+   takes the lock (not in DPkg::Pre-Invoke): only when automatic updates are
+   on, due and have something to install; the once-a-day stamp only when it
+   was made; free space re-checked after it (exit 75 skips that run). During
+   automatic updates and Kulan's own installs, the status is refreshed once
+   at the end (KULAN_DEFER_STATUS), not after every dpkg step. update-run says
+   "Waiting for automatic updates to finish" (or "another installation") and
+   waits up to an hour instead of failing after 5 minutes. Timers: restore
+   points 50 minutes after start-up then daily, app updates 1 hour after
+   then daily, automatic updates at midday or 1 hour after start-up; none
+   catches up right after switching on.
+5. **No job can hang start-up or shutdown**: done. TimeoutStartSec on app
+   updates (and Flatpak stopped after an hour), restore points (2 h), their
+   tidy-up (1 h), the status refresh, signed start-up (30 min), the repair (1 h)
+   and the start-up undo (2 h).
+6. **"Undo the last update"** needs the charger or a battery at least 30% full,
+   and keeps the computer on while it runs. Done.
+7. **Checking for updates** shows Debian's and Kulan's updates first (apt-get
+   update), then looks for app and firmware updates. Done.
+8. **Update History** names updates as the update list does; package names
+   only under "Technical details". Done.
+
+Not automated yet: a power cut during an update in a VM (section 7). How:
+in ci/upgrade-test.sh's VM, start `update-run install` from the test
+service, watch the serial log for "pmstatus:...:Unpacking" from a
+deliberately slow package (a test .deb whose preinst sleeps 60 s), then
+`kill -9` QEMU (a real power cut, not a shutdown); start the VM again and
+check, from the boot report, that kulan-update-repair.service ran, `dpkg
+--audit` is empty, updates.json says "idle" and the start-up menu was shown
+(the GRUB screen in the screenshots, kulan_boot_pending was 1). And a broken
+kernel: install a kernel package whose initrd is empty, restart, check the
+menu shows and the earlier Linux starts.
 
 ## 2. Nothing freezes (must have)
 
