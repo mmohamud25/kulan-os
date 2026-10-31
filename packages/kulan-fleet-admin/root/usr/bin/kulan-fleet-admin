@@ -1697,7 +1697,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
     def add_computers_dialog(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Add computers",
-                                 body="Make a join code. On each computer, open Kulan Settings › About › Organisation › "
+                                 body="Make a join code. On each computer, open Kulan Settings › About Kulan OS › "
                                       "Join an organisation, and type it there. Installing on new computers? Put the code "
                                       "on the USB stick with Kulan USB Maker (For an organisation): every computer "
                                       "installed from it joins by itself.")
