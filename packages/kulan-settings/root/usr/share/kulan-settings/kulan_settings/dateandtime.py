@@ -55,50 +55,24 @@ class DateTimePage(Page):
         self.datetime = settings(DATETIME)
         self.calendar = settings(CALENDAR)
         self.timedate = None
-        try:
-            self.timedate = Gio.DBusProxy.new_for_bus_sync(
-                Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, "org.freedesktop.timedate1",
-                "/org/freedesktop/timedate1", "org.freedesktop.timedate1", None)
-        except GLib.Error:
-            self.timedate = None
 
-        clock = self.add_group("Clock")
+        self.clock_group = self.add_group("Clock")
         self.now_row = Adw.ActionRow(title="Now")
         self.now_label = Gtk.Label(css_classes=["numeric"])
         self.now_row.add_suffix(self.now_label)
-        clock.add(self.now_row)
-        if self.timedate is not None:
-            self.ntp_row = Adw.SwitchRow(title="Set the time automatically", subtitle="From time servers on the internet",
-                                         active=bool(self.prop("NTP")))
-            self.ntp_row.set_sensitive(bool(self.prop("CanNTP", True)))
-            self.ntp_row.connect("notify::active", lambda r, _p: self.set_ntp(r.get_active()))
-            clock.add(self.ntp_row)
-            self.manual_row = Adw.ActionRow(title="Date and time", subtitle="Set by hand", activatable=True)
-            self.manual_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-            self.manual_row.connect("activated", lambda _r: self.set_time_dialog())
-            self.ntp_row.bind_property("active", self.manual_row, "sensitive",
-                                       GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
-            clock.add(self.manual_row)
+        self.clock_group.add(self.now_row)
 
-        zone = self.add_group("Time zone")
-        self.add_rows(zone, switch_row(self.datetime, "automatic-timezone", "Set the time zone automatically",
-                                       "From your location, when Location services are on"))
-        if self.timedate is not None:
-            self.zones = self.list_zones()
-            current = self.prop("Timezone") or "UTC"
-            if current not in self.zones:
-                self.zones.append(current)
-            model = Gtk.StringList.new([zone_label(z) for z in self.zones])
-            self.zone_row = Adw.ComboRow(title="Time zone", model=model, enable_search=True,
-                                         expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-            self.zone_row.set_selected(self.zones.index(current))
-            self.zone_row.connect("notify::selected", lambda r, _p: self.set_zone(self.zones[r.get_selected()]))
-            if self.datetime is not None and has_key(self.datetime, "automatic-timezone"):
-                self.datetime.bind("automatic-timezone", self.zone_row, "sensitive",
-                                   Gio.SettingsBindFlags.GET | Gio.SettingsBindFlags.INVERT_BOOLEAN)
-            zone.add(self.zone_row)
-        else:
-            zone.add(Adw.ActionRow(title="Time zone", subtitle="The system’s time service isn’t running"))
+        self.zone_group = self.add_group("Time zone")
+        self.add_rows(self.zone_group, switch_row(self.datetime, "automatic-timezone",
+                                                  "Set the time zone automatically",
+                                                  "From your location, when Location services are on"))
+        # timedated starts when first asked, which can take a moment: the rows that
+        # need it follow when it answers, never holding up the window.
+        self.zone_waiting = Adw.ActionRow(title="Time zone", subtitle="…")
+        self.zone_group.add(self.zone_waiting)
+        Gio.DBusProxy.new_for_bus(Gio.BusType.SYSTEM, Gio.DBusProxyFlags.NONE, None, "org.freedesktop.timedate1",
+                                  "/org/freedesktop/timedate1", "org.freedesktop.timedate1", None,
+                                  self.got_timedate)
 
         bar = self.add_group("In the top bar")
         if self.interface is not None and has_key(self.interface, "clock-format"):
@@ -116,21 +90,58 @@ class DateTimePage(Page):
         self.tick()
         self._timer = GLib.timeout_add_seconds(1, self.tick)
 
+    def got_timedate(self, _source, result) -> None:
+        if self.torn_down:
+            return
+        try:
+            proxy = Gio.DBusProxy.new_for_bus_finish(result)
+        except GLib.Error:
+            proxy = None
+        if proxy is None or (proxy.get_name_owner() is None and not proxy.get_cached_property_names()):
+            self.zone_group.remove(self.zone_waiting)
+            self.zone_group.add(Adw.ActionRow(title="Time zone", subtitle="The system’s time service isn’t running"))
+            return
+        self.timedate = proxy
+        self.ntp_row = Adw.SwitchRow(title="Set the time automatically", subtitle="From time servers on the internet",
+                                     active=bool(self.prop("NTP")))
+        self.ntp_row.set_sensitive(bool(self.prop("CanNTP", True)))
+        self.ntp_row.connect("notify::active", lambda r, _p: self.set_ntp(r.get_active()))
+        self.clock_group.add(self.ntp_row)
+        self.manual_row = Adw.ActionRow(title="Date and time", subtitle="Set by hand", activatable=True)
+        self.manual_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        self.manual_row.connect("activated", lambda _r: self.set_time_dialog())
+        self.ntp_row.bind_property("active", self.manual_row, "sensitive",
+                                   GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
+        self.clock_group.add(self.manual_row)
+        proxy.call("ListTimezones", None, Gio.DBusCallFlags.NONE, 5000, None, self.got_zones)
+
+    def got_zones(self, proxy, result) -> None:
+        if self.torn_down:
+            return
+        try:
+            zones = list(proxy.call_finish(result).unpack()[0])
+        except GLib.Error:
+            zones = []
+        self.zones = zones or zones_from_file()
+        current = self.prop("Timezone") or "UTC"
+        if current not in self.zones:
+            self.zones.append(current)
+        model = Gtk.StringList.new([zone_label(z) for z in self.zones])
+        self.zone_row = Adw.ComboRow(title="Time zone", model=model, enable_search=True,
+                                     expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
+        self.zone_row.set_selected(self.zones.index(current))
+        self.zone_row.connect("notify::selected", lambda r, _p: self.set_zone(self.zones[r.get_selected()]))
+        if self.datetime is not None and has_key(self.datetime, "automatic-timezone"):
+            self.datetime.bind("automatic-timezone", self.zone_row, "sensitive",
+                               Gio.SettingsBindFlags.GET | Gio.SettingsBindFlags.INVERT_BOOLEAN)
+        self.zone_group.remove(self.zone_waiting)
+        self.zone_group.add(self.zone_row)
+
     def prop(self, name: str, default=None):
         if self.timedate is None:
             return default
         value = self.timedate.get_cached_property(name)
         return value.unpack() if value is not None else default
-
-    def list_zones(self) -> list[str]:
-        try:
-            reply = self.timedate.call_sync("ListTimezones", None, Gio.DBusCallFlags.NONE, 5000, None)
-            zones = list(reply.unpack()[0])
-            if zones:
-                return zones
-        except GLib.Error:
-            pass
-        return zones_from_file()
 
     def tick(self) -> bool:
         if self.torn_down:

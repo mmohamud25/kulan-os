@@ -6,7 +6,6 @@ import json
 import re
 import secrets
 import socket
-import subprocess
 from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
@@ -17,6 +16,7 @@ from .common import (
     has_key,
     launch,
     reset_keys,
+    run_async,
     settings,
     switch_row,
 )
@@ -45,17 +45,6 @@ CONNECTIONS = [
 ]
 NOTHING_ELSE = ("Nothing else", ("No usage data, crash reports or advertising IDs are sent. Apps you install "
                                  "may connect to their own services"))
-
-
-def countme_report() -> dict | None:
-    """What the weekly count sends (countme show), or None if it isn't here."""
-    if not Path(COUNTME).exists():
-        return None
-    try:
-        out = subprocess.run([COUNTME, "show"], capture_output=True, text=True, timeout=10, check=True).stdout
-        return json.loads(out)
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
 
 
 def countme_text(report: dict | None) -> str:
@@ -253,7 +242,22 @@ class PrivacyPage(Page):
 
     # --- the anonymous weekly count -----------------------------------------------------
     def show_count(self) -> None:
-        dialog = Adw.AlertDialog(heading="What’s sent", body=countme_text(countme_report()))
+        if not Path(COUNTME).exists():
+            self.count_dialog(None)
+            return
+
+        # countme show runs a program: never on the window's thread.
+        def done(ok: bool, out: str, _err: str) -> None:
+            try:
+                report = json.loads(out) if ok else None
+            except ValueError:
+                report = None
+            self.count_dialog(report)
+
+        run_async([COUNTME, "show"], done, timeout=10, page=self)
+
+    def count_dialog(self, report: dict | None) -> None:
+        dialog = Adw.AlertDialog(heading="What’s sent", body=countme_text(report))
         dialog.add_response("close", "Close")
         dialog.present(self.window)
 

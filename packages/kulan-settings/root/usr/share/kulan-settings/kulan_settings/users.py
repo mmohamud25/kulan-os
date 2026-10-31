@@ -15,7 +15,7 @@ from typing import Callable
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from . import keyring
-from .common import Page
+from .common import Page, in_thread
 
 ACCOUNTS = "org.freedesktop.Accounts"
 ACCOUNTS_PATH = "/org/freedesktop/Accounts"
@@ -119,10 +119,22 @@ def change_own_password(current: str, new: str) -> str | None:
 
 
 class Accounts:
-    """The accounts AccountsService knows: people, not system accounts."""
+    """The accounts AccountsService knows: people, not system accounts.
+
+    Everything here waits for AccountsService (which may first have to start):
+    use it on a worker thread (common.in_thread), never the window's. The
+    proxies it gives work on the window's thread afterwards."""
 
     def __init__(self) -> None:
-        self.manager = bus_proxy(ACCOUNTS_PATH, ACCOUNTS)
+        self._manager: Gio.DBusProxy | None = None
+        self._asked = False
+
+    @property
+    def manager(self) -> Gio.DBusProxy | None:
+        if not self._asked:
+            self._manager = bus_proxy(ACCOUNTS_PATH, ACCOUNTS)
+            self._asked = True
+        return self._manager
 
     @property
     def available(self) -> bool:
@@ -188,12 +200,24 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
     again = Adw.PasswordEntryRow(title="Password again")
     admin = Adw.SwitchRow(title="Administrator", subtitle="Can install apps and change the whole computer")
     edited = {"user": False}
+    # The names in use, found once per dialog on a worker thread (with a
+    # directory service, listing every account can take a while).
+    taken: dict[str, set[str] | None] = {"names": None}
+
+    def suggest() -> None:
+        user.handler_block(user_handler)
+        user.set_text(user_name_from(full.get_text(), taken["names"] or set()))
+        user.handler_unblock(user_handler)
 
     def full_changed(_e) -> None:
         if not edited["user"]:
-            user.handler_block(user_handler)
-            user.set_text(user_name_from(full.get_text()))
-            user.handler_unblock(user_handler)
+            suggest()
+        check()
+
+    def got_taken(names: set[str] | None) -> None:
+        taken["names"] = names if names is not None else set()
+        if not edited["user"] and full.get_text():
+            suggest()
         check()
 
     def user_changed(_e) -> None:
@@ -202,10 +226,10 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
 
     def check() -> None:
         name = user.get_text()
-        taken = name in taken_names()
-        user.set_title("User name (taken, choose another)" if taken else "User name")
-        ok = (full.get_text().strip() != "" and NAME_RULE.match(name) is not None and not taken
-              and len(password.get_text()) >= 1 and password.get_text() == again.get_text())
+        in_use = taken["names"] is not None and name in taken["names"]
+        user.set_title("User name (taken, choose another)" if in_use else "User name")
+        ok = (taken["names"] is not None and full.get_text().strip() != "" and NAME_RULE.match(name) is not None
+              and not in_use and len(password.get_text()) >= 1 and password.get_text() == again.get_text())
         dialog.set_response_enabled("add", ok)
 
     full.connect("changed", full_changed)
@@ -221,32 +245,47 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
     dialog.add_response("add", "Add")
     dialog.set_response_appearance("add", Adw.ResponseAppearance.SUGGESTED)
     dialog.set_response_enabled("add", False)
+    in_thread(taken_names, got_taken)
 
     def answered(_d, response: str) -> None:
         if response != "add":
             return
-        crypted = hash_password(password.get_text())
-        if crypted is None:
-            toast("The account wasn’t added: the password couldn’t be set up on this computer")
-            return
         kind = ADMINISTRATOR if admin.get_active() and not standard_only else STANDARD
+        name, real, secret = user.get_text(), full.get_text().strip(), password.get_text()
 
-        def created(error: str | None, reply: GLib.Variant | None) -> None:
+        def prepare() -> tuple[str | None, Gio.DBusProxy | None]:
+            return hash_password(secret), accounts.manager
+
+        def prepared(result) -> None:
+            crypted, manager = result or (None, None)
+            if crypted is None:
+                toast("The account wasn’t added: the password couldn’t be set up on this computer")
+                return
+            if manager is None:
+                toast("The account wasn’t added: the accounts service isn’t running")
+                return
+            call(manager, "CreateUser", GLib.Variant("(ssi)", (name, real, kind)),
+                 lambda error, reply: created(error, reply, crypted))
+
+        def created(error: str | None, reply: GLib.Variant | None, crypted: str) -> None:
             if error:
                 toast(f"The account wasn’t added. {error}")
                 return
-            new_user = bus_proxy(reply.unpack()[0], USER_IFACE)
-            if new_user is None:
-                toast("The account was added, but its password couldn’t be set")
-                return
+            path = reply.unpack()[0]
 
-            def password_set(err: str | None, _r) -> None:
-                toast(f"The password wasn’t set: {err}" if err else f"{full.get_text().strip()} can sign in now")
-                on_added()
-            call(new_user, "SetPassword", GLib.Variant("(ss)", (crypted, "")), password_set)
+            def got_user(new_user: Gio.DBusProxy | None) -> None:
+                if new_user is None:
+                    toast("The account was added, but its password couldn’t be set")
+                    return
 
-        call(accounts.manager, "CreateUser",
-             GLib.Variant("(ssi)", (user.get_text(), full.get_text().strip(), kind)), created)
+                def password_set(err: str | None, _r) -> None:
+                    toast(f"The password wasn’t set: {err}" if err else f"{real} can sign in now")
+                    on_added()
+                call(new_user, "SetPassword", GLib.Variant("(ss)", (crypted, "")), password_set)
+
+            in_thread(lambda: bus_proxy(path, USER_IFACE), got_user)
+
+        in_thread(prepare, prepared)
 
     dialog.connect("response", answered)
     dialog.present(parent)
@@ -261,26 +300,58 @@ class UsersPage(Page):
     def __init__(self, window) -> None:
         super().__init__(window)
         self.accounts = Accounts()
-        if not self.accounts.available:
-            group = self.add_group()
-            group.add(Adw.ActionRow(title="Accounts can’t be changed right now",
-                                    subtitle="The accounts service isn’t running"))
-            return
-        self.me = self.accounts.me()
+        self.me = None
+        # AccountsService is asked on a worker thread (it may have to start first);
+        # the rows follow when it answers.
+        self.status = self.add_group()
+        self.status_row = Adw.ActionRow(title="Loading accounts…")
+        self.status.add(self.status_row)
         self.mine = self.add_group("Your account")
         self.others = self.add_group("Other people", "Each person gets their own files, settings and password.")
+        self.mine.set_visible(False)
+        self.others.set_visible(False)
         self.rows: list[Gtk.Widget] = []
+        self.fill_turn = 0
         self.fill()
 
     def fill(self) -> None:
+        self.fill_turn += 1
+        turn = self.fill_turn
+        accounts = self.accounts
+
+        def work():
+            if not accounts.available:
+                return None
+            me = accounts.me()
+            asks = me is not None and keyring.asks_after_automatic_sign_in(bool(prop(me, "AutomaticLogin", False)))
+            return me, accounts.users(), asks
+
+        def done(loaded) -> None:
+            if turn == self.fill_turn:  # only the latest answer, if several overlap
+                self.show_accounts(loaded)
+
+        in_thread(work, done, page=self)
+
+    def show_accounts(self, loaded) -> None:
         for group, row in self.rows:
             group.remove(row)
         self.rows = []
-        me = self.me = self.accounts.me()
+        if loaded is None:
+            self.status_row.set_title("Accounts can’t be changed right now")
+            self.status_row.set_subtitle("The accounts service isn’t running")
+            self.status.set_visible(True)
+            self.mine.set_visible(False)
+            self.others.set_visible(False)
+            return
+        self.status.set_visible(False)
+        self.mine.set_visible(True)
+        self.others.set_visible(True)
+        me, users, asks = loaded
+        self.me = me
         if me is not None:
-            self.fill_mine(me)
+            self.fill_mine(me, asks)
         my_uid = os.getuid()
-        others = [u for u in self.accounts.users() if prop(u, "Uid", 0) != my_uid]
+        others = [u for u in users if prop(u, "Uid", 0) != my_uid]
         for user in sorted(others, key=lambda u: (prop(u, "RealName", "") or prop(u, "UserName", "")).lower()):
             self.add(self.others, self.other_row(user))
         if not others:
@@ -310,7 +381,7 @@ class UsersPage(Page):
                 pass
         return avatar
 
-    def fill_mine(self, me: Gio.DBusProxy) -> None:
+    def fill_mine(self, me: Gio.DBusProxy, asks: bool) -> None:
         head = Adw.ActionRow(title=GLib.markup_escape_text(prop(me, "RealName", "") or prop(me, "UserName", "")),
                              subtitle=("Administrator" if prop(me, "AccountType", 0) == ADMINISTRATOR
                                        else "Standard account") + f" · {prop(me, 'UserName', '')}")
@@ -336,7 +407,7 @@ class UsersPage(Page):
                              active=bool(prop(me, "AutomaticLogin", False)))
         auto.connect("notify::active", lambda r, _p: self.set_flag(me, "SetAutomaticLogin", r.get_active()))
         self.add(self.mine, auto)
-        if keyring.asks_after_automatic_sign_in(bool(prop(me, "AutomaticLogin", False))):
+        if asks:
             # Nothing is typed at start-up, so the keyring with saved
             # passwords stays locked and the first app to need one asks.
             ask = Adw.ActionRow(title="Saved passwords ask to be unlocked",
@@ -456,23 +527,36 @@ class UsersPage(Page):
                 self.toast(error)
                 self.refresh()
                 return
-            message = "Automatic sign-in is off"
-            if keyring.separate_default():
-                # They're in a keyring the sign-in password doesn't open:
-                # move them into "login", now if possible, else at next sign-in.
+            if not keyring.separate_default():
+                self.toast("Automatic sign-in is off")
+                self.refresh()
+                return
+
+            # They're in a keyring the sign-in password doesn't open: move them
+            # into "login", now if possible, else at next sign-in. Moving them
+            # waits for the keyring service: on a worker thread, as stop_asking.
+            def work() -> bool:
                 try:
                     moved = keyring.merge_into_login(prompt=False)
                 except (keyring.KeyringError, GLib.Error):
                     moved = None
                 if moved is None:
-                    keyring.schedule_merge()
+                    try:
+                        keyring.schedule_merge()
+                    except OSError:
+                        pass
+                return moved is not None
+
+            def moved(now: bool | None) -> None:
+                if now:
+                    self.toast("Automatic sign-in is off")
+                else:
                     self.tell("Automatic sign-in is off",
                               "Next time you sign in, your saved passwords move to the keyring your sign-in "
                               "password unlocks. You may be asked for their old password once more.")
-                    message = ""
-            if message:
-                self.toast(message)
-            self.refresh()
+                self.refresh()
+
+            in_thread(work, moved, page=self)
         call(me, "SetAutomaticLogin", GLib.Variant("(b)", (False,)), done)
 
     def tell(self, heading: str, body: str) -> None:

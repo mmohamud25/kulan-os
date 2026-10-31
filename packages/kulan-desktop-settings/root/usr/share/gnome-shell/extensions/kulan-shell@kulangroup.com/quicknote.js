@@ -5,13 +5,13 @@
 // keeps the text open; after a large deletion, Undo brings the text back.
 
 import Clutter from 'gi://Clutter';
-import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
+import {failureText, readText, writeFile} from './files.js';
 import {NOTE_FILE} from './widgets.js';
 
 const SAVE_DELAY_MS = 600;
@@ -22,28 +22,18 @@ const MAX_CHARS = 20000;
 const SUPER = Clutter.ModifierType.SUPER_MASK | Clutter.ModifierType.MOD4_MASK;
 
 function readNote() {
-    try {
-        const [ok, bytes] = GLib.file_get_contents(NOTE_FILE);
-        return ok ? new TextDecoder().decode(bytes) : '';
-    } catch {
-        return '';
-    }
+    return readText(NOTE_FILE) ?? '';
 }
 
-// Returns null when saved, or why it couldn't be.
-export function writeNote(text) {
-    try {
-        GLib.mkdir_with_parents(GLib.path_get_dirname(NOTE_FILE), 0o700);
-        // Written whole and renamed into place, so a crash never leaves half a note.
-        const file = Gio.File.new_for_path(NOTE_FILE);
-        file.replace_contents(new TextEncoder().encode(text), null, false,
-            Gio.FileCreateFlags.PRIVATE | Gio.FileCreateFlags.REPLACE_DESTINATION, null);
-        return null;
-    } catch (e) {
-        logError(e, 'Kulan Shell: could not save the quick note');
-        return e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NO_SPACE)
-            ? 'the disk is full' : (e.message || 'unknown error');
-    }
+// Saves the note without making the desktop wait (files.js): written whole and
+// renamed into place, so a crash never leaves half a note. done(why) is null
+// when saved, or why it couldn't be.
+export function writeNote(text, done = null) {
+    writeFile(NOTE_FILE, text, error => {
+        if (error)
+            logError(error, 'Kulan Shell: could not save the quick note');
+        done?.(error ? failureText(error) : null);
+    }, {private: true});
 }
 
 export class QuickNote {
@@ -53,6 +43,7 @@ export class QuickNote {
         this._saveTimer = 0;
         this._undoTimer = 0;
         this._saveError = null;
+        this._saving = undefined; // the text of the save on its way to the disk
     }
 
     get isOpen() {
@@ -183,15 +174,34 @@ export class QuickNote {
     _save() {
         if (!this._entry)
             return;
-        this._saveError = writeNote(this._entry.get_text());
-        if (this._saveError === null)
+        const text = this._entry.get_text();
+        this._saving = text;
+        writeNote(text, why => this._saved(text, why));
+    }
+
+    // The answer to a save, which comes once it's on the disk (or couldn't be).
+    _saved(text, why) {
+        if (text !== this._saving)
+            return; // a newer save follows, and its answer counts
+        this._saving = undefined;
+        this._saveError = why;
+        if (why === null) {
             this._unsaved = undefined;
-        if (this._status) {
-            this._status.visible = this._saveError !== null;
-            this._status.text = this._saveError
-                ? `Couldn’t save the note (${this._saveError}). Your text is still here.`
-                : '';
+        } else if (!this._entry) {
+            // Closed while this last save failed: keep the text (in memory, until
+            // you log out) and say so where it's still seen.
+            this._unsaved = text;
+            this._tellUnsaved();
         }
+        if (this._status) {
+            this._status.visible = why !== null;
+            this._status.text = why ? `Couldn’t save the note (${why}). Your text is still here.` : '';
+        }
+    }
+
+    _tellUnsaved() {
+        Main.notify('Quick Note isn’t saved yet', `Your note couldn’t be saved (${this._saveError}). ` +
+            'It’s kept until you log out. Free up some space, then open Quick Note again.');
     }
 
     _offerUndo(before) {
@@ -224,18 +234,17 @@ export class QuickNote {
         if (this._saveTimer) {
             GLib.source_remove(this._saveTimer);
             this._saveTimer = 0;
-            this._save(); // what was typed last is never lost
+            this._save(); // what was typed last is never lost (its answer says if it failed)
         }
         if (this._undoTimer) {
             GLib.source_remove(this._undoTimer);
             this._undoTimer = 0;
         }
-        if (this._saveError) {
+        if (this._saveError && this._saving === undefined) {
             // Closed while the last save failed: keep the text (in memory, until
             // you log out) and say so where it's still seen.
             this._unsaved = this._entry.get_text();
-            Main.notify('Quick Note isn’t saved yet', `Your note couldn’t be saved (${this._saveError}). ` +
-                'It’s kept until you log out. Free up some space, then open Quick Note again.');
+            this._tellUnsaved();
         }
         if (this._grab) {
             Main.popModal(this._grab);

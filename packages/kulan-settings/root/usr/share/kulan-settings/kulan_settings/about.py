@@ -16,7 +16,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from .common import Page, failure_text, os_release
+from .common import Page, failure_text, in_thread, os_release
 
 KULAN_CONF = Path("/usr/share/kulan/kulan.conf")
 
@@ -169,6 +169,18 @@ def desktop_version() -> str:
     return ", ".join(x for x in (out, session) if x)
 
 
+SLOW_DETAILS: dict[str, str] | None = None  # found once per run; the hardware doesn't change
+
+
+def slow_details() -> dict[str, str]:
+    """The details that need a program to find out. On a worker thread, never the window's."""
+    global SLOW_DETAILS
+    if SLOW_DETAILS is None:
+        SLOW_DETAILS = {"Processor": processor(), "Graphics": graphics(),
+                        "3D acceleration": acceleration_text(*acceleration()), "Desktop": desktop_version()}
+    return SLOW_DETAILS
+
+
 class AboutPage(Page):
     title = "About Kulan OS"
     icon = "help-about-symbolic"
@@ -194,23 +206,32 @@ class AboutPage(Page):
 
         details = self.add_group("This computer")
         uname = os.uname()
+        # What needs a program to find out (lscpu, lspci, the renderer, gnome-shell)
+        # fills in from a thread, so About opens at once, also from the top bar.
+        slow = SLOW_DETAILS or {}
+        self.slow_rows: dict[str, Adw.ActionRow] = {}
         for title, value in (
                 ("Computer name", GLib.get_host_name()),
-                ("Processor", processor()),
+                ("Processor", slow.get("Processor", None)),
                 ("Memory", memory()),
                 ("Storage", storage()),
                 ("Based on", f"Debian {release.get('VERSION', '').split('Debian ')[-1].rstrip(')') or 'GNU/Linux'}"),
                 ("Kernel", f"Linux {uname.release} ({uname.machine})"),
                 ("Hardware model", hardware_model()),
-                ("Graphics", graphics()),
-                ("3D acceleration", acceleration_text(*acceleration())),
+                ("Graphics", slow.get("Graphics", None)),
+                ("3D acceleration", slow.get("3D acceleration", None)),
                 ("Firmware", firmware()),
-                ("Desktop", desktop_version())):
-            if not value:
+                ("Desktop", slow.get("Desktop", None))):
+            if value == "":
                 continue
-            row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(value), subtitle_selectable=True)
+            row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(value or "…"),
+                                subtitle_selectable=True)
             row.add_css_class("property")
             details.add(row)
+            if value is None:
+                self.slow_rows[title] = row
+        if self.slow_rows:
+            in_thread(slow_details, self.got_slow_details, page=self)
 
         self.org_group = self.add_group("Organisation")
         self.org_rows: list[Gtk.Widget] = []
@@ -225,6 +246,14 @@ class AboutPage(Page):
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             row.connect("activated", lambda _r, a=action: a())
             links.add(row)
+
+    def got_slow_details(self, values: dict[str, str] | None) -> None:
+        for title, row in self.slow_rows.items():
+            value = (values or {}).get(title, "")
+            if value:
+                row.set_subtitle(GLib.markup_escape_text(value))
+            else:
+                row.set_visible(False)
 
     # --- fleet management -------------------------------------------------------------
     def render_org(self) -> None:

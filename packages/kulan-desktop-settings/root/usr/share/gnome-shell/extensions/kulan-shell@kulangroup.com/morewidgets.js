@@ -7,6 +7,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GWeather from 'gi://GWeather?version=4.0';
+import Meta from 'gi://Meta';
 import St from 'gi://St';
 
 
@@ -15,7 +16,7 @@ import {Players} from './players.js';
 import {TODO_FILE, TodoPanel, checkButton, readTodos, setDone} from './todo.js';
 
 const MAX_CITIES = 4;
-const SYSTEM_EVERY_S = 4;
+const SYSTEM_EVERY_S = 10;
 const MAX_TODOS = 5;
 const BAR_WIDTH = 150; // the card's inner width, in logical pixels
 
@@ -160,46 +161,109 @@ function memory() {
     return {used: info.MemTotal - info.MemAvailable, total: info.MemTotal};
 }
 
+// The home folder's disk, without waiting on the Shell's thread (a network home
+// folder or a busy disk can take a while to answer).
 function disk() {
-    try {
-        const fs = Gio.File.new_for_path(GLib.get_home_dir())
-            .query_filesystem_info('filesystem::size,filesystem::free', null);
-        const total = fs.get_attribute_uint64('filesystem::size');
-        const free = fs.get_attribute_uint64('filesystem::free');
-        return total > 0 ? {used: total - free, free, total} : null;
-    } catch {
-        return null;
-    }
+    return new Promise(resolve => {
+        Gio.File.new_for_path(GLib.get_home_dir()).query_filesystem_info_async(
+            'filesystem::size,filesystem::free', GLib.PRIORITY_LOW, null, (file, result) => {
+                try {
+                    const fs = file.query_filesystem_info_finish(result);
+                    const total = fs.get_attribute_uint64('filesystem::size');
+                    const free = fs.get_attribute_uint64('filesystem::free');
+                    resolve(total > 0 ? {used: total - free, free, total} : null);
+                } catch {
+                    resolve(null);
+                }
+            });
+    });
 }
 
-function battery() {
-    const dir = '/sys/class/power_supply';
-    let names = [];
-    try {
-        const e = Gio.File.new_for_path(dir).enumerate_children('standard::name', Gio.FileQueryInfoFlags.NONE, null);
-        let info;
-        while ((info = e.next_file(null)))
-            names.push(info.get_name());
-        e.close(null);
-    } catch {
+const POWER_SUPPLY = '/sys/class/power_supply';
+// What battery() reads of each battery. Reading these asks the firmware, which
+// can take a moment: they're read without waiting, then battery() adds them up.
+const BATTERY_FILES = ['type', 'scope', 'capacity', 'status', 'energy_full', 'energy_now', 'charge_now', 'charge_full'];
+
+function loadText(path) {
+    return new Promise(resolve => {
+        Gio.File.new_for_path(path).load_contents_async(null, (file, result) => {
+            try {
+                const [, bytes] = file.load_contents_finish(result);
+                resolve(new TextDecoder().decode(bytes));
+            } catch {
+                resolve('');
+            }
+        });
+    });
+}
+
+function supplyNames() {
+    return new Promise(resolve => {
+        Gio.File.new_for_path(POWER_SUPPLY).enumerate_children_async('standard::name', Gio.FileQueryInfoFlags.NONE,
+            GLib.PRIORITY_LOW, null, (dir, result) => {
+                let e;
+                try {
+                    e = dir.enumerate_children_finish(result);
+                } catch {
+                    resolve(null);
+                    return;
+                }
+                const names = [];
+                const more = () => e.next_files_async(32, GLib.PRIORITY_LOW, null, (en, res) => {
+                    let infos;
+                    try {
+                        infos = en.next_files_finish(res);
+                    } catch {
+                        infos = [];
+                    }
+                    if (infos.length === 0) {
+                        en.close_async(GLib.PRIORITY_LOW, null, null);
+                        resolve(names);
+                        return;
+                    }
+                    names.push(...infos.map(i => i.get_name()));
+                    more();
+                });
+                more();
+            });
+    });
+}
+
+// The batteries, read without waiting: battery() on what was read.
+async function batteryNow() {
+    const names = await supplyNames();
+    if (names === null)
         return null;
-    }
-    names = names.sort();
+    const texts = new Map();
+    const types = await Promise.all(names.map(name => loadText(`${POWER_SUPPLY}/${name}/type`)));
+    const batteries = names.filter((_n, i) => types[i].trim() === 'Battery');
+    names.forEach((name, i) => texts.set(`${POWER_SUPPLY}/${name}/type`, types[i]));
+    const paths = batteries.flatMap(name => BATTERY_FILES.filter(f => f !== 'type')
+        .map(f => `${POWER_SUPPLY}/${name}/${f}`));
+    const values = await Promise.all(paths.map(loadText));
+    paths.forEach((path, i) => texts.set(path, values[i]));
+    return battery(names, path => texts.get(path) ?? '');
+}
+
+// names: the power supplies; read(path): a file's text, '' when it isn't there.
+function battery(names, read = readText) {
+    const dir = POWER_SUPPLY;
+    names = [...names].sort();
     // All of the computer's batteries together (some ThinkPads have two), as the top bar shows:
     // weighted by how much each holds, and charging if either is.
     let now = 0, full = 0, levels = [], statuses = [];
     for (const name of names) {
         const base = `${dir}/${name}`;
         // The computer's own battery, not a mouse's or headphones'.
-        if (readText(`${base}/type`).trim() !== 'Battery' || readText(`${base}/scope`).trim() === 'Device')
+        if (read(`${base}/type`).trim() !== 'Battery' || read(`${base}/scope`).trim() === 'Device')
             continue;
-        const level = Number(readText(`${base}/capacity`).trim());
+        const level = Number(read(`${base}/capacity`).trim());
         if (!Number.isFinite(level))
             continue;
         levels.push(Math.max(0, Math.min(100, level)));
-        statuses.push(readText(`${base}/status`).trim());
-        const unit = readText(`${base}/energy_full`).trim() ? 'energy' : 'charge';
-        const n = Number(readText(`${base}/${unit}_now`).trim()), f = Number(readText(`${base}/${unit}_full`).trim());
+        statuses.push(read(`${base}/status`).trim());
+        const unit = read(`${base}/energy_full`).trim() ? 'energy' : 'charge';
+        const n = Number(read(`${base}/${unit}_now`).trim()), f = Number(read(`${base}/${unit}_full`).trim());
         if (Number.isFinite(n) && Number.isFinite(f) && f > 0) {
             now += n;
             full += f;
@@ -221,57 +285,130 @@ function size(bytes) {
     return gb >= 100 ? `${Math.round(gb)} GB` : `${gb.toFixed(1)} GB`;
 }
 
+// A full-screen or maximized window on the screen the widgets are on hides them
+// (they're below every window).
+function coveredByWindow() {
+    const primary = global.display.get_primary_monitor();
+    return global.workspace_manager.get_active_workspace().list_windows().some(w =>
+        !w.minimized && w.get_monitor() === primary && w.get_window_type() === Meta.WindowType.NORMAL &&
+        !(w.get_title() ?? '').startsWith('@!') && // the desktop icons' own window
+        (w.is_fullscreen() || w.get_maximized?.() === Meta.MaximizeFlags.BOTH));
+}
+
 export class SystemWidget {
     constructor() {
         this.card = new Card('System', 'computer-symbolic', () => {
             if (!launchApp('org.gnome.SystemMonitor.desktop'))
                 launchApp('gnome-system-monitor.desktop');
         }, 'system');
+        // The rows are made once; each update only changes their words and bars.
+        this._rows = {};
+        for (const name of ['Processor', 'Memory', 'Disk', 'Battery'])
+            this._rows[name] = this._row(name);
+        this._setRow('Processor', '…', 0);
+        for (const name of ['Memory', 'Disk', 'Battery'])
+            this._rows[name].box.visible = false;
         this._cpu = cpuTimes();
         this._cpuPercent = null;
+        this._asking = false;
+        this._stale = false; // missed updates while hidden
+        this._soon = 0;
+        this._destroyed = false;
+        // Not while nobody can see it: the overview, the lock screen, a window over it.
+        this._mappedId = this.card.actor.connect('notify::mapped', () => {
+            if (!this.card.actor.mapped)
+                this._stale = true;
+            else if (this._stale)
+                this._resume();
+        });
         this.update();
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, SYSTEM_EVERY_S, () => {
-            this.update();
+            if (!this.card.actor.mapped || coveredByWindow())
+                this._stale = true;
+            else if (this._stale)
+                this._resume();
+            else
+                this.update();
             return GLib.SOURCE_CONTINUE;
         });
     }
 
-    _row(name, value, fraction, warn = false) {
+    _row(name) {
         const box = new St.BoxLayout({vertical: true, style_class: 'kulan-system-row'});
         const top = new St.BoxLayout();
         top.add_child(label(name, 'kulan-widget-muted'));
-        top.add_child(new St.Label({text: value, style_class: 'kulan-system-value'}));
+        const value = new St.Label({text: '', style_class: 'kulan-system-value'});
+        top.add_child(value);
         box.add_child(top);
         const track = new St.Widget({style_class: 'kulan-system-bar', width: scaled(BAR_WIDTH)});
-        const fill = new St.Widget({style_class: warn ? 'kulan-system-fill kulan-system-fill-warn' : 'kulan-system-fill',
-            width: Math.max(scaled(4), Math.round(scaled(BAR_WIDTH) * Math.min(1, Math.max(0, fraction))))});
+        const fill = new St.Widget({style_class: 'kulan-system-fill', width: scaled(4)});
         track.add_child(fill);
         box.add_child(track);
         this.card.body.add_child(box);
+        return {box, value, track, fill};
+    }
+
+    _setRow(name, value, fraction, warn = false) {
+        const row = this._rows[name];
+        row.box.visible = true;
+        if (row.value.text !== value)
+            row.value.text = value;
+        const width = scaled(BAR_WIDTH);
+        row.track.width = width;
+        row.fill.width = Math.max(scaled(4), Math.round(width * Math.min(1, Math.max(0, fraction))));
+        const style = warn ? 'kulan-system-fill kulan-system-fill-warn' : 'kulan-system-fill';
+        if (row.fill.style_class !== style)
+            row.fill.style_class = style;
+    }
+
+    // Seen again: a fresh processor reading takes a moment, so the next update comes soon.
+    _resume() {
+        this._stale = false;
+        this._cpu = cpuTimes();
+        if (this._soon)
+            GLib.source_remove(this._soon);
+        this._soon = GLib.timeout_add_seconds(GLib.PRIORITY_LOW, 1, () => {
+            this._soon = 0;
+            this.update();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     update() {
+        if (this._asking)
+            return; // the last update's answers aren't all back yet
         const now = cpuTimes();
         if (now && this._cpu && now.total > this._cpu.total)
             this._cpuPercent = Math.round(100 * (1 - (now.idle - this._cpu.idle) / (now.total - this._cpu.total)));
         this._cpu = now;
-
-        this.card.clear();
         if (this._cpuPercent !== null)
-            this._row('Processor', `${this._cpuPercent}%`, this._cpuPercent / 100, this._cpuPercent >= 90);
-        else
-            this._row('Processor', '…', 0);
+            this._setRow('Processor', `${this._cpuPercent}%`, this._cpuPercent / 100, this._cpuPercent >= 90);
         const mem = memory();
         if (mem)
-            this._row('Memory', `${size(mem.used)} of ${size(mem.total)}`, mem.used / mem.total, mem.used / mem.total >= 0.9);
-        const space = disk();
-        if (space)
-            this._row('Disk', `${size(space.free)} free`, space.used / space.total, space.free / space.total < 0.1);
-        const power = battery();
-        if (power) {
-            const charging = power.status === 'Charging' ? ' · charging' : power.status === 'Full' ? ' · full' : '';
-            this._row('Battery', `${power.level}%${charging}`, power.level / 100, power.level <= 15 && power.status !== 'Charging');
-        }
+            this._setRow('Memory', `${size(mem.used)} of ${size(mem.total)}`, mem.used / mem.total, mem.used / mem.total >= 0.9);
+        else
+            this._rows.Memory.box.visible = false;
+        // The disk and the batteries answer without the Shell waiting for them.
+        this._asking = true;
+        Promise.all([disk(), batteryNow()]).then(([space, power]) => {
+            this._asking = false;
+            if (this._destroyed)
+                return;
+            if (space)
+                this._setRow('Disk', `${size(space.free)} free`, space.used / space.total, space.free / space.total < 0.1);
+            else
+                this._rows.Disk.box.visible = false;
+            if (power) {
+                const charging = power.status === 'Charging' ? ' · charging' : power.status === 'Full' ? ' · full' : '';
+                this._setRow('Battery', `${power.level}%${charging}`, power.level / 100,
+                    power.level <= 15 && power.status !== 'Charging');
+            } else {
+                this._rows.Battery.box.visible = false;
+            }
+        }).catch(e => {
+            this._asking = false;
+            logError(e, 'Kulan Shell: System widget');
+        });
     }
 
     tick() {
@@ -279,10 +416,15 @@ export class SystemWidget {
     }
 
     destroy() {
-        if (this._timer) {
-            GLib.source_remove(this._timer);
-            this._timer = 0;
+        this._destroyed = true;
+        for (const id of [this._timer, this._soon]) {
+            if (id)
+                GLib.source_remove(id);
         }
+        this._timer = this._soon = 0;
+        if (this._mappedId)
+            this.card.actor.disconnect(this._mappedId);
+        this._mappedId = 0;
         this.card.destroy();
     }
 }

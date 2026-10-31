@@ -177,17 +177,35 @@ def find_files(a: dict) -> Result:
     return Result(True, f"Found {len(hits)} file{'s' if len(hits) != 1 else ''}", found=hits)
 
 
+TOOL_TIMEOUT_S = 15  # a sound or network service that doesn't answer never holds things up for long
+
+
+def _tool(argv: list[str]) -> subprocess.CompletedProcess | None:
+    """Run a settings tool (wpctl, nmcli) with a time limit; None if it couldn't run or took too long."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, timeout=TOOL_TIMEOUT_S, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _undo_tool(argv: list[str]) -> None:
+    """An undo that runs a tool; raises when it didn't work, so Undo can say so."""
+    r = _tool(argv)
+    if r is None or r.returncode != 0:
+        raise RuntimeError(f"{argv[0]} couldn't undo it")
+
+
 def set_volume(a: dict) -> Result:
     percent = max(0, min(100, int(a["percent"])))
     tool = shutil.which("wpctl")
     if tool is None:
         return Result(False, "Sound settings aren't available")
-    old = subprocess.run([tool, "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True).stdout
-    match = re.search(r"([\d.]+)", old)
-    r = subprocess.run([tool, "set-volume", "@DEFAULT_AUDIO_SINK@", f"{percent / 100:.2f}"])
-    if r.returncode != 0:
+    old = _tool([tool, "get-volume", "@DEFAULT_AUDIO_SINK@"])
+    match = re.search(r"([\d.]+)", old.stdout) if old is not None and old.returncode == 0 else None
+    r = _tool([tool, "set-volume", "@DEFAULT_AUDIO_SINK@", f"{percent / 100:.2f}"])
+    if r is None or r.returncode != 0:
         return Result(False, "The volume couldn't be changed")
-    undo = (lambda: subprocess.run([tool, "set-volume", "@DEFAULT_AUDIO_SINK@", match.group(1)])) if match else None
+    undo = (lambda: _undo_tool([tool, "set-volume", "@DEFAULT_AUDIO_SINK@", match.group(1)])) if match else None
     return Result(True, f"Volume {percent}%", undo=undo)
 
 
@@ -195,11 +213,11 @@ def set_wifi(a: dict) -> Result:
     if shutil.which("nmcli") is None:
         return Result(False, "Wi-Fi settings aren't available")
     state = "on" if a["on"] else "off"
-    r = subprocess.run(["nmcli", "radio", "wifi", state], capture_output=True, text=True)
-    if r.returncode != 0:
+    r = _tool(["nmcli", "radio", "wifi", state])
+    if r is None or r.returncode != 0:
         return Result(False, "Wi-Fi couldn't be changed. Try the Wi-Fi switch at the top right")
     back = "off" if a["on"] else "on"
-    return Result(True, f"Wi-Fi {state}", undo=lambda: subprocess.run(["nmcli", "radio", "wifi", back]))
+    return Result(True, f"Wi-Fi {state}", undo=lambda: _undo_tool(["nmcli", "radio", "wifi", back]))
 
 
 # --- tidying a folder ---------------------------------------------------------------------
