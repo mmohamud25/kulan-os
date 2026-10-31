@@ -425,6 +425,19 @@ check "Restart in ARM VMs" "fast restart only in ARM QEMU VMs; kexec hardening k
 	/usr/lib/systemd/system-generators/kulan-fast-restart "$D" || { echo "generator failed"; exit 1; }
 	if test -e "$D/systemd-reboot.service.d/50-kulan-fast-restart.conf"; then echo "generator set up kexec on $(uname -m)"; exit 1; fi
 	echo ok'
+check "Firmware service" "the sign-in screen doesn't wait for fwupd; the rest of its unit is Debian's" bash -c '
+	G=/usr/lib/systemd/system-generators/kulan-fwupd-later
+	test -x "$G" || { echo "generator missing"; exit 1; }
+	D=$(mktemp -d)
+	printf "[Unit]\nDescription=t\nBefore=a.service display-manager.service\n\n[Service]\nExecStart=/bin/true\n" >"$D/fwupd.service"
+	KULAN_FWUPD_UNIT="$D/fwupd.service" "$G" "$D/out" || { echo "generator failed"; exit 1; }
+	grep -qx "Before=a.service" "$D/out/fwupd.service" && grep -qx "ExecStart=/bin/true" "$D/out/fwupd.service" || { cat "$D/out/fwupd.service"; exit 1; }
+	if [ -e /usr/lib/systemd/system/fwupd.service ]; then
+		"$G" "$D/real" || exit 1
+		if grep -q "^Before=.*display-manager" "$D/real/fwupd.service" 2>/dev/null; then echo "still before the sign-in screen"; exit 1; fi
+		grep -q "^ExecStart=" "$D/real/fwupd.service" || { echo "no copy of Debian'"'"'s unit"; exit 1; }
+	fi
+	echo ok'
 check "Memory guard" "systemd-oomd and Kulan's notice enabled; user apps closed under memory pressure" bash -c 'systemctl is-enabled systemd-oomd.service && systemctl is-enabled kulan-oom-notice.service && grep -qx "ManagedOOMMemoryPressure=kill" /usr/lib/systemd/system/user@.service.d/50-kulan-oomd.conf'
 check "Memory notice" "names the app that was closed" python3 -I -B - <<'PY'
 import importlib.machinery, importlib.util

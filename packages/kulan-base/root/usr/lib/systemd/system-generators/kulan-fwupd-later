@@ -1,0 +1,31 @@
+#!/bin/sh
+# Kulan OS: the sign-in screen doesn't wait for the firmware update service.
+#
+# fwupd.service says Before=display-manager.service, so whenever something
+# starts it during start-up (its own timer catching up, a firmware check), the
+# sign-in screen waits for it to load its plugins: seconds on every start-up.
+# Nothing at the sign-in screen needs it, and it starts by itself when asked
+# (D-Bus). A drop-in can't take an ordering away, so this makes a copy of the
+# unit Debian ships, without that one ordering, where systemd looks first: at
+# every start-up and daemon-reload, so it follows fwupd's own updates. Its
+# drop-ins still apply. A copy of your own in /etc/systemd/system wins.
+SRC="${KULAN_FWUPD_UNIT:-/usr/lib/systemd/system/fwupd.service}"
+OUT="${1:-/run/systemd/generator}"
+[ -r "${SRC}" ] || exit 0
+[ -e /etc/systemd/system/fwupd.service ] && exit 0
+grep -Eq '^Before=(.*[[:space:]])?display-manager\.service([[:space:]]|$)' "${SRC}" || exit 0
+mkdir -p "${OUT}" || exit 0
+awk '
+	/^Before=/ {
+		n = split(substr($0, 8), units, /[[:space:]]+/)
+		kept = ""
+		for (i = 1; i <= n; i++)
+			if (units[i] != "" && units[i] != "display-manager.service")
+				kept = kept (kept == "" ? "" : " ") units[i]
+		if (kept != "") print "Before=" kept
+		next
+	}
+	{ print }
+	NR == 1 { print "# Kulan OS: " FILENAME ", without Before=display-manager.service (kulan-fwupd-later)" }
+' "${SRC}" >"${OUT}/fwupd.service.new" && mv -f "${OUT}/fwupd.service.new" "${OUT}/fwupd.service"
+exit 0

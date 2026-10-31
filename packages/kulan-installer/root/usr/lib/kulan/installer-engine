@@ -554,6 +554,9 @@ def prepare_apparmor(target: Path, chroot: "Chroot") -> None:
     try:
         chroot.run(["apparmor_parser", "--skip-kernel-load", "--write-cache", "--quiet", "/etc/apparmor.d/"],
                    check=False, timeout=600)
+        # For the log: where it went (the first start-up's boot report says where it looked).
+        chroot.run(["sh", "-c", 'd="$(apparmor_parser --print-cache-dir)"; echo "apparmor cache: $d $(ls "$d" | wc -l) $(date +%s)"'],
+                   check=False, timeout=60)
     except ToolFailure:
         pass
     finally:
