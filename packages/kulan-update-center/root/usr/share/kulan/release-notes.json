@@ -20,6 +20,14 @@
     ]
   },
   {
+    "version": "2.11.1",
+    "label": "2.11.1",
+    "title": "Kulan Settings opens again",
+    "items": [
+      "Kulan Settings and Setup no longer close straight away on computers with saved Wi-Fi networks"
+    ]
+  },
+  {
     "version": "2.11.0",
     "label": "2.11",
     "title": "Smooth, connected, dependable",
