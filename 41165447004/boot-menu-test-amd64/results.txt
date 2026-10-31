@@ -1,0 +1,3 @@
+info: Menu shown: Kulan 08 Live (amd64) Kulan 0S Live (amdé4 fail-safe mode) Utilities... enter: boot, “e': options, “c': cmd-line The highlighted entry will be executed automatically in 1s. 
+info: Screen size: 1920x1080 (the computer's own size, as on a laptop's screen)
+pass: Entries readable: "Kulan OS Live" can be read in the menu (boot-menu.png)
