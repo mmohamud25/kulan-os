@@ -26,6 +26,7 @@ case "$1" in
 		fi
 		rm -f /usr/share/glib-2.0/schemas/98_kulan-os-generated.gschema.override
 		rm -f /usr/share/kulan/xdg/applications/org.gnome.Console.desktop
+		rm -f /usr/share/kulan/xdg/applications/org.gnome.Settings.desktop
 		# The short-name launcher copies (desktop-setup).
 		for f in /usr/share/kulan/xdg/applications/*.desktop; do
 			if [ -f "$f" ] && grep -qxF '# Kulan OS: the same launcher with a short name.' "$f"; then

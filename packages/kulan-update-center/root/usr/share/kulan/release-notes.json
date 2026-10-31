@@ -5,6 +5,8 @@
     "title": "Restart when it suits you",
     "items": [
       "Restart to finish updating, like a Mac: after you install updates that need a restart, a 60-second countdown, with Cancel. After automatic updates, a notice with Restart Now and Later, which asks again 4 hours later. At night, once nobody has used the computer for half an hour, it restarts by itself. An app with unsaved work always stops it",
+      "Profile at the top of Kulan Settings, as on a Mac: your picture and name, Change picture (any photo, cropped to a square), your password and how you sign in. Changing the picture works with any picture now",
+      "One Settings app: GNOME Settings is hidden from the app grid and search, and the gear in the top-right menu opens Kulan Settings. The few GNOME pages Kulan Settings links to still open from there",
       "Undo the last update works with signed start-up too: the start-up menu has it, and shows after a start-up that didn't reach the desktop",
       "Signed start-up notes a start-up that worked again, so it never goes back to the previous version by mistake, and undoing an update signs the start-up files for the restored system",
       "Block ads and trackers works on a new computer straight away, without downloading anything first",

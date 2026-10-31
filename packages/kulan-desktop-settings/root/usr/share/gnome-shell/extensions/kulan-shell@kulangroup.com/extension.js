@@ -441,6 +441,11 @@ export default class KulanShellExtension extends Extension {
         this._indicator = new UpdateIndicator();
         Main.panel.addToStatusArea(this.uuid, this._indicator, 0, 'right');
         this._restartPrompt = new RestartPrompt();
+        this._settingsGear = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._settingsGear = 0;
+            this._redirectSettingsGear();
+            return GLib.SOURCE_REMOVE;
+        });
 
         this._lastRun = undefined;
         this._monitor = Gio.File.new_for_path(STATUS_FILE)
@@ -752,6 +757,14 @@ export default class KulanShellExtension extends Extension {
         this._indicator = null;
         this._restartPrompt?.destroy();
         this._restartPrompt = null;
+        if (this._settingsGear)
+            GLib.source_remove(this._settingsGear);
+        this._settingsGear = 0;
+        if (this._gearItem) {
+            this._gearItem._settingsApp = this._gearApp;
+            this._gearItem.accessible_name = this._gearApp?.get_name() ?? null;
+            this._gearItem = this._gearApp = null;
+        }
         this._menu?.destroy();
         this._menu = null;
         if (this._oldSlowDown !== undefined) {
@@ -780,6 +793,44 @@ export default class KulanShellExtension extends Extension {
             this._reload();
             return GLib.SOURCE_REMOVE;
         });
+    }
+
+    // The gear in the top-right menu opens Kulan Settings (2.12; GNOME Settings
+    // is hidden while Kulan Settings is there). GNOME's SettingsItem opens
+    // this._settingsApp: that one object is swapped, and put back on disable.
+    _redirectSettingsGear() {
+        if (!GLib.find_program_in_path('kulan-settings'))
+            return;
+        const find = actor => {
+            if (!actor)
+                return null;
+            if (actor._settingsApp && typeof actor._settingsApp.activate === 'function')
+                return actor;
+            for (const child of actor.get_children?.() ?? []) {
+                const found = find(child);
+                if (found)
+                    return found;
+            }
+            return null;
+        };
+        try {
+            const item = find(Main.panel.statusArea.quickSettings?._system?._systemItem ??
+                Main.panel.statusArea.quickSettings);
+            if (!item)
+                return;
+            this._gearItem = item;
+            this._gearApp = item._settingsApp;
+            const real = item._settingsApp;
+            item._settingsApp = {
+                activate: () => openKulanSettings(null),
+                get_name: () => 'Kulan Settings',
+                get_icon: () => real.get_icon?.(),
+                get_id: () => 'org.kulan.Settings.desktop',
+            };
+            item.accessible_name = 'Kulan Settings';
+        } catch (e) {
+            logError(e, 'Kulan Shell: the Settings gear');
+        }
     }
 
     _reload() {

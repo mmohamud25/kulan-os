@@ -17,3 +17,5 @@ interest-noawait /usr/share/applications/org.gnome.Papers.desktop
 interest-noawait /usr/share/applications/org.gnome.baobab.desktop
 interest-noawait /usr/share/applications/gufw.desktop
 interest-noawait /usr/share/applications/torbrowser.desktop
+interest-noawait /usr/share/applications/org.gnome.Settings.desktop
+interest-noawait /usr/share/applications/org.kulan.Settings.desktop

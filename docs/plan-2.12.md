@@ -73,6 +73,23 @@ What 2.11 left undone, with reasons (docs/plan-2.11.md, "Left"), closed here.
    Tests: Kulan Settings' self-test (asked after an install that needs it,
    not otherwise, not after a check).
 
+10. **Profile** (asked for): the first row of Kulan Settings' sidebar is you
+    (your picture and name); its page has a large picture with Change
+    picture… and Remove, your name, password and sign-in. Users keeps other
+    people, with a link to Profile. Change picture didn't work: the file was
+    passed as chosen, which the accounts service (another user) may not be
+    able to read, and big photos were refused. Now any picture is made a
+    square PNG of at most 512 pixels (the middle of it, turned the right way)
+    in a file it can read, then removed. Self-test: a 1600x900 photo in a
+    private file becomes 512x512, readable; a text file is refused.
+11. **One Settings app** (asked for): GNOME Settings is hidden (NoDisplay, a
+    copy of its launcher in Kulan's xdg folder, remade by desktop-setup, so
+    it follows gnome-control-center's updates) while Kulan Settings is there.
+    Not removed: Kulan Settings opens a few of its pages (Online Accounts,
+    Printers, Sharing, Region...). The gear in the top-right menu opens Kulan
+    Settings (Kulan Shell swaps the SettingsItem's app, put back on disable;
+    GNOME 48's system.js checked).
+
 Known, left: AppArmor's profiles are still compiled at a new computer's first
 start (about 11 s in the install test's virtual machine, once). The
 installer prepares them, but for the live system's kernel features; the
