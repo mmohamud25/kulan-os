@@ -1,0 +1,27 @@
+KULAN-TPM-SETUP-BEGIN
+{
+  "on": false,
+  "pin": false,
+  "available": true,
+  "possible": true,
+  "reasons": [],
+  "tpm2": true,
+  "secure_boot": true,
+  "volume": "kulan_crypt",
+  "device": "/dev/vda3",
+  "pcrs": "7"
+}
+Installing dracut and the TPM tools…
+Adding the TPM key to the disk…
+Rebuilding the start-up image…
+TPM unlock is on. The disk unlocks automatically on this computer
+tpm_on_exit=0
+tpm_pin=False
+key_removed=0
+dracut=0
+crypttab=kulan_crypt UUID=1fc25d2f-acd4-4aee-b01a-e54838be0e6f none luks,discard,initramfs,tpm2-device=auto
+slot  0: luks2
+slot  2: luks2
+slot  0: systemd-tpm2
+Removed '/etc/systemd/system/multi-user.target.wants/kulan-tpm-test-setup.service'.
+KULAN-TPM-SETUP-END
