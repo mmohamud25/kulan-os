@@ -464,6 +464,28 @@ class KulanSettings(Adw.Application):
             assert users.user_name_from("Amina Yusuf", {"amina"}) not in ("amina", "")
         except (AssertionError, AttributeError) as exc:
             failures.append(f"messages: {exc!r}")
+        try:  # Wi-Fi: a saved network found in Python (2.11's NMDevice.filter_connections crashed real computers)
+            from . import wifi as wifi_page
+
+            class Fake:
+                def __init__(self, **kw):
+                    self.__dict__.update(kw)
+
+            def conn(cid, ssid, mode="infrastructure", iface=None):
+                wireless = Fake(get_mode=lambda: mode, get_ssid=lambda: GLib.Bytes.new(ssid.encode()))
+                return Fake(get_id=lambda: cid, get_setting_wireless=lambda: wireless,
+                            get_setting_connection=lambda: Fake(get_interface_name=lambda: iface))
+            wired = Fake(get_id=lambda: "Wired", get_setting_wireless=lambda: None, get_setting_connection=lambda: None)
+            card = Fake(get_iface=lambda: "wlp3s0")
+            home, other_card = conn("Home", "Home"), conn("Home (USB)", "Home", iface="wlx001")
+            hotspot = conn(wifi_page.HOTSPOT_ID, "Kulan", mode="ap")
+            saved = [wired, other_card, hotspot, home]
+            assert wifi_page.saved_for(card, saved, "Home") is home, "the saved network for this card"
+            assert wifi_page.saved_for(card, saved, "Kulan") is None, "its own hotspot isn't a saved network"
+            assert wifi_page.saved_for(card, saved, "Cafe") is None and wifi_page.saved_for(card, [], "Home") is None
+            assert "filter_connections(" not in open(wifi_page.__file__).read(), "NMDevice.filter_connections is back"
+        except (AssertionError, AttributeError) as exc:
+            failures.append(f"wifi: {exc!r}")
         try:  # Profile (2.12): any picture becomes a square PNG the accounts service can read; you at the top
             from . import users
             from gi.repository import GdkPixbuf
