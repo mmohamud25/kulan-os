@@ -363,7 +363,8 @@ def help_page() -> str:
                                                  "files safe. Without it, the disk has to be erased and Kulan OS "
                                                  "installed again."),
         ("Does Kulan Assistant send my text anywhere?", "No. It runs on your computer. Select text and press "
-                                                        "Cmd+Shift+W for writing tools, or Cmd+Shift+D to dictate."),
+                                                        "Shift+Super+W for writing tools, or Shift+Super+D to dictate. "
+                                                        "(Super is the Windows key, or ⌘ on a Mac.)"),
         ("How do I back up my files?", "Open Backups from the app grid and choose an external drive or network "
                                        "folder. It can back up automatically every day."),
         ("My computer won’t start from the USB stick", "Try another USB port, make the stick again with "

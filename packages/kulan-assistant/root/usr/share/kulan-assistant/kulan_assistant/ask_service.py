@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import sys
 import threading
 import time
 
@@ -110,7 +111,8 @@ def ask(plans: Plans, text: str) -> dict:
     except engine.EngineError as exc:
         return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001 - the panel must always get an answer
-        return {"error": f"The assistant stopped unexpectedly: {exc}"}
+        print(f"kulan-assistant: {exc!r}", file=sys.stderr)
+        return {"error": engine.UNEXPECTED}
     pid = plans.add(steps)
     out = {"id": pid, "reply": reply, "steps": [{"text": s.text, "changes": s.action.changes} for s in steps],
            "confirm": any(s.action.changes for s in steps)}
@@ -185,7 +187,8 @@ class Service:
             try:
                 reply = work()
             except Exception as exc:  # noqa: BLE001
-                reply = {"error": f"The assistant stopped unexpectedly: {exc}"}
+                print(f"kulan-assistant: {exc!r}", file=sys.stderr)
+                reply = {"error": engine.UNEXPECTED}
             text = json.dumps(reply)
 
             def done() -> bool:

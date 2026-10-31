@@ -305,7 +305,7 @@ class KulanMenu extends PanelMenu.Button {
         this.menu.addAction('Store…', () => launchApp('org.gnome.Software.desktop'));
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
         this.menu.addAction('Lock Screen', () => actions.activateLockScreen());
-        this.menu.addAction('Log Out…', () => actions.activateLogout());
+        this.menu.addAction('Sign Out…', () => actions.activateLogout());
         this.menu.addAction('Restart…', () => actions.activateRestart());
         this.menu.addAction('Shut Down…', () => actions.activatePowerOff());
         this.menu.actor.add_style_class_name('kulan-menu');

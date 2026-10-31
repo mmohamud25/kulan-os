@@ -15,6 +15,7 @@ import socket
 import re
 import secrets
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -178,6 +179,21 @@ class EngineHTTPError(EngineError):
         self.status = status
 
 
+# Said when something we didn't expect went wrong (the details go to the log).
+UNEXPECTED = "The assistant stopped unexpectedly. Ask again, and if it keeps happening, restart the computer"
+
+
+def http_problem(status: int) -> str:
+    """What to tell someone when the engine refused a request, in plain words."""
+    if status == 400:
+        return "That was too long for the assistant. Ask something shorter, or start a new conversation"
+    if status == 401:
+        return "The assistant is busy with another account. Sign out and back in, then ask again"
+    if status == 503:
+        return "The assistant is still getting ready. Ask again in a moment"
+    return "The assistant couldn’t answer that. Ask again, and if it keeps happening, restart the computer"
+
+
 def request(path: str, body: dict | None = None, timeout: float = 5) -> http.client.HTTPResponse:
     """A request to this user's engine; the caller reads and closes the response.
 
@@ -196,7 +212,8 @@ def request(path: str, body: dict | None = None, timeout: float = 5) -> http.cli
     if resp.status >= 400:
         detail = resp.read(2000).decode("utf-8", "replace")
         conn.close()
-        raise EngineHTTPError(resp.status, f"The assistant couldn't answer (error {resp.status}). {detail[:200]}".strip())
+        print(f"kulan-assistant: engine said {resp.status}: {detail[:500]}", file=sys.stderr)
+        raise EngineHTTPError(resp.status, http_problem(resp.status))
     return resp
 
 

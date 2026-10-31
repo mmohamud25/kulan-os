@@ -263,7 +263,7 @@ export class Spotlight {
         if (this._rows.length === 0 && text) {
             // Still looking, or nothing found: say so instead of an empty panel.
             const message = this._pending > 0 ? 'Searching…'
-                : `No results for “${text}”. Try other words, or ask Kulan Assistant with Shift+Super+Space.`;
+                : `No results for “${text}”. Try other words, or ask Kulan with Shift+Super+Space.`;
             const label = new St.Label({text: message, style_class: 'kulan-spotlight-empty'});
             label.clutter_text.line_wrap = true;
             this._results.add_child(label);

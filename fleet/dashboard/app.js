@@ -87,10 +87,30 @@ function ago(iso) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+// What to show for an error: Kulan Fleet's own messages as they are; a lost
+// connection or a sign-in service message in plain words; never a browser's
+// or library's own wording.
+const SIGN_IN_WORDS = [
+  [/invalid (totp|mfa)|code.*(invalid|expired)|otp_expired/i, "That code didn’t work. Check the code on your phone and try again."],
+  [/invalid login credentials/i, "That email and password don’t match. Try again."],
+  [/email not confirmed/i, "Confirm your email first: open the link Kulan Fleet sent you."],
+  [/rate limit|too many/i, "Too many tries. Wait a minute, then try again."],
+  [/jwt|session.*(expired|missing)|refresh token/i, "You were signed out. Sign in again."],
+];
+function friendly(e) {
+  if (e && e.kulan) return e.message;
+  const text = String((e && e.message) || e || "");
+  if (e instanceof TypeError || /failed to fetch|networkerror|load failed|network request failed/i.test(text))
+    return "Can’t reach Kulan Fleet. Check your internet connection and try again.";
+  for (const [pattern, words] of SIGN_IN_WORDS) if (pattern.test(text)) return words;
+  console.error("Kulan Fleet:", e);
+  return "Something went wrong. Try again, and if it keeps happening, reload the page.";
+}
+
 let lastToken = null;  // for ending remote help as the page closes
 async function api(body) {
   const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error("Please sign in again");
+  if (!session) throw Object.assign(new Error("You were signed out. Sign in again."), { kulan: true });
   lastToken = session.access_token;
   const res = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify(body) });
   const out = await res.json().catch(() => ({}));
@@ -100,6 +120,7 @@ async function api(body) {
       : out.error ? out.error[0].toUpperCase() + out.error.slice(1)  // starts in lower case
         : "Kulan Fleet’s server had a problem. Try again in a minute.";
     const err = new Error(text);
+    err.kulan = true;
     err.twoStep = out.two_step;
     if (out.two_step) setTimeout(() => twoStepNeeded(out.two_step), 0);
     throw err;
@@ -122,7 +143,7 @@ function codeDialog(title, intro, extra, onCode) {
       if (!/^\d{6}$/.test(code.value.trim())) { err.textContent = "Enter the 6-digit code."; return; }
       go.disabled = true;
       try { await onCode(code.value.trim()); $("dlg").close(); await load(); resolve(); }
-      catch (e) { err.textContent = e.message; go.disabled = false; }
+      catch (e) { err.textContent = friendly(e); go.disabled = false; }
     } }, "Continue");
     code.addEventListener("keydown", (ev) => { if (ev.key === "Enter") go.click(); });
     dialog(title, [el("p", { class: "note" }, intro), ...extra, field("6-digit code", code), err],
@@ -134,11 +155,11 @@ function codeDialog(title, intro, extra, onCode) {
 async function askAuthenticatorCode() {
   const { data: f, error } = await supabase.auth.mfa.listFactors();
   const totp = (f?.totp || []).find((x) => x.status === "verified");
-  if (error || !totp) { $("app-msg").textContent = error?.message || "No authenticator app is set up for this email."; return; }
+  if (error || !totp) { $("app-msg").textContent = error ? friendly(error) : "No authenticator app is set up for this email."; return; }
   return codeDialog("Your authenticator app's code", "Enter the 6-digit code from your authenticator app.", [],
     async (code) => {
       const { error: e } = await supabase.auth.mfa.challengeAndVerify({ factorId: totp.id, code });
-      if (e) throw new Error(e.message);
+      if (e) throw e;
     });
 }
 async function setUpAuthenticator(required) {
@@ -148,7 +169,7 @@ async function setUpAuthenticator(required) {
   }
   const { data, error } = await supabase.auth.mfa.enroll({ factorType: "totp", issuer: "Kulan Fleet",
     friendlyName: `Kulan Fleet ${new Date().toISOString().slice(0, 16).replace("T", " ")}` });
-  if (error) { $("app-msg").textContent = error.message; return; }
+  if (error) { $("app-msg").textContent = friendly(error); return; }
   const secret = data.totp.secret || "";
   const extra = [data.totp.qr_code ? el("img", { src: data.totp.qr_code, alt: "QR code to scan", width: "200", height: "200" }) : "",
                  el("p", { class: "small", style: "font-family: ui-monospace, monospace" }, secret.replace(/(.{4})/g, "$1 ").trim())];
@@ -157,7 +178,7 @@ async function setUpAuthenticator(required) {
     "Scan the QR code with an authenticator app on your phone, or type the key, then enter the code it shows. If you lose your phone, the Owner can reset it.",
     extra, async (code) => {
       const { error: e } = await supabase.auth.mfa.challengeAndVerify({ factorId: data.id, code });
-      if (e) throw new Error(e.message);
+      if (e) throw e;
     });
 }
 // Before something that needs the code (scripts): asked first, so nothing typed is lost.
@@ -224,7 +245,7 @@ async function load() {
   try {
     data = await api({ op: "overview" });
   } catch (e) {
-    $("app-msg").textContent = e.message;
+    $("app-msg").textContent = friendly(e);
     return;
   }
   $("who").textContent = data.email;
@@ -253,7 +274,7 @@ async function loadPeople() {
     renderPeople();
     renderAdmins(await api({ op: "admins", organisation_id: org }));
     renderMail(await api({ op: "mail", organisation_id: org }));
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 
 function signInTag(p) {
@@ -328,9 +349,9 @@ function renderAdmins(out) {
     items.push(el("li", {}, el("span", { class: "grow-text" }, el("b", {}, a.email), el("span", { class: "small" }, ` · admin since ${ago(a.created_at)}`)),
       out.is_owner ? el("button", { onclick: () => changeAdmin("remove-admin", a.email) }, "Remove") : "",
       out.is_owner ? el("button", { onclick: async () => {
-        if (!confirm(`Reset ${a.email}'s authenticator app? They set it up again at their next sign-in. Make sure the request really comes from them.`)) return;
+        if (!await askConfirm(`Reset ${a.email}'s authenticator app? They set it up again at their next sign-in. Make sure the request really comes from them.`)) return;
         try { await api({ op: "reset-admin-two-step", organisation_id: $("org").value, email: a.email }); $("app-msg").textContent = `${a.email} will set it up at their next sign-in.`; }
-        catch (e) { $("app-msg").textContent = e.message; }
+        catch (e) { $("app-msg").textContent = friendly(e); }
       } }, "Reset authenticator…") : ""));
   }
   const org = data?.organisations.find((o) => o.id === $("org").value);
@@ -342,7 +363,7 @@ function renderAdmins(out) {
       await api({ op: "set-admin-two-step", organisation_id: org.id, required: require.checked });
       org.admin_two_step = require.checked;
       $("app-msg").textContent = require.checked ? "Authenticator app required for admins." : "An authenticator app is no longer required.";
-    } catch (e) { require.checked = !require.checked; $("app-msg").textContent = e.message; }
+    } catch (e) { require.checked = !require.checked; $("app-msg").textContent = friendly(e); }
   });
   items.push(el("li", {}, el("label", {}, require, " Require an authenticator app for admins. Set up yours first.")));
   $("admins").replaceChildren(...items);
@@ -352,7 +373,7 @@ function renderAdmins(out) {
 
 async function changeAdmin(op, email) {
   try { await api({ op, organisation_id: $("org").value, email }); await loadPeople(); }
-  catch (e) { $("app-msg").textContent = e.message; }
+  catch (e) { $("app-msg").textContent = friendly(e); }
 }
 
 // --- dialogs -----------------------------------------------------------------------------
@@ -365,6 +386,33 @@ function dialog(title, body, buttons) {
 const closeButton = (label = "Cancel") => el("button", { type: "button", onclick: () => $("dlg").close() }, label);
 const field = (label, input) => el("label", { class: "field" }, el("span", {}, label), input);
 const errorLine = () => el("p", { class: "small error", role: "status" });
+
+// Asking before something happens: the page's own dialog, never the browser's
+// confirm() or prompt() boxes. askConfirm resolves true or false; askText
+// resolves the typed text, or null when cancelled.
+const VERBS = { Reset: "Reset", Remove: "Remove", Disable: "Disable", Erase: "Erase", Disconnect: "Disconnect",
+  Restart: "Restart", Stop: "Stop", Allow: "Allow", Switch: "Switch off", Turn: "Turn on", Lost: "Start again" };
+const DANGER = /^(Reset|Remove|Disable|Erase|Disconnect|Switch off|Turn on|Start again)$/;
+// Its own dialog, over any dialog already open (so that one keeps what's in it).
+function ask(text, input, okLabel, fallback) {
+  return new Promise((resolve) => {
+    const d = $("ask-dlg");
+    const label = okLabel || VERBS[text.split(/[\s’']/)[0]] || fallback;
+    let answer = input ? null : false;
+    const ok = el("button", { type: "button", class: DANGER.test(label) ? "danger" : "primary",
+      onclick: () => { answer = input ? input.value : true; d.close(); } }, label);
+    const cancel = el("button", { type: "button", onclick: () => d.close() }, "Cancel");
+    if (input) input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); ok.click(); } });
+    $("ask-dlg-body").replaceChildren(el("p", {}, text), ...(input ? [input] : []));
+    $("ask-dlg-actions").replaceChildren(cancel, ok);
+    d.addEventListener("close", () => resolve(answer), { once: true });
+    d.showModal();
+    (input || ok).focus();
+  });
+}
+const askConfirm = (text, okLabel) => ask(text, null, okLabel, "Continue");
+const askText = (text, value = "", okLabel) =>
+  ask(text, el("input", { type: "text", value, "aria-label": text }), okLabel, "OK");
 
 function appProblem(source, id, blocking) {
   if (source === "debian" && !DEBIAN_NAME.test(id)) return "Use lowercase letters, numbers and + . - (for example vlc)";
@@ -531,7 +579,7 @@ async function openWeekly() {
     } }, "Print or save as PDF");
     dialog(`Weekly security report for ${org.name}`, [el("p", { class: "note" }, sub), ...nodes], [closeButton("Close"), print]);
   } catch (e) {
-    dialog("Weekly security report", [el("p", { class: "error" }, e.message)], [closeButton("Close")]);
+    dialog("Weekly security report", [el("p", { class: "error" }, friendly(e))], [closeButton("Close")]);
   }
 }
 
@@ -541,7 +589,7 @@ async function openReview() {
   dialog("Admin-rights review", [el("p", { class: "small" }, "Loading…")], [closeButton("Close")]);
   let out;
   try { out = await api({ op: "access-review", organisation_id: org.id }); }
-  catch (e) { dialog("Admin-rights review", [el("p", { class: "error" }, e.message)], [closeButton("Close")]); return; }
+  catch (e) { dialog("Admin-rights review", [el("p", { class: "error" }, friendly(e))], [closeButton("Close")]); return; }
   const owner = !!out.is_owner;
   const keeps = [];
   const keepBox = (kind, id, can) => { const b = el("input", { type: "checkbox", "aria-label": "Keep" }); b.checked = true; b.disabled = !owner || !can; keeps.push([kind, id, b]); return b; };
@@ -558,13 +606,13 @@ async function openReview() {
   const finish = el("button", { type: "button", class: "primary", onclick: async () => {
     const removePeople = keeps.filter(([k, , b]) => k === "person" && !b.checked).map(([, id]) => id);
     const removeAdmins = keeps.filter(([k, , b]) => k === "admin" && !b.checked).map(([, id]) => id);
-    if ((removePeople.length || removeAdmins.length) && !confirm(`Remove administrator rights from ${removePeople.length + removeAdmins.length}? People keep their accounts as employees. The review is saved in the activity log.`)) return;
+    if ((removePeople.length || removeAdmins.length) && !await askConfirm(`Remove administrator rights from ${removePeople.length + removeAdmins.length}? People keep their accounts as employees. The review is saved in the activity log.`)) return;
     try {
       const r = await api({ op: "review-access", organisation_id: org.id, remove_people: removePeople, remove_admins: removeAdmins });
       $("dlg").close();
       $("app-msg").textContent = `Review saved: ${r.kept} kept, ${r.removed} removed.`;
       await load();
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = friendly(e); }
   } }, "Finish review");
   finish.disabled = !owner;
   const last = out.last_review;
@@ -613,7 +661,7 @@ function askInstallApp(where, body) {
         $("dlg").close();
         $("app-msg").textContent = `${app.id} will be installed on ${where}${out.count ? ` (${out.count} computers)` : ""}.`;
         await load();
-      } catch (e) { err.textContent = e.message; }
+      } catch (e) { err.textContent = friendly(e); }
     } }, "Install")]);
   input.focus();
 }
@@ -626,7 +674,7 @@ async function loadGroups() {
     groups = (await api({ op: "groups", organisation_id: org })).groups || [];
     renderGroups();
     renderDrives(await api({ op: "drives", organisation_id: org }));
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 
 function orgDevices() { return data.devices.filter((d) => d.organisation_id === $("org").value && !d.left_at); }
@@ -662,12 +710,12 @@ function openGroup(g) {
     if (pick.value === "install-app") { askInstallApp(`${g.name}'s computers`, { op: "group-action", group_id: g.id }); return; }
     if (JOBS.has(pick.value)) { askJob(pick.value, `${g.name}'s computers`, { op: "group-action", group_id: g.id }); return; }
     if ((pick.value === "restart" || pick.value === "shutdown") &&
-        !confirm(`${LABEL[pick.value]} every computer in ${g.name}? Anyone using them gets 5 minutes' notice.`)) return;
+        !await askConfirm(`${LABEL[pick.value]} every computer in ${g.name}? Anyone using them gets 5 minutes' notice.`)) return;
     try {
       const out = await api({ op: "group-action", group_id: g.id, type: pick.value });
       err.textContent = `Asked ${out.count} computer${out.count === 1 ? "" : "s"}.`;
       await load();
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = friendly(e); }
   } }, "Send");
   const save = el("button", { type: "button", class: "primary", onclick: async () => {
     const policy = form.value();
@@ -678,13 +726,13 @@ function openGroup(g) {
       $("dlg").close();
       $("app-msg").textContent = `${name.value.trim()} saved.`;
       await loadGroups();
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = friendly(e); }
   } }, "Save");
   const remove = el("button", { type: "button", class: "danger", onclick: async () => {
-    const typed = prompt(`Remove ${g.name}? Its computers stop following its policy at their next report. Apps stay as they are, and USB drives work again unless another policy blocks them. Type the group's name to confirm.`);
+    const typed = await askText(`Remove ${g.name}? Its computers stop following its policy at their next report. Apps stay as they are, and USB drives work again unless another policy blocks them. Type the group's name to confirm.`);
     if (!typed || typed.trim() !== g.name) return;
     try { await api({ op: "remove-group", group_id: g.id, confirm: g.name }); $("dlg").close(); await loadGroups(); }
-    catch (e) { err.textContent = e.message; }
+    catch (e) { err.textContent = friendly(e); }
   } }, "Remove…");
   dialog(g.name, [field("Name", name), el("h4", {}, "Policy"), el("p", { class: "note" }, "Adds to the organisation's policy. The stricter rule wins."),
     form.node, el("h4", {}, "Computers"), el("div", { class: "checks" }, ...(boxes.length ? boxes.map(([, l]) => l) : [el("span", { class: "small" }, "No computers yet")])),
@@ -695,15 +743,15 @@ function openGroup(g) {
 function renderDrives(out) {
   const approved = (out.approved || []).map((d) => el("li", {}, el("b", {}, d.name), ` · ${d.vendor_id}:${d.product_id} · serial ${d.serial} · added by ${d.created_by || "–"} `,
     el("button", { onclick: async () => {
-      if (!confirm(`Stop approving ${d.name}?`)) return;
-      try { await api({ op: "remove-drive", drive_id: d.id }); await loadGroups(); } catch (e) { $("app-msg").textContent = e.message; }
+      if (!await askConfirm(`Stop approving ${d.name}?`)) return;
+      try { await api({ op: "remove-drive", drive_id: d.id }); await loadGroups(); } catch (e) { $("app-msg").textContent = friendly(e); }
     } }, "Remove")));
   const seen = (out.seen || []).map((d) => el("li", {}, el("b", {}, d.name || "USB drive"), ` · ${d.vendor_id}:${d.product_id} · serial ${d.serial} · on ${(d.computers || []).join(", ")} `,
     el("button", { class: "primary", onclick: async () => {
-      const name = prompt("A name you'll recognise for this drive, for example Finance backup drive. Other drives of the same model aren't approved.", d.name || "");
+      const name = await askText("A name you'll recognise for this drive, for example Finance backup drive. Other drives of the same model aren't approved.", d.name || "");
       if (!name || !name.trim()) return;
       try { await api({ op: "approve-drive", organisation_id: $("org").value, name: name.trim(), vendor_id: d.vendor_id, product_id: d.product_id, serial: d.serial }); await loadGroups(); }
-      catch (e) { $("app-msg").textContent = e.message; }
+      catch (e) { $("app-msg").textContent = friendly(e); }
     } }, "Approve…")));
   $("drives").replaceChildren(
     el("li", { class: "small" }, approved.length ? "Approved:" : "No approved drives yet."), ...approved,
@@ -817,7 +865,7 @@ function addPerson() {
       }
       if (out.mailbox_error) $("app-msg").textContent = `Added ${user.value}, but the mailbox wasn't made: ${out.mailbox_error}`;
       await loadPeople();
-    } catch (e) { err.textContent = e.message; add.disabled = false; }
+    } catch (e) { err.textContent = friendly(e); add.disabled = false; }
   } }, "Add");
   dialog("Add a person", [
     el("p", { class: "note" }, "They sign in with a setup code, then choose their own password."),
@@ -850,7 +898,7 @@ function openPerson(p) {
       if (done) done(); else $("dlg").close();
       await loadPeople();
       if (out?.mailbox_error) $("app-msg").textContent = `Saved.${mailNote(out)}`;
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = friendly(e); }
   };
   const save = el("button", { type: "button", class: "primary", onclick: () => {
     const body = { op: "edit-person", person_id: p.id, full_name: full.value.trim(), email: email.value.trim(), ...picker.value() };
@@ -858,14 +906,14 @@ function openPerson(p) {
     run(body);
   } }, "Save");
   const newCode = el("button", { type: "button", onclick: async () => {
-    if (!confirm(`A new setup code for ${p.username}? Their password stops working at each computer's next report.`)) return;
+    if (!await askConfirm(`A new setup code for ${p.username}? Their password stops working at each computer's next report.`)) return;
     const code = setupCode();
     run({ op: "new-setup-code", person_id: p.id, password_hash: await hashed(code) }, () => showCode(p.full_name || p.username, code, false));
   } }, "New setup code…");
   if (!manages) newCode.disabled = true;
-  const toggle = el("button", { type: "button", onclick: () => {
+  const toggle = el("button", { type: "button", onclick: async () => {
     const mb = p.mailbox && p.mailbox_state !== "deleted" && orgNow()?.mail_domain ? ` Their mailbox ${p.mailbox} is suspended now and unsuspended when they're enabled.` : "";
-    if (p.enabled && !confirm(`Disable ${p.username}? At each computer's next report their account is locked and they're signed out. Their files stay.${mb}`)) return;
+    if (p.enabled && !await askConfirm(`Disable ${p.username}? At each computer's next report their account is locked and they're signed out. Their files stay.${mb}`)) return;
     run({ op: "set-person-enabled", person_id: p.id, enabled: !p.enabled });
   } }, p.enabled ? "Disable…" : "Enable again");
   if (!manages) toggle.disabled = true;
@@ -881,8 +929,8 @@ function openPerson(p) {
     el("h4", {}, "Two-step sign-in"), el("ul", { class: "alerts" }, ...((p.two_step || []).length ? p.two_step.map((f) =>
       el("li", {}, `${f.label || "Second step"} · ${f.kind === "key" ? "security key" : "phone code"}${f.created_on ? ` · set up on ${f.created_on}` : ""}`))
       : [el("li", { class: "small" }, "Not set up. They sign in with a password only, and can set it up in Kulan Settings.")])),
-    (p.two_step || []).length && manages ? el("button", { type: "button", onclick: () => {
-      if (!confirm(`Reset ${p.username}'s two-step sign-in? Their keys and codes stop working at each computer's next report, and they set up new ones.`)) return;
+    (p.two_step || []).length && manages ? el("button", { type: "button", onclick: async () => {
+      if (!await askConfirm(`Reset ${p.username}'s two-step sign-in? Their keys and codes stop working at each computer's next report, and they set up new ones.`)) return;
       run({ op: "reset-two-step", person_id: p.id });
     } }, "Reset two-step sign-in…") : "",
     ...mailboxNodes(p, manages),
@@ -910,7 +958,7 @@ function removePerson(p) {
       $("dlg").close();
       await loadPeople();
       if (out?.mailbox_error) $("app-msg").textContent = `${p.username} removed.${mailNote(out)}`;
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = friendly(e); }
   } }, "Remove");
   typed.addEventListener("input", () => { go.disabled = typed.value.trim() !== p.username; });
   dialog(`Remove ${p.username}?`, [
@@ -970,7 +1018,7 @@ function connectMail() {
       $("dlg").close();
       $("app-msg").textContent = `Connected to ${out.domain}.`;
       await load();
-    } catch (e) { err.textContent = e.message; go.disabled = false; }
+    } catch (e) { err.textContent = friendly(e); go.disabled = false; }
   } }, "Connect");
   dialog("Connect Google Workspace", [
     el("p", {}, "As a Google Workspace super admin, make a Google Cloud project, turn on the Admin SDK API and create a service account with a JSON key. Then, in the Google Admin console under Security › Access and data control › API controls › Domain-wide delegation, give its client ID the scope below."),
@@ -993,7 +1041,7 @@ async function mailUsers() {
         u.admin ? el("span", { class: "tag dim", style: "margin-left: 6px" }, "Google admin") : "",
         u.suspended ? el("span", { class: "tag warn", style: "margin-left: 6px" }, "suspended") : "")))],
       [closeButton("Close")]);
-  } catch (e) { dialog("Existing mailboxes", [el("p", { class: "error" }, e.message)], [closeButton("Close")]); }
+  } catch (e) { dialog("Existing mailboxes", [el("p", { class: "error" }, friendly(e))], [closeButton("Close")]); }
 }
 
 function showMailboxPassword(name, address, password) {
@@ -1007,8 +1055,8 @@ function showMailboxPassword(name, address, password) {
 // A button for a mailbox action on someone (retry, forget, new-password, unlink, create, link).
 function mailboxButton(p, action, label, address) {
   return el("button", { type: "button", style: "margin-left: 6px", onclick: async () => {
-    if (action === "new-password" && !confirm(`A new Google password for ${p.username}? Their current one stops working now. The new one is shown once.`)) return;
-    if (action === "unlink" && !confirm(`Stop managing ${p.mailbox}? It stays in Google Workspace but is no longer suspended or removed with ${p.username}'s account.`)) return;
+    if (action === "new-password" && !await askConfirm(`A new Google password for ${p.username}? Their current one stops working now. The new one is shown once.`)) return;
+    if (action === "unlink" && !await askConfirm(`Stop managing ${p.mailbox}? It stays in Google Workspace but is no longer suspended or removed with ${p.username}'s account.`)) return;
     try {
       const out = await api({ op: "mailbox", person_id: p.id, action, ...(address ? { address: address() } : {}) });
       if (out.mailbox_error) { $("app-msg").textContent = `Still not done: ${out.mailbox_error}`; }
@@ -1017,7 +1065,7 @@ function mailboxButton(p, action, label, address) {
       if (out.mailbox_password) showMailboxPassword(p.full_name || p.username, out.mailbox, out.mailbox_password);
       else if ($("dlg").open) $("dlg").close();
       await load();
-    } catch (e) { $("app-msg").textContent = e.message; if ($("dlg").open) $("dlg").close(); }
+    } catch (e) { $("app-msg").textContent = friendly(e); if ($("dlg").open) $("dlg").close(); }
   } }, label);
 }
 
@@ -1187,19 +1235,19 @@ async function sendAction(d, type) {
   if (type === "install-app") return askInstallApp(where, { op: "action", device_id: d.id });
   if (type === "remote-help") return askRemoteHelp(d);
   if (JOBS.has(type)) return askJob(type, where, { op: "action", device_id: d.id });
-  if (type === "restart" && !confirm(`Restart ${where}? Anyone using it gets 5 minutes' notice.`)) return;
-  if (type === "shutdown" && !confirm(`Switch off ${where}? Anyone using it gets 5 minutes' notice. It reports again when it's switched on.`)) return;
-  if (type === "lost-mode-on" && !confirm(`Turn on lost mode on ${where}? At its next report, nobody can sign in. Anyone using it is signed out after a 20-second warning, and unsaved work is lost. The sign-in screen asks for it to be returned to your organisation.`)) return;
+  if (type === "restart" && !await askConfirm(`Restart ${where}? Anyone using it gets 5 minutes' notice.`)) return;
+  if (type === "shutdown" && !await askConfirm(`Switch off ${where}? Anyone using it gets 5 minutes' notice. It reports again when it's switched on.`)) return;
+  if (type === "lost-mode-on" && !await askConfirm(`Turn on lost mode on ${where}? At its next report, nobody can sign in. Anyone using it is signed out after a 20-second warning, and unsaved work is lost. The sign-in screen asks for it to be returned to your organisation.`)) return;
   let confirmName;
   if (type === "erase") {
-    confirmName = prompt(`Erase ${where}? At its next report, anyone using it gets a 20-second warning. Then everything on its disk is made unreadable and it switches off. This can't be undone. Type the computer's name to confirm.`);
+    confirmName = await askText(`Erase ${where}? At its next report, anyone using it gets a 20-second warning. Then everything on its disk is made unreadable and it switches off. This can't be undone. Type the computer's name to confirm.`);
     if (!confirmName || confirmName.trim() !== d.hostname) { $("app-msg").textContent = "Not erased. The name didn't match."; return; }
   }
   try {
     await api({ op: "action", device_id: d.id, type, confirm: confirmName });
     $("app-msg").textContent = `${LABEL[type] || type}: asked. ${where} gets it in a few seconds if it's online.`;
     await load();
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 
 const requestLabel = (a) => el("span", {}, LABEL[a.type] || a.type,
@@ -1211,7 +1259,7 @@ function requestResult(a, hostname) {
           a.has_output ? el("button", { style: "margin-left: 8px", onclick: () => showOutput(a, hostname) }, "Output") : "",
           a.status === "pending" ? el("button", { style: "margin-left: 8px", onclick: async () => {
             try { await api({ op: "cancel-action", action_id: a.id }); await load(); }
-            catch (e) { $("app-msg").textContent = e.message; }
+            catch (e) { $("app-msg").textContent = friendly(e); }
           } }, "Cancel") : ""];
 }
 
@@ -1284,19 +1332,19 @@ async function approveComputer(d) {
     await api({ op: "approve-computer", device_id: d.id });
     $("app-msg").textContent = `${d.hostname || "The computer"} is approved. It gets its accounts, Wi-Fi and printers in a few seconds if it's online.`;
     await load();
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 // Its key stops working at once, and it isn't told (a lost or stolen one shouldn't be warned).
 async function removeComputer(d) {
   const where = d.hostname || "this computer";
-  const name = prompt(`Remove ${where} from the organisation? It stops getting accounts, Wi-Fi, printers and requests at once, and its requests waiting are cancelled. Nothing on it is erased. To join again it needs a new join code. Type the computer's name to confirm.`);
+  const name = await askText(`Remove ${where} from the organisation? It stops getting accounts, Wi-Fi, printers and requests at once, and its requests waiting are cancelled. Nothing on it is erased. To join again it needs a new join code. Type the computer's name to confirm.`);
   if (name === null) return;
   if (name.trim() !== (d.hostname || "")) { $("app-msg").textContent = "Not removed. The name didn't match."; return; }
   try {
     await api({ op: "remove-computer", device_id: d.id, confirm: name.trim() });
     $("app-msg").textContent = `${where} was removed from the organisation.`;
     await load();
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 
 // --- Fixes, scripts and messages (2.9b) -----------------------------------------------------
@@ -1313,7 +1361,7 @@ async function askJob(kind, where, body) {
       $("app-msg").textContent = `${said}${n === undefined ? "" : ` (${n} computer${n === 1 ? "" : "s"})`}. ` +
         (kind === "message" ? "It appears at their next report." : "The result appears under Recent requests.");
       await load();
-    } catch (e) { err.textContent = e.message; go.disabled = false; }
+    } catch (e) { err.textContent = friendly(e); go.disabled = false; }
   };
   if (kind === "run-fix") {
     const pick = el("select", {}, ...FIXES.map(([v, t]) => el("option", { value: v }, t)));
@@ -1373,7 +1421,7 @@ async function showOutput(a, hostname) {
       el("p", { class: "note" }, `${ago(a.created_at)} · asked by ${a.requested_by}${out.exit_code === null ? "" : ` · exit code ${out.exit_code}`}`),
       el("pre", {}, out.output ?? "No output kept. Output is kept for 90 days.")],
       [el("button", { type: "button", onclick: () => download(name, out.output ?? "", "text/plain") }, "Download"), closeButton("Close")]);
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 
 // --- Script signing (2.10) -------------------------------------------------------------------
@@ -1431,7 +1479,7 @@ async function setUpSigning(change) {
   if (change) {
     const old = await askSigningCode("To change the code, the current one signs the new one, so the computers move to it by themselves.");
     if (!old) {
-      if (!confirm("Lost the current code? You can start again with a new one, but every computer then refuses scripts until someone with its administrator password runs \"sudo kulan-fleet trust-script-key\" on it. Start again?")) return;
+      if (!await askConfirm("Lost the current code? You can start again with a new one, but every computer then refuses scripts until someone with its administrator password runs \"sudo kulan-fleet trust-script-key\" on it. Start again?")) return;
       reset = true;
     } else endorsement = old;
   }
@@ -1448,7 +1496,7 @@ async function setUpSigning(change) {
       $("app-msg").textContent = out.reset ? "New script signing code set up. Sign your scripts again; each computer needs \"sudo kulan-fleet trust-script-key\" before it runs them."
         : change ? "Script signing code changed. Sign your scripts again." : "Script signing is set up.";
       await loadScripts();
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { err.textContent = friendly(e); }
   } }, "Save");
   written.addEventListener("change", () => { save.disabled = !written.checked; });
   dialog(change ? "A new script signing code" : "Set up script signing", [
@@ -1470,7 +1518,7 @@ async function loadScripts() {
       scriptsAllowed = out.allowed;
       scriptKey = out.script_key || null;
       owner = out.is_owner;
-    } catch (e) { $("app-msg").textContent = e.message; }
+    } catch (e) { $("app-msg").textContent = friendly(e); }
   }
   const fp = scriptKey ? await keyFingerprint(scriptKey) : "";
   $("signing").replaceChildren(org ? el("li", {},
@@ -1491,8 +1539,8 @@ async function loadScripts() {
     x.signed ? "" : el("button", { onclick: () => signScript(x) }, "Sign…"), " ",
     el("button", { onclick: () => editScript(x) }, "Edit…"), " ",
     el("button", { class: "danger", onclick: async () => {
-      if (!confirm(`Remove the script ${x.name}? Requests already sent still run if they haven't yet.`)) return;
-      try { await api({ op: "remove-script", script_id: x.id }); await loadScripts(); } catch (e) { $("app-msg").textContent = e.message; }
+      if (!await askConfirm(`Remove the script ${x.name}? Requests already sent still run if they haven't yet.`)) return;
+      try { await api({ op: "remove-script", script_id: x.id }); await loadScripts(); } catch (e) { $("app-msg").textContent = friendly(e); }
     } }, "Remove…")))
     : [el("li", { class: "small" }, "No scripts yet.")]) : []));
 }
@@ -1529,7 +1577,7 @@ async function editScript(x) {
                     name: name.value.trim(), description: about.value.trim(), body, signature: await signer.script(body) });
         $("dlg").close();
         await loadScripts();
-      } catch (e) { err.textContent = e.message; }
+      } catch (e) { err.textContent = friendly(e); }
     } }, "Save")]);
   name.focus();
 }
@@ -1546,19 +1594,19 @@ async function signScript(x) {
     await api({ op: "sign-script", script_id: x.id, signature: await s2.script(x.body) });
     $("app-msg").textContent = `${x.name} is signed.`;
     await loadScripts();
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 $("add-script").addEventListener("click", () => editScript(null));
 $("scripts-allow").addEventListener("change", async () => {
   const want = $("scripts-allow").checked;
   if (want && !scriptKey) { $("scripts-allow").checked = false; $("app-msg").textContent = "Set up script signing first."; return; }
-  if (want && !confirm("Allow scripts? Admins who sign in with their authenticator app can then run the scripts signed with your script signing code, as root, on this organisation's computers. Every script and every run is in the activity log.")) {
+  if (want && !await askConfirm("Allow scripts? Admins who sign in with their authenticator app can then run the scripts signed with your script signing code, as root, on this organisation's computers. Every script and every run is in the activity log.")) {
     $("scripts-allow").checked = false;
     return;
   }
   if (want && !(await codeFirst())) { $("scripts-allow").checked = false; return; }
   try { await api({ op: "set-scripts-allowed", organisation_id: $("org").value, allowed: want }); await load(); }
-  catch (e) { $("scripts-allow").checked = !want; $("app-msg").textContent = e.message; }
+  catch (e) { $("scripts-allow").checked = !want; $("app-msg").textContent = friendly(e); }
 });
 
 // How a group's Wi-Fi network or printer went on its computers (their reports say so).
@@ -1579,9 +1627,9 @@ function pushedLine(kind, id, g) {
 function openGroupNetwork(g) {
   const err = errorLine();
   const remove = (op, key, id, label) => el("button", { class: "danger", onclick: async () => {
-    if (!confirm(`Remove ${label}? It's taken off the group's computers at their next report.`)) return;
+    if (!await askConfirm(`Remove ${label}? It's taken off the group's computers at their next report.`)) return;
     try { await api({ op, [key]: id }); await loadGroups(); openGroupNetwork(groups.find((x) => x.id === g.id)); }
-    catch (e) { err.textContent = e.message; }
+    catch (e) { err.textContent = friendly(e); }
   } }, "Remove…");
   const nets = (g.networks || []).map((n) => el("li", {}, el("b", {}, n.ssid),
     ` · ${n.security === "open" ? "open" : "password"}${n.hidden ? " · hidden" : ""} `,
@@ -1597,7 +1645,7 @@ function openGroupNetwork(g) {
   const uri = el("input", { maxlength: "300", placeholder: "ipp://192.168.1.20/ipp/print", autocomplete: "off", spellcheck: "false" });
   const add = async (body) => {
     try { await api(body); await loadGroups(); openGroupNetwork(groups.find((x) => x.id === g.id)); }
-    catch (e) { err.textContent = e.message; }
+    catch (e) { err.textContent = friendly(e); }
   };
   dialog(`${g.name}: Wi-Fi and printers`, [
     el("p", { class: "note" }, "The group's computers connect to these networks and get these printers at their next report. Taking one away here takes it off them too. Networks and printers people add themselves stay."),
@@ -1633,7 +1681,7 @@ function renderHelpRequests(org) {
 async function openHelpRequest(id) {
   let h;
   try { h = (await api({ op: "help-request", request_id: id })).request; }
-  catch (e) { $("app-msg").textContent = e.message; return; }
+  catch (e) { $("app-msg").textContent = friendly(e); return; }
   const device = data.devices.find((d) => d.id === h.device_id);
   const who = h.full_name ? `${h.full_name} (${h.username})` : h.username;
   const parts = [
@@ -1666,7 +1714,7 @@ async function openHelpRequest(id) {
         await api({ op: "close-help", request_id: h.id, ...(answer.value.trim() ? { reply: answer.value.trim() } : {}) });
         $("dlg").close();
         await load();
-      } catch (e) { err.textContent = e.message; done.disabled = false; }
+      } catch (e) { err.textContent = friendly(e); done.disabled = false; }
     } }, "Mark as done");
     buttons.push(closeButton("Close"), done);
   }
@@ -1682,7 +1730,7 @@ function askRemoteHelp(d) {
   const start = el("button", { type: "button", class: "primary", onclick: async () => {
     start.disabled = true;
     try { $("dlg").close(); await openHelp(d, control.checked); }
-    catch (e) { err.textContent = e.message; start.disabled = false; }
+    catch (e) { err.textContent = friendly(e); start.disabled = false; }
   } }, "Ask to see the screen");
   dialog(`Remote help on ${d.hostname || "this computer"}`, [
     el("p", {}, here.length ? `${here.join(", ")} ${here.length === 1 ? "is" : "are"} signed in there. ` : "Nobody was signed in at its last report. ",
@@ -1775,7 +1823,7 @@ async function openReport(d) {
     parts.push(el("h4", {}, "Full report"), el("pre", {}, JSON.stringify(report, null, 2)));
     $("report-body").replaceChildren(...parts);
   } catch (e) {
-    $("report-body").replaceChildren(el("p", { class: "error" }, e.message));
+    $("report-body").replaceChildren(el("p", { class: "error" }, friendly(e)));
   }
 }
 
@@ -1784,7 +1832,7 @@ $("p-save").addEventListener("click", async () => {
   const policy = orgPolicy?.value();
   if (!policy) { $("app-msg").textContent = "One of the apps isn't valid. Fix it or remove it."; return; }
   try { await api({ op: "set-policy", organisation_id: $("org").value, policy }); $("app-msg").textContent = "Policy saved."; await load(); }
-  catch (e) { $("app-msg").textContent = e.message; }
+  catch (e) { $("app-msg").textContent = friendly(e); }
 });
 let logBefore = null, logSearch = null;
 const logQuery = (extra) => {
@@ -1803,7 +1851,7 @@ async function loadLog(more) {
     logBefore = out.entries.length ? out.entries[out.entries.length - 1].id : null;
     $("log-more").classList.toggle("hidden", !out.more);
     $("log-wrap").classList.remove("hidden");
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 }
 $("log-find").addEventListener("submit", (ev) => { ev.preventDefault(); loadLog(false); });
 $("log-more").addEventListener("click", () => loadLog(true));
@@ -1820,7 +1868,7 @@ $("log-csv").addEventListener("click", async () => {
     const org = data.organisations.find((o) => o.id === $("org").value)?.name || "organisation";
     download(`Kulan Fleet activity ${org} ${new Date().toISOString().slice(0, 10)}.csv`, logCsv(all), "text/csv");
     $("app-msg").textContent = `Exported ${all.length} entr${all.length === 1 ? "y" : "ies"}.`;
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
   $("log-csv").disabled = false;
 });
 $("weekly").addEventListener("click", openWeekly);
@@ -1844,7 +1892,7 @@ $("add-group").addEventListener("click", () => {
         const out = await api({ op: "add-group", organisation_id: $("org").value, name: n });
         await loadGroups();
         openGroup(groups.find((g) => g.id === out.id) || { id: out.id, name: n, policy: {}, devices: [] });
-      } catch (e) { err.textContent = e.message; }
+      } catch (e) { err.textContent = friendly(e); }
     } }, "Add")]);
   name.focus();
 });
@@ -1852,9 +1900,9 @@ $("add-person").addEventListener("click", addPerson);
 $("mail-connect").addEventListener("click", connectMail);
 $("mail-users").addEventListener("click", mailUsers);
 $("mail-disconnect").addEventListener("click", async () => {
-  if (!confirm("Disconnect Google Workspace? Kulan Fleet deletes its copy of the key. Mailboxes stay in Google but are no longer managed with People, and computers stop offering them. Unfinished suspensions or deletions are left for you to do by hand. To revoke the key, delete it in Google Cloud.")) return;
+  if (!await askConfirm("Disconnect Google Workspace? Kulan Fleet deletes its copy of the key. Mailboxes stay in Google but are no longer managed with People, and computers stop offering them. Unfinished suspensions or deletions are left for you to do by hand. To revoke the key, delete it in Google Cloud.")) return;
   try { await api({ op: "disconnect-mail", organisation_id: $("org").value }); $("app-msg").textContent = "Google Workspace disconnected."; await load(); }
-  catch (e) { $("app-msg").textContent = e.message; }
+  catch (e) { $("app-msg").textContent = friendly(e); }
 });
 $("add-admin").addEventListener("submit", (ev) => { ev.preventDefault(); changeAdmin("add-admin", $("admin-email").value.trim()).then(() => { $("admin-email").value = ""; }); });
 $("set-owner").addEventListener("submit", async (ev) => {
@@ -1865,7 +1913,7 @@ $("set-owner").addEventListener("submit", async (ev) => {
     $("owner-email").value = "";
     await load();
     showRecovery(org.name, out.recovery_code);
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 });
 $("recover").addEventListener("click", (ev) => {
   ev.preventDefault();
@@ -1880,16 +1928,16 @@ $("recover").addEventListener("click", (ev) => {
         await load();
         if (out.organisation?.id) { $("org").value = out.organisation.id; render(); await loadPeople(); }
         showRecovery(out.organisation?.name || "your organisation", out.recovery_code);
-      } catch (e) { err.textContent = e.message; }
+      } catch (e) { err.textContent = friendly(e); }
     } }, "Become the Owner")]);
 });
 $("refresh").addEventListener("click", load);
 $("my-auth").addEventListener("click", myAuthenticator);
 $("signout").addEventListener("click", async () => { await supabase.auth.signOut(); show(false); });
 $("new-org").addEventListener("click", async () => {
-  const name = prompt("Name of the organisation");
+  const name = await askText("Name of the organisation");
   if (!name) return;
-  const owner = prompt("The Owner's email. The Owner decides who the admins are. Leave it empty to be the Owner yourself.", "");
+  const owner = await askText("The Owner's email. The Owner decides who the admins are. Leave it empty to be the Owner yourself.", "");
   if (owner === null) return;
   try {
     const out = await api({ op: "new-organisation", name, ...(owner.trim() ? { owner_email: owner.trim() } : {}) });
@@ -1898,7 +1946,7 @@ $("new-org").addEventListener("click", async () => {
     render();
     await loadPeople();
     showRecovery(name, out.recovery_code);
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 });
 // The join codes still usable (never the codes themselves), each with Withdraw.
 async function loadCodes() {
@@ -1911,7 +1959,7 @@ async function loadCodes() {
         `until ${dayLabel(c.expires_at)}`, c.trusted ? "" : el("span", { class: "small" }, " · computers wait for approval")),
       el("button", { onclick: async () => {
         try { await api({ op: "revoke-code", organisation_id: $("org").value, code_id: c.id }); await loadCodes(); }
-        catch (e) { $("app-msg").textContent = e.message; }
+        catch (e) { $("app-msg").textContent = friendly(e); }
       } }, "Withdraw"))));
   } catch (e) { $("codes-box").classList.add("hidden"); }
 }
@@ -1926,7 +1974,7 @@ $("make-code").addEventListener("click", async () => {
       (out.approved === false ? " Computers that join with it wait for the Owner's approval." : "");
     $("code-box").classList.remove("hidden");
     await loadCodes();
-  } catch (e) { $("app-msg").textContent = e.message; }
+  } catch (e) { $("app-msg").textContent = friendly(e); }
 });
 $("signin-form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -1936,7 +1984,7 @@ $("signin-form").addEventListener("submit", async (ev) => {
     ? "Check your email and open the sign-in link in this browser. If you ask again, only the newest email's link works."
     : error.status === 429 || /rate limit|only request this after/i.test(error.message)
       ? "Too many sign-in emails for now. Wait a few minutes (up to an hour if you asked several times), then try again."
-      : error.message;
+      : friendly(error);
 });
 
 if (linkError) $("signin-msg").textContent = linkError;

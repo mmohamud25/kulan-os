@@ -207,7 +207,7 @@ def cmd_doctor(_args: list[str]) -> int:
         words = {"full": "connected", "none": "not connected", "limited": "limited",
                  "portal": "needs you to sign in to the network", "unknown": "couldn't check"}
         report(None if conn == "unknown" else conn == "full", "Internet", words.get(conn, conn),
-               "Check Kulan Settings › Wi-Fi, or open Firefox to sign in")
+               "Check Kulan Settings › Wi-Fi and network, or open Firefox to sign in")
     ufw = read("/etc/ufw/ufw.conf")
     report("ENABLED=yes" in ufw if ufw else None, "Firewall", "on" if "ENABLED=yes" in ufw else "off",
            "Turn it on in Kulan Settings › Security")

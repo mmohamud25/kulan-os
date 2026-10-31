@@ -154,14 +154,25 @@ class HelpPage(Page):
             row.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
             row.connect("activated", lambda _r, t=target: self.open(t))
             g.add(row)
-        work = self.group(description="On a work or school computer, your IT team can help you from here once the "
-                                      "computer has joined your organisation (About › Join an organisation).")
-        row = Adw.ActionRow(title="Ask Kulan Assistant", subtitle="It can explain settings and fix common problems",
+        ask = self.group()
+        row = Adw.ActionRow(title="Ask Kulan", subtitle="It can explain settings and fix common problems",
                             activatable=True)
         row.add_prefix(Gtk.Image(icon_name="kulan-assistant-symbolic"))
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
-        row.connect("activated", lambda _r: self.window.show_page("assistant"))
-        work.add(row)
+        row.connect("activated", lambda _r: self.ask_kulan())
+        ask.add(row)
+        self.group(description="On a work or school computer, your IT team can help you from here once the "
+                               "computer has joined your organisation (About Kulan OS › Join an organisation).")
+
+    def ask_kulan(self) -> None:
+        """Ask Kulan itself (not its settings); says so if Kulan Assistant isn't installed."""
+        try:
+            app = Gio.DesktopAppInfo.new("org.kulan.Assistant.desktop")  # TypeError when it isn't installed
+            if app is not None and app.launch([], None):
+                return
+        except (GLib.Error, TypeError):
+            pass
+        self.toast("Ask Kulan needs Kulan Assistant. Turn it on in Add-ons")
 
     def open(self, uri: str) -> None:
         try:
