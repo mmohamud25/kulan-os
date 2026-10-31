@@ -8,6 +8,10 @@ const SUPABASE_URL = "https://xegnwqxpegznsufulclx.supabase.co";
 const PUBLISHABLE_KEY = "sb_publishable_Z7MrJQBPYz3_CmXviZuTJA_kWNAMOA1";  // public by design
 const API = `${SUPABASE_URL}/functions/v1/fleet-admin`;
 const FLEET_SERVER = `${SUPABASE_URL}/functions/v1/fleet`;
+// The server computers join by default (Kulan OS's joining.py): for it, people
+// type only the code; for another one, a join link (server#code).
+const KULAN_SERVER = "https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet";
+const joinText = (code) => FLEET_SERVER === KULAN_SERVER ? code : `${FLEET_SERVER}#${code}`;
 const ACTIONS = [["refresh", "Report now"], ["install-updates", "Install updates"],
                  ["compliance-on", "Turn compliance mode on"], ["lock-screen", "Lock the screen"],
                  ["restart", "Restart"], ["shutdown", "Switch off"]];
@@ -1968,8 +1972,15 @@ $("add-close").addEventListener("click", () => $("add-dialog").close());
 $("make-code").addEventListener("click", async () => {
   try {
     const out = await api({ op: "new-code", organisation_id: $("org").value, hours: Number($("hours").value), uses: Number($("uses").value) });
-    $("server").textContent = FLEET_SERVER;
-    $("code").textContent = out.code;
+    const text = joinText(out.code);
+    $("code-label").textContent = text === out.code ? "Join code (shown once)" : "Join link (shown once): type or paste it";
+    $("code").textContent = text;
+    $("code").classList.toggle("link", text !== out.code);
+    $("copy-code").textContent = text === out.code ? "Copy code" : "Copy link";
+    $("copy-code").onclick = async () => {
+      try { await navigator.clipboard.writeText(text); $("copy-code").textContent = "Copied"; }
+      catch { $("code-note").textContent = "Couldn't copy here. Select it and copy it yourself."; }
+    };
     $("code-note").textContent = `Works for ${out.uses} computer${out.uses === 1 ? "" : "s"} within ${out.hours} hours.` +
       (out.approved === false ? " Computers that join with it wait for the Owner's approval." : "");
     $("code-box").classList.remove("hidden");

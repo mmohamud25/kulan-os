@@ -58,6 +58,14 @@ SUPABASE_URL = os.environ.get("KULAN_FLEET_URL", "").rstrip("/") or "https://xeg
 PUBLISHABLE_KEY = "sb_publishable_Z7MrJQBPYz3_CmXviZuTJA_kWNAMOA1"  # public by design
 API = f"{SUPABASE_URL}/functions/v1/fleet-admin"
 FLEET_SERVER = f"{SUPABASE_URL}/functions/v1/fleet"
+# The server computers join by default (kulan-base's joining.py, KULAN_SERVER):
+# for it, people type only the code; for another one, a join link (server#code).
+KULAN_SERVER = "https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet"
+
+
+def join_text(code: str) -> str:
+    """What to type in Kulan Settings › About Kulan OS › Join an organisation."""
+    return code if FLEET_SERVER == KULAN_SERVER else f"{FLEET_SERVER}#{code}"
 ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
            ("install-updates", "Install updates", "software-update-available-symbolic"),
            ("compliance-on", "Turn compliance mode on", "security-high-symbolic"),
@@ -2373,21 +2381,24 @@ class FleetWindow(Adw.ApplicationWindow):
             if error:
                 self.toast(error)
                 return
+            text = join_text(result["code"])
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            box.append(Gtk.Label(label="Server address", xalign=0, css_classes=["dim-label"]))
-            box.append(Gtk.Label(label=FLEET_SERVER, xalign=0, selectable=True, wrap=True))
-            box.append(Gtk.Label(label="Join code", xalign=0, css_classes=["dim-label"], margin_top=8))
-            box.append(Gtk.Label(label=result["code"], xalign=0, selectable=True, css_classes=["fleet-code"]))
+            box.append(Gtk.Label(label="Join code" if text == result["code"] else "Join link", xalign=0,
+                                 css_classes=["dim-label"]))
+            box.append(Gtk.Label(label=text, xalign=0, selectable=True, wrap=True, wrap_mode=Pango.WrapMode.CHAR,
+                                 css_classes=["fleet-code"] if text == result["code"] else []))
             dialog = Adw.AlertDialog(heading="Join code",
-                                     body=f"Works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
-                                          f"within {result['hours']} hours. It's shown only once."
+                                     body="On each computer, open Kulan Settings › About Kulan OS › Join an "
+                                          f"organisation, and type {'the code' if text == result['code'] else 'or paste the link'}. "
+                                          f"It works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
+                                          f"within {result['hours']} hours, and is shown only once."
                                           + (" Computers that join with it wait for the Owner's approval."
                                              if result.get("approved") is False else ""))
             dialog.set_extra_child(box)
-            dialog.add_response("copy", "Copy code")
+            dialog.add_response("copy", "Copy code" if text == result["code"] else "Copy link")
             dialog.add_response("close", "Done")
             dialog.set_default_response("close")
-            dialog.connect("response", lambda _d, r: r == "copy" and Gdk.Display.get_default().get_clipboard().set(result["code"]))
+            dialog.connect("response", lambda _d, r: r == "copy" and Gdk.Display.get_default().get_clipboard().set(text))
             dialog.present(self)
         self.background(lambda: self.session.call({"op": "new-code", "organisation_id": org_id,
                                                     "hours": hours, "uses": uses}), done)

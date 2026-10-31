@@ -446,6 +446,12 @@ function reply(b) {
   await page.waitForTimeout(300);
   if (!last("revoke-code") || last("revoke-code").code_id !== "c1") throw "revoke-code " + JSON.stringify(last("revoke-code"));
   if (await page.locator("#codes-box:not(.hidden)").count()) throw "a withdrawn code is still listed";
+  // A new code: only the code to type (Kulan's own server is built in), with Copy.
+  await page.click("#make-code");
+  await page.waitForSelector("#code-box:not(.hidden)");
+  if ((await page.textContent("#code")) !== "ABCD-EFGH-JKLM") throw "join code shown as " + await page.textContent("#code");
+  if (!(await page.textContent("#code-label")).startsWith("Join code")) throw "join code label " + await page.textContent("#code-label");
+  if (!(await page.textContent("#copy-code")).includes("Copy code")) throw "no Copy code";
   await page.click("#add-close");
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });

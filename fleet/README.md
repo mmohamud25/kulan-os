@@ -17,7 +17,11 @@ us-east-2). Computers talk to it with `/usr/bin/kulan-fleet` (kulan-base).
   on with no policies, so the API roles can't read anything.
 
 Server address for computers:
-`https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet`
+`https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet`. It's built in
+(kulan-base's `joining.py`), so people type only the join code. For another
+server, the dashboard and the Fleet app show a join link instead
+(`<server>#<code>`), which Kulan Settings › About › Join an organisation takes
+as it is.
 
 Add an organisation and a join code (SQL editor):
 

@@ -201,6 +201,7 @@ dialog::backdrop { background: rgba(7,20,40,.45); }
 pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; background: var(--side); border-radius: 10px; padding: 12px;
   max-height: 60vh; overflow: auto; }
 .code { font: 700 26px "JetBrains Mono", ui-monospace, monospace; letter-spacing: .08em; }
+.code.link { font-size: 14px; letter-spacing: 0; overflow-wrap: anywhere; }
 .report-line { margin: 6px 0; }
 .report-line .detail { display: block; font-size: 12px; color: var(--muted); margin-left: 20px; position: static; padding: 0; }
 .report-line.bad > b { color: var(--bad); }
@@ -499,10 +500,9 @@ dialog.help[open] { display: flex; flex-direction: column; }
     <button class="primary" id="make-code">Make a join code</button>
   </div>
   <div id="code-box" class="hidden" style="margin-top: 16px">
-    <div class="small">Server address</div>
-    <div id="server" class="mono" style="margin-bottom: 10px; overflow-wrap: anywhere"></div>
-    <div class="small">Join code (shown once)</div>
+    <div class="small" id="code-label">Join code (shown once)</div>
     <div class="code" id="code"></div>
+    <div class="row"><button type="button" id="copy-code">Copy code</button></div>
     <div class="small" id="code-note"></div>
   </div>
   <div id="codes-box" class="hidden" style="margin-top: 16px">
