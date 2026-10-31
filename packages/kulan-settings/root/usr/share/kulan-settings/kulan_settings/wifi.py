@@ -82,6 +82,25 @@ def saved_wifi(connections) -> list:
     return sorted(found, key=lambda c: (ssid_text(c.get_setting_wireless().get_ssid()) or c.get_id()).lower())
 
 
+def saved_for(device, connections, ssid: str):
+    """The saved Wi-Fi connection for this network name that this Wi-Fi card can use, if any.
+    Not NMDevice.filter_connections: handing it a list from Python crashed Kulan Settings
+    (a segmentation fault, 2.11) on computers with saved networks. The same checks,
+    in Python: a Wi-Fi client connection (not a hotspot), for any card or this one."""
+    iface = device.get_iface() if device is not None else None
+    for conn in connections or []:
+        wireless = conn.get_setting_wireless()
+        if wireless is None or wireless.get_mode() == "ap" or conn.get_id() == HOTSPOT_ID:
+            continue
+        setting = conn.get_setting_connection()
+        bound = setting.get_interface_name() if setting is not None else None
+        if bound and iface and bound != iface:
+            continue
+        if ssid_text(wireless.get_ssid()) == ssid:
+            return conn
+    return None
+
+
 def password_kind(conn) -> str | None:
     """'psk' or 'sae' when the saved network uses a password that can be changed here, else None."""
     security = conn.get_setting_wireless_security()
@@ -535,11 +554,7 @@ class WifiPage(Page):
 
     def saved_connection(self, device, ssid: str):
         """A saved Wi-Fi connection for this network name, if there is one."""
-        for conn in device.filter_connections(self.client.get_connections()):
-            setting = conn.get_setting_wireless()
-            if setting is not None and ssid_text(setting.get_ssid()) == ssid:
-                return conn
-        return None
+        return saved_for(device, self.client.get_connections(), ssid)
 
     def join(self, device, net: dict) -> None:
         saved = self.saved_connection(device, net["ssid"])

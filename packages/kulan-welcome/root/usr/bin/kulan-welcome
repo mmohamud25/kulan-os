@@ -634,11 +634,9 @@ class WelcomeWindow(Adw.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     def saved_wifi(self, device, ssid: str):
-        for conn in device.filter_connections(self.nm.get_connections()):
-            setting = conn.get_setting_wireless()
-            if setting is not None and ks_wifi.ssid_text(setting.get_ssid()) == ssid:
-                return conn
-        return None
+        # Kulan Settings' own check (not NMDevice.filter_connections, which crashed, 2.11).
+        find = getattr(ks_wifi, "saved_for", None)  # (an older Kulan Settings: none found, nothing crashes)
+        return find(device, self.nm.get_connections(), ssid) if find else None
 
     def wifi_row(self, device, net: dict) -> Adw.ActionRow:
         saved = self.saved_wifi(device, net["ssid"])
