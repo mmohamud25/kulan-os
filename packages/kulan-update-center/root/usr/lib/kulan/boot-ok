@@ -65,7 +65,7 @@ desktop_session() {
 bless_signed_start() {
 	var="${EFIVARS}/LoaderBootCountPath-${LOADER_GUID}"
 	[ -r "${var}" ] || return 0
-	path="$(tail -c +5 "${var}" | iconv -f UTF-16LE -t UTF-8 2>/dev/null | tr -d '\000' | tr '\134' /)"
+	path="$(cat "${var}" | tail -c +5 | iconv -f UTF-16LE -t UTF-8 2>/dev/null | tr -d '\000' | tr '\134' /)"
 	case "${path}" in
 		/EFI/Linux/kulan-*.efi | /efi/linux/kulan-*.efi) ;;
 		*) return 0 ;;
@@ -89,7 +89,7 @@ bless_signed_start() {
 # systemd-boot started this computer (signed start-up): it says so in LoaderInfo.
 have_systemd_boot() {
 	[ -r "${EFIVARS}/LoaderInfo-${LOADER_GUID}" ] &&
-		tail -c +5 "${EFIVARS}/LoaderInfo-${LOADER_GUID}" | tr -d '\000' | grep -q '^systemd-boot'
+		cat "${EFIVARS}/LoaderInfo-${LOADER_GUID}" | tail -c +5 | tr -d '\000' | grep -q '^systemd-boot'
 }
 
 # The menu at the next start-up, for 10 seconds (systemd-boot reads the
