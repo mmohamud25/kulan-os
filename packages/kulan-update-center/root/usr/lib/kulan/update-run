@@ -267,7 +267,7 @@ repair_dpkg() {
 	done
 	run_apt -f install || true
 	if dpkg_interrupted; then
-		die "An earlier update couldn't be finished. Restart the computer and try again. If it still fails, run \"sudo dpkg --configure -a\" in Terminal."
+		die "An earlier update couldn't be finished. Restart the computer and try again. If it still doesn't work, Kulan Settings › Get help can help."
 	fi
 }
 

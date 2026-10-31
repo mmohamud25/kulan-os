@@ -86,13 +86,13 @@ def enabled(keyfile: GLib.KeyFile) -> bool:
 
 
 class LoginItemsPage(Page):
-    title = "Login Items"
+    title = "Open at sign-in"
     icon = "system-run-symbolic"
     keywords = ("startup", "login", "autostart", "open at login", "background apps")
 
     def __init__(self, window) -> None:
         super().__init__(window)
-        self.group = self.add_group("Open at login", "Apps that start when you sign in.")
+        self.group = self.add_group(None, "Apps that start when you sign in.")
         add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add an app", valign=Gtk.Align.CENTER,
                          css_classes=["flat"])
         add.update_property([Gtk.AccessibleProperty.LABEL], ["Add an app to open at login"])
@@ -185,7 +185,7 @@ class LoginItemsPage(Page):
         self.toast("Removed from login items")
 
     def pick_app(self) -> None:
-        dialog = Adw.Dialog(title="Open at login", content_width=420, content_height=520)
+        dialog = Adw.Dialog(title="Open at sign-in", content_width=420, content_height=520)
         view = Adw.ToolbarView()
         view.add_top_bar(Adw.HeaderBar())
         search = Gtk.SearchEntry(placeholder_text="Search apps", margin_start=12, margin_end=12, margin_top=6)

@@ -274,10 +274,10 @@ class UpdatesPage(Page):
 
     def build_top_group(self) -> Adw.PreferencesGroup:
         group = Adw.PreferencesGroup()
-        self.auto_nav, self.auto_value = self.nav_row("Automatic Updates")
+        self.auto_nav, self.auto_value = self.nav_row("Automatic updates")
         self.auto_nav.connect("activated", lambda _r: self.show_settings())
         group.add(self.auto_nav)
-        self.history_nav, self.history_value = self.nav_row("Update History")
+        self.history_nav, self.history_value = self.nav_row("Update history")
         self.history_nav.connect("activated", lambda _r: self.show_history())
         group.add(self.history_nav)
         return group
@@ -296,7 +296,7 @@ class UpdatesPage(Page):
         self.action_button = Gtk.Button(css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER,
                                         margin_top=12, visible=False)
         self.action_button.connect("clicked", lambda _b: self.on_action())
-        self.details_button = Gtk.Button(label="More Details", css_classes=["flat", "accent"],
+        self.details_button = Gtk.Button(label="More details", css_classes=["flat", "accent"],
                                          halign=Gtk.Align.CENTER)
         self.details_button.connect("clicked", lambda _b: self.more_details())
         self.check_button = Gtk.Button(css_classes=["flat", "dim-label", "caption"], halign=Gtk.Align.CENTER,
@@ -413,7 +413,7 @@ class UpdatesPage(Page):
         if not self.running() and not self.working:
             self.progress.set_visible(False)
         labels = {"install": "Update Now" if new_version else "Install Now", "restart": "Restart Now",
-                  "repair": "Finish Now"}
+                  "repair": "Finish now"}
         self.action_button.set_label(labels.get(self.action, ""))
         self.action_button.set_visible(bool(self.action) and not self.running() and not self.working)
         self.action_button.set_sensitive(not self.window.helper.busy)
@@ -623,7 +623,7 @@ class UpdatesPage(Page):
         link.connect("activated", lambda _r: self.open_url(notes_url(self.release.get("VERSION_ID", ""))))
         notes.add(link)
         page.add(notes)
-        self.sheet("Update History", page)
+        self.sheet("Update history", page)
 
     # --- Automatic Updates ----------------------------------------------------------
     def show_settings(self) -> None:
@@ -650,7 +650,7 @@ class UpdatesPage(Page):
             subtitle="Daily, keeping the last 2 days and 1 week" if self.restore_on
             else "Set up automatically after you install Kulan OS")
         if shutil.which("timeshift"):
-            create = Gtk.Button(label="Create Now", valign=Gtk.Align.CENTER, sensitive=self.restore_on)
+            create = Gtk.Button(label="Create now", valign=Gtk.Align.CENTER, sensitive=self.restore_on)
             create.connect("clicked", lambda _b: self.run(
                 ["restore-point"], "Creating a restore point…", "Restore point created"))
             points.add_suffix(create)
@@ -665,7 +665,7 @@ class UpdatesPage(Page):
         undo.add_suffix(undo_button)
         restore.add(undo)
         pause = Adw.ActionRow(title="Automatic updates are paused", css_classes=["warning"])
-        resume = Gtk.Button(label="Resume Now", valign=Gtk.Align.CENTER)
+        resume = Gtk.Button(label="Resume now", valign=Gtk.Align.CENTER)
         resume.connect("clicked", lambda _b: self.window.helper.run(
             ["auto-on"], "Automatic updates on", on_done=lambda _ok: self.reload()))
         pause.add_suffix(resume)
@@ -674,7 +674,7 @@ class UpdatesPage(Page):
 
         self.dialog_rows = {"undo": undo, "pause": pause}
         self.render_undo()
-        dialog = self.sheet("Automatic Updates", page, height=520)
+        dialog = self.sheet("Automatic updates", page, height=520)
         dialog.connect("closed", lambda _d: self.dialog_rows.clear())
 
     def last_update_point(self) -> datetime | None:

@@ -1,10 +1,30 @@
 [
   {
+    "version": "2.11.0",
+    "label": "2.11",
+    "title": "Smooth, connected, dependable",
+    "items": [
+      "Updates keep installing if you close Kulan Settings, sign out or close the lid, and the computer stays on until they're done. Kulan Settings asks before it closes, and shows an install that's running when you open it again",
+      "If an update is cut off, by a power cut for example, Kulan OS finishes it by itself at the next start-up. Software Update also offers Finish now",
+      "If Kulan OS doesn't start all the way, the next start-up shows the start-up menu, with the earlier version and Undo the last update. With signed start-up, the previous version starts by itself after three failed starts",
+      "Automatic updates stay out of the way: the restore point is taken before they start, they run mid-day or an hour after you switch on, and Install waits for them instead of failing",
+      "Kulan Settings pages open at once and fill in, even when the computer is busy. Kulan Fleet's window appears straight away, and Ask Kulan's Undo never freezes",
+      "Setup helps you get online, offers Ask Kulan, and fills in its app list by itself once you're connected. It's finished only when you finish it",
+      "To join your organisation, type just the join code",
+      "Wi-Fi: forget a saved network or change its password. The hotspot keeps one password, always shown, with a code your phone can scan",
+      "Mail comes with Kulan OS and opens your work email. A new Online accounts page adds Google and Microsoft 365 accounts",
+      "Every administrator can add printers, and Document Scanner comes with Kulan OS",
+      "Anyone using the computer can download Ask Kulan's model, and computers without enough memory are told plainly",
+      "Plain words everywhere: Ask Kulan, the installer, Setup, Kulan Fleet and its website say what went wrong and what to do, never a program's error message, and nothing asks you to type commands",
+      "The first start-up after installing is about ten seconds quicker"
+    ]
+  },
+  {
     "version": "2.10.2",
     "label": "2.10.2",
     "title": "Battery health, and plain words when something goes wrong",
     "items": [
-      "Kulan Settings › Battery shows the battery's health (how much it holds compared with when it was new, and how many times it has been charged), how much power the computer is using, and the apps using the most",
+      "Kulan Settings › Battery and power shows the battery's health (how much it holds compared with when it was new, and how many times it has been charged), how much power the computer is using, and the apps using the most",
       "On laptops that can, stop charging at 80% to keep the battery healthy for longer. Laptops with two batteries show both",
       "When something doesn't work, Kulan says why in plain words and what to do, instead of a program's error message: in updates, Bluetooth, Wi-Fi, accounts, printers, joining an organisation and the installer",
       "A computer installed from an organisation's USB stick says so if it couldn't join, in a notification and in Kulan Settings › About",

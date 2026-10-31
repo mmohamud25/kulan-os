@@ -94,7 +94,7 @@ class RegionPage(Page):
         self.formats = self.add_group("Formats", "Dates, times, numbers and money.") if self.locale is not None else None
         if self.formats is not None:
             self.formats.set_visible(False)
-        self.system = self.add_group("Login screen", "The language of the login screen and of new accounts.")
+        self.system = self.add_group("Sign-in screen", "The language of the sign-in screen and of new accounts.")
         self.system.set_visible(False)
         accounts = self.accounts
 
@@ -151,7 +151,7 @@ class RegionPage(Page):
         except GLib.Error:
             return
         lang = self.system_language()
-        row = Adw.ActionRow(title="Login screen language", subtitle=locale_label(lang) if lang else "Not set")
+        row = Adw.ActionRow(title="Sign-in screen language", subtitle=locale_label(lang) if lang else "Not set")
         use = Gtk.Button(label="Use my language", valign=Gtk.Align.CENTER)
         use.connect("clicked", lambda _b: self.set_system_language(row))
         row.add_suffix(use)

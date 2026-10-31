@@ -75,7 +75,7 @@ def search(text: str) -> list[tuple[str, str, str, int, float, float]]:
 
 
 class PrayerPage(Page):
-    title = "Prayer Times"
+    title = "Prayer times"
     icon = "preferences-system-time-symbolic"
     keywords = ("prayer", "prayers", "salah", "salat", "namaz", "adhan", "azan", "fajr", "dhuhr", "asr",
                 "maghrib", "isha", "islam", "muslim", "qibla")

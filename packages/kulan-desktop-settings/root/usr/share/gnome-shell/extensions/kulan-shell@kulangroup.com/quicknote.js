@@ -11,7 +11,7 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {failureText, readText, writeFile} from './files.js';
+import {failureAdvice, failureText, readText, writeFile} from './files.js';
 import {NOTE_FILE} from './widgets.js';
 
 const SAVE_DELAY_MS = 600;
@@ -201,7 +201,7 @@ export class QuickNote {
 
     _tellUnsaved() {
         Main.notify('Quick Note isn’t saved yet', `Your note couldn’t be saved (${this._saveError}). ` +
-            'It’s kept until you log out. Free up some space, then open Quick Note again.');
+            `It’s kept until you sign out. ${failureAdvice(this._saveError)}`);
     }
 
     _offerUndo(before) {

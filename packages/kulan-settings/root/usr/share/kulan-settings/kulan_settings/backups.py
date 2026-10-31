@@ -89,7 +89,7 @@ class BackupsPage(Page):
                                       "or broken. Restore points cover the system.")
         self.last_row = Adw.ActionRow(title="Last backup")
         self.last_row.add_css_class("property")
-        self.now_button = Gtk.Button(label="Back Up Now", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        self.now_button = Gtk.Button(label="Back up now", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         self.now_button.connect("clicked", lambda _b: self.back_up_now())
         self.last_row.add_suffix(self.now_button)
         status.add(self.last_row)
@@ -149,7 +149,7 @@ class BackupsPage(Page):
         if stamp and not self.deja.get_boolean("periodic"):
             text += ". Automatic backups are off"
         elif not stamp:
-            text = "Never. Choose a drive below, then Back Up Now"
+            text = "Never. Choose a drive below, then Back up now"
         self.last_row.set_subtitle(GLib.markup_escape_text(text))
 
     def keep_value(self) -> str:

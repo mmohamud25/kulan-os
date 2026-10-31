@@ -146,7 +146,7 @@ class PrintersPage(Page):
 
         if not self.available:
             self.empty.set_title("Printing isn’t installed")
-            self.empty.set_description("Install the CUPS printing system to use printers.")
+            self.empty.set_description("Printing is missing from this computer. Updating Kulan OS in Software Update puts it back.")
             self.empty.set_visible(True)
             add_row.set_sensitive(False)
             return

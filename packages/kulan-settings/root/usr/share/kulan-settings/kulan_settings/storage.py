@@ -104,7 +104,7 @@ class StoragePage(Page):
             "included.")
         self.restore_row = Adw.ActionRow(title="Space used")
         self.restore_row.size_label = Gtk.Label(css_classes=["dim-label", "numeric"], valign=Gtk.Align.CENTER)
-        self.restore_row.button = Gtk.Button(label="Delete All…", valign=Gtk.Align.CENTER,
+        self.restore_row.button = Gtk.Button(label="Delete all…", valign=Gtk.Align.CENTER,
                                              css_classes=["destructive-action"])
         self.restore_row.button.update_property([Gtk.AccessibleProperty.LABEL], ["Delete all restore points"])
         self.restore_row.button.connect("clicked", lambda _b: self.delete_restore_points())
@@ -181,7 +181,7 @@ class StoragePage(Page):
             body="System changes can’t be undone until new ones are taken. "
                  "Your own files aren’t affected.")
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("delete", "Delete All")
+        dialog.add_response("delete", "Delete all")
         dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.connect("response", lambda _d, r: r == "delete" and self.helper(

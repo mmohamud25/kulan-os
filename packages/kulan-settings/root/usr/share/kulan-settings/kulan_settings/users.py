@@ -9,6 +9,7 @@ import re
 import select
 import shutil
 import subprocess
+import sys
 import time
 from typing import Callable
 
@@ -411,8 +412,8 @@ class UsersPage(Page):
             # Nothing is typed at start-up, so the keyring with saved
             # passwords stays locked and the first app to need one asks.
             ask = Adw.ActionRow(title="Saved passwords ask to be unlocked",
-                                subtitle="With automatic sign-in, apps ask for the keyring password after you "
-                                         "sign in")
+                                subtitle="With automatic sign-in, apps ask for your saved passwords’ password "
+                                         "after you sign in")
             ask.add_prefix(Gtk.Image(icon_name="dialog-password-symbolic"))
             fix = Gtk.Button(label="Fix…", valign=Gtk.Align.CENTER)
             fix.connect("clicked", lambda _b: self.keyring_dialog(me))
@@ -503,8 +504,8 @@ class UsersPage(Page):
             heading="Stop the password request after signing in?",
             body="Saved passwords are unlocked by the password you sign in with. With automatic sign-in "
                  "nothing is typed, so they ask for their own password.\n\n"
-                 "Turning off automatic sign-in fixes this and is safest. Or keep it and remove the keyring "
-                 "password. Saved passwords are then protected only by disk encryption while the computer "
+                 "Turning off automatic sign-in fixes this and is safest. Or keep it and remove the "
+                 "password on saved passwords. Saved passwords are then protected only by disk encryption while the computer "
                  "is off.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("keep", "Keep automatic sign-in…")
@@ -552,8 +553,8 @@ class UsersPage(Page):
                     self.toast("Automatic sign-in is off")
                 else:
                     self.tell("Automatic sign-in is off",
-                              "Next time you sign in, your saved passwords move to the keyring your sign-in "
-                              "password unlocks. You may be asked for their old password once more.")
+                              "Next time you sign in, your saved passwords move to where your sign-in "
+                              "password unlocks them. You may be asked for their old password once more.")
                 self.refresh()
 
             in_thread(work, moved, page=self)
@@ -566,12 +567,12 @@ class UsersPage(Page):
 
     def remove_keyring_password_dialog(self) -> None:
         dialog = Adw.AlertDialog(
-            heading="Remove the keyring’s password",
+            heading="Remove the password on saved passwords",
             body="Enter the password your saved passwords are locked with. It’s usually your sign-in password "
                  "or one you chose when an app first asked. They’ll then open without asking for anyone who "
                  "can use this account.")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        current = Adw.PasswordEntryRow(title="Keyring password")
+        current = Adw.PasswordEntryRow(title="Their password")
         box.append(current)
         current.connect("changed", lambda e: dialog.set_response_enabled("remove", bool(e.get_text())))
         dialog.set_extra_child(box)
@@ -593,7 +594,8 @@ class UsersPage(Page):
                 except keyring.KeyringError as e:
                     problem = str(e)
                 except GLib.Error as e:
-                    problem = f"The keyring couldn’t be changed: {e.message}"
+                    print(f"kulan-settings: {e.message}", file=sys.stderr)
+                    problem = "Saved passwords couldn’t be changed. Sign out and back in, then try again"
 
                 def show() -> bool:
                     if problem:

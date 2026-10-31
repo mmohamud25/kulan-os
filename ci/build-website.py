@@ -354,7 +354,7 @@ def help_page() -> str:
                                 "choose Install next to Windows in Kulan Installer. You pick which one to start "
                                 "each time you turn the computer on. The <a href=\"/install/\">install guide</a> "
                                 "has every step."),
-        ("How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic Updates there. A "
+        ("How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic updates there. A "
                                   "restore point is taken first, so you can undo an update if anything goes wrong."),
         ("How do I connect to work or school Wi-Fi?", "Open Kulan Settings › Wi-Fi and network. It handles networks "
                                                       "that need a sign-in, like eduroam, as well as hidden "

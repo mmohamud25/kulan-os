@@ -184,7 +184,16 @@ export function loadText(path) {
 }
 
 // Words for why a save failed, for people.
+// Why a file couldn't be saved, in plain words (the error itself goes to the log).
 export function failureText(error) {
-    return error?.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NO_SPACE)
-        ? 'the disk is full' : (error?.message || 'unknown error');
+    if (error?.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.NO_SPACE))
+        return 'the disk is full';
+    if (error)
+        log(`Kulan Shell: couldn't save a file: ${error.message ?? error}`);
+    return 'the disk couldn’t be written to';
+}
+
+// What to do about it.
+export function failureAdvice(why) {
+    return why === 'the disk is full' ? 'Free up some space and try again.' : 'Try again in a moment.';
 }

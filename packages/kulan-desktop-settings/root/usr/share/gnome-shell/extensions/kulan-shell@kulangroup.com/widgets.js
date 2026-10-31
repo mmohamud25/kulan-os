@@ -206,7 +206,7 @@ class PrayerWidget {
     constructor(settings) {
         this._settings = settings;
         this._interface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
-        this.card = new Card('Prayer Times', 'preferences-system-time-symbolic', () => launch(['kulan-settings', 'prayer-times']), 'prayer');
+        this.card = new Card('Prayer times', 'preferences-system-time-symbolic', () => launch(['kulan-settings', 'prayer-times']), 'prayer');
         this.update();
     }
 

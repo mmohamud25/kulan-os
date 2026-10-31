@@ -338,7 +338,7 @@ class Helper:
                                  body="Kulan Settings can close when they’re done. They carry on even if you hide "
                                       "it, sign out or close the lid, and the computer stays on until they’re "
                                       "finished.")
-        dialog.add_response("keep", "Keep Open")
+        dialog.add_response("keep", "Keep open")
         dialog.add_response("hide", "Hide")
         dialog.set_default_response("keep")
         dialog.set_close_response("keep")
@@ -375,8 +375,8 @@ class Helper:
                 on_done(False)
             return
         if shutil.which("pkexec") is None:
-            self.toast("Kulan Settings can’t ask for your password (pkexec is missing). Add it in Terminal with "
-                       "“sudo apt install pkexec”")
+            self.toast("Kulan Settings can’t ask for your password: part of Kulan OS is missing. Update Kulan OS, or "
+                       "ask for help in Get help")
             if on_done:
                 on_done(False)
             return

@@ -45,7 +45,7 @@ NO_FOLDERS = ["Kulan-NoFolders"]
 WIDGETS = [
     ("calendar", "Calendar", "Today’s date and what’s next in Calendar"),
     ("weather", "Weather", "For the place chosen in the Weather app"),
-    ("prayer", "Prayer Times", "The next prayer, while Prayer Times is on"),
+    ("prayer", "Prayer times", "The next prayer, while Prayer times is on"),
     ("notes", "Note", "Your Quick Note (Cmd+Shift+N)"),
     ("clock", "Clock", "The time here and in the cities added in Clocks"),
     ("system", "System", "Processor, memory, disk space and battery"),

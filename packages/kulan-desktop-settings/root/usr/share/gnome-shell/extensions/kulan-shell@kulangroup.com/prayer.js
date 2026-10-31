@@ -81,7 +81,7 @@ export class PrayerTimes {
     }
 
     _build() {
-        this._indicator = new PanelMenu.Button(0.0, 'Prayer Times');
+        this._indicator = new PanelMenu.Button(0.0, 'Prayer times');
         this._indicator.add_style_class_name('kulan-prayer');
         // A pill with an amber dot, as in the 2.4 look.
         const box = new St.BoxLayout({style_class: 'kulan-prayer-box', y_align: Clutter.ActorAlign.CENTER});

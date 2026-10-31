@@ -36,7 +36,7 @@ export class LiveText {
             return;
         const tesseract = GLib.find_program_in_path('tesseract');
         if (!tesseract) {
-            Main.notify(TITLE, 'Text recognition was removed from this computer, so Live Text can’t read the screen. To add it back, open Terminal and type: sudo apt install tesseract-ocr');
+            Main.notify(TITLE, 'Text recognition was removed from this computer, so Live Text can’t read the screen. To put it back, ask for help in Kulan Settings › Get help.');
             return;
         }
         this._busy = true;

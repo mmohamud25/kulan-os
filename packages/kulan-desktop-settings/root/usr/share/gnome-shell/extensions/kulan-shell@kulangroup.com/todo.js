@@ -11,7 +11,7 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {failureText, pending, readText, writeFile} from './files.js';
+import {failureAdvice, failureText, pending, readText, writeFile} from './files.js';
 
 export const TODO_FILE = GLib.build_filenamev([GLib.get_user_data_dir(), 'kulan', 'todo.json']);
 const MAX_TASKS = 200;
@@ -24,7 +24,7 @@ let unsaved = null;
 let openPanel = null; // the panel, while it's open: told when a save fails
 
 function saveFailed() {
-    Main.notify('To-do wasn’t saved', `The change couldn’t be saved (${lastError}). Free up some space and try again.`);
+    Main.notify('To-do wasn’t saved', `The change couldn’t be saved (${lastError}). ${failureAdvice(lastError)}`);
 }
 
 export function readTodos() {
@@ -281,7 +281,7 @@ export class TodoPanel {
         }
         this._clear.visible = items.some(i => i.done);
         this._status.visible = lastError !== null;
-        this._status.text = lastError ? `Couldn’t save the list (${lastError}). Free up some space and try again.` : '';
+        this._status.text = lastError ? `Couldn’t save the list (${lastError}). ${failureAdvice(lastError)}` : '';
     }
 
     close() {
