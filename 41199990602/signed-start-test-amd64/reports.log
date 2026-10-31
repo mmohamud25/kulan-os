@@ -1,0 +1,41 @@
+kulan-signed-test login: KULAN-BOOT-REPORT-BEGIN
+state=running
+desktop_user=kulan
+time=Startup finished in 1.047s (kernel) + 3.384s (initrd) + 32.829s (userspace) = 37.261s 
+blame=21.516s plymouth-quit-wait.service
+blame=6.203s dev-lp0.device
+blame=6.203s sys-devices-pnp0-00:02-printer-lp0.device
+blame=5.960s sys-devices-pci0000:00-0000:00:1f.0-MSFT0101:00-tpmrm-tpmrm0.device
+blame=5.960s dev-tpmrm0.device
+blame=5.938s sys-devices-pci0000:00-0000:00:1f.0-MSFT0101:00-tpm-tpm0.device
+blame=5.938s dev-tpm0.device
+blame=5.738s dev-disk-by\x2ddiskseq-2\x2dpart3.device
+chain=gdm.service +179ms
+chain=systemd-user-sessions.service @11.013s +58ms
+chain=network.target @6.265s
+chain=NetworkManager.service @5.397s +867ms
+chain=dbus.service @4.788s +592ms
+chain=basic.target @4.735s
+chain=systemd-pcrphase-sysinit.service @4.552s +174ms
+chain=sysinit.target @4.478s
+chain=apparmor.service @3.726s +744ms
+chain=local-fs.target @3.698s
+memory=1208 MB used of 3883 MB
+timezone=Etc/UTC
+background=idle inactive
+swap=/dev/zram0 3.8G;
+dns=../run/systemd/resolve/stub-resolv.conf active lookup=yes
+oomd=active active
+kexec=1 no x86_64
+needs_update=no
+aacache=/var/cache/apparmor/979b3ac6.0 979b3ac6.0:115:1793453329; aaload=8152842
+unlock=
+boot_id=1095a5d7-3cbb-42eb-a6b5-89e9b4278232
+loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 secureboot=1 signedstart=Signed start-up on
+statusservice=success 1793453690
+kulanshell='state': <1.0> 'error': <''> 
+lighter=on success search_nice=19 mem_kib=3977192
+appsandbox=0 
+appupdates=ok
+KULAN-BOOT-REPORT-END
+===
