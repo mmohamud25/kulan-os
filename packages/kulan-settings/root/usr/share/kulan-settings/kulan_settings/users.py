@@ -17,7 +17,7 @@ import tempfile
 
 from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk
 
-from . import keyring
+from . import fingerprint, keyring
 from .common import Page, in_thread
 
 ACCOUNTS = "org.freedesktop.Accounts"
@@ -721,6 +721,13 @@ class ProfilePage(UsersPage):
         self.hero = self.add_group()
         self.mine = self.add_group("Your account")
         self.others = self.mine  # (no other people here)
+        # Fingerprint sign-in (2.12): only on computers with a reader.
+        self.finger_group = self.add_group("Fingerprint", "Touch the reader to sign in, unlock the screen and "
+                                                          "approve changes. Your password always works too. "
+                                                          "Fingerprints stay on this computer.")
+        self.finger_group.set_visible(False)
+        self.finger_rows: list[Gtk.Widget] = []
+        self.reader = fingerprint.Reader()
         self.hero.set_visible(False)
         self.mine.set_visible(False)
         self.rows: list[Gtk.Widget] = []
@@ -759,3 +766,138 @@ class ProfilePage(UsersPage):
         box.append(buttons)
         self.add(self.hero, box)
         self.mine_rows(me, loaded[2])
+        if self.reader.path is None:
+            self.reader.find(lambda found: found and not self.torn_down and self.show_fingers())
+        else:
+            self.show_fingers()
+
+    # --- Fingerprint (2.12) ----------------------------------------------------------
+    def show_fingers(self) -> None:
+        def got(fingers: list[str] | None, error: str | None) -> None:
+            if self.torn_down:
+                return
+            for row in self.finger_rows:
+                self.finger_group.remove(row)
+            self.finger_rows = []
+            self.finger_group.set_visible(True)
+            if fingers is None:
+                row = Adw.ActionRow(title="The fingerprint reader can’t be used right now",
+                                    subtitle=error or "", subtitle_lines=0)
+                row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+                self.finger_add(row)
+                return
+            row = Adw.ActionRow(title="Fingerprints", subtitle_lines=0, subtitle=GLib.markup_escape_text(
+                fingerprint.finger_names(fingers) if fingers else "None yet. Add one to sign in with a touch"))
+            row.add_prefix(Gtk.Image(icon_name="auth-fingerprint-symbolic"))
+            if len(fingers) < len(fingerprint.FINGERS):
+                add = Gtk.Button(label="Add a fingerprint…", valign=Gtk.Align.CENTER,
+                                 css_classes=[] if fingers else ["suggested-action"])
+                add.connect("clicked", lambda _b: self.add_finger(fingers))
+                row.add_suffix(add)
+            self.finger_add(row)
+            if fingers:
+                remove = Adw.ActionRow(title="Remove all fingerprints…", activatable=True, css_classes=["error"])
+                remove.connect("activated", lambda _r: self.remove_fingers())
+                self.finger_add(remove)
+        self.reader.enrolled(GLib.get_user_name(), got)
+
+    def finger_add(self, row: Gtk.Widget) -> None:
+        self.finger_group.add(row)
+        self.finger_rows.append(row)
+
+    def add_finger(self, have: list[str]) -> Adw.Dialog:
+        """Choose a finger, then touch the reader until it has enough of it. A window of
+        its own (not an alert, which would close on Start), showing each touch."""
+        free = [f for f in fingerprint.FINGERS if f not in have]
+        stages = max(1, self.reader.stages or 5)
+        state = {"stage": 0, "running": False}
+        dialog = Adw.Dialog(title="Add a fingerprint", content_width=420)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin_start=24, margin_end=24,
+                      margin_top=6, margin_bottom=24)
+        box.append(Gtk.Image(icon_name="auth-fingerprint-symbolic", pixel_size=72, css_classes=["dim-label"]))
+        words = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER,
+                          label="Choose the finger, then touch the reader with it each time it asks, moving it a "
+                                "little each time.")
+        box.append(words)
+        which = Adw.ComboRow(title="Finger", model=Gtk.StringList.new([fingerprint.FINGERS[f] for f in free]))
+        chooser = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        chooser.append(which)
+        box.append(chooser)
+        progress = Gtk.ProgressBar(visible=False)
+        box.append(progress)
+        start = Gtk.Button(label="Start", halign=Gtk.Align.CENTER, css_classes=["pill", "suggested-action"])
+        box.append(start)
+        view.set_content(box)
+        dialog.set_child(view)
+
+        def finger() -> str:
+            return free[which.get_selected()] if free else ""
+
+        def status(result: str, finished: bool) -> None:
+            if result == "enroll-completed":
+                state["running"] = False
+                progress.set_fraction(1.0)
+                words.set_label("Added. You can sign in with this finger now.")
+                start.set_label("Done")
+                start.set_sensitive(True)
+                self.toast(f"{fingerprint.FINGERS.get(finger(), 'Fingerprint')} added")
+                self.show_fingers()
+                return
+            if result in fingerprint.FAILED or finished:
+                failed(fingerprint.FAILED.get(result, "The fingerprint wasn’t added. Try again"))
+                return
+            if result == "enroll-stage-passed":
+                state["stage"] += 1
+                progress.set_fraction(min(0.95, state["stage"] / stages))
+            words.set_label(fingerprint.STEPS.get(result, "Touch the reader again"))
+
+        def failed(why: str) -> None:
+            state["running"] = False
+            words.set_label(why)
+            start.set_label("Try again")
+            start.set_sensitive(True)
+            which.set_sensitive(True)
+
+        def clicked(_b) -> None:
+            if start.get_label() == "Done":
+                dialog.close()
+                return
+            state.update(stage=0, running=True)
+            which.set_sensitive(False)
+            start.set_sensitive(False)
+            progress.set_visible(True)
+            progress.set_fraction(0)
+            words.set_label("Touch the reader with your finger")
+            self.reader.enroll(finger(), status, failed)
+        start.connect("clicked", clicked)
+
+        def closed(_d) -> None:
+            if state["running"]:
+                state["running"] = False
+                self.reader.stop()
+        dialog.connect("closed", closed)
+        dialog.present(self.window)
+        self.finger_dialog = dialog  # for the self-test
+        self.finger_start = start
+        self.finger_words = words
+        return dialog
+
+    def remove_fingers(self) -> None:
+        dialog = Adw.AlertDialog(heading="Remove all your fingerprints?",
+                                 body="You then sign in with your password only, until you add one again.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def answered(_d, response: str) -> None:
+            if response == "remove":
+                self.reader.delete_all(lambda error: (self.toast(error or "Fingerprints removed"),
+                                                      None if self.torn_down else self.show_fingers()))
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def teardown(self) -> None:
+        self.reader.stop()
+        super().teardown()

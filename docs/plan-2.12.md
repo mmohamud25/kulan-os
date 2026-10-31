@@ -90,6 +90,24 @@ What 2.11 left undone, with reasons (docs/plan-2.11.md, "Left"), closed here.
     Settings (Kulan Shell swaps the SettingsItem's app, put back on disable;
     GNOME 48's system.js checked).
 
+12. **Kulan Settings crashed at start-up on computers with saved Wi-Fi
+    networks** (2.11, seen on the ThinkPad: a segmentation fault in
+    wifi.py's saved_connection). NMDevice.filter_connections, handed a list
+    from Python, crashes libnm's bindings; the test machines had no saved
+    networks. The same check is now plain Python (wifi.saved_for), for Setup
+    too; the self-test checks it and that filter_connections stays out. Also
+    out as 2.11.1 on its own.
+13. **Fingerprint sign-in** (asked for; the ThinkPad T490 has a Synaptics
+    reader libfprint supports): fprintd and libpam-fprintd in the image and
+    recommended by kulan-settings; pam-auth-update --enable fprintd once
+    (kulan-settings postinst and a trigger, then left to the person). Profile
+    has Fingerprint (only with a reader): the fingers added, Add a
+    fingerprint… (a window that follows each touch: fprintd's EnrollStatus,
+    in plain words) and Remove all. The reader is always released. Self-test:
+    a stand-in fprintd on the session bus (finding the reader, three touches
+    with a bad one, listed, removed, released). The real reader is first
+    tried on the ThinkPad.
+
 Known, left: AppArmor's profiles are still compiled at a new computer's first
 start (about 11 s in the install test's virtual machine, once). The
 installer prepares them, but for the live system's kernel features; the

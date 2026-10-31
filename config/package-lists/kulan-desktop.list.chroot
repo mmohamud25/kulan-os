@@ -55,6 +55,10 @@ geary
 simple-scan
 # Google and Microsoft accounts in Kulan Settings › Online accounts
 gir1.2-goa-1.0
+# Fingerprint sign-in (2.12): the reader's service, and sign-in, unlock and
+# password prompts that take a finger (Kulan Settings › Profile › Fingerprint)
+fprintd
+libpam-fprintd
 gnome-disk-utility
 gnome-system-monitor
 # Mac-style extras: Quick Look (select a file in Files, press Space),

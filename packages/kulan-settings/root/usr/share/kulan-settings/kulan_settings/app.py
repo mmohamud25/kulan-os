@@ -486,6 +486,10 @@ class KulanSettings(Adw.Application):
             assert "filter_connections(" not in open(wifi_page.__file__).read(), "NMDevice.filter_connections is back"
         except (AssertionError, AttributeError) as exc:
             failures.append(f"wifi: {exc!r}")
+        try:  # Fingerprint (2.12): a stand-in fprintd on the session bus, the whole flow
+            fingerprint_self_test(window)
+        except (AssertionError, GLib.Error, KeyError, AttributeError) as exc:
+            failures.append(f"fingerprint: {exc!r}")
         try:  # Profile (2.12): any picture becomes a square PNG the accounts service can read; you at the top
             from . import users
             from gi.repository import GdkPixbuf
@@ -564,3 +568,104 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+
+
+FPRINT_XML = """<node>
+<interface name="net.reactivated.Fprint.Manager"><method name="GetDefaultDevice"><arg type="o" direction="out"/></method></interface>
+<interface name="net.reactivated.Fprint.Device">
+<method name="ListEnrolledFingers"><arg type="s" direction="in"/><arg type="as" direction="out"/></method>
+<method name="Claim"><arg type="s" direction="in"/></method><method name="Release"/>
+<method name="EnrollStart"><arg type="s" direction="in"/></method><method name="EnrollStop"/>
+<method name="DeleteEnrolledFingers2"/>
+<signal name="EnrollStatus"><arg type="s"/><arg type="b"/></signal>
+</interface>
+<interface name="org.freedesktop.DBus.Properties">
+<method name="Get"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="v" direction="out"/></method>
+</interface></node>"""
+
+
+def fingerprint_self_test(window) -> None:
+    """Kulan Settings › Profile › Fingerprint against a stand-in fprintd: finds the
+    reader, adds a finger touch by touch (with a bad touch), lists it, removes all,
+    and always releases the reader."""
+    from . import users
+    os.environ["KULAN_FPRINT_BUS"] = "session"
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    node = Gio.DBusNodeInfo.new_for_xml(FPRINT_XML)
+    dev_path = "/net/reactivated/Fprint/Device/0"
+    fake = {"fingers": [], "claimed": False, "calls": []}
+
+    def emit(result: str, done: bool) -> bool:
+        bus.emit_signal(None, dev_path, "net.reactivated.Fprint.Device", "EnrollStatus",
+                        GLib.Variant("(sb)", (result, done)))
+        return False
+
+    def handle(_conn, _sender, path, iface, method, params, inv) -> None:
+        fake["calls"].append(method)
+        if method == "GetDefaultDevice":
+            inv.return_value(GLib.Variant("(o)", (dev_path,)))
+        elif method == "Get":
+            inv.return_value(GLib.Variant("(v)", (GLib.Variant("i", 3),)))
+        elif method == "ListEnrolledFingers":
+            if fake["fingers"]:
+                inv.return_value(GLib.Variant("(as)", (list(fake["fingers"]),)))
+            else:
+                inv.return_dbus_error("net.reactivated.Fprint.Error.NoEnrolledPrints", "none")
+        elif method == "Claim":
+            fake["claimed"] = True
+            inv.return_value(None)
+        elif method == "Release":
+            fake["claimed"] = False
+            inv.return_value(None)
+        elif method == "EnrollStart":
+            assert fake["claimed"], "enrolling without claiming the reader"
+            finger = params.unpack()[0]
+            inv.return_value(None)
+            for n, (result, done) in enumerate((("enroll-stage-passed", False), ("enroll-retry-scan", False),
+                                                ("enroll-stage-passed", False), ("enroll-completed", True)), 1):
+                GLib.timeout_add(40 * n, emit, result, done)
+            GLib.timeout_add(170, lambda: (fake["fingers"].append(finger), False)[1])
+        elif method in ("EnrollStop",):
+            inv.return_value(None)
+        elif method == "DeleteEnrolledFingers2":
+            fake["fingers"].clear()
+            inv.return_value(None)
+    ids = [bus.register_object("/net/reactivated/Fprint/Manager", node.lookup_interface("net.reactivated.Fprint.Manager"),
+                               handle, None, None)]
+    for iface in ("net.reactivated.Fprint.Device", "org.freedesktop.DBus.Properties"):
+        ids.append(bus.register_object(dev_path, node.lookup_interface(iface), handle, None, None))
+    owner = Gio.bus_own_name_on_connection(bus, "net.reactivated.Fprint", Gio.BusNameOwnerFlags.NONE, None, None)
+
+    def wait(cond, seconds: float = 4) -> bool:
+        ctx = GLib.MainContext.default()
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not cond():
+            ctx.iteration(False)
+            time.sleep(0.01)
+        return cond()
+    try:
+        window.show_page("profile")
+        page = window.pages["profile"]
+        found = []
+        page.reader.find(found.append)
+        assert wait(lambda: found) and found == [True] and page.reader.stages == 3, ("no reader found", found)
+        page.show_fingers()
+        assert wait(lambda: page.finger_rows) and "None yet" in page.finger_rows[0].get_subtitle(), "no fingerprints shown"
+        page.add_finger([])
+        page.finger_start.emit("clicked")
+        assert wait(lambda: page.finger_start.get_label() == "Done"), page.finger_words.get_label()
+        assert wait(lambda: not fake["claimed"]), "the reader wasn't released after adding"
+        assert "EnrollStop" in fake["calls"], fake["calls"]
+        assert wait(lambda: page.finger_rows and "Right index finger" in page.finger_rows[0].get_subtitle()), \
+            "the new fingerprint isn't listed"
+        page.finger_dialog.force_close()
+        done = []
+        page.reader.delete_all(done.append)
+        assert wait(lambda: done and not fake["claimed"]) and done == [None] and not fake["fingers"], (done, fake)
+        assert users.fingerprint.plain(GLib.Error("net.reactivated.Fprint.Error.PermissionDenied: x")) == \
+            "Permission wasn’t given"
+    finally:
+        Gio.bus_unown_name(owner)
+        for i in ids:
+            bus.unregister_object(i)
+        os.environ.pop("KULAN_FPRINT_BUS", None)
