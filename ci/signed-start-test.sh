@@ -189,6 +189,7 @@ case "\${PHASE}" in
 			V=/sys/firmware/efi/efivars; G=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
 			# The signed file has the undo entry; this start-up asked for the menu next time.
 			for _ in \$(seq 15); do [ -e \$V/LoaderConfigTimeoutOneShot-\$G ] && break; sleep 2; done
+			journalctl -b -u kulan-boot-ok.service -o cat --no-pager 2>/dev/null | tail -n 3 | sed 's/^/KULAN-SIGNED-TEST boot-ok: /'
 			say "undo_profile=\$(grep -ac 'TITLE=Undo the last update' /boot/efi/EFI/Linux/kulan-*.efi | paste -sd, -) menu_asked=\$(efitext \$V/LoaderConfigTimeoutOneShot-\$G) default=\$(sed -n 's/^default //p' /boot/efi/loader/loader.conf)"
 			# Start through it once, as choosing it in the menu does (systemd-boot matches
 			# the one-shot entry as a pattern: the newest file's undo entry, whatever its try counter).
