@@ -54,8 +54,6 @@ sleep 5 # let the session settle
 	echo "needs_update=$(systemctl show -P ConditionResult ldconfig.service 2>/dev/null)"
 	# AppArmor's compiled profiles (made by the installer): the folder this kernel
 	# uses, and each folder there with its file count and time (seconds).
-	# How the installer's feature set differs from this kernel's (2.12: different folders).
-	echo "aadiff=$(set -- /var/cache/apparmor/*/.features; [ $# -eq 2 ] && diff -a "$1" "$2" 2>/dev/null | grep '^[<>]' | head -n 6 | cut -c1-120 | tr '\n' '|') sizes=$(cat /var/cache/apparmor/*/.features 2>/dev/null | wc -c)"
 	echo "aacache=$(apparmor_parser --print-cache-dir 2>/dev/null) $(for d in /var/cache/apparmor/*/; do [ -d "$d" ] && printf '%s:%s:%s;' "$(basename "$d")" "$(find "$d" -maxdepth 1 -type f | wc -l)" "$(stat -c %Y "$d")"; done) aaload=$(systemctl show -P ExecMainStartTimestampMonotonic apparmor.service 2>/dev/null)"
 	# How an encrypted disk was opened (TPM unlock test): systemd-cryptsetup's own words.
 	echo "unlock=$(journalctl -b -o cat -t systemd-cryptsetup 2>/dev/null | grep -m1 -iE 'tpm2|token' | cut -c1-200)"

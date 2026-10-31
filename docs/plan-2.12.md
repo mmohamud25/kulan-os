@@ -47,10 +47,22 @@ What 2.11 left undone, with reasons (docs/plan-2.11.md, "Left"), closed here.
    (its chrome.sh, with --filesystem=host-etc), so Kulan's policy applies to
    it as to the .deb.
 
-Being looked at: AppArmor's profiles still compiled at a new computer's first
-start (13.5 s in the install test) although the installer prepares them; the
-installer and the boot report now say where the cache went and where it was
-looked for.
+6. **Secure start-up marks a working start-up again.** boot-ok read EFI
+   variables with `tail -c +5 file`, which efivarfs refuses (it can't seek),
+   so since 2.11 the signed file never lost its try counter: after three
+   restarts systemd-boot could have gone back to the previous Linux. It reads
+   them through a pipe now; the signed start-up test checks it.
+7. **The live system restarts at once in virtual machines** (and from DVDs).
+   live-tools asked to remove the medium behind the splash and waited 90 s:
+   it skips that only for `noeject`; Kulan's boot options said `noprompt`,
+   which it never read. The boot test now fails if the question shows.
+
+Known, left: AppArmor's profiles are still compiled at a new computer's first
+start (about 11 s in the install test's virtual machine, once). The
+installer prepares them, but for the live system's kernel features; the
+installed system's kernel (the same version) also reports extended
+capabilities (caps/extended), so its cache folder is another one
+(979b3ac6.0, not f6da0254.0). The boot report still lists the folders.
 
 ## Not done yet
 
