@@ -320,6 +320,31 @@ def uki_files(version: str) -> list[Path]:
     return [f for f in linux.glob(f"{VENDOR}-*.efi") if uki_version(f.name) == version]
 
 
+# "Undo the last update" in systemd-boot's menu (as GRUB's 12_kulan-undo): a
+# second profile in the same signed file, the same kernel and start-up image
+# with "kulan.undo-update" added (kulan-undo-at-start.service). systemd-boot
+# lists it as "Kulan OS (Undo the last update)", with the ID
+# kulan-<version>.efi@undo; loader.conf's default (kulan-*.efi) never matches
+# it. Its menu shows after a start-up that didn't reach the desktop
+# (/usr/lib/kulan/boot-ok). Needs ukify and systemd-boot 257 or later.
+MAIN_PROFILE = "ID=main"  # its title stays "Kulan OS <version>"
+UNDO_PROFILE = "ID=undo\nTITLE=Undo the last update"
+
+
+def undo_profile(work: Path, x64: str) -> Path | None:
+    stub = Path(f"/usr/lib/systemd/boot/efi/addon{x64}.efi.stub")
+    if not stub.exists():
+        return None
+    out = work / "undo.efi"
+    options = CMDLINE.read_text().strip() + " kulan.undo-update"
+    r = run(["ukify", "build", f"--profile={UNDO_PROFILE}", f"--cmdline={options}", f"--stub={stub}",
+             f"--output={out}"], timeout=120)
+    if r.returncode != 0 or not out.exists():
+        print(f"kulan-signed-start: no 'Undo the last update' entry: {detail(r, 'ukify failed')}", file=sys.stderr)
+        return None
+    return out
+
+
 def build_one(version: str) -> None:
     kernel, initrd = Path(f"/boot/vmlinuz-{version}"), Path(f"/boot/initrd.img-{version}")
     if not kernel.exists():
@@ -333,11 +358,19 @@ def build_one(version: str) -> None:
     tmp = out.with_name(out.name + ".new")
     tmp.unlink(missing_ok=True)
     x64 = names()[0]
-    r = run(["ukify", "build", f"--linux={kernel}", f"--initrd={initrd}", f"--cmdline=@{CMDLINE}",
-             "--os-release=@/usr/lib/os-release", f"--uname={version}",
-             f"--stub=/usr/lib/systemd/boot/efi/linux{x64}.efi.stub",
-             "--signtool=sbsign", f"--secureboot-private-key={KEY}", f"--secureboot-certificate={CERT}",
-             f"--output={tmp}"], timeout=600)
+    base = ["ukify", "build", f"--linux={kernel}", f"--initrd={initrd}", f"--cmdline=@{CMDLINE}",
+            "--os-release=@/usr/lib/os-release", f"--uname={version}",
+            f"--stub=/usr/lib/systemd/boot/efi/linux{x64}.efi.stub",
+            "--signtool=sbsign", f"--secureboot-private-key={KEY}", f"--secureboot-certificate={CERT}",
+            f"--output={tmp}"]
+    with tempfile.TemporaryDirectory() as work:
+        undo = undo_profile(Path(work), x64)
+        r = run(base + [f"--profile={MAIN_PROFILE}", f"--join-profile={undo}"], timeout=600) if undo else None
+        if r is None or r.returncode != 0:
+            if r is not None:
+                print(f"kulan-signed-start: no 'Undo the last update' entry: {detail(r, 'ukify failed')}", file=sys.stderr)
+            tmp.unlink(missing_ok=True)
+            r = run(base, timeout=600)
     if r.returncode != 0:
         tmp.unlink(missing_ok=True)
         raise RuntimeError(detail(r, "the signed start-up file couldn't be made"))
@@ -354,6 +387,7 @@ def build_one(version: str) -> None:
 
 def rebuild(only: str | None = None) -> None:
     write_file(CMDLINE, cmdline() + "\n")
+    fix_loader_conf()
     versions = [only] if only else kernels()
     for version in versions:
         build_one(version)
@@ -377,6 +411,20 @@ def copy_if_changed(src: Path, dst: Path) -> None:
     os.replace(tmp, dst)
 
 
+# The default is the signed file's main entry, never its "@undo" one.
+LOADER_CONF = f"timeout 0\ndefault {VENDOR}-*.efi\neditor no\nauto-firmware yes\nconsole-mode keep\n"
+
+
+def fix_loader_conf() -> None:
+    """loader.conf from before 2.12 says "default kulan-*", which would match the
+    undo entry too: corrected before the first file with one is made."""
+    loader = ESP / "loader/loader.conf"
+    if loader.exists() and loader.read_text() != LOADER_CONF:
+        tmp = loader.with_name("loader.conf.new")
+        tmp.write_text(LOADER_CONF)
+        os.replace(tmp, loader)
+
+
 def install_loader() -> None:
     """Debian's signed shim (and its key manager and fallback) and signed systemd-boot, in EFI/kulan."""
     x64, X64, _ = names()
@@ -396,7 +444,7 @@ def install_loader() -> None:
     # No menu (hold Space to see it); the newest Kulan OS; no editing the options.
     loader = ESP / "loader/loader.conf"
     loader.parent.mkdir(parents=True, exist_ok=True)
-    loader.write_text(f"timeout 0\ndefault {VENDOR}-*\neditor no\nauto-firmware yes\nconsole-mode keep\n")
+    loader.write_text(LOADER_CONF)
 
 
 def esp_disk() -> tuple[str, str] | None:
