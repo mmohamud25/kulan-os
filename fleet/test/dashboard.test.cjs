@@ -103,7 +103,23 @@ function reply(b) {
   state.approvedD2 = false;
   const browser = await chromium.launch(); const page = await browser.newPage({ acceptDownloads: true, colorScheme: process.env.DARK ? "dark" : "light" });
   const errors = []; page.on("pageerror", (e) => errors.push(e.message)); page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && !m.text().includes("status of 403") && errors.push(m.text()));
-  page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().includes("name you'll") ? "Finance drive" : ""); else await d.accept(); });
+  // The page asks with its own dialog (#ask-dlg), never confirm() or prompt().
+  // Answer it the way a person would: OK, with the text window.__answer gives.
+  page.on("dialog", (d) => { errors.push("browser dialog: " + d.message()); d.dismiss(); });
+  await page.addInitScript(() => {
+    window.__answer = (text) => text.includes("name you'll") ? "Finance drive" : "";
+    new MutationObserver(() => {
+      const d = document.getElementById("ask-dlg");
+      if (!d || !d.open || d.dataset.answering) return;
+      d.dataset.answering = "1";
+      setTimeout(() => {
+        const input = d.querySelector("input");
+        if (input) input.value = window.__answer(d.querySelector("p").textContent);
+        d.querySelector("#ask-dlg-actions button:last-child").click();
+        delete d.dataset.answering;
+      }, 50);
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ["open"] });
+  });
   await page.route("**/functions/v1/fleet-admin", async (r) => {
     const body = JSON.parse(r.request().postData() || "{}");
     const aal2 = (r.request().headers().authorization || "").includes(AAL2);
@@ -419,8 +435,7 @@ function reply(b) {
   if (!last("approve-computer") || last("approve-computer").device_id !== "d2") throw "approve-computer " + JSON.stringify(last("approve-computer"));
   await page.click("#devices tr:has-text('new-pc')");
   await page.waitForSelector("#detail >> text=Remove from the organisation…");
-  page.removeAllListeners("dialog");
-  page.on("dialog", async (d) => { if (d.type() === "prompt") await d.accept(d.message().startsWith("Remove new-pc") ? "new-pc" : ""); else await d.accept(); });
+  await page.evaluate(() => { window.__answer = (text) => text.startsWith("Remove new-pc") ? "new-pc" : ""; });
   await page.click("#detail >> text=Remove from the organisation…");
   await page.waitForTimeout(300);
   if (JSON.stringify(last("remove-computer")) !== JSON.stringify({ op: "remove-computer", device_id: "d2", confirm: "new-pc" })) throw "remove-computer " + JSON.stringify(last("remove-computer"));
