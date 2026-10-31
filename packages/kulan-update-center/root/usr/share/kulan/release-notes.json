@@ -8,6 +8,7 @@
       "Profile at the top of Kulan Settings, as on a Mac: your picture and name, Change picture (any photo, cropped to a square), your password and how you sign in. Changing the picture works with any picture now",
       "Fingerprint sign-in on laptops with a reader: add a finger in Kulan Settings › Profile, then touch the reader to sign in, unlock the screen and approve changes. Your password always works too, and fingerprints never leave the computer",
       "Kulan Settings and Setup no longer close straight away on computers with saved Wi-Fi networks",
+      "Chrome, Chromium, Brave and Edge use Kulan's colours and window buttons instead of their own: set once, before the browser is first opened, or in a profile where no theme was chosen. Choosing Classic again in the browser's Settings › Appearance sticks",
       "One Settings app: GNOME Settings is hidden from the app grid and search, and the gear in the top-right menu opens Kulan Settings. The few GNOME pages Kulan Settings links to still open from there",
       "Undo the last update works with signed start-up too: the start-up menu has it, and shows after a start-up that didn't reach the desktop",
       "Signed start-up notes a start-up that worked again, so it never goes back to the previous version by mistake, and undoing an update signs the start-up files for the restored system",

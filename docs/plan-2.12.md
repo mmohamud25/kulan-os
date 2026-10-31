@@ -107,6 +107,17 @@ What 2.11 left undone, with reasons (docs/plan-2.11.md, "Left"), closed here.
     a stand-in fprintd on the session bus (finding the reader, three touches
     with a bad one, listed, removed, released). The real reader is first
     tried on the ThinkPad.
+14. **Chrome-type browsers take Kulan's look** (asked for: Chrome showed its
+    own purple and Windows-style buttons on the right). No browser policy
+    sets the theme, so kulan-browser-look (a user service at sign-in, and a
+    path unit when an app is installed) sets each profile's
+    extensions.theme.system_theme to GTK, once per browser folder: before
+    first launch, or in used profiles with no theme chosen. Never over a
+    choice (Classic, Qt, a Web Store theme), never while open (SingletonLock),
+    never again once done. Chrome, Chromium, Brave, Edge, from the Store or
+    as packages. Checked with real Chromium (colours follow GTK); the button
+    side on Wayland/Flatpak is checked on the ThinkPad. The rest of the apps
+    (Electron, Qt, Flatpak colours) is 2.13's "Every app looks like Kulan".
 
 Known, left: AppArmor's profiles are still compiled at a new computer's first
 start (about 11 s in the install test's virtual machine, once). The

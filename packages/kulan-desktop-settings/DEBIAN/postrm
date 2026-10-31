@@ -3,6 +3,9 @@ set -e
 
 case "$1" in
 	remove|purge|abort-install)
+		if command -v systemctl >/dev/null 2>&1; then
+			systemctl --global disable kulan-browser-look.path kulan-browser-look.service >/dev/null 2>&1 || true
+		fi
 		# Give Debian's splash logo back.
 		SPLASH_LOGO=/usr/share/plymouth/debian-logo.png
 		if [ -L "${SPLASH_LOGO}" ] && [ "$(readlink "${SPLASH_LOGO}")" = /usr/share/kulan/vendor-logos/logo-text-version-64.png ]; then
