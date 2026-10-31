@@ -35,6 +35,7 @@ import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
 import {ReopenApps} from './reopen.js';
+import {RestartPrompt, restartNeeded} from './restartprompt.js';
 import {LightEffects, ANIMATION_FACTOR} from './lighteffects.js';
 import {loadText, pending, writeFile, writeFileAsync} from './files.js';
 
@@ -439,6 +440,7 @@ export default class KulanShellExtension extends Extension {
 
         this._indicator = new UpdateIndicator();
         Main.panel.addToStatusArea(this.uuid, this._indicator, 0, 'right');
+        this._restartPrompt = new RestartPrompt();
 
         this._lastRun = undefined;
         this._monitor = Gio.File.new_for_path(STATUS_FILE)
@@ -748,6 +750,8 @@ export default class KulanShellExtension extends Extension {
         }
         this._indicator?.destroy();
         this._indicator = null;
+        this._restartPrompt?.destroy();
+        this._restartPrompt = null;
         this._menu?.destroy();
         this._menu = null;
         if (this._oldSlowDown !== undefined) {
@@ -781,12 +785,16 @@ export default class KulanShellExtension extends Extension {
     _reload() {
         const status = readStatus();
         this._indicator?.update(status);
+        // On the lock screen too: a notice waits there, and the night's quiet
+        // restart is for when nobody is at the computer.
+        this._restartPrompt?.update(status);
 
-        // Tell the user once when an update run has finished.
+        // Tell the user once when an update run has finished (with a restart
+        // to finish it, the restart notice says so instead).
         const lastRun = status?.last_run;
         const runTime = typeof lastRun?.time === 'number' ? lastRun.time : null;
         if (this._lastRun !== undefined && runTime !== null && runTime !== this._lastRun &&
-            status?.state !== 'running' && Number(lastRun.count) > 0) {
+            status?.state !== 'running' && Number(lastRun.count) > 0 && !restartNeeded(status)) {
             Main.notify('Kulan OS was updated',
                 `${plural(Number(lastRun.count), 'update')} installed. See what’s new in Kulan Settings.`);
         }

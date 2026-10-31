@@ -18,10 +18,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from . import updatelist
 from .common import Page, launch, os_release, plural, read_json, restart_computer
+
+# Kulan Shell's restartprompt.js reads it (ASKED_NOTE there).
+RESTART_ASKED_NOTE = "kulan-restart-asked"
 
 STATUS_FILE = Path("/var/lib/kulan/updates.json")
 # kulan-update.service's progress lines (update-run): followed when Kulan Settings
@@ -770,12 +773,42 @@ class UpdatesPage(Page):
             self.progress.set_fraction(fraction)
             self.progress.set_text(text or f"{round(fraction * 100)}%")
 
-        def done(_ok: bool) -> None:
+        def done(ok: bool) -> None:
             self.working = ""
             self.progress.set_visible(False)
             self.reload()
+            if ok and args[0] == "install" and self.restart_needed():
+                self.ask_to_restart()
 
         self.window.helper.run(args, success, on_progress=progress, on_done=done)
+
+    def ask_to_restart(self) -> None:
+        """Updates you installed that need a restart: GNOME's restart window
+        straight away, Mac-style (a 60-second countdown; an app with unsaved work
+        stops it; Cancel keeps working). The note tells Kulan Shell it was asked
+        here (no notice of its own; it reminds later and restarts at night)."""
+        try:
+            runtime = Path(GLib.get_user_runtime_dir())
+            (runtime / RESTART_ASKED_NOTE).write_text(f"{int(time.time())}\n", encoding="utf-8")
+        except OSError:
+            pass
+
+        # Only GNOME's window: never a restart without its countdown (if it
+        # can't be shown, the page says Restart Now, and Kulan Shell reminds).
+        def asked(bus, result) -> None:
+            try:
+                bus.call_finish(result)
+            except GLib.Error:
+                pass
+
+        def got_bus(_src, result) -> None:
+            try:
+                Gio.bus_get_finish(result).call(
+                    "org.gnome.SessionManager", "/org/gnome/SessionManager", "org.gnome.SessionManager", "Reboot",
+                    None, None, Gio.DBusCallFlags.NONE, -1, None, asked)
+            except GLib.Error:
+                pass
+        Gio.bus_get(Gio.BusType.SESSION, None, got_bus)
 
     def on_busy(self, busy: bool) -> None:
         for widget in (self.check_button, self.action_button):

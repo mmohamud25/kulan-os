@@ -57,6 +57,22 @@ What 2.11 left undone, with reasons (docs/plan-2.11.md, "Left"), closed here.
    it skips that only for `noeject`; Kulan's boot options said `noprompt`,
    which it never read. The boot test now fails if the question shows.
 
+8. **Restart to finish updating, Mac-style.** Before, a restart that updates
+   needed was only shown (the top bar's icon, Software Update's page). Now:
+   - Installed with Software Update's button: GNOME's restart window opens
+     straight away (a 60-second countdown; an app with unsaved work stops it;
+     Cancel keeps working). Kulan Settings leaves a note in the runtime
+     folder (kulan-restart-asked) so Kulan Shell doesn't ask again at once.
+   - Installed any other way (automatic updates, an IT admin's Install
+     updates, the terminal): a notice, Restart Now / Later; Later, or no
+     answer, asks again 4 hours later (Kulan Shell, restartprompt.js).
+   - At night (1 to 5 am), after 30 minutes nobody has used the computer, it
+     restarts by itself, like a Mac's Try Tonight: only on mains power, with no
+     update running and no app holding back signing out (unsaved work), and
+     only when logind allows it without a password (nobody else signed in).
+   Tests: Kulan Settings' self-test (asked after an install that needs it,
+   not otherwise, not after a check).
+
 Known, left: AppArmor's profiles are still compiled at a new computer's first
 start (about 11 s in the install test's virtual machine, once). The
 installer prepares them, but for the live system's kernel features; the

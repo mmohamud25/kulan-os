@@ -1,6 +1,7 @@
 """Kulan Settings: the window, sidebar and command line."""
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import sys
@@ -428,6 +429,29 @@ class KulanSettings(Adw.Application):
             assert users.user_name_from("Amina Yusuf", {"amina"}) not in ("amina", "")
         except (AssertionError, AttributeError) as exc:
             failures.append(f"messages: {exc!r}")
+        try:  # Restart to finish updating, Mac-style (2.12): asked as soon as an install that needs one ends
+            from . import updates
+            window.show_page("updates")
+            page = window.pages["updates"]
+            note = os.path.join(GLib.get_user_runtime_dir(), updates.RESTART_ASKED_NOTE)
+            with contextlib.suppress(OSError):
+                os.unlink(note)
+            run, needed = window.helper.run, page.restart_needed
+            window.helper.run = lambda *_a, on_done=None, **_k: on_done and on_done(True)
+            try:
+                page.restart_needed = lambda: []
+                page.install()
+                assert not os.path.exists(note), "asked to restart though none is needed"
+                page.restart_needed = lambda: ["Linux"]
+                page.install()
+                assert os.path.exists(note), "not asked to restart after an install that needs one"
+                os.unlink(note)
+                page.run(["check"], "Checking…", None)
+                assert not os.path.exists(note), "asked to restart after a check"
+            finally:
+                window.helper.run, page.restart_needed = run, needed
+        except (AssertionError, KeyError, OSError) as exc:
+            failures.append(f"updates: restart {exc!r}")
         try:  # Connected the first time (2.11): hotspot code, models for the memory, accounts in words
             from . import accounts, assistant, netextras
             assert netextras.wifi_qr_text("Home;Net", "p:w\\1") == "WIFI:T:WPA;S:Home\\;Net;P:p\\:w\\\\1;;"
