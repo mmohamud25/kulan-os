@@ -793,7 +793,9 @@ class FleetWindow(Adw.ApplicationWindow):
                 if e.two_step:
                     GLib.idle_add(lambda kind=e.two_step: (self.two_step_needed(kind), False)[1])
             except Exception as e:  # noqa: BLE001 - never leave the app hanging
-                result, error = None, f"Something went wrong: {e}"
+                print(f"kulan-fleet-admin: {e!r}", file=sys.stderr)
+                result, error = None, ("Something went wrong. Try again, and if it keeps happening, sign out of "
+                                       "Kulan Fleet and back in")
             GLib.idle_add(lambda: (done(result, error), False)[1])
         threading.Thread(target=run, daemon=True).start()
 
@@ -909,7 +911,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
             def done(_r, error):
                 if error:
-                    self.toast(f"Not signed in: {error}")
+                    self.toast(f"Not signed in. {error}")
                     return
                 self.toast("Signed in with your authenticator app")
                 self.reload()
@@ -950,7 +952,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
             def done(_r, error):
                 if error:
-                    self.toast(f"Not set up: {error}")
+                    self.toast(f"Not set up. {error}")
                     return
                 self.toast("Authenticator app set up")
                 self.reload()
@@ -4179,7 +4181,8 @@ class FleetWindow(Adw.ApplicationWindow):
                 ok, data, _etag = f.load_contents(None)
                 take(data[:20000].decode("utf-8", "replace") if ok else "")
             except GLib.Error as e:
-                key_row.set_subtitle(GLib.markup_escape_text(f"Couldn't read it: {e.message}"))
+                print(f"kulan-fleet-admin: {e.message}", file=sys.stderr)
+                key_row.set_subtitle("Couldn’t read that file. Choose the key file again")
 
         def pick(*_a) -> None:
             files = Gtk.FileDialog(title="The service account's JSON key")

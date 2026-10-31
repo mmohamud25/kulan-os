@@ -541,6 +541,26 @@ def write(path: Path, text: str, mode: int = 0o644) -> None:
     os.chmod(path, mode)
 
 
+def prepare_apparmor(target: Path, chroot: "Chroot") -> None:
+    """AppArmor's compiled profiles, made now rather than at the first start-up (where it
+    takes ten seconds or more). The kernel is the same as the new system's, so the cache
+    matches. Never stops the install: without it, the first start-up just takes longer."""
+    if not any((target / d / "apparmor_parser").exists() for d in ("sbin", "usr/sbin")):
+        return
+    security = target / "sys/kernel/security"
+    mounted = False
+    if Path("/sys/kernel/security/apparmor").is_dir() and security.is_dir():
+        mounted = run(["mount", "--bind", "/sys/kernel/security", str(security)], check=False).returncode == 0
+    try:
+        chroot.run(["apparmor_parser", "--skip-kernel-load", "--write-cache", "--quiet", "/etc/apparmor.d/"],
+                   check=False, timeout=600)
+    except ToolFailure:
+        pass
+    finally:
+        if mounted:
+            run(["umount", "-l", str(security)], check=False)
+
+
 def configure(plan: dict, target: Path, parts: dict, disk_info: dict) -> None:
     lines = [f"UUID={uuid_of(disk_info['root_dev'])} / ext4 errors=remount-ro 0 1"]
     if parts.get("boot"):
@@ -717,6 +737,7 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
             chroot.run(["dracut", "--force", "--regenerate-all"], timeout=1800)
     else:
         chroot.run(["update-initramfs", "-u", "-k", "all"])
+    prepare_apparmor(chroot.target, chroot)
     progress(0.75, "Making the disk start Kulan OS…")
     if firmware() == "uefi":
         target_name = {"amd64": "x86_64-efi", "arm64": "arm64-efi"}.get(arch(), f"{arch()}-efi")

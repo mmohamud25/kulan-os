@@ -103,7 +103,9 @@ export class RemoteHelp {
         this.since += (r.candidates || []).length;
       }
     } catch (e) {
-      this.finish(`Remote help couldn't connect (${e.message}).`, true);
+      console.error("Kulan Fleet remote help:", e);
+      this.finish(e instanceof TypeError ? "Remote help couldn’t connect. Check your internet connection and try again."
+        : "Remote help couldn’t connect. Try again in a minute.", true);
       return;
     }
     this.timer = setTimeout(() => this.poll(), this.state === "connected" && this.pc?.connectionState === "connected" ? 3000 : 1000);

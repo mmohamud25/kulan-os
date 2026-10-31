@@ -282,7 +282,7 @@ export class AskKulan {
                     reply = e instanceof GLib.Error && Gio.DBusError.get_remote_error(e) ===
                         'org.freedesktop.DBus.Error.ServiceUnknown'
                         ? {error: 'Kulan Assistant isn’t installed. Turn it on in Kulan Settings › Add-ons.', settings: 'add-ons'}
-                        : {error: 'Kulan Assistant didn’t answer. Try again in a moment.'};
+                        : {error: 'Ask Kulan didn’t answer. Try again in a moment.'};
                     if (!(e instanceof GLib.Error))
                         logError(e, 'Kulan Shell: Ask Kulan');
                 }

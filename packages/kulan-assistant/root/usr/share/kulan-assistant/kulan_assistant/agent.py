@@ -123,7 +123,8 @@ def open_app(a: dict) -> Result:
     try:
         best.launch([], None)
     except GLib.Error as e:
-        return Result(False, f"{best.get_display_name()} didn't open: {e.message}")
+        print(f"kulan-assistant: {e.message}", file=sys.stderr)
+        return Result(False, f"{best.get_display_name()} didn’t open. Try opening it from the app grid")
     return Result(True, f"Opened {best.get_display_name()}")
 
 

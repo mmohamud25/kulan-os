@@ -449,11 +449,14 @@ class Installer(Adw.ApplicationWindow):
             try:
                 out = subprocess.run(["pkexec", ENGINE, "disks"], capture_output=True, text=True, timeout=120)
                 info = json.loads(out.stdout or "{}")
-                error = info.get("error") if isinstance(info, dict) else "unexpected answer"
+                error = info.get("error") if isinstance(info, dict) else "The installer got an answer it didn’t understand"
                 if out.returncode in (126, 127) and not out.stdout:
-                    error = "no admin password was entered"
-            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-                info, error = {}, str(exc)
+                    error = "The password wasn’t entered. Click Try again"
+            except subprocess.TimeoutExpired:
+                info, error = {}, "The disks took too long to answer. Click Try again"
+            except (OSError, ValueError) as exc:
+                print(f"kulan-installer: {exc}", file=sys.stderr)
+                info, error = {}, "Try again, and if it keeps happening, restart from the USB stick"
             GLib.idle_add(lambda: self.show_disks(info, error) and False)
 
         threading.Thread(target=work, daemon=True).start()
@@ -632,7 +635,8 @@ class Installer(Adw.ApplicationWindow):
         box.append(self.bar)
         box.append(self.status)
         tips = Gtk.Label(wrap=True, xalign=0, margin_top=24,
-                         label="Tip. After you restart, press Cmd+Space to find apps, files and settings.")
+                         label="Tip: after you restart, press Super+Space (the Windows key and Space) to find apps, "
+                               "files and settings.")
         box.append(tips)
         page = self.page("installing", "Installing", "Installing", "Installing Kulan OS", None, box, next_label=None)
         page.set_can_pop(False)
@@ -647,7 +651,8 @@ class Installer(Adw.ApplicationWindow):
                                            Gio.SubprocessFlags.STDIN_PIPE | Gio.SubprocessFlags.STDOUT_PIPE
                                            | Gio.SubprocessFlags.STDERR_PIPE)
         except GLib.Error as exc:
-            self.finished(False, f"The installer couldn’t start: {exc.message}")
+            print(f"kulan-installer: {exc.message}", file=sys.stderr)
+            self.finished(False, "The installer couldn’t start. Restart from the USB stick and try again")
             return
         stdin = self.proc.get_stdin_pipe()
         stdin.write_all(json.dumps(plan).encode(), None)

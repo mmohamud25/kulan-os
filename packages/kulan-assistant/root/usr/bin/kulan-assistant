@@ -157,8 +157,11 @@ def main(argv: list[str]) -> int:
         from kulan_assistant import extract
         try:
             text = extract.text_of(args.file)
-        except (extract.ExtractError, OSError) as exc:
+        except extract.ExtractError as exc:
             text, error = "", str(exc)
+        except OSError as exc:
+            print(f"kulan-assistant: {exc}", file=sys.stderr)
+            text, error = "", "Kulan Assistant can’t open this file. Check it’s still there and that you can open it"
         else:
             error = ""
         if error or not text.strip():

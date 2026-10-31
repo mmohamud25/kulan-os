@@ -522,7 +522,8 @@ class AskKulanWindow(Adw.ApplicationWindow):
         except engine.EngineError as e:
             GLib.idle_add(self.answered, conv, str(e), [], cancel)
         except Exception as e:  # noqa: BLE001 - never leave it thinking
-            GLib.idle_add(self.answered, conv, f"The assistant stopped unexpectedly: {e}", [], cancel)
+            print(f"kulan-assistant: {e!r}", file=sys.stderr)
+            GLib.idle_add(self.answered, conv, engine.UNEXPECTED, [], cancel)
 
     def answered(self, conv: conversation.Conversation, reply: str, steps: list[agent.Step],
                  cancel: threading.Event) -> bool:
