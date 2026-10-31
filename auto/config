@@ -13,10 +13,12 @@ die() {
 }
 
 ARCH="${KULAN_ARCH:-$(dpkg --print-architecture)}"
-# noprompt: at shutdown, live-tools asks to remove the stick and press Enter,
-# on a console the splash hides, so restarting looked stuck. The installer's
-# last page says when to remove the stick instead.
-LIVE_ARGS="noprompt "
+# noeject: at shutdown from a DVD (or a virtual machine's ISO), live-tools
+# asks to remove the medium and press Enter, on a console the splash hides, so
+# restarting waited 90 seconds. live-tools' live-medium-eject skips it only
+# for "noeject" (before 2.12 this said "noprompt", casper's word, which it
+# never read). The installer's last page says when to remove the stick instead.
+LIVE_ARGS="noeject "
 # The live session's time zone: the one the installer guesses for its English
 # (US) too, instead of UTC, which showed the time hours off once the clock was
 # set from the internet. (Changed in the installer's More choices.)
