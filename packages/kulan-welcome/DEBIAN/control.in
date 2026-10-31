@@ -5,9 +5,9 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: gnome
 Priority: optional
 Depends: kulan-base (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.4), flatpak
-Recommends: kulan-desktop-settings (= @VERSION@), gufw, deja-dup
+Recommends: kulan-desktop-settings (= @VERSION@), kulan-settings (= @VERSION@), gir1.2-nm-1.0, gufw, deja-dup
 Homepage: @HOME_URL@
 Description: @NAME@ Setup Assistant
- Opens once at first sign-in. Choose your look and privacy settings, bring
- over files from another computer, add popular apps and see which
- protections are on.
+ Opens at first sign-in. Get online, choose your look and privacy settings,
+ bring over files from another computer, add popular apps, download Ask
+ Kulan's model and see which protections are on.

@@ -46,14 +46,21 @@ def installed_flatpaks() -> set[str]:
     return {line.strip() for line in out.splitlines() if line.strip()}
 
 
-def installed_addons(addons: list[dict]) -> set[str]:
-    """The IDs of the add-ons whose packages and Flatpak apps are all installed.
-    Runs programs: on a worker thread, never the window's."""
-    packages = installed_packages(sorted({p for a in addons for p in a.get("packages") or []}))
+def installed_addons(addons: list[dict]) -> tuple[set[str], set[str]]:
+    """(installed, built in): the IDs of the add-ons whose packages and Flatpak apps
+    are all installed, and of the bundles whose apps came with Kulan OS ("includes":
+    installed from the ISO, so the bundle's own package isn't there). A built-in one
+    shows as installed and is never removed from here, so the built-in apps can't go
+    with it. Runs programs: on a worker thread, never the window's."""
+    packages = installed_packages(sorted({p for a in addons for p in (a.get("packages") or [])
+                                          + (a.get("includes") or [])}))
     flatpaks = installed_flatpaks() if any(a.get("flatpak") for a in addons) else set()
-    return {a["id"] for a in addons
-            if all(p in packages for p in a.get("packages") or [])
-            and all(f in flatpaks for f in a.get("flatpak") or [])}
+    own = {a["id"] for a in addons
+           if all(p in packages for p in a.get("packages") or [])
+           and all(f in flatpaks for f in a.get("flatpak") or [])}
+    builtin = {a["id"] for a in addons
+               if a.get("includes") and a["id"] not in own and all(p in packages for p in a["includes"])}
+    return own | builtin, builtin
 
 
 def set_extension(uuid: str, on: bool) -> None:
@@ -84,6 +91,7 @@ class AddonsPage(Page):
         self.rows: list[Gtk.Widget] = []
         self.buttons: list[Gtk.Button] = []
         self.asked = 0  # which refresh is the latest
+        self.builtin: set[str] = set()  # bundles whose apps came with Kulan OS
         self.listen_busy(self.on_busy)
         self.shown()
 
@@ -104,9 +112,10 @@ class AddonsPage(Page):
         self.asked += 1
         asked = self.asked
 
-        def done(installed: set[str] | None) -> None:
+        def done(found: tuple[set[str], set[str]] | None) -> None:
             if asked == self.asked:  # only the latest answer, if several overlap
-                self.render(addons, installed or set())
+                installed, self.builtin = found or (set(), set())
+                self.render(addons, installed)
 
         in_thread(lambda: installed_addons(addons), done, page=self)
 
@@ -153,6 +162,13 @@ class AddonsPage(Page):
 
     def on_clicked(self, button: Gtk.Button, addon: dict, installed: bool) -> None:
         title = addon.get("title", addon["id"])
+        if installed and addon["id"] in self.builtin:
+            dialog = Adw.AlertDialog(heading=f"{title} come with Kulan OS",
+                                     body="They’re part of this computer, so they aren’t removed here. To remove "
+                                          "one of them, find it in Store and choose Uninstall.")
+            dialog.add_response("ok", "OK")
+            dialog.present(self.window)
+            return
         if installed:
             dialog = Adw.AlertDialog(heading=f"Remove {title}?",
                                      body="The apps in this add-on, and anything only they needed, are removed. "

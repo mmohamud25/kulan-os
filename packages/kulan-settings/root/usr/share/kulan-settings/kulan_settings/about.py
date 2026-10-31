@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
@@ -314,6 +315,8 @@ class AboutPage(Page):
                                   active=bool(data.get("allow_erase")))
             erase.connect("notify::active", self.on_allow_erase)
             self.erase_row = erase
+            # Only an encrypted disk can be erased from afar (its keys are destroyed).
+            self.when_encrypted(lambda on, row=erase: self.erase_needs_encryption(row, on))
             rows.append(erase)
         else:
             # Why joining from an organisation's USB stick stopped (kulan-fleet-autojoin).
@@ -323,7 +326,7 @@ class AboutPage(Page):
                 problem = ""
             join = Adw.ActionRow(title="Join an organisation", subtitle_lines=0,
                                  subtitle=problem or "For work or school computers. Your IT team gives you a "
-                                                     "server address and a one-time code", activatable=True)
+                                                     "join code", activatable=True)
             join.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
             join.connect("activated", lambda _r: self.join_org())
             rows = [join]
@@ -410,7 +413,7 @@ class AboutPage(Page):
             f"{mail['address']} · Not connected. Click Connect and sign in as {mail['address']}"))
         row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic" if done else "dialog-information-symbolic"))
         if done:
-            command = ["geary"] if Path("/usr/bin/geary").exists() else ["gnome-control-center", "online-accounts"]
+            command = wm.open_command(mail) if hasattr(wm, "open_command") else ["geary"]
             button = Gtk.Button(label="Open mail" if command == ["geary"] else "Accounts", valign=Gtk.Align.CENTER)
         else:
             command = wm.connect_command(mail)
@@ -423,7 +426,8 @@ class AboutPage(Page):
         try:
             subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         except OSError as e:
-            self.window.toast(f"Couldn't open it: {e.strerror or e}")
+            print(f"kulan-settings: {argv[0]}: {e}", file=sys.stderr)
+            self.window.toast("That app isn’t installed")
 
     # --- Two-step sign-in (Kulan Fleet 2.8d) ------------------------------------------------
     TWO_STEP_PUBLIC = Path("/var/lib/kulan/fleet-two-step-public.json")
@@ -592,6 +596,42 @@ class AboutPage(Page):
         dialog.present(self.window)
         return dialog
 
+    # --- Joining, and erasing from afar ------------------------------------------------------
+    JOINING = Path("/usr/share/kulan-fleet/joining.py")
+
+    @classmethod
+    def joining(cls):
+        """kulan-fleet's joining module (Kulan's server, and reading a code or link), or None."""
+        try:
+            spec = importlib.util.spec_from_file_location("kulan_fleet_joining", cls.JOINING)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+        except (OSError, ImportError, AttributeError, SyntaxError):
+            return None
+
+    @staticmethod
+    def when_encrypted(callback) -> None:
+        """callback(True/False): whether this computer's disk is encrypted, found in the
+        background (the page never waits for the disk tools)."""
+        def work() -> None:
+            try:
+                out = subprocess.run(["lsblk", "--noheadings", "--output", "TYPE"], capture_output=True, text=True,
+                                     timeout=10, check=False).stdout
+                on = "crypt" in out.split()
+            except (OSError, subprocess.TimeoutExpired):
+                on = True  # unknown: kulan-fleet checks again, and says why if it can't
+            GLib.idle_add(lambda: (callback(on), False)[1])
+        threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def erase_needs_encryption(row: Adw.SwitchRow, encrypted: bool) -> None:
+        if encrypted or row.get_active():  # already allowed: it can still be turned off
+            return
+        row.set_sensitive(False)
+        row.set_subtitle("Not possible on this computer: its disk isn’t encrypted. Erasing from afar works only "
+                         "on a computer installed with encryption on")
+
     def on_allow_erase(self, row: Adw.SwitchRow, _pspec) -> None:
         on = row.get_active()
 
@@ -602,41 +642,75 @@ class AboutPage(Page):
                                "Your organisation can erase this computer if it’s lost" if on else
                                "Your organisation can’t erase this computer", on_done=done)
 
-    def join_org(self) -> None:
+    def join_org(self) -> Adw.AlertDialog:
+        joining = self.joining()
         dialog = Adw.AlertDialog(heading="Join an organisation",
-                                 body="This computer will report its model, updates and security checks "
-                                      "every hour. Files, browsing and messages are never shared.")
+                                 body="Enter the join code from your IT team. This computer will then report its "
+                                      "model, updates and security checks every hour. Files, browsing and "
+                                      "messages are never shared.")
+        code = Adw.EntryRow(title="Join code")
+        code.update_property([Gtk.AccessibleProperty.DESCRIPTION], ["A join code, or a join link"])
+        # Kulan's own server is filled in; another organisation's server is under here.
+        other = Adw.ExpanderRow(title="Use a different server",
+                                subtitle="Only if your IT team runs its own Kulan Fleet server")
         server = Adw.EntryRow(title="Server address (https://…)")
-        code = Adw.PasswordEntryRow(title="One-time code")
+        other.add_row(server)
+        if joining is None:  # an older kulan-base: the address has to be typed
+            other.set_expanded(True)
+            other.set_enable_expansion(True)
         erase = Adw.SwitchRow(title="Allow erasing it if it’s lost or stolen",
                               subtitle="Needs an encrypted disk. You can change this later",
                               subtitle_lines=0, active=False)
+        self.when_encrypted(lambda on: self.erase_needs_encryption(erase, on))
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
-        box.append(server)
         box.append(code)
+        box.append(other)
         box.append(erase)
-        dialog.set_extra_child(box)
+        problem = Gtk.Label(wrap=True, xalign=0, css_classes=["error", "caption"], visible=False, margin_top=8)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(box)
+        outer.append(problem)
+        dialog.set_extra_child(outer)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("join", "Join")
         dialog.set_response_appearance("join", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_close_response("cancel")
-        # Join only once both are filled in.
         dialog.set_response_enabled("join", False)
+        answer: dict[str, str] = {}
 
-        def filled(*_a) -> None:
-            dialog.set_response_enabled("join", bool(server.get_text().strip() and code.get_text().strip()))
-        server.connect("changed", filled)
-        code.connect("changed", filled)
+        def read(*_a) -> None:
+            """Join once there's something usable: a code (or a link with one)."""
+            answer.clear()
+            text, other_server = code.get_text().strip(), server.get_text().strip()
+            reason = ""
+            if not text:
+                pass
+            elif joining is not None:
+                try:
+                    answer["server"], answer["code"] = joining.parse(text, other_server)
+                except ValueError as exc:
+                    reason = str(exc)
+            elif other_server:
+                answer["server"], answer["code"] = other_server, text
+            else:
+                reason = "Enter the server address your IT team gave you"
+            problem.set_label(reason)
+            problem.set_visible(bool(reason))
+            dialog.set_response_enabled("join", bool(answer))
+        code.connect("changed", read)
+        server.connect("changed", read)
 
         def answered(_d, response: str) -> None:
-            if response != "join" or not server.get_text().strip() or not code.get_text().strip():
+            if response != "join" or not answer:
                 return
-            self.window.helper.run(["fleet-join", server.get_text().strip(), *(["--allow-erase"] if erase.get_active() else [])],
+            self.window.helper.run(["fleet-join", answer["server"], *(["--allow-erase"] if erase.get_active() else [])],
                                    "Joined",
-                                   on_done=lambda _ok: self.render_org(), stdin=code.get_text().strip())
+                                   on_done=lambda _ok: self.render_org(), stdin=answer["code"])
 
         dialog.connect("response", answered)
         dialog.present(self.window)
+        code.grab_focus()
+        return dialog
 
     def leave_org(self) -> None:
         dialog = Adw.AlertDialog(heading="Leave the organisation?",

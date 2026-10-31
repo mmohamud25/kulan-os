@@ -1,18 +1,25 @@
 #!/usr/bin/python3
 """Kulan Setup Assistant: the first-login setup for Kulan OS.
 
-Steps: hello, look (light, dark or automatic, and accent colour),
-accessibility, privacy, bring files from another computer, backups,
-passwords, apps (from Flathub, filtered to what this computer can run),
+Steps: hello, get online (Wi-Fi, only when not connected), look (light,
+dark or automatic, and accent colour), accessibility, privacy, bring files
+from another computer, backups, passwords, apps (from Flathub, filtered to
+what this computer can run; the list fills in by itself once online), Ask
+Kulan's model (only when the assistant is installed and has none),
 protection overview, and done. Every step can be skipped.
 
-Runs automatically once per user at first login (--autostart), never in the
-live session. Can be reopened any time from the app grid.
+Runs automatically at first sign-in (--autostart), never in the live
+session. It's marked done once you finish it (Start using on the last step).
+Closed early, or cut off when the session ends, it opens once more at the
+next sign-in, and then not again. The autostart entry skips it without
+starting Python once it's done (AutostartCondition). Can be reopened any time
+from the app grid.
 """
 
 from __future__ import annotations
 
 import argparse
+import grp
 import os
 import re
 import secrets
@@ -30,13 +37,34 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
+try:
+    gi.require_version("NM", "1.0")
+    from gi.repository import NM
+except (ImportError, ValueError):  # libnm's introspection data isn't installed: Wi-Fi in Kulan Settings
+    NM = None
+
+# Kulan Settings' own code for Wi-Fi networks and Ask Kulan's models, so
+# Setup and Kulan Settings always agree (what's recommended, what's secure).
+sys.path.insert(0, os.environ.get("KULAN_SETTINGS_LIB", "/usr/share/kulan-settings"))
+try:
+    from kulan_settings import assistant as ks_assistant
+except Exception:  # noqa: BLE001 - not installed, or too old: those steps are left out
+    ks_assistant = None
+try:
+    from kulan_settings import wifi as ks_wifi
+except Exception:  # noqa: BLE001
+    ks_wifi = None
+
 APP_ID = "org.kulan.Welcome"
 UPDATE_HELPER = "/usr/lib/kulan/update-run"
 COUNTME_OFF = "/etc/kulan/no-countme"  # the anonymous weekly count is off (update-run countme-off)
 RESTORE_CONFIG = Path("/etc/timeshift/timeshift.json")
 CONF_PATH = Path("/usr/share/kulan/kulan.conf")
 STATE_DIR = Path(GLib.get_user_config_dir()) / "kulan-welcome"
+# Finished (the autostart entry's AutostartCondition checks this same file).
 DONE_FILE = STATE_DIR / "done"
+# Opened at sign-in but not finished: the next sign-in shows it once more.
+REMINDED_FILE = STATE_DIR / "reminded"
 WALLPAPERS = Path("/usr/share/backgrounds/kulan")
 INTERFACE_SCHEMA = "org.gnome.desktop.interface"
 KULAN_SCHEMA = "org.kulan.desktop"
@@ -169,6 +197,39 @@ def run_async(cmd: list[str], done, timeout: int = 120) -> None:
     threading.Thread(target=worker, daemon=True).start()
 
 
+def helper_failure(code: int, out: str, err: str, fallback: str) -> str:
+    """What to say when a change didn't work: Cancelled, update-run's own words
+    for people (its "say:" lines), or a plain fallback. Never a program's output."""
+    if code in (126, 127):
+        return "Cancelled"
+    said = [line[4:].strip() for line in out.splitlines() if line.startswith("say:") and line[4:].strip()]
+    if said:
+        return said[-1].rstrip(".")
+    if err.strip():
+        print(f"kulan-welcome: {err.strip().splitlines()[-1]}", file=sys.stderr)
+    return fallback
+
+
+def is_administrator() -> bool:
+    """Whether this account can approve changes to the whole computer itself."""
+    try:
+        admin_gid = grp.getgrnam("sudo").gr_gid
+    except KeyError:
+        return True  # can't tell: don't hide anything
+    return admin_gid in os.getgroups() or os.getgid() == admin_gid
+
+
+def online(monitor: Gio.NetworkMonitor | None = None) -> bool:
+    """Connected to the internet (a network that reaches it, not only a captive Wi-Fi sign-in page)."""
+    monitor = monitor or Gio.NetworkMonitor.get_default()
+    return monitor.get_network_available() and monitor.get_connectivity() == Gio.NetworkConnectivity.FULL
+
+
+def unavailable_text(count: int) -> str:
+    return (f"{count} of these isn’t available for this computer yet." if count == 1 else
+            f"{count} of these aren’t available for this computer yet.")
+
+
 def desktop_app(desktop_id: str) -> Gio.DesktopAppInfo | None:
     try:
         return Gio.DesktopAppInfo.new(desktop_id)
@@ -262,36 +323,45 @@ def copy_file(src: Path, dst: Path) -> None:
 
 
 class WelcomeWindow(Adw.ApplicationWindow):
-    def __init__(self, app: Adw.Application, conf: dict[str, str], start_page: int) -> None:
+    def __init__(self, app: Adw.Application, conf: dict[str, str], start_page: int, autostart: bool = False,
+                 every_step: bool = False) -> None:
+        """every_step: build the steps that only some computers need too (the self-test)."""
         super().__init__(application=app, title=f"Set up {conf['KULAN_NAME']}")
         self.conf = conf
         self.name = conf["KULAN_NAME"]
         self.settings = interface_settings()
         self.kulan = settings(KULAN_SCHEMA)
         self.live = is_live_session()
+        self.autostart = autostart
+        self.admin = is_administrator()
         self.app_checks: dict[str, Gtk.CheckButton] = {}
         self.app_rows: dict[str, Adw.ActionRow] = {}
         self.apps_loaded = False
+        self.apps_waiting_online = False  # the app list couldn't load offline: load it once online
         self.migrating = False
+        self.installing = False
+        self.downloading = False
+        self.finished = False
+        self.network_page: Gtk.Widget | None = None
+        self.monitor = Gio.NetworkMonitor.get_default()
         self.set_default_size(800, 640)
 
         self.toasts = Adw.ToastOverlay()
         self.carousel = Adw.Carousel(hexpand=True, vexpand=True, allow_scroll_wheel=False, allow_mouse_drag=False)
         self.carousel.connect("page-changed", self.on_page_changed)
-        self.builders = (
-            self.build_welcome,
-            self.build_appearance,
-            self.build_accessibility,
-            self.build_privacy,
-            self.build_migration,
-            self.build_backups,
-            self.build_passwords,
-            self.build_apps,
-            self.build_security,
-            self.build_done,
-        )
+        builders = [self.build_welcome]
+        if every_step or (not online(self.monitor) and not self.live):
+            builders.append(self.build_network)
+        builders += [self.build_appearance, self.build_accessibility, self.build_privacy, self.build_migration,
+                     self.build_backups, self.build_passwords, self.build_apps]
+        if every_step or (not self.live and self.assistant_needs_model()):
+            builders.append(self.build_assistant)
+        builders += [self.build_security, self.build_done]
+        self.builders = tuple(builders)
         for builder in self.builders:
             self.carousel.append(builder())
+        # Online or not, as it changes: the Wi-Fi step, the apps list and the model download follow it.
+        self.monitor_handler = self.monitor.connect("network-changed", lambda *_a: self.on_network_changed())
 
         self.back = Gtk.Button(label="Back")
         self.back.connect("clicked", lambda _b: self.go(-1))
@@ -314,6 +384,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
         view.set_content(self.toasts)
         self.set_content(view)
         self.connect("close-request", self.on_close)
+        self.connect("destroy", lambda _w: self.monitor.disconnect(self.monitor_handler)
+                     if self.monitor.handler_is_connected(self.monitor_handler) else None)
 
         if start_page:
             GLib.idle_add(self.jump_to, start_page)
@@ -333,6 +405,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def on_next(self, _button: Gtk.Button) -> None:
         if round(self.carousel.get_position()) >= self.carousel.get_n_pages() - 1:
+            self.finished = True
             self.close()
         else:
             self.go(1)
@@ -349,15 +422,37 @@ class WelcomeWindow(Adw.ApplicationWindow):
         if self.migrating:
             self.toast("Your files are still being copied.")
             return True
+        if self.installing:
+            self.jump_to(self.page_index(self.apps_page))
+            self.toast("Your apps are still being installed. Setup can close when they’re done.")
+            return True
+        if self.downloading:
+            self.jump_to(self.page_index(getattr(self, "assistant_page", None)))
+            self.toast("Ask Kulan’s model is still downloading. Setup can close when it’s done.")
+            return True
+        if self.finished or self.startup_switch.get_active() != self.startup_initial:
+            # Finished (or the switch was changed): done, unless it should show at every start.
+            self.mark_done(not self.startup_switch.get_active())
+        # Closed early: not done. It opens once more at the next sign-in (main()).
+        return False
+
+    @staticmethod
+    def mark_done(done: bool) -> None:
         try:
-            if self.startup_switch.get_active():
-                DONE_FILE.unlink(missing_ok=True)
-            else:
-                STATE_DIR.mkdir(parents=True, exist_ok=True)
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            if done:
                 DONE_FILE.write_text("1\n")
+            else:
+                DONE_FILE.unlink(missing_ok=True)
+            REMINDED_FILE.unlink(missing_ok=True)
         except OSError:
             pass
-        return False
+
+    def page_index(self, page: Gtk.Widget | None) -> int:
+        for index in range(self.carousel.get_n_pages()):
+            if self.carousel.get_nth_page(index) is page:
+                return index
+        return round(self.carousel.get_position())
 
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=GLib.markup_escape_text(text), timeout=4))
@@ -393,7 +488,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
         try:
             info.launch([], None)
         except GLib.Error as exc:
-            self.toast(f"Couldn't open it: {exc.message}")
+            print(f"kulan-welcome: {desktop_id}: {exc.message}", file=sys.stderr)
+            self.toast("Couldn’t open it. Try again")
 
     def open_settings(self, page: str) -> None:
         try:
@@ -411,6 +507,292 @@ class WelcomeWindow(Adw.ApplicationWindow):
         box.append(Gtk.Label(label="You can skip any step and change it later in Kulan Settings.",
                              css_classes=["dim-label", "caption"], wrap=True, justify=Gtk.Justification.CENTER))
         return box
+
+    # --- 2: get online (only when not connected) -----------------------------------------
+    def build_network(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.append(self.heading("Get online", "Connect to Wi-Fi to add apps and get updates. You can skip this "
+                                "and connect later from the top bar.", "network-wireless-symbolic"))
+        status = Adw.PreferencesGroup()
+        self.net_status = Adw.ActionRow(title="Not connected", subtitle_lines=0)
+        self.net_status_icon = Gtk.Image(icon_name="network-wireless-offline-symbolic")
+        self.net_status.add_prefix(self.net_status_icon)
+        self.net_turn_on = Gtk.Button(label="Turn on Wi-Fi", valign=Gtk.Align.CENTER, visible=False,
+                                      css_classes=["suggested-action"])
+        self.net_turn_on.connect("clicked", lambda _b: self.wifi_on())
+        self.net_status.add_suffix(self.net_turn_on)
+        status.add(self.net_status)
+        box.append(status)
+
+        self.wifi_group = Adw.PreferencesGroup(title="Wi-Fi networks", visible=False)
+        scan = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                          tooltip_text="Look for networks")
+        scan.update_property([Gtk.AccessibleProperty.LABEL], ["Look for networks"])
+        scan.connect("clicked", lambda _b: self.wifi_scan())
+        self.wifi_group.set_header_suffix(scan)
+        box.append(self.wifi_group)
+        self.wifi_rows: list[Gtk.Widget] = []
+
+        more = Adw.PreferencesGroup()
+        more.add(self.link_row("More ways to connect", "Work or school Wi-Fi, a hidden network, a cable or a VPN, "
+                               "in Kulan Settings › Wi-Fi and network", lambda: self.open_settings("wifi")))
+        box.append(more)
+        box.append(Gtk.Box(margin_bottom=12))
+
+        self.nm = None
+        self.nm_refresh = 0
+        self.nm_watches: list[tuple] = []
+        self.joining: dict | None = None  # {"uuid", "new", "ssid"}: a network being joined from here
+        if NM is not None and ks_wifi is not None and not self.live:
+            NM.Client.new_async(None, self.got_nm)
+        self.network_page = self.page(box)
+        self.show_online()
+        return self.network_page
+
+    def got_nm(self, _source, result) -> None:
+        try:
+            client = NM.Client.new_finish(result)
+        except GLib.Error as exc:
+            print(f"kulan-welcome: NetworkManager: {exc.message}", file=sys.stderr)
+            return
+        if not client.get_nm_running():
+            return
+        self.nm = client
+        for signal in ("notify::wireless-enabled", "notify::primary-connection", "active-connection-added",
+                       "active-connection-removed", "connection-added", "connection-removed"):
+            client.connect(signal, lambda *_a: self.queue_wifi())
+        client.connect("device-added", lambda *_a: self.watch_wifi_device())
+        self.watch_wifi_device()
+        self.wifi_scan()
+
+    def wifi_device(self):
+        for device in self.nm.get_devices() if self.nm is not None else []:
+            if isinstance(device, NM.DeviceWifi) and device.get_managed():
+                return device
+        return None
+
+    def watch_wifi_device(self) -> None:
+        for obj, handler in self.nm_watches:
+            if obj.handler_is_connected(handler):
+                obj.disconnect(handler)
+        self.nm_watches = []
+        device = self.wifi_device()
+        if device is not None:
+            for signal in ("access-point-added", "access-point-removed", "notify::active-access-point"):
+                self.nm_watches.append((device, device.connect(signal, lambda *_a: self.queue_wifi())))
+            self.nm_watches.append((device, device.connect("state-changed", self.on_wifi_state)))
+        self.queue_wifi()
+
+    def wifi_scan(self) -> None:
+        device = self.wifi_device()
+        if device is not None and self.nm.wireless_get_enabled():
+            device.request_scan_async(None, lambda d, r: self.quietly(d.request_scan_finish, r))
+
+    @staticmethod
+    def quietly(finish, result) -> None:
+        try:
+            finish(result)
+        except GLib.Error:
+            pass  # scanning too often, or Wi-Fi off: the list still updates
+
+    def wifi_on(self) -> None:
+        if self.nm is not None:
+            self.nm.dbus_set_property("/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager",
+                                      "WirelessEnabled", GLib.Variant("b", True), -1, None,
+                                      lambda c, r, _d: self.quietly(c.dbus_set_property_finish, r), None)
+
+    def queue_wifi(self) -> None:
+        if not self.nm_refresh:
+            self.nm_refresh = GLib.timeout_add(300, self.fill_wifi)
+
+    def fill_wifi(self) -> bool:
+        self.nm_refresh = 0
+        for row in self.wifi_rows:
+            self.wifi_group.remove(row)
+        self.wifi_rows = []
+        device = self.wifi_device()
+        enabled = self.nm is not None and self.nm.wireless_get_enabled()
+        self.net_turn_on.set_visible(device is not None and not enabled
+                                     and self.nm.wireless_hardware_get_enabled())
+        self.wifi_group.set_visible(device is not None and enabled)
+        if device is not None and enabled:
+            active = device.get_active_access_point()
+            points = [{"ap": ap, "ssid": ks_wifi.ssid_text(ap.get_ssid()), "strength": ap.get_strength(),
+                       "security": ks_wifi.security_kind(ap.get_flags(), ap.get_wpa_flags(), ap.get_rsn_flags()),
+                       "active": active is not None and ap.get_path() == active.get_path()}
+                      for ap in device.get_access_points()]
+            nets = ks_wifi.strongest_per_network(points)[:12]
+            if not nets:
+                row = Adw.ActionRow(title="Looking for networks…")
+                self.wifi_group.add(row)
+                self.wifi_rows.append(row)
+            for net in nets:
+                row = self.wifi_row(device, net)
+                self.wifi_group.add(row)
+                self.wifi_rows.append(row)
+        self.show_online()
+        return GLib.SOURCE_REMOVE
+
+    def saved_wifi(self, device, ssid: str):
+        for conn in device.filter_connections(self.nm.get_connections()):
+            setting = conn.get_setting_wireless()
+            if setting is not None and ks_wifi.ssid_text(setting.get_ssid()) == ssid:
+                return conn
+        return None
+
+    def wifi_row(self, device, net: dict) -> Adw.ActionRow:
+        saved = self.saved_wifi(device, net["ssid"])
+        row = Adw.ActionRow(title=GLib.markup_escape_text(net["ssid"]), activatable=not net["active"],
+                            subtitle="Connected" if net["active"] else "Saved" if saved is not None else "")
+        row.add_prefix(Gtk.Image(icon_name=ks_wifi.signal_icon(net["strength"])))
+        if net["security"] != "open":
+            row.add_suffix(Gtk.Image(icon_name="channel-secure-symbolic", tooltip_text="Needs a password"))
+        if net["active"]:
+            row.add_suffix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["success"]))
+        else:
+            row.connect("activated", lambda _r: self.join_wifi(device, net))
+        return row
+
+    def join_wifi(self, device, net: dict) -> None:
+        saved = self.saved_wifi(device, net["ssid"])
+        if saved is not None:
+            self.joining = {"uuid": saved.get_uuid(), "new": False, "ssid": net["ssid"]}
+            self.nm.activate_connection_async(saved, device, net["ap"].get_path(), None, self.joined)
+        elif net["security"] in ("enterprise", "wep"):
+            self.toast("This network needs more than a password. Join it in Kulan Settings › Wi-Fi and network")
+            self.open_settings("wifi")
+        elif net["security"] == "open":
+            self.add_wifi(device, net, None)
+        else:
+            self.ask_wifi_password(net["ssid"], lambda password: self.add_wifi(device, net, password))
+
+    def ask_wifi_password(self, ssid: str, then, why: str = "") -> None:
+        dialog = Adw.AlertDialog(heading=f"Join “{ssid}”", body=(why + " " if why else "")
+                                 + "Enter the network’s password.")
+        entry = Gtk.PasswordEntry(show_peek_icon=True, activates_default=True)
+        entry.update_property([Gtk.AccessibleProperty.LABEL], ["Wi-Fi password"])
+        dialog.set_extra_child(entry)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("join", "Join")
+        dialog.set_response_appearance("join", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("join")
+        dialog.set_close_response("cancel")
+        dialog.set_response_enabled("join", False)
+        entry.connect("changed", lambda e: dialog.set_response_enabled("join", 8 <= len(e.get_text()) <= 63))
+        dialog.connect("response", lambda _d, answer: then(entry.get_text()) if answer == "join" else None)
+        dialog.present(self)
+        entry.grab_focus()
+
+    def add_wifi(self, device, net: dict, password: str | None) -> None:
+        connection = NM.SimpleConnection.new()
+        wireless = NM.SettingWireless.new()
+        wireless.set_property(NM.SETTING_WIRELESS_SSID, GLib.Bytes.new(net["ssid"].encode("utf-8")))
+        connection.add_setting(wireless)
+        if password is not None:
+            security = NM.SettingWirelessSecurity.new()
+            security.set_property(NM.SETTING_WIRELESS_SECURITY_KEY_MGMT,
+                                  "sae" if net["security"] == "sae" else "wpa-psk")
+            security.set_property(NM.SETTING_WIRELESS_SECURITY_PSK, password)
+            connection.add_setting(security)
+        self.joining = {"uuid": "", "new": True, "ssid": net["ssid"], "device": device, "net": net}
+        self.nm.add_and_activate_connection_async(connection, device, net["ap"].get_path(), None, self.joined)
+        self.toast(f"Joining {net['ssid']}…")
+
+    def joined(self, client, result) -> None:
+        try:
+            if self.joining and self.joining.get("new"):
+                active = client.add_and_activate_connection_finish(result)
+                conn = active.get_connection() if active is not None else None
+                self.joining["uuid"] = conn.get_uuid() if conn is not None else ""
+            else:
+                client.activate_connection_finish(result)
+        except GLib.Error as exc:
+            print(f"kulan-welcome: joining: {exc.message}", file=sys.stderr)
+            if not exc.matches(Gio.io_error_quark(), Gio.IOErrorEnum.CANCELLED):
+                self.toast("Couldn’t join that network. Try again, or choose another")
+            self.joining = None
+        self.queue_wifi()
+
+    def on_wifi_state(self, _device, new_state: int, _old: int, reason: int) -> None:
+        """A wrong password: never keep it. A network added here is forgotten again, and
+        a saved one asks for its new password."""
+        joining = self.joining
+        if joining is None:
+            return
+        if new_state == NM.DeviceState.ACTIVATED:
+            self.joining = None
+            return
+        if new_state != NM.DeviceState.FAILED:
+            return
+        self.joining = None
+        if reason not in (NM.DeviceStateReason.NO_SECRETS, NM.DeviceStateReason.SUPPLICANT_DISCONNECT,
+                          NM.DeviceStateReason.SUPPLICANT_FAILED, NM.DeviceStateReason.SUPPLICANT_TIMEOUT):
+            self.toast("Couldn’t join that network. Try again, or choose another")
+            return
+        conn = self.nm.get_connection_by_uuid(joining["uuid"]) if joining.get("uuid") else None
+        if joining.get("new"):
+            if conn is not None:
+                conn.delete_async(None, lambda c, r: self.quietly(c.delete_finish, r))
+            self.toast("That password didn’t work. Choose the network to try again")
+        elif conn is not None and conn.get_setting_wireless_security() is not None:
+            GLib.idle_add(lambda: (self.ask_wifi_password(
+                joining["ssid"], lambda password: self.update_wifi_password(conn, password),
+                "The saved password didn’t work."), False)[1])
+
+    def update_wifi_password(self, conn, password: str) -> None:
+        updated = NM.SimpleConnection.new_clone(conn)
+        updated.get_setting_wireless_security().set_property(NM.SETTING_WIRELESS_SECURITY_PSK, password)
+
+        def saved(c, result) -> None:
+            try:
+                c.update2_finish(result)
+            except GLib.Error as exc:
+                print(f"kulan-welcome: saving the password: {exc.message}", file=sys.stderr)
+                self.toast("Couldn’t save the password. Try again")
+                return
+            device = self.wifi_device()
+            if device is not None:
+                self.joining = {"uuid": c.get_uuid(), "new": False, "ssid": ks_wifi.ssid_text(
+                    c.get_setting_wireless().get_ssid())}
+                self.nm.activate_connection_async(c, device, None, None, self.joined)
+        conn.update2(updated.to_dbus(NM.ConnectionSerializationFlags.ALL), NM.SettingsUpdate2Flags.TO_DISK, None,
+                     None, saved)
+
+    def connect_wifi(self) -> None:
+        """Connect: the Get online step when there is one, else Kulan Settings' Wi-Fi page."""
+        if self.network_page is not None:
+            self.jump_to(self.page_index(self.network_page))
+        else:
+            self.open_settings("wifi")
+
+    def show_online(self) -> None:
+        if self.network_page is None:
+            return
+        if online(self.monitor):
+            primary = self.nm.get_primary_connection() if self.nm is not None else None
+            self.net_status.set_title(GLib.markup_escape_text(
+                f"Connected to {primary.get_id()}" if primary is not None else "Connected to the internet"))
+            self.net_status.set_subtitle("You’re online. Continue when you’re ready")
+            self.net_status_icon.set_from_icon_name("object-select-symbolic")
+            self.net_status_icon.set_css_classes(["success"])
+        else:
+            limited = self.monitor.get_network_available() and \
+                self.monitor.get_connectivity() in (Gio.NetworkConnectivity.PORTAL, Gio.NetworkConnectivity.LIMITED)
+            self.net_status.set_title("Almost online" if limited else "Not connected")
+            self.net_status.set_subtitle(
+                "This network needs you to sign in on its own page first. Open Firefox to see it" if limited else
+                "Choose your Wi-Fi network below" if self.nm is not None and self.wifi_device() is not None else
+                "Plug in a network cable, or use More ways to connect")
+            self.net_status_icon.set_from_icon_name("network-wireless-offline-symbolic")
+            self.net_status_icon.set_css_classes([])
+
+    def on_network_changed(self) -> None:
+        self.show_online()
+        if online(self.monitor):
+            if self.apps_waiting_online:
+                self.apps_waiting_online = False
+                self.reload_apps()
+            self.show_model_state()
 
     # --- 2: look --------------------------------------------------------------
     def build_appearance(self) -> Gtk.Widget:
@@ -542,10 +924,13 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- 4: privacy -------------------------------------------------------------
     def build_privacy(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("Your privacy", f"{self.name} sends no usage data, crash reports or "
+        box.append(self.heading("Your privacy", f"{self.name} sends no personal data, crash reports or "
                                 "advertising IDs.",
                                 "preferences-system-privacy-symbolic"))
-        group = Adw.PreferencesGroup()
+        # A standard account can still ask an administrator to type their password.
+        group = Adw.PreferencesGroup(description="" if self.admin or self.live else
+                                     "Changing the computer name, ad blocking and the anonymous count needs an "
+                                     "administrator’s password: ask one to type it when it’s asked for.")
         location = settings("org.gnome.system.location")
         if has_key(location, "enabled"):
             loc = Adw.SwitchRow(title="Location services", subtitle="Lets apps like Maps and Weather use your location")
@@ -609,8 +994,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 row.handler_block_by_func(self.on_count)
                 row.set_active(not Path(COUNTME_OFF).exists())
                 row.handler_unblock_by_func(self.on_count)
-                self.toast("Cancelled" if code in (126, 127) else
-                           f"Couldn't change it: {(err.strip().splitlines() or ['unknown error'])[-1][:120]}")
+                self.toast(helper_failure(code, _out, err, "Couldn’t change it. Try again in Kulan Settings › "
+                                                             "Privacy"))
             return False
 
         self.helper(["countme-on" if on else "countme-off"], done)
@@ -625,8 +1010,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 self.name_row.set_subtitle(GLib.markup_escape_text(f"Now “{name}”"))
             else:
                 button.set_sensitive(True)
-                self.toast("Cancelled" if code in (126, 127) else
-                           f"Couldn't rename: {(err.strip().splitlines() or ['unknown error'])[-1][:120]}")
+                self.toast(helper_failure(code, _out, err, "Couldn’t rename it. Try again in Kulan Settings › "
+                                                             "Privacy"))
             return False
 
         self.helper(["set-hostname", name], done)
@@ -641,8 +1026,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
             else:
                 button.set_sensitive(True)
                 button.set_label("Turn on")
-                self.toast("Cancelled" if code in (126, 127) else
-                           f"Couldn't turn it on: {(err.strip().splitlines() or ['unknown error'])[-1][:120]}")
+                self.toast(helper_failure(code, _out, err, "Couldn’t turn it on. Connect to the internet, then "
+                                                             "try again"))
             return False
 
         self.helper(["dns", "adblock"], done)
@@ -733,7 +1118,9 @@ class WelcomeWindow(Adw.ApplicationWindow):
                     last = now
                     GLib.idle_add(self.migrate_tick, done_bytes / (total or 1), copied, len(files))
         except Exception as exc:  # noqa: BLE001 - report it, never leave the window stuck
-            problem = f"Copying stopped: {exc}"
+            print(f"kulan-welcome: copying stopped: {exc!r}", file=sys.stderr)
+            problem = ("Copying stopped. Check the drive is still plugged in, then choose the folder again: "
+                       "files already copied are kept")
         finally:
             GLib.idle_add(self.migrate_done, copied, failed, targets, problem)
 
@@ -804,10 +1191,17 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                                            "KeePassXC isn't installed. Get it in Software."))
         vault.add_suffix(button)
         group.add(vault)
-        group.add(Adw.ActionRow(title="Already use Bitwarden or 1Password?",
-                                subtitle="Get Bitwarden on the next page, or import into KeePassXC"))
+        self.bitwarden_row = Adw.ActionRow(title="Already use Bitwarden or 1Password?",
+                                           subtitle=self.bitwarden_text(shutil.which("flatpak") is not None
+                                                                        and not self.live))
+        group.add(self.bitwarden_row)
         box.append(group)
         return self.page(box)
+
+    @staticmethod
+    def bitwarden_text(offered: bool) -> str:
+        return ("Get Bitwarden on the next page, or import your passwords into KeePassXC" if offered else
+                "Import your passwords into KeePassXC: in KeePassXC, choose Database › Import")
 
     # --- 8: apps ------------------------------------------------------------------
     def build_apps(self) -> Gtk.Widget:
@@ -818,8 +1212,17 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 "Choose apps to install. Find more in Software.",
             )
         )
-        self.apps_status = Gtk.Label(label="Checking which apps this computer can run…", css_classes=["dim-label"])
+        self.apps_status = Gtk.Label(label="Checking which apps this computer can run…", css_classes=["dim-label"],
+                                     wrap=True, justify=Gtk.Justification.CENTER)
         box.append(self.apps_status)
+        # Offline: connect, and the list fills in by itself once online.
+        self.apps_connect = Gtk.Button(label="Connect to Wi-Fi", halign=Gtk.Align.CENTER, visible=False,
+                                       css_classes=["pill"])
+        self.apps_connect.connect("clicked", lambda _b: self.connect_wifi())
+        box.append(self.apps_connect)
+        self.apps_retry = Gtk.Button(label="Try again", halign=Gtk.Align.CENTER, visible=False, css_classes=["pill"])
+        self.apps_retry.connect("clicked", lambda _b: self.reload_apps())
+        box.append(self.apps_retry)
 
         groups: dict[str, Adw.PreferencesGroup] = {}
         for choice in APPS:
@@ -844,12 +1247,13 @@ class WelcomeWindow(Adw.ApplicationWindow):
             label="Install selected", css_classes=["suggested-action", "pill"], halign=Gtk.Align.CENTER, sensitive=False
         )
         self.install_button.connect("clicked", self.on_install)
-        self.install_spinner = Gtk.Spinner(visible=False, halign=Gtk.Align.CENTER)
+        self.install_progress = Gtk.ProgressBar(show_text=True, visible=False)
+        self.install_progress.update_property([Gtk.AccessibleProperty.LABEL], ["Installing apps"])
         box.append(self.install_button)
-        box.append(self.install_spinner)
+        box.append(self.install_progress)
 
         addons = Adw.PreferencesGroup(title="Add-ons",
-                                      description="Developer Kit, office and media apps, Phone Link and more.")
+                                      description="Developer Kit, office and media apps, Phone link and more.")
         addons.add(self.link_row("Kulan add-ons", "Open Add-ons in Kulan Settings",
                                  lambda: self.open_settings("add-ons")))
         box.append(addons)
@@ -857,9 +1261,17 @@ class WelcomeWindow(Adw.ApplicationWindow):
         self.apps_page = self.page(box)
         return self.apps_page
 
+    def reload_apps(self) -> None:
+        self.apps_retry.set_visible(False)
+        self.apps_connect.set_visible(False)
+        self.apps_status.set_label("Checking which apps this computer can run…")
+        self.apps_loaded = True
+        self.load_app_availability()
+
     def load_app_availability(self) -> None:
         if shutil.which("flatpak") is None:
-            self.apps_status.set_label("These apps can't be added here, because the app installer (Flatpak) is missing. Add apps later from the Store.")
+            self.apps_status.set_label("These apps can’t be added here. Add apps later in Software.")
+            self.bitwarden_row.set_subtitle(self.bitwarden_text(False))
             return
 
         code, out, _ = run(["flatpak", "--default-arch"], timeout=10)
@@ -870,9 +1282,19 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
         def got_remote(code: int, out: str, err: str) -> bool:
             if code != 0:
-                self.apps_status.set_label("Couldn't reach Flathub. Connect to the internet, then reopen this page.")
                 self.apps_loaded = False
+                if not online(self.monitor):
+                    self.apps_waiting_online = True
+                    self.apps_status.set_label("Not connected to the internet. Connect to Wi-Fi, and this list "
+                                               "fills in by itself.")
+                    self.apps_connect.set_visible(True)
+                else:
+                    print(f"kulan-welcome: flathub: {err.strip()[-300:]}", file=sys.stderr)
+                    self.apps_status.set_label("Couldn’t reach the app store right now. Try again in a minute.")
+                    self.apps_retry.set_visible(True)
                 return False
+            self.apps_connect.set_visible(False)
+            self.apps_retry.set_visible(False)
             available = {line.strip() for line in out.splitlines() if line.strip()}
             run_async(
                 ["flatpak", "list", "--app", "--columns=application"],
@@ -892,7 +1314,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 row.set_sensitive(True)
                 check.set_active(True)
                 check.set_sensitive(False)
-                row.set_subtitle(f"{choice.summary} - installed")
+                row.set_subtitle(f"{choice.summary} · Installed")
             elif app_id in available:
                 row.set_sensitive(True)
                 check.set_sensitive(True)
@@ -903,13 +1325,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
                 check.set_sensitive(False)
                 row.set_sensitive(False)
                 row.set_subtitle("Not available for this computer")
-        machine = {"aarch64": "ARM", "x86_64": "PC"}.get(arch or "", "this")
         if unavailable:
-            self.apps_status.set_label(
-                f"{unavailable} of these aren't available for {machine} computers yet."
-            )
+            self.apps_status.set_label(unavailable_text(unavailable))
         else:
             self.apps_status.set_label("All of these work on this computer.")
+        self.bitwarden_row.set_subtitle(self.bitwarden_text("com.bitwarden.desktop" in available | installed))
         self.on_app_toggled(None)
         return False
 
@@ -926,32 +1346,199 @@ class WelcomeWindow(Adw.ApplicationWindow):
         apps = self.selected_apps()
         if not apps:
             return
+        self.installing = True
         self.install_button.set_sensitive(False)
         self.install_button.set_label("Installing…")
-        self.install_spinner.set_visible(True)
-        self.install_spinner.start()
+        self.install_progress.set_visible(True)
         for check in self.app_checks.values():
             check.set_sensitive(False)
+        # One app at a time, so the bar says which one; the password is asked once (kept for a few minutes).
+        self.install_queue = list(apps)
+        self.install_total = len(apps)
+        self.install_done: list[str] = []
+        self.install_failed: list[tuple[str, str]] = []
+        self.install_next()
+
+    def install_next(self) -> None:
+        if not self.install_queue:
+            self.install_finished()
+            return
+        app_id = self.install_queue.pop(0)
+        number = self.install_total - len(self.install_queue)
+        name = next(c.name for c in APPS if c.app_id == app_id)
+        self.install_progress.set_fraction((number - 1) / self.install_total)
+        self.install_progress.set_text(f"Installing {name} ({number} of {self.install_total})…")
 
         def done(code: int, _out: str, err: str) -> bool:
-            self.install_spinner.stop()
-            self.install_spinner.set_visible(False)
             if code == 0:
-                self.toast(f"Installed {len(apps)} app{'s' if len(apps) != 1 else ''}")
+                self.install_done.append(app_id)
             elif re.search(r"not allowed for user|Not authorized|dismissed|cancel", err, re.I):
-                self.toast("Cancelled")
-            elif re.search(r"Can't load uri|Could not resolve|Temporary failure|Network|Unable to connect", err, re.I):
-                self.toast("Couldn't install: not connected to the internet. Connect, then try again")
-            elif re.search(r"No space left|Not enough disk space", err, re.I):
-                self.toast("Couldn't install: not enough free space. Free some in Kulan Settings › Storage")
+                self.install_failed.append((app_id, "cancelled"))
+                self.install_queue.clear()  # the password wasn't given: don't ask again for each app
             else:
-                self.toast("Couldn't install the apps. Try again in a few minutes")
-            self.load_app_availability()
+                print(f"kulan-welcome: installing {app_id}: {err.strip()[-300:]}", file=sys.stderr)
+                self.install_failed.append((app_id, err))
+            self.install_next()
             return False
 
         # A system-wide install asks for your password through the normal
         # GNOME prompt; apps then appear for every user on this computer.
-        run_async(["flatpak", "install", "--system", "--noninteractive", "-y", "flathub", *apps], done, timeout=3600)
+        run_async(["flatpak", "install", "--system", "--noninteractive", "-y", "flathub", app_id], done,
+                  timeout=3600)
+
+    def install_finished(self) -> None:
+        self.installing = False
+        self.install_progress.set_fraction(1.0)
+        self.install_progress.set_visible(False)
+        count = len(self.install_done)
+        reasons = [err for _a, err in self.install_failed]
+        if not self.install_failed:
+            self.toast(f"Installed {count} app{'s' if count != 1 else ''}")
+        elif all(r == "cancelled" for r in reasons) and not count:
+            self.toast("Cancelled")
+        else:
+            text = "\n".join(reasons)
+            if re.search(r"Can't load uri|Could not resolve|Temporary failure|Network|Unable to connect", text, re.I):
+                why = "Not connected to the internet. Connect, then try again"
+            elif re.search(r"No space left|Not enough disk space", text, re.I):
+                why = "Not enough free space. Free some in Kulan Settings › Storage"
+            else:
+                why = "Try again in a few minutes"
+            missing = len(self.install_failed)
+            self.toast(f"Installed {count}, but {missing} app{'s' if missing != 1 else ''} couldn’t be installed. {why}"
+                       if count else f"Couldn’t install the apps. {why}")
+        self.load_app_availability()
+
+    # --- Ask Kulan's model (only when the assistant has none) ----------------------------------
+    @staticmethod
+    def assistant_needs_model() -> bool:
+        if ks_assistant is None or not ks_assistant.ENGINE.exists() or settings(ks_assistant.SCHEMA) is None:
+            return False
+        writing = ks_assistant.models("writing")
+        return bool(writing) and not any(ks_assistant.downloaded(m) for m in writing)
+
+    def build_assistant(self) -> Gtk.Widget:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        box.append(self.heading("Ask Kulan", "Private help with writing, summaries and questions, on this "
+                                "computer. Nothing you ask leaves it. It needs a model, downloaded once.",
+                                "kulan-assistant-symbolic"))
+        group = Adw.PreferencesGroup()
+        self.model_row = Adw.ActionRow(title="", subtitle_lines=0)
+        self.model_button = Gtk.Button(label="Download", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        self.model_button.connect("clicked", lambda _b: self.download_model())
+        self.model_row.add_suffix(self.model_button)
+        group.add(self.model_row)
+        group.add(self.link_row("Other models and Ask Kulan’s settings", "In Kulan Settings › Assistant",
+                                lambda: self.open_settings("assistant")))
+        box.append(group)
+        self.model_progress = Gtk.ProgressBar(show_text=True, visible=False)
+        self.model_progress.update_property([Gtk.AccessibleProperty.LABEL], ["Model download"])
+        box.append(self.model_progress)
+        self.model = None
+        self.model_done = False
+        if ks_assistant is not None:
+            self.memory = round(ks_assistant.memory_gb())
+            writing = ks_assistant.models("writing")
+            best = ks_assistant.recommended(writing, self.memory)
+            self.model = next((m for m in writing if m["id"] == best), None)
+            if self.model is None and writing:
+                need = min(m.get("memory_gb", 99) for m in writing)
+                self.model_row.set_title("This computer doesn’t have enough memory for Ask Kulan")
+                self.model_row.set_subtitle(f"It needs at least {need} GB of memory, and this computer has "
+                                            f"{self.memory} GB.")
+                self.model_row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+        self.assistant_page = self.page(box)
+        self.show_model_state()
+        return self.assistant_page
+
+    def show_model_state(self) -> None:
+        if getattr(self, "model_row", None) is None:
+            return
+        if self.model is None:
+            self.model_button.set_visible(False)
+            if not self.model_row.get_title():
+                self.model_row.set_title("Ask Kulan isn’t set up")
+            return
+        size = ks_assistant.size_text(self.model.get("size", 0))
+        self.model_row.set_title(GLib.markup_escape_text(f"{self.model.get('title', 'The')} model, recommended "
+                                                         "for this computer"))
+        if self.model_done:
+            self.model_row.set_subtitle("Downloaded. Ask Kulan is ready: find it in your apps")
+            self.model_button.set_visible(False)
+        elif self.downloading:
+            self.model_button.set_sensitive(False)
+        elif not online(self.monitor):
+            self.model_row.set_subtitle(f"A {size} download. Connect to the internet first, then download it here")
+            self.model_button.set_sensitive(False)
+        else:
+            self.model_row.set_subtitle(f"A {size} download, for everyone on this computer. It continues where "
+                                        "it stopped if it’s cut off")
+            self.model_button.set_sensitive(True)
+
+    def download_model(self) -> None:
+        if self.model is None or self.downloading:
+            return
+        try:
+            proc = Gio.Subprocess.new(["pkexec", UPDATE_HELPER, "assistant-model", self.model["id"]],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE)
+        except GLib.Error as exc:
+            print(f"kulan-welcome: {exc.message}", file=sys.stderr)
+            self.toast("Couldn’t start the download. Try again in Kulan Settings › Assistant")
+            return
+        self.downloading = True
+        self.show_model_state()
+        self.model_progress.set_fraction(0)
+        self.model_progress.set_text("Starting the download…")
+        self.model_progress.set_visible(True)
+        out: list[str] = []
+        err: list[str] = []
+
+        def read(stream: Gio.DataInputStream, lines: list[str], progress: bool) -> None:
+            def got(src, result) -> None:
+                try:
+                    line, _n = src.read_line_finish_utf8(result)
+                except GLib.Error:
+                    line = None
+                if line is None:
+                    return
+                lines.append(line)
+                del lines[:-40]
+                parts = line.split(":", 3)
+                if progress and len(parts) == 4 and parts[0] == "pmstatus":
+                    try:
+                        self.model_progress.set_fraction(max(0.0, min(1.0, float(parts[2]) / 100)))
+                        self.model_progress.set_text(parts[3][:80])
+                    except ValueError:
+                        pass
+                src.read_line_async(GLib.PRIORITY_DEFAULT, None, got)
+            stream.read_line_async(GLib.PRIORITY_DEFAULT, None, got)
+        read(Gio.DataInputStream.new(proc.get_stdout_pipe()), out, True)
+        read(Gio.DataInputStream.new(proc.get_stderr_pipe()), err, False)
+
+        def finished(p, result) -> None:
+            try:
+                p.wait_finish(result)
+                code = p.get_exit_status() if p.get_if_exited() else 1
+            except GLib.Error:
+                code = 1
+            self.downloading = False
+            self.model_progress.set_visible(False)
+            if code == 0:
+                self.model_done = True
+                assistant = settings(ks_assistant.SCHEMA)
+                key = ks_assistant.KINDS["writing"][0]
+                if has_key(assistant, key):
+                    assistant.set_string(key, self.model["id"])
+                self.toast("Ask Kulan is ready")
+            else:
+                # model-download's own reasons are written for people ("Not enough free space…").
+                own = [line.strip() for line in err if re.match(r"^[A-Z][^/:]*[.]?$", line.strip())]
+                self.toast(helper_failure(code, "\n".join(out), "\n".join(err),
+                                          own[-1].rstrip(".") if own else
+                                          "The download didn’t finish. Try again here or in Kulan Settings › "
+                                          "Assistant"))
+            self.show_model_state()
+        proc.wait_async(None, finished)
 
     # --- 9: protection ---------------------------------------------------------------
     def build_security(self) -> Gtk.Widget:
@@ -1080,7 +1667,9 @@ class WelcomeWindow(Adw.ApplicationWindow):
         )
         inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         group = Adw.PreferencesGroup()
-        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=not DONE_FILE.exists())
+        # On only if it would show at the next sign-in anyway (opened from the apps, not finished yet).
+        self.startup_initial = not DONE_FILE.exists() and not self.autostart
+        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=self.startup_initial)
         group.add(self.startup_switch)
         inner.append(group)
         url = self.conf.get("KULAN_HOME_URL", "")
@@ -1098,11 +1687,12 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
 
 class WelcomeApp(Adw.Application):
-    def __init__(self, start_page: int, self_test: bool = False) -> None:
+    def __init__(self, start_page: int, self_test: bool = False, autostart: bool = False) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE if self_test
                          else Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.start_page = start_page
         self.self_test = self_test
+        self.autostart = autostart
         self.result = 0
         self.conf = read_conf()
 
@@ -1121,21 +1711,53 @@ class WelcomeApp(Adw.Application):
         if self.self_test:
             # Build every step, as CI does on Debian's real GTK and libadwaita.
             try:
-                window = WelcomeWindow(self, self.conf, 0)
+                window = WelcomeWindow(self, self.conf, 0, every_step=True)
                 pages = window.carousel.get_n_pages()
                 for index in range(pages):
                     window.jump_to(index)
                 print(f"{pages}/{len(window.builders)} steps built")
                 self.result = 0 if pages == len(window.builders) else 1
-                window.migrating = False
+                for problem in self_checks(window):
+                    print(f"FAIL {problem}", file=sys.stderr)
+                    self.result = 1
+                window.migrating = window.installing = window.downloading = False
                 window.destroy()
             except Exception as exc:  # noqa: BLE001 - report, then fail
                 print(f"FAIL {exc!r}", file=sys.stderr)
                 self.result = 1
             self.quit()
             return
-        window = self.props.active_window or WelcomeWindow(self, self.conf, self.start_page)
+        window = self.props.active_window or WelcomeWindow(self, self.conf, self.start_page, self.autostart)
         window.present()
+
+
+def self_checks(window: WelcomeWindow) -> list[str]:
+    """What the steps say and do in each case (run by --self-test, on Debian's GTK in CI)."""
+    problems = []
+
+    def check(what: str, ok: bool) -> None:
+        if not ok:
+            problems.append(what)
+    check("unavailable apps, one", unavailable_text(1) == "1 of these isn’t available for this computer yet.")
+    check("unavailable apps, several", unavailable_text(3) == "3 of these aren’t available for this computer yet.")
+    check("helper: cancelled", helper_failure(126, "", "", "x") == "Cancelled")
+    check("helper: its own words", helper_failure(1, "pmstatus:x:1:y\nsay: Use letters only.\n", "E: raw", "x")
+          == "Use letters only")
+    check("helper: never raw output", helper_failure(1, "", "Traceback: /usr/lib/x", "Plain") == "Plain")
+    check("Bitwarden only when offered", "next page" not in window.bitwarden_text(False))
+    # Offline, the apps list says so, offers to connect, and fills in by itself once online.
+    window.apps_waiting_online = False
+    window.apps_status.set_label("")
+    check("network step built", window.network_page is not None and window.page_index(window.network_page) == 1)
+    check("assistant step built", getattr(window, "assistant_page", None) is not None)
+    # Closing while apps install is refused, and shows where they are.
+    window.installing = True
+    check("closing while installing is refused", window.on_close(window) is True)
+    window.installing = False
+    window.downloading = True
+    check("closing while the model downloads is refused", window.on_close(window) is True)
+    window.downloading = False
+    return problems
 
 
 def main(argv: list[str]) -> int:
@@ -1148,13 +1770,17 @@ def main(argv: list[str]) -> int:
     if args.autostart and (DONE_FILE.exists() or is_live_session()):
         return 0
     if args.autostart:
-        # Shown once: even if the session ends with the window still open.
+        # Not done until it's finished. Closed early, or cut off when the
+        # session ended, it's shown once more at the next sign-in, then not again.
         try:
             STATE_DIR.mkdir(parents=True, exist_ok=True)
-            DONE_FILE.write_text("1\n")
+            if REMINDED_FILE.exists():
+                DONE_FILE.write_text("1\n")
+            else:
+                REMINDED_FILE.write_text("1\n")
         except OSError:
             pass
-    app = WelcomeApp(args.page, args.self_test)
+    app = WelcomeApp(args.page, args.self_test, args.autostart)
     code = app.run([argv[0]])
     return app.result or code
 

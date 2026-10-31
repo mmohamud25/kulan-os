@@ -3,9 +3,11 @@ one, a test page, and adding a printer found on the network or plugged in.
 
 Modern printers (IPP Everywhere, AirPrint) need no driver: they're added with
 "lpadmin -m everywhere". Everything runs as the person using the computer;
-Debian lets members of the lpadmin group (the first account) manage printers
-without a password. Printers that need a maker's driver are added in GNOME
-Settings, linked from here."""
+Debian lets members of the lpadmin group manage printers without a password,
+and Kulan OS puts every administrator in it (kulan-base's
+kulan-admins-print.path). Printers that need a maker's driver are added in
+GNOME Settings, linked from here. Scanning is in Document Scanner
+(simple-scan), linked from here too."""
 from __future__ import annotations
 
 import re
@@ -109,7 +111,7 @@ class PrintersPage(Page):
     title = "Printers"
     icon = "printer-symbolic"
     keywords = ("printer", "printers", "printing", "print", "test page", "default printer", "cups", "airprint",
-                "scanner")
+                "scanner", "scan", "scanning", "document scanner")
 
     def __init__(self, window) -> None:
         super().__init__(window)
@@ -128,9 +130,16 @@ class PrintersPage(Page):
         add_row.connect("activated", lambda _r: self.show_add())
         add_group.add(add_row)
 
-        more = self.add_group(description="Printers that need their maker’s software, and scanners, are set "
-                                          "up in the Settings app.")
-        gnome = Adw.ActionRow(title="More printer options", subtitle="In the Settings app", activatable=True)
+        scanners = self.add_group("Scanners", "Scanners, and printers that scan, work in Document Scanner. "
+                                               "Most are found by themselves, over the network or by USB.")
+        scan = Adw.ActionRow(title="Scan a document", subtitle="Open Document Scanner", activatable=True)
+        scan.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+        scan.connect("activated", lambda _r: self.open_scanner())
+        scanners.add(scan)
+
+        more = self.add_group(description="Printers that need their maker’s software are added in More printer "
+                                          "options.")
+        gnome = Adw.ActionRow(title="More printer options", subtitle="Opens the Settings app", activatable=True)
         gnome.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
         gnome.connect("activated", lambda _r: self.open_gnome())
         more.add(gnome)
@@ -226,7 +235,7 @@ class PrintersPage(Page):
             elif "Forbidden" in err or "not authorized" in err.lower() or "permission" in err.lower():
                 self.toast("Only an administrator can change printers")
             else:
-                self.toast(f"That didn’t work. {plain_error(err or 'failed')}")
+                self.toast(f"Couldn’t change the printer. {plain_error(err or 'failed')}")
             self.reload()
 
         run_async(argv, done)
@@ -269,7 +278,17 @@ class PrintersPage(Page):
         try:
             Gio.Subprocess.new(["gnome-control-center", "printers"], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("The Settings app isn’t installed")
+            self.toast("More printer options aren’t installed. Install Settings in Software")
+
+    def open_scanner(self) -> None:
+        app = Gio.DesktopAppInfo.new("org.gnome.SimpleScan.desktop")
+        if app is None:
+            self.toast("Document Scanner isn’t installed. Install it in Software")
+            return
+        try:
+            app.launch([], None)
+        except GLib.Error as exc:
+            self.toast(f"Couldn’t open Document Scanner. {plain_error(exc)}")
 
     # --- adding --------------------------------------------------------------------------
     def show_add(self) -> None:
@@ -336,7 +355,7 @@ class PrintersPage(Page):
                 self.toast("Only an administrator can add printers")
             else:
                 # Not a driverless printer: it needs its maker's driver.
-                self.toast("This printer needs its maker’s software. Add it in the Settings app.")
+                self.toast("This printer needs its maker’s software. Add it in More printer options, opening now")
                 self.open_gnome()
 
         run_async(["lpadmin", "-p", name, "-E", "-v", item["uri"], "-m", "everywhere",

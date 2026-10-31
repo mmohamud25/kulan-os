@@ -1,0 +1,11 @@
+[Unit]
+Description=Kulan OS: let every administrator manage printers
+Documentation=https://github.com/mmohamud25/kulan-os
+
+[Path]
+# Accounts and groups changed (a new administrator): add them to lpadmin.
+PathChanged=/etc/group
+Unit=kulan-admins-print.service
+
+[Install]
+WantedBy=paths.target

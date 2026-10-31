@@ -5,7 +5,7 @@ Maintainer: @PUBLISHER@ <@MAINTAINER_EMAIL@>
 Section: gnome
 Priority: optional
 Depends: kulan-base (= @VERSION@), kulan-update-center (= @VERSION@), python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0 (>= 4.12), gir1.2-adw-1 (>= 1.5), gir1.2-nm-1.0, gir1.2-secret-1, qrencode, gir1.2-gstreamer-1.0, gir1.2-gst-plugins-base-1.0, gir1.2-gst-plugins-bad-1.0, gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-plugins-bad, gstreamer1.0-nice, gstreamer1.0-pipewire, xdg-desktop-portal
-Recommends: xdg-desktop-portal-gnome, gnome-control-center, gnome-shell, gnome-user-share, rygel, libegl1, libgles2, upower, bluez, power-profiles-daemon, accountsservice, locales, openssl, gnome-remote-desktop, cups, cups-client, kulan-desktop-settings (= @VERSION@)
+Recommends: xdg-desktop-portal-gnome, gnome-control-center, gir1.2-goa-1.0, gnome-shell, gnome-user-share, rygel, libegl1, libgles2, upower, bluez, power-profiles-daemon, accountsservice, locales, openssl, gnome-remote-desktop, cups, cups-client, kulan-desktop-settings (= @VERSION@)
 Breaks: kulan-update-center (<< 2.2~)
 Replaces: kulan-update-center (<< 2.2~)
 Homepage: @HOME_URL@
@@ -16,8 +16,8 @@ Description: @NAME@ Settings
  It includes Software Update, which replaces Update Center: available
  updates, what's new, update history, automatic updates and restore points.
  Wi-Fi and network, Bluetooth, Sound, Battery and power, Displays, and
- Sharing (remote desktop, files and media) are built in too. Online accounts open in GNOME
- Settings.
+ Sharing (remote desktop, files and media) and Online accounts (Google and
+ Microsoft 365) are built in too.
  .
  On computers in an organisation (Kulan Fleet), Get help sends what's
  wrong (and a screenshot, if the person adds one) to the organisation's

@@ -107,6 +107,16 @@ case "$1" in
 			touch "${MARK}"
 		fi
 
+		# Printers (2.11): every administrator can add and change printers,
+		# not only the first account. Existing administrators now, new ones
+		# whenever the groups change (kulan-admins-print.path).
+		/usr/lib/kulan/admins-print || true
+		deb-systemd-helper enable kulan-admins-print.path >/dev/null || true
+		if [ -d /run/systemd/system ]; then
+			systemctl --system daemon-reload >/dev/null 2>&1 || true
+			deb-systemd-invoke start kulan-admins-print.path >/dev/null 2>&1 || true
+		fi
+
 		# Kulan Fleet two-step sign-in (2.8d): the group and the PAM profile.
 		# Nobody is asked for a second step until they set one up in a
 		# Fleet organisation, so this changes nothing on its own.

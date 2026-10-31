@@ -49,6 +49,12 @@ gnome-calculator
 loupe
 evince
 file-roller
+# Email (the default for email links; opens Kulan Fleet work email)
+geary
+# Document Scanner (scanning, linked from Kulan Settings › Printers)
+simple-scan
+# Google and Microsoft accounts in Kulan Settings › Online accounts
+gir1.2-goa-1.0
 gnome-disk-utility
 gnome-system-monitor
 # Mac-style extras: Quick Look (select a file in Files, press Space),

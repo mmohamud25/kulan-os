@@ -1,0 +1,22 @@
+// Kulan OS: anyone using this computer (signed in at it, in the session
+// that's in front) can download a Kulan Assistant model, without an
+// administrator's password. Only the download: "update-run assistant-model
+// <id>", which fetches a model listed in /usr/share/kulan-assistant/models.json
+// from Hugging Face and checks its SHA-256 (model-download). Removing a model,
+// and everything else update-run does, still asks for an administrator.
+//
+// pkexec (Kulan Settings › Assistant, and Setup) runs update-run under the
+// action org.kulan.updates.manage and passes the exact command line.
+polkit.addRule(function (action, subject) {
+    if (action.id !== "org.kulan.updates.manage" || !subject.local || !subject.active) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (action.lookup("program") !== "/usr/lib/kulan/update-run") {
+        return polkit.Result.NOT_HANDLED;
+    }
+    var command = action.lookup("command_line") || "";
+    if (/^\/usr\/lib\/kulan\/update-run assistant-model [a-z0-9][a-z0-9.-]{0,40}$/.test(command)) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});
