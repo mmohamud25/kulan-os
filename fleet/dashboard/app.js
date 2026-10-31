@@ -911,7 +911,7 @@ function openPerson(p) {
     run({ op: "new-setup-code", person_id: p.id, password_hash: await hashed(code) }, () => showCode(p.full_name || p.username, code, false));
   } }, "New setup code…");
   if (!manages) newCode.disabled = true;
-  const toggle = el("button", { type: "button", onclick: () => {
+  const toggle = el("button", { type: "button", onclick: async () => {
     const mb = p.mailbox && p.mailbox_state !== "deleted" && orgNow()?.mail_domain ? ` Their mailbox ${p.mailbox} is suspended now and unsuspended when they're enabled.` : "";
     if (p.enabled && !await askConfirm(`Disable ${p.username}? At each computer's next report their account is locked and they're signed out. Their files stay.${mb}`)) return;
     run({ op: "set-person-enabled", person_id: p.id, enabled: !p.enabled });
@@ -929,7 +929,7 @@ function openPerson(p) {
     el("h4", {}, "Two-step sign-in"), el("ul", { class: "alerts" }, ...((p.two_step || []).length ? p.two_step.map((f) =>
       el("li", {}, `${f.label || "Second step"} · ${f.kind === "key" ? "security key" : "phone code"}${f.created_on ? ` · set up on ${f.created_on}` : ""}`))
       : [el("li", { class: "small" }, "Not set up. They sign in with a password only, and can set it up in Kulan Settings.")])),
-    (p.two_step || []).length && manages ? el("button", { type: "button", onclick: () => {
+    (p.two_step || []).length && manages ? el("button", { type: "button", onclick: async () => {
       if (!await askConfirm(`Reset ${p.username}'s two-step sign-in? Their keys and codes stop working at each computer's next report, and they set up new ones.`)) return;
       run({ op: "reset-two-step", person_id: p.id });
     } }, "Reset two-step sign-in…") : "",
