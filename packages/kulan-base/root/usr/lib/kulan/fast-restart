@@ -52,6 +52,16 @@ load() {
 	uses_fast_restart || return 0
 	restart_pending || return 0
 	VERSION="$(newest_kernel)"
+	# This start-up hasn't reached the desktop yet (kulan-boot-ok, in
+	# kulan-update-center): the newest Linux may be what doesn't work, and a
+	# fast restart never shows the start-up menu that offers the earlier one.
+	# Start the Linux that's running now instead (it got this far).
+	RUNNING="$(uname -r)"
+	if [ -x /usr/lib/kulan/boot-ok ] && [ ! -e /run/kulan/boot-ok ] && [ "${RUNNING}" != "${VERSION}" ] &&
+		[ -r "/boot/vmlinuz-${RUNNING}" ] && [ -r "/boot/initrd.img-${RUNNING}" ]; then
+		echo "fast restart: this start-up didn't reach the desktop; starting Linux ${RUNNING} again, not ${VERSION}"
+		VERSION="${RUNNING}"
+	fi
 	KERNEL="/boot/vmlinuz-${VERSION}"
 	INITRD="/boot/initrd.img-${VERSION}"
 	if [ -z "${VERSION}" ] || [ ! -r "${KERNEL}" ] || [ ! -r "${INITRD}" ]; then

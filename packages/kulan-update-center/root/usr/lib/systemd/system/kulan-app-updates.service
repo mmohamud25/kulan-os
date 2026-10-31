@@ -13,6 +13,9 @@ Type=oneshot
 ExecStart=/usr/lib/kulan/app-updates auto
 Nice=10
 IOSchedulingClass=idle
+# Never holds up a shutdown for ever (app-updates stops Flatpak after an hour
+# itself; a stopped Flatpak update leaves the apps as they were).
+TimeoutStartSec=75min
 # Sandboxed: Flatpak updates for everyone (system-wide apps in
 # /var/lib/flatpak). /usr, /boot and /etc stay read-only, home folders
 # out of reach.

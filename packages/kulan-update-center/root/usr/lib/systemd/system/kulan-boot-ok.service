@@ -1,0 +1,29 @@
+[Unit]
+Description=Note that this start-up reached the desktop (Kulan OS start-up menu after a failed one)
+Documentation=file:///usr/lib/kulan/boot-ok
+ConditionKernelCommandLine=!boot=live
+After=local-fs.target systemd-logind.service
+
+# Waits (asleep most of the time) for a desktop session that lasts a minute,
+# then notes it and stops.
+[Service]
+Type=exec
+ExecStart=/usr/lib/kulan/boot-ok wait
+Nice=19
+IOSchedulingClass=idle
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=graphical.target

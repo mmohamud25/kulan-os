@@ -294,8 +294,30 @@ def set_up_files() -> None:
         rescue.symlink_to("/dev/null")
 
 
+# Boot counting (systemd-boot): a new signed start-up file is named
+# kulan-<version>+3.efi; each start through it counts down (+2-1, +1-2, +0-3),
+# and once a start reaches the desktop the counter goes (kulan-<version>.efi,
+# /usr/lib/kulan/boot-ok). After three starts that didn't, systemd-boot starts
+# the previous version by itself.
+BOOT_TRIES = 3
+
+
 def uki_path(version: str) -> Path:
-    return ESP / "EFI/Linux" / f"{VENDOR}-{version}.efi"
+    return ESP / "EFI/Linux" / f"{VENDOR}-{version}+{BOOT_TRIES}.efi"
+
+
+def uki_version(name: str) -> str | None:
+    """The kernel version of one of our signed start-up files, with or without its counter."""
+    match = re.fullmatch(rf"{VENDOR}-(.+?)(\+\d+(-\d+)?)?\.efi", name)
+    return match.group(1) if match else None
+
+
+def uki_files(version: str) -> list[Path]:
+    """Every signed start-up file of this kernel version (counted, or already known to work)."""
+    linux = ESP / "EFI/Linux"
+    if not linux.is_dir():
+        return []
+    return [f for f in linux.glob(f"{VENDOR}-*.efi") if uki_version(f.name) == version]
 
 
 def build_one(version: str) -> None:
@@ -323,6 +345,11 @@ def build_one(version: str) -> None:
         tmp.unlink(missing_ok=True)
         raise RuntimeError("the signed start-up file didn't pass its own check")
     os.replace(tmp, out)
+    # The file it replaces (made before, maybe counted down or known to work):
+    # the new one has to show it works by itself.
+    for other in uki_files(version):
+        if other != out:
+            other.unlink(missing_ok=True)
 
 
 def rebuild(only: str | None = None) -> None:
@@ -331,14 +358,14 @@ def rebuild(only: str | None = None) -> None:
     for version in versions:
         build_one(version)
     if not only:  # kernels no longer installed: their files go
-        keep = {uki_path(v).name for v in versions}
         for old in (ESP / "EFI/Linux").glob(f"{VENDOR}-*.efi"):
-            if old.name not in keep:
+            if uki_version(old.name) not in versions:
                 old.unlink()
 
 
 def remove_kernel(version: str) -> None:
-    uki_path(version).unlink(missing_ok=True)
+    for f in uki_files(version):
+        f.unlink(missing_ok=True)
 
 
 def copy_if_changed(src: Path, dst: Path) -> None:

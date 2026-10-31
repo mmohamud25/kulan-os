@@ -39,8 +39,14 @@ list() {
 install() {
 	have_flatpak || { list; return 0; }
 	echo "pmstatus:apps:96:Updating apps"
-	flatpak update --system --noninteractive -y >&2
-	flatpak uninstall --system --noninteractive -y --unused >&2 || true
+	# At most an hour (a stalled download): a stopped Flatpak update leaves the
+	# apps as they were, and they update next time.
+	if ! timeout --kill-after=1m 1h flatpak update --system --noninteractive -y >&2; then
+		echo "App updates didn't finish; they'll be tried again with the next updates." >&2
+		list
+		return 1
+	fi
+	timeout 10m flatpak uninstall --system --noninteractive -y --unused >&2 || true
 	list
 }
 

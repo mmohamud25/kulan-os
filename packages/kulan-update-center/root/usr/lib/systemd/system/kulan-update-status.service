@@ -9,6 +9,7 @@ Type=oneshot
 ExecStart=/usr/lib/kulan/update-status refresh
 Nice=10
 IOSchedulingClass=idle
+TimeoutStartSec=10min
 CPUSchedulingPolicy=idle
 # Sandboxed: it only reads what's installed and writes its status file (and
 # lifts the pause after an undo). No network, no home folders, no changes

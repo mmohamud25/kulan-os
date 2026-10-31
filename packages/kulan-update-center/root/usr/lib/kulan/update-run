@@ -36,9 +36,19 @@
 #   update-run clean-logs                 keep only the last two weeks of system logs
 #   update-run assistant-model <id>       download a Kulan Assistant model (checked by SHA-256)
 #   update-run assistant-model-remove <id>  delete a downloaded Kulan Assistant model
+#   update-run repair                     finish an update that was interrupted (power cut, crash)
+#   update-run needs-repair               succeed if one was (kulan-update-repair.service)
 #
 # Install progress goes to stdout as apt status lines (pmstatus/dlstatus);
-# apt's own messages go to stderr.
+# apt's own messages go to stderr. A "say:" line is the message for the person.
+#
+# The long changes (install, install-devkit, install-apps, addon-install,
+# addon-remove, cleanup, undo-update, repair) run as their own system service,
+# kulan-update.service, with shutdown and sleep held off until they're done.
+# This command only follows it, with the same progress lines and exit status:
+# if whatever started it goes away (Kulan Settings closed, signed out, Kulan
+# Fleet's time limit), the change carries on and finishes by itself. Software
+# Update shows it as running (/var/lib/kulan/updates.json, /run/kulan/update-run.out).
 set -euo pipefail
 
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
@@ -68,25 +78,195 @@ die() {
 
 [[ ${EUID} -eq 0 ]] || die "update-run must run as root (through pkexec)."
 
+# --- the long changes, as their own system service ------------------------------------
+UNIT=kulan-update.service
+RUN_DIR=/run/kulan
+OUT_FILE="${RUN_DIR}/update-run.out" # its standard output: progress and "say:" lines (readable by all)
+ERR_FILE="${RUN_DIR}/update-run.err" # its standard error: apt's own messages
+RC_FILE="${RUN_DIR}/update-run.rc"   # its exit status, once it's done
+LONG_ACTIONS=" install install-devkit install-apps addon-install addon-remove cleanup undo-update repair "
+
+# Started as kulan-update.service (or by kulan-update-repair.service): do the work here.
+in_update_unit() { [[ "${KULAN_UPDATE_UNIT:-}" == 1 ]]; }
+
+# systemd is running (not the ISO build, a container or a chroot), and logind
+# answers (systemd-inhibit needs it).
+can_detach() {
+	[[ -d /run/systemd/system ]] && command -v systemd-run >/dev/null 2>&1 &&
+		command -v systemd-inhibit >/dev/null 2>&1 && systemd-inhibit --list >/dev/null 2>&1
+}
+
+# Start the change as kulan-update.service and follow it: its progress lines to
+# standard output, apt's messages to standard error, then its exit status.
+# Shutdown, sleep and the lid are held off while it runs (systemd-inhibit);
+# a shutdown that happens anyway waits up to 10 minutes for it to finish.
+detach() {
+	local why="$1" state pid rc
+	shift
+	state="$(systemctl show -P ActiveState "${UNIT}" 2>/dev/null || true)"
+	case "${state}" in
+		active | activating | deactivating | reloading)
+			die "Another change is still being made to the software on this computer. Try again when it's finished."
+			;;
+	esac
+	install -d -m 0755 "${RUN_DIR}"
+	rm -f "${RC_FILE}"
+	: >"${OUT_FILE}"
+	: >"${ERR_FILE}"
+	chmod 0644 "${OUT_FILE}" "${ERR_FILE}"
+	# The exit status goes to a file: the unit is gone (--collect) once it's done.
+	# Only $0, $@, $? and $1 in that sh: systemd expands ${NAME} in a service's
+	# command line itself, but never those.
+	# shellcheck disable=SC2016  # expanded by that sh
+	if ! systemd-run --quiet --collect --service-type=exec --unit="${UNIT}" \
+		--description="Kulan OS: ${why}" \
+		--setenv=KULAN_UPDATE_UNIT=1 --setenv=KULAN_INHIBITED=1 --setenv=KULAN_DEFER_STATUS=1 \
+		-p StandardInput=null -p "StandardOutput=append:${OUT_FILE}" -p "StandardError=append:${ERR_FILE}" \
+		-p KillMode=mixed -p TimeoutStopSec=10min \
+		-- systemd-inhibit --what=shutdown:sleep:handle-lid-switch --mode=block \
+		--who="Kulan OS" --why="${why}. Kulan OS can switch off when it's done" \
+		/bin/sh -c '"$0" "$@"; set -- "$?"; /usr/lib/kulan/update-status refresh >/dev/null 2>&1; echo "$1" > /run/kulan/update-run.rc' \
+		/usr/lib/kulan/update-run "$@" 2>>"${ERR_FILE}"; then
+		cat "${ERR_FILE}" >&2
+		die "Couldn't start that change. Try again, and if it keeps happening, restart the computer."
+	fi
+	pid="$(systemctl show -P MainPID "${UNIT}" 2>/dev/null || true)"
+	if [[ "${pid}" =~ ^[1-9][0-9]*$ ]]; then
+		# Each file to the end, until the change is done (tail reads once more after that).
+		tail -n +1 -s 0.5 -F --pid="${pid}" "${OUT_FILE}" 2>/dev/null &
+		local out_tail=$!
+		tail -n +1 -s 0.5 -F --pid="${pid}" "${ERR_FILE}" >&2 2>/dev/null &
+		local err_tail=$!
+		wait "${out_tail}" "${err_tail}" || true
+	else # already done
+		cat "${OUT_FILE}"
+		cat "${ERR_FILE}" >&2
+	fi
+	rc="$(cat "${RC_FILE}" 2>/dev/null || true)"
+	if [[ ! "${rc}" =~ ^[0-9]+$ ]]; then
+		echo "say:The change was stopped before it finished. Restart the computer: Kulan OS finishes it at start-up."
+		rc=1
+	fi
+	exit "${rc}"
+}
+
+case " ${LONG_ACTIONS} " in
+	*" ${1:-none} "*)
+		if ! in_update_unit && can_detach; then
+			case "$1" in
+				install) WHY="Installing updates" ;;
+				undo-update) WHY="Undoing the last update" ;;
+				repair) WHY="Finishing an update that was interrupted" ;;
+				cleanup) WHY="Removing old system files" ;;
+				*) WHY="Installing or removing software" ;;
+			esac
+			detach "${WHY}" "$@"
+		fi
+		# Started by a service of its own (kulan-update-repair.service): keep the
+		# computer on (no sleep, no shutdown) until it's done, as detach() does.
+		if in_update_unit && [[ -z "${KULAN_INHIBITED:-}" ]] && command -v systemd-inhibit >/dev/null 2>&1 &&
+			systemd-inhibit --list >/dev/null 2>&1; then
+			KULAN_INHIBITED=1 exec systemd-inhibit --what=shutdown:sleep:handle-lid-switch --mode=block \
+				--who="Kulan OS" --why="Finishing an update that was interrupted" "$0" "$@"
+		fi
+		# Software Update and the top bar: a change is running, until the refresh at
+		# its end (kulan-update.service's own; here, when there's no systemd).
+		if [[ -x /usr/lib/kulan/update-status ]]; then
+			/usr/lib/kulan/update-status running || true
+			in_update_unit || trap '/usr/lib/kulan/update-status refresh >/dev/null 2>&1 || true' EXIT
+		fi
+		;;
+esac
+
 # Status lines on fd 3 -> stdout; everything apt prints -> stderr.
 run_apt() {
 	apt-get "${APT_OPTS[@]}" "$@" 3>&1 1>&2
 }
 
-# An earlier update that was cut short (power loss, a full disk, a crash)
-# leaves dpkg half-way, and then apt refuses to install anything until it's
-# finished: finish it first, the same way "dpkg --configure -a" and
-# "apt-get -f install" would by hand.
+# The process holding one of apt's or dpkg's locks (automatic updates, the
+# Store, apt in Terminal), or nothing when they're free. Only asks (F_GETLK):
+# never takes a lock itself.
+lock_holder() {
+	python3 -I - <<'PY' 2>/dev/null || true
+import fcntl, os, struct
+FMT = "hhqqi4x"  # struct flock on Linux: type, whence, start, len, pid
+for path in ("/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock", "/var/lib/apt/lists/lock",
+             "/var/cache/apt/archives/lock"):
+    try:
+        fd = os.open(path, os.O_RDONLY)
+    except OSError:
+        continue
+    try:
+        got = fcntl.fcntl(fd, fcntl.F_GETLK, struct.pack(FMT, fcntl.F_WRLCK, 0, 0, 0, 0))
+        kind, _w, _s, _l, pid = struct.unpack(FMT, got)
+        if kind != fcntl.F_UNLCK:
+            print(pid if pid > 0 else 1)
+            break
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+PY
+}
+
+# Automatic updates (unattended-upgrades) are what holds the lock.
+automatic_updates_running() {
+	local comm
+	comm="$(cat "/proc/$1/comm" 2>/dev/null || true)"
+	[[ "${comm}" == unattended-upgr* || "${comm}" == apt.systemd.dai* ]] && return 0
+	systemctl is-active --quiet apt-daily-upgrade.service 2>/dev/null
+}
+
+# Wait for something else that's installing to finish (up to an hour), saying
+# so, rather than failing after apt's own 5 minutes with "could not get lock".
+wait_for_others() {
+	local holder waited=0 said=""
+	while true; do
+		holder="$(lock_holder)"
+		[[ -n "${holder}" ]] || return 0
+		if [[ -z "${said}" ]]; then
+			if automatic_updates_running "${holder}"; then
+				said="Waiting for automatic updates to finish"
+			else
+				said="Waiting for another installation to finish"
+			fi
+			echo "pmstatus:wait:0:${said}"
+			echo "${said} (process ${holder})." >&2
+		fi
+		if (( waited >= 3600 )); then
+			die "Something else is still installing software. Try again when it's finished."
+		fi
+		sleep 5
+		waited=$((waited + 5))
+	done
+}
+
+# dpkg was stopped half-way by an earlier update (a power cut, a full disk, a
+# crash): files unpacked but not set up, or packages half-configured.
+dpkg_interrupted() {
+	[[ -n "$(find /var/lib/dpkg/updates -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" ||
+		-n "$(dpkg --audit 2>/dev/null)" ]]
+}
+
+# An earlier update that was cut short leaves dpkg half-way, and then apt
+# refuses to install anything until it's finished: finish it first, the same
+# way "dpkg --configure -a" and "apt-get -f install" would by hand. Also at
+# start-up (kulan-update-repair.service) and from Software Update's "Finish Now".
 repair_dpkg() {
-	if [[ -z "$(find /var/lib/dpkg/updates -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1)" &&
-		-z "$(dpkg --audit 2>/dev/null)" ]]; then
-		return 0
-	fi
+	wait_for_others
+	dpkg_interrupted || return 0
 	echo "pmstatus:repair:0:Finishing an earlier update that was interrupted"
 	echo "An earlier update was interrupted; finishing it first." >&2
-	dpkg --force-confdef --force-confold --configure -a 1>&2 || true
+	local try
+	# dpkg has no lock timeout of its own: try again while something else holds it.
+	for try in 1 2 3 4 5 6; do
+		dpkg --force-confdef --force-confold --configure -a 1>&2 && break
+		[[ -n "$(lock_holder)" ]] || break
+		wait_for_others
+		: "${try}"
+	done
 	run_apt -f install || true
-	if [[ -n "$(dpkg --audit 2>/dev/null)" ]]; then
+	if dpkg_interrupted; then
 		die "An earlier update couldn't be finished. Restart the computer and try again. If it still fails, run \"sudo dpkg --configure -a\" in Terminal."
 	fi
 }
@@ -96,6 +276,7 @@ repair_dpkg() {
 # say what's wrong in plain words instead, for the two common causes.
 refresh_lists() {
 	local out
+	wait_for_others
 	out="$(apt-get -q "${APT_LOCK[@]}" update 2>&1)" || { echo "${out}" >&2; die "Couldn't check for software. Try again in a few minutes."; }
 	echo "${out}" >&2
 	if grep -qE "Temporary failure resolving|Could not resolve|Network is unreachable|No route to host" <<<"${out}"; then
@@ -236,10 +417,24 @@ PRIVATE_NETS=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fe80::/10 fd00::/8)
 case "${1:-}" in
 	check)
 		[[ $# -eq 1 ]] || die "usage: update-run check"
-		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
-		firmware_list
+		# Debian's and Kulan's updates first, so the list shows in seconds; then
+		# apps and firmware (slow servers), and the list again with them.
+		echo "pmstatus:check:10:Checking for updates"
 		refresh_lists
 		/usr/lib/kulan/update-status refresh || true
+		echo "pmstatus:check:50:Checking for app and firmware updates"
+		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates list 1>&2 || true; }
+		firmware_list
+		/usr/lib/kulan/update-status refresh || true
+		;;
+	repair)
+		[[ $# -eq 1 ]] || die "usage: update-run repair"
+		repair_dpkg
+		;;
+	needs-repair)
+		# For kulan-update-repair.service: succeeds when an update was interrupted.
+		[[ $# -eq 1 ]] || die "usage: update-run needs-repair"
+		dpkg_interrupted
 		;;
 	install)
 		RESTORE=0
@@ -263,6 +458,7 @@ case "${1:-}" in
 		NEEDS_RESTART="$(apt-get -s -q -o Debug::NoLocking=1 --with-new-pkgs upgrade 2>/dev/null |
 			awk '/^Inst /{print $2}' |
 			grep -E '^(linux-image|linux-signed|libc6$|systemd$|libsystemd0$|dbus$|dbus-daemon$|gnome-shell$|mutter$|libmutter|gdm3$|nvidia|libnvidia|firmware-|intel-microcode$|amd64-microcode$)' || true)"
+		wait_for_others # automatic updates may have started during the restore point
 		run_apt --with-new-pkgs upgrade
 		[[ -x /usr/lib/kulan/app-updates ]] && { /usr/lib/kulan/app-updates install || echo "App updates couldn't be installed this time." >&2; }
 		if firmware_install; then
@@ -393,6 +589,7 @@ case "${1:-}" in
 	cleanup)
 		[[ $# -eq 1 ]] || die "usage: update-run cleanup"
 		# Old kernels and packages nothing needs any more (settings files stay).
+		repair_dpkg
 		run_apt autoremove
 		if command -v flatpak >/dev/null 2>&1; then
 			flatpak uninstall --system --noninteractive -y --unused 1>&2 || true
@@ -661,6 +858,6 @@ PY
 		fi
 		;;
 	*)
-		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-on-pin|tpm-off|signed-start-on|signed-start-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>"
+		die "usage: update-run check|install [--restore-point]|auto-on|auto-off|restore-point|install-devkit|install-apps|addon-install <id>|addon-remove <id>|security-checkup|firewall-on|compliance-on|compliance-off|tpm-on|tpm-on-pin|tpm-off|signed-start-on|signed-start-off|fleet-join <server>|fleet-leave|dns <mode>|set-hostname <name>|locale-add <locale>|clean-cache|cleanup|clean-logs|assistant-model <id>|assistant-model-remove <id>|repair|needs-repair"
 		;;
 esac

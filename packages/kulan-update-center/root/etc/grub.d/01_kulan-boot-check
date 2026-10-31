@@ -1,0 +1,50 @@
+#! /bin/sh
+# Kulan OS: after a start-up that didn't get as far as the desktop, show the
+# start-up menu for 10 seconds (the earlier Linux versions, "Undo the last
+# update") instead of hiding it.
+#
+# GRUB notes each start-up in its environment block (kulan_boot_pending=1),
+# and Kulan OS clears it once someone has used the desktop for a minute
+# (/usr/lib/kulan/boot-ok, kulan-boot-ok.service). Where GRUB can't write
+# that block (Btrfs, LVM, RAID or an encrypted /boot), Kulan OS notes the
+# start-up itself once Linux is running: then a Linux that doesn't start at
+# all isn't noticed, but a desktop that doesn't start still is.
+#
+# KULAN_GRUB_RECOVERY_TIMEOUT (in /etc/default/grub.d): seconds the menu
+# shows after such a start-up (10).
+set -e
+
+# Only with Kulan OS's part that notes a start-up worked (left behind after
+# kulan-update-center is removed, this file does nothing).
+[ -x /usr/lib/kulan/boot-ok ] || exit 0
+
+TIMEOUT="${KULAN_GRUB_RECOVERY_TIMEOUT:-10}"
+case "${TIMEOUT}" in
+	'' | *[!0-9]*) TIMEOUT=10 ;;
+esac
+
+cat <<GRUB
+# Kulan OS: the last start-up didn't reach the desktop, so show this menu.
+if [ "\${kulan_boot_pending}" = "1" ]; then
+  set timeout_style=menu
+  set timeout=${TIMEOUT}
+fi
+GRUB
+
+# Only where GRUB can write its environment block: a plain partition with
+# ext2/3/4 or FAT (what Kulan's installer makes, /boot included).
+GRUB_PROBE="${grub_probe:-grub-probe}"
+FS="$("${GRUB_PROBE}" --target=fs /boot/grub 2>/dev/null || true)"
+ABSTRACTION="$("${GRUB_PROBE}" --target=abstraction /boot/grub 2>/dev/null || true)"
+case "${FS}" in
+	ext2 | fat) ;;
+	*) exit 0 ;;
+esac
+[ -z "${ABSTRACTION}" ] || exit 0
+
+cat <<'GRUB'
+if [ -n "${have_grubenv}" ]; then
+  set kulan_boot_pending=1
+  save_env kulan_boot_pending
+fi
+GRUB

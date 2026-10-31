@@ -110,13 +110,26 @@ def cmd_info(_args: list[str]) -> int:
 # --- update -------------------------------------------------------------------------
 def run_update(action: str) -> int:
     """Run update-run, turning its progress lines (pmstatus:pkg:percent:what)
-    into one line that updates in place; apt's own messages pass through."""
+    into one line that updates in place; apt's own messages pass through.
+    Installs run as their own system service (kulan-update.service): Ctrl+C or
+    closing the terminal stops following them, never the install itself."""
     try:
         proc = subprocess.Popen(["pkexec", UPDATE_RUN, *action.split()], stdout=subprocess.PIPE, text=True,
                                 errors="replace")
     except OSError as exc:
         print(f"kulan: {exc}", file=sys.stderr)
         return 1
+    try:
+        return follow_update(proc)
+    except KeyboardInterrupt:
+        print()
+        if action.split()[0] == "install":
+            print("Stopped watching. The updates keep installing; Software Update shows when they're done.",
+                  file=sys.stderr)
+        return 130
+
+
+def follow_update(proc: subprocess.Popen) -> int:
     tty = sys.stdout.isatty()
     shown = ""
     assert proc.stdout is not None
