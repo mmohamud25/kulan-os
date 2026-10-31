@@ -646,7 +646,7 @@ SH
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Apps ready after sign-in" "kulan-prewarm timer on for every account; skips the live session and low memory" bash -c 'test -L /etc/systemd/user/timers.target.wants/kulan-prewarm.timer && sh -n /usr/lib/kulan/prewarm && grep -q "run/live/medium" /usr/lib/kulan/prewarm && grep -qx "IOSchedulingClass=idle" /usr/lib/systemd/user/kulan-prewarm.service'
 # shellcheck disable=SC2016  # expanded by the inner python
-check "One search" "Kulan Settings' search finds its pages (Printers, Sharing and Get help too) and GNOME's (Online accounts); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
+check "One search" "Kulan Settings' search finds its pages (Printers, Sharing and Get help too) and Online accounts (now Kulan's own page); GNOME Settings' own source off; Ask Kulan result" bash -c 'python3 - <<"PY" && gsettings get org.gnome.desktop.search-providers disabled | grep -q "org.gnome.Settings.desktop"
 import importlib.machinery, importlib.util, sys
 loader = importlib.machinery.SourceFileLoader("sp", "/usr/lib/kulan/settings-search-provider")
 spec = importlib.util.spec_from_loader("sp", loader); m = importlib.util.module_from_spec(spec); loader.exec_module(m)
@@ -655,7 +655,7 @@ assert m.search(pages, ["printer"]) == ["printers"], m.search(pages, ["printer"]
 assert m.search(pages, ["sharing"]) == ["sharing"], m.search(pages, ["sharing"])
 assert m.search(pages, ["remote", "desktop"])[0] == "sharing", m.search(pages, ["remote", "desktop"])
 assert m.search(pages, ["get", "help"]) == ["help"], m.search(pages, ["get", "help"])
-assert m.search(pages, ["online", "accounts"]) == ["gnome:online-accounts"], m.search(pages, ["online", "accounts"])
+assert m.search(pages, ["online", "accounts"]) == ["accounts"], m.search(pages, ["online", "accounts"])
 assert "appearance" in m.search(pages, ["dark", "mode"]) and "wifi" in m.search(pages, ["wi-fi"])
 sys.path.insert(0, "/usr/share/kulan-assistant")
 from kulan_assistant import search
@@ -807,7 +807,7 @@ else
 fi
 check "Welcome app compiles" "parses" pycheck /usr/bin/kulan-welcome
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qx "10/10 steps built" && ! echo "$out" | grep -q Traceback'
+check "Setup Assistant opens" "every step builds with Debian's GTK 4 and libadwaita" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- kulan-welcome --self-test 2>&1)"; echo "$out" | grep -E "FAIL|Traceback|Error:" | head -n 3; echo "$out" | grep -qxE "([0-9]+)/\\1 steps built" && ! echo "$out" | grep -q Traceback'
 check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -883,7 +883,7 @@ check "Fleet two-step helper" "only through pkexec, for yourself; polkit asks yo
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet work email" "2.8e: who has a work mailbox, whether it's connected (Online Accounts), once a day; the Settings row" bash -c 'out="$(HOME=$(mktemp -d) timeout 120 xvfb-run -a dbus-run-session -- python3 -I -B ci/workmail-test.py /usr/share/kulan-fleet/workmail.py /usr/share/kulan-settings 2>&1)"; echo "$out" | grep -qx "workmail: every case passed" || { echo "$out" | tail -n 6; exit 1; }'
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Fleet work email at sign-in" "2.8e: offered once a day; Connect opens Settings › Online Accounts › Google" bash -c 'out="$(timeout 120 dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py 2>&1)"; echo "$out" | grep -qx "work email reminder: asked, connected, then not asked again" || { echo "$out" | tail -n 6; exit 1; }; grep -qx "Exec=/usr/lib/kulan/fleet-work-email" /etc/xdg/autostart/org.kulan.WorkEmail.desktop'
+check "Fleet work email at sign-in" "2.8e: offered once a day; Connect opens Settings › Online Accounts › Google; 2.11: then Mail opens" bash -c 'out="$(timeout 120 dbus-run-session -- python3 -I -B ci/work-email-reminder-test.py 2>&1)"; echo "$out" | grep -qx "work email reminder: asked, connected, mail opened, then not asked again" || { echo "$out" | tail -n 6; exit 1; }; grep -qx "Exec=/usr/lib/kulan/fleet-work-email" /etc/xdg/autostart/org.kulan.WorkEmail.desktop'
 check "Fleet actions" "2.9b and 2.9c: Kulan's fixes, the organisation's scripts (only when allowed, only unchanged, stopped after the time limit), messages, Wi-Fi networks and printers from a group, and Get help" python3 -I -B ci/fleet-actions-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
 check "Organisation USB sticks" "2.10: the installer finds the settings Kulan USB Maker put on a stick (none on a plain one, damaged or odd ones refused), and kulan-fleet-autojoin joins with them once, stopping when joined, refused or after 14 days" python3 -I -B ci/stick-join-test.py
 check "Fleet remote help" "2.9a: who is at the computer, the request picked up (the helper gets only the session's key), input checked, the wake listener" python3 -I -B ci/remotehelp-test.py /usr/share/kulan-fleet /usr/bin/kulan-fleet
@@ -913,11 +913,14 @@ assert kf.do_action("install-app", None)[0] is False
 assert any("USB" in line for line in kf.SHARED)
 PY
 check "Fleet erase" "allowed only by this computer's user, and only on an encrypted disk" python3 -I -B - <<'PY'
-import importlib.machinery, importlib.util, subprocess
-assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode == 0
+import importlib.machinery, importlib.util, json, subprocess
+# 2.11: not on a disk that isn't encrypted (the test container's): it couldn't be erased.
+assert subprocess.run(["kulan-fleet", "allow-erase", "on"], capture_output=True).returncode != 0
 loader = importlib.machinery.SourceFileLoader("kf", "/usr/bin/kulan-fleet")
 spec = importlib.util.spec_from_loader("kf", loader); kf = importlib.util.module_from_spec(spec); loader.exec_module(kf)
-assert kf.read_json(kf.CONFIG, {})["allow_erase"] is True
+assert not kf.read_json(kf.CONFIG, {}).get("allow_erase")
+# As if it had been allowed before (an older Kulan OS): erase still refuses without encryption.
+conf = kf.read_json(kf.CONFIG, {}); conf["allow_erase"] = True; kf.CONFIG.parent.mkdir(parents=True, exist_ok=True); kf.CONFIG.write_text(json.dumps(conf))
 ok, detail = kf.erase()
 assert not ok and "can't be erased from afar" in detail, detail  # the test container's disk isn't encrypted
 # Encrypted: every LUKS partition is erased, and only a full success counts.

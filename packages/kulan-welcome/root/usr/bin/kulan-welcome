@@ -1743,7 +1743,7 @@ def self_checks(window: WelcomeWindow) -> list[str]:
     check("helper: cancelled", helper_failure(126, "", "", "x") == "Cancelled")
     check("helper: its own words", helper_failure(1, "pmstatus:x:1:y\nsay: Use letters only.\n", "E: raw", "x")
           == "Use letters only")
-    check("helper: never raw output", helper_failure(1, "", "Traceback: /usr/lib/x", "Plain") == "Plain")
+    check("helper: never raw output", helper_failure(1, "", "E: Sub-process /usr/bin/dpkg returned an error code (1)", "Plain") == "Plain")
     check("Bitwarden only when offered", "next page" not in window.bitwarden_text(False))
     # Offline, the apps list says so, offers to connect, and fills in by itself once online.
     window.apps_waiting_online = False
