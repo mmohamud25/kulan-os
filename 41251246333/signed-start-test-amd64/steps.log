@@ -1,0 +1,36 @@
+phase=off started_signed=False
+on_exit=0 code=51492453
+on: Installing the start-up tools…
+on: Making the start-up images…
+on: Signing the start-up files…
+on: At the next restart, a blue screen asks to enroll a key: press a key, choose Enroll MOK, Continue, Yes, type the code 51492453 and choose Reboot
+esp=/boot/efi/EFI/Linux: kulan-6.12.113+deb13-amd64+3.efi  /boot/efi/EFI/kulan: BOOTX64.CSV fbx64.efi mmx64.efi shimx64.efi systemd-bootx64.efi 
+verify=Signature verification OK
+mok_new=2
+phase=switch started_signed=False
+bootorder=0006,0000,0001,0002,0003,0004,0005 entry=1
+phase=on started_signed=True
+loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 unlock=
+grub_left=0 grub_pkg=2
+service: Starting kulan-signed-start.service - Signed start-up: the next step after a restart (Kulan OS)...
+service: GRUB's packages stay (Debian marks them as needed); GRUB can't start the computer any more
+service: Signed start-up is on
+service: kulan-signed-start.service: Deactivated successfully.
+service: Finished kulan-signed-start.service - Signed start-up: the next step after a restart (Kulan OS).
+service: kulan-signed-start.service: Consumed 2.253s CPU time, 129.2M memory peak.
+fallback=shim
+after_grub_update=0 first=0006 kulan=0006
+tpm_on_exit=0
+key_removed=0
+rebuilt=0
+phase=on started_signed=True
+loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 unlock=
+boot-ok: Starting kulan-boot-ok.service - Note that this start-up reached the desktop (Kulan OS start-up menu after a failed one)...
+boot-ok: Started kulan-boot-ok.service - Note that this start-up reached the desktop (Kulan OS start-up menu after a failed one).
+undo_profile=1 menu_asked=10 default=kulan-*.efi
+oneshot=0
+phase=on started_signed=True
+loader=\EFI\kulan\systemd-bootx64.efi stub=systemd-stub 257.13-1~deb13u1 unlock=
+blessed=kulan-6.12.113+deb13-amd64.efi  menu_after=
+undo_started=1 undo_service=1 entry=kulan-6.12.113+deb13-amd64.efi
+done

@@ -1,0 +1,14 @@
+1 s: BdsDxe: loading Boot0001 “UEFI Misc Device" from PciRoot (0x0) /Pci (Ox4,0x0) BdsDxe: starting Boot0001 “UEFI Misc Device" from PciRoot (0x0) /Pci (Ox4,.0x0)  
+MOK screen after 2 s: Booting in 10 seconds  Shim UEFI key management  Press any key to perform MOK managenent  
+1 s: Display output is not active. 
+11 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:30  4  ao O 
+21 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:31  4  ao O 
+31 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:31  4  ao O 
+41 s: Ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok OK  ok  ak OK  ak OK  ak ok ok ok ok ok ok ok OK  Stopped target timers.target - Timer Units.  Stopped apt-daily
+51 s: Kulan 0S 2.12 (Undo the last update)  Kulan OS 2.12 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+1 s: Ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok ok OK  ak OK  ok  ok  ok  ak OK  Mounted proc-sys-fs-binfmt_misc.mo..xecutab
+11 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:33  4  ao O 
+21 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:33  4  ao O 
+31 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:33  4  ao O 
+41 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:34  4  ao O 
+51 s: © sUNDAY  1  November 2026 Nothing  Sun Nov 1 00:34  4  ao O 
