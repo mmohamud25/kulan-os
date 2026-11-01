@@ -190,6 +190,13 @@ else
 	result fail "Memory guard" "systemd-oomd / notice: ${OOMD:-not reported}"
 fi
 
+DNS="$(field dns)"
+if [[ "${DNS}" == "../run/systemd/resolve/stub-resolv.conf active "* ]]; then
+	result pass "Encrypted DNS ready" "names go through systemd-resolved, so Block ads and trackers works without a download (${DNS##* })"
+else
+	result fail "Encrypted DNS ready" "resolv.conf and systemd-resolved: ${DNS:-not reported}"
+fi
+
 KEXEC="$(field kexec)"
 case "${KEXEC}" in
 	"1 no x86_64") result pass "Kernel hardening" "loading another kernel is switched off" ;;
@@ -301,6 +308,8 @@ PY
 		"${OUT}/restart.ppm" "${OUT}/restart.png" 2>/dev/null && rm -f "${OUT}/restart.ppm"
 	tail -n 15 "${OUT}/serial.log" 2>/dev/null | annotate_lines "Last serial console lines at restart"
 	result fail "Restart" "the live system was asked to restart and was still running 2 minutes later (restart.png)"
+elif grep -aq "remove the live-medium" "${OUT}/serial.log" 2>/dev/null; then
+	result fail "Restart" "it restarted after $(( $(date +%s) - ASKED )) s, but only once live-tools gave up asking to remove the medium (noeject missing)"
 else
 	result pass "Restart" "the live system restarted by itself in $(( $(date +%s) - ASKED )) s"
 fi

@@ -21,12 +21,21 @@ open the Kulan Fleet app against this server:
 
 ## Google Workspace mailboxes (2.8e)
 The test server has a stand-in for Google, so you can try mailboxes with
-People without a real Workspace. In the Kulan Fleet app, open Settings › Google
-Workspace, paste the test key that setup.sh wrote
+People without a real Workspace. In the Kulan Fleet app, open Settings › Work
+email › Connect Google Workspace, paste the test key that setup.sh wrote
 (`/opt/kulan-fleet-test/google-test-key.json`) and act as
 `it@<your test domain>`, for example `it@acme.test`. Each change is printed in
 the server's terminal. To use a real Workspace instead, start the server with
 `sudo KULAN_FLEET_REAL_GOOGLE=1 ./run.sh`. This creates real mailboxes.
+
+## Microsoft 365 mailboxes (2.12)
+There's a stand-in for Microsoft too. In the Kulan Fleet app, open Settings ›
+Work email › Connect Microsoft 365 and enter any tenant ID and client ID
+(each like `00000000-0000-0000-0000-000000000000`), any client secret of 16
+characters or more, and your test domain. It has one licence with email, for
+25 mailboxes. To use a real Microsoft 365 tenant instead, start the server
+with `sudo KULAN_FLEET_REAL_MICROSOFT=1 ./run.sh`. This creates real users
+and uses real licences.
 
 ## On each other test computer
 Trust the test authority, checking that its fingerprint matches the one

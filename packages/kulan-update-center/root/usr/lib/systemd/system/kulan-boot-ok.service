@@ -17,6 +17,8 @@ PrivateNetwork=yes
 NoNewPrivileges=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
+# Except systemd-boot's one-time menu timeout (signed start-up), where there are EFI variables.
+ReadWritePaths=-/sys/firmware/efi/efivars
 ProtectControlGroups=yes
 ProtectKernelLogs=yes
 ProtectClock=yes

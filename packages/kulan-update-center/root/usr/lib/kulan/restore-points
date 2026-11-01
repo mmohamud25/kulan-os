@@ -275,6 +275,33 @@ undo_target() {
 	echo "${target}"
 }
 
+# Signed start-up (kulan-signed-start): its key and state are this computer's
+# now (the key is the one the firmware trusts), so they're kept as they are,
+# not put back to the restore point's. Its start-up files on the EFI
+# partition (not part of restore points) are signed again for the kernels the
+# restored system has: otherwise the newest one would still start the
+# update's kernel, whose modules are gone.
+SIGNED_START_DIR="${KULAN_SIGNED_START_DIR:-/var/lib/kulan/signed-start}"
+SIGNED_START_KEEP="${KULAN_SIGNED_START_KEEP:-/run/kulan/signed-start-kept}"
+keep_signed_start() {
+	rm -rf "${SIGNED_START_KEEP}"
+	[[ -d "${SIGNED_START_DIR}" ]] || return 0
+	mkdir -p "$(dirname "${SIGNED_START_KEEP}")"
+	cp -a "${SIGNED_START_DIR}" "${SIGNED_START_KEEP}" || { log "couldn't keep signed start-up's key aside"; rm -rf "${SIGNED_START_KEEP}"; }
+}
+signed_start_after_undo() {
+	[[ -d "${SIGNED_START_KEEP}" ]] || return 0
+	rm -rf "${SIGNED_START_DIR}.new"
+	if cp -a "${SIGNED_START_KEEP}" "${SIGNED_START_DIR}.new"; then
+		rm -rf "${SIGNED_START_DIR}" && mv "${SIGNED_START_DIR}.new" "${SIGNED_START_DIR}"
+	fi
+	rm -rf "${SIGNED_START_KEEP}"
+	if command -v kulan-signed-start >/dev/null 2>&1; then
+		echo "pmstatus:undo:90:Signing the start-up files"
+		kulan-signed-start rebuild >&2 || log "couldn't sign the start-up files again"
+	fi
+}
+
 undo_update() {
 	is_live_or_build && { log "not available in the live session"; exit 1; }
 	TARGET="$(undo_target)"
@@ -294,7 +321,9 @@ undo_update() {
 	echo "pmstatus:undo:40:Putting the system back to before the update"
 	# Only the system is restored (Timeshift leaves home folders alone);
 	# the boot loader stays as it is.
+	keep_signed_start
 	timeshift --restore --snapshot "${TARGET}" --scripted --yes --skip-grub >&2
+	signed_start_after_undo
 	# The same updates would install themselves again tonight: pause
 	# automatic updates for 3 days (update-status lifts the pause after
 	# that; turning automatic updates on in Kulan Settings lifts it now).

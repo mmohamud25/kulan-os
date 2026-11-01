@@ -1,0 +1,16 @@
+#!/bin/sh
+# Kulan OS: systemd-resolved in the image, so Kulan Settings' encrypted DNS
+# ("Block ads and trackers", "Block adult sites") works on a new computer
+# without first downloading it (update-run dns installs it otherwise, which
+# needs the internet once).
+#
+# Installed in the last hooks, not from a package list: its package points
+# /etc/resolv.conf at resolved's stub (/run/systemd/resolve/stub-resolv.conf),
+# which doesn't exist in the build, so every later step (Flathub's hook) could
+# no longer look up names. live-build puts its own resolv.conf in for its
+# later steps and this link back afterwards; resolv-link
+# (kulan-resolv-link.service) checks it at every start-up anyway.
+set -eu
+
+DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends systemd-resolved
+echo "I: systemd-resolved installed; /etc/resolv.conf -> $(readlink /etc/resolv.conf 2>/dev/null || echo 'a file')"

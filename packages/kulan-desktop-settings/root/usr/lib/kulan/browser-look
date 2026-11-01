@@ -1,0 +1,163 @@
+#!/usr/bin/python3
+"""Kulan OS (2.12): Chrome-type browsers take Kulan's look.
+
+Chrome, Chromium, Brave and Edge draw their own window frame. Left on their
+"Classic" theme, it's their own colours with Windows-style buttons on the
+right; on their "GTK" theme they follow the system: Kulan's colours, and
+Kulan's window buttons in the place and style chosen in Kulan Settings ›
+Appearance. No browser policy sets this, so it is the browser's own setting
+in each profile (extensions.theme.system_theme: 0 Classic, 1 GTK, 2 Qt).
+
+For each browser installed (from the Store or as a package), once per
+browser folder:
+  - not opened yet: its first profile starts with the GTK theme;
+  - already used: each profile gets the GTK theme, unless the person chose a
+    theme themselves (Classic, Qt, or one from the Chrome Web Store).
+A browser that's open is left alone (it would write its own settings back
+over the change) and done next time. Anyone can choose Classic again in the
+browser's Settings › Appearance; this never changes it back.
+
+Runs at sign-in and whenever an app is installed (kulan-browser-look.path),
+so a browser installed from the Store gets it before it's first opened.
+Opt out: systemctl --user mask kulan-browser-look.path kulan-browser-look.service
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+GTK = 1
+HOME = Path(os.environ.get("HOME", "") or "/nonexistent")
+STATE = Path(os.environ.get("XDG_STATE_HOME") or HOME / ".local/state") / "kulan" / "browser-look"
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or HOME / ".config")
+# Overridable for the tests: where Flatpak apps and packaged browsers live.
+FLATPAK_DIRS = [Path(p) for p in os.environ.get(
+    "KULAN_FLATPAK_DIRS", f"/var/lib/flatpak/app:{HOME}/.local/share/flatpak/app").split(":") if p]
+ROOT = Path(os.environ.get("KULAN_ROOT", "/"))
+
+# (Flatpak app, its folder inside ~/.var/app/<app>/config) and
+# (packaged program, its folder in ~/.config).
+FLATPAKS = [
+    ("com.google.Chrome", "google-chrome"),
+    ("com.google.ChromeDev", "google-chrome-unstable"),
+    ("org.chromium.Chromium", "chromium"),
+    ("io.github.ungoogled_software.ungoogled_chromium", "chromium"),
+    ("com.brave.Browser", "BraveSoftware/Brave-Browser"),
+    ("com.microsoft.Edge", "microsoft-edge"),
+]
+PACKAGES = [
+    ("opt/google/chrome/chrome", "google-chrome"),
+    ("usr/lib/chromium/chromium", "chromium"),
+    ("opt/brave.com/brave/brave", "BraveSoftware/Brave-Browser"),
+    ("opt/microsoft/msedge/msedge", "microsoft-edge"),
+]
+
+
+def browser_folders() -> list[Path]:
+    """The folders of the browsers installed here, each once."""
+    found: list[Path] = []
+    for app, sub in FLATPAKS:
+        if any((d / app / "current").exists() for d in FLATPAK_DIRS):
+            found.append(HOME / ".var/app" / app / "config" / sub)
+    for program, sub in PACKAGES:
+        if (ROOT / program).exists():
+            found.append(CONFIG / sub)
+    return list(dict.fromkeys(found))
+
+
+def is_open(folder: Path) -> bool:
+    # Chrome keeps this link in its folder while it runs (and after a crash,
+    # until it next closes properly: then it's done next time).
+    return os.path.lexists(folder / "SingletonLock")
+
+
+def write_json(path: Path, data: dict) -> None:
+    """Replaces the file in one step, keeping its permissions (0600 if new)."""
+    mode = path.stat().st_mode & 0o777 if path.exists() else 0o600
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".kulan-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            os.fchmod(f.fileno(), mode)
+            json.dump(data, f, separators=(",", ":"))
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def use_gtk(prefs_file: Path) -> bool:
+    """Sets the GTK theme in one profile unless a theme was chosen.
+    False if the file can't be read (tried again next time)."""
+    try:
+        prefs = json.loads(prefs_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(prefs, dict):
+        return False
+    extensions = prefs.get("extensions")
+    theme = extensions.get("theme") if isinstance(extensions, dict) else None
+    if isinstance(theme, dict) and ("system_theme" in theme or theme.get("id")):
+        return True  # their choice (Classic, Qt, GTK or a Web Store theme)
+    if not isinstance(extensions, dict):
+        extensions = prefs["extensions"] = {}
+    if not isinstance(theme, dict):
+        theme = extensions["theme"] = {}
+    theme["system_theme"] = GTK
+    write_json(prefs_file, prefs)
+    return True
+
+
+def profiles(folder: Path) -> list[Path]:
+    return sorted(p for p in folder.iterdir()
+                  if p.is_dir() and (p.name == "Default" or p.name.startswith("Profile ")))
+
+
+def do_folder(folder: Path) -> bool:
+    """True once the folder is done."""
+    if is_open(folder):
+        return False
+    found = profiles(folder) if folder.is_dir() else []
+    if not found:
+        # Not opened yet: its first profile starts with the GTK theme.
+        found = [folder / "Default"]
+        found[0].mkdir(parents=True, exist_ok=True)
+    done = True
+    for profile in found:
+        prefs_file = profile / "Preferences"
+        if not prefs_file.exists():
+            write_json(prefs_file, {"extensions": {"theme": {"system_theme": GTK}}})
+        elif not use_gtk(prefs_file):
+            done = False
+    return done
+
+
+def main() -> int:
+    if not HOME.is_dir():
+        return 0
+    try:
+        done = set(STATE.read_text(encoding="utf-8").splitlines())
+    except OSError:
+        done = set()
+    newly = []
+    for folder in browser_folders():
+        if str(folder) in done:
+            continue
+        try:
+            if do_folder(folder):
+                newly.append(str(folder))
+        except OSError as e:
+            print(f"browser-look: {folder}: {e}", file=sys.stderr)
+    if newly:
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        with STATE.open("a", encoding="utf-8") as f:
+            f.writelines(line + "\n" for line in newly)
+        for line in newly:
+            print(f"browser-look: {line} uses Kulan's look")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

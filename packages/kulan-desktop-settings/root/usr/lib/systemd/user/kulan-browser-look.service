@@ -1,0 +1,10 @@
+[Unit]
+Description=Kulan OS: Chrome-type browsers take Kulan's colours and window buttons
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kulan/browser-look
+Nice=10
+
+[Install]
+WantedBy=default.target

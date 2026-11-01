@@ -33,6 +33,7 @@ case "$1" in
 		deb-systemd-helper purge kulan-update-repair.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-boot-ok.service >/dev/null 2>&1 || true
 		deb-systemd-helper purge kulan-undo-at-start.service >/dev/null 2>&1 || true
+		deb-systemd-helper purge kulan-resolv-link.service >/dev/null 2>&1 || true
 		rm -f /var/lib/kulan/auto-update-restore-point
 		rm -rf /var/lib/kulan-countme
 		rm -f /etc/kulan/no-countme

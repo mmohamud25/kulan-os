@@ -552,8 +552,18 @@ def prepare_apparmor(target: Path, chroot: "Chroot") -> None:
     if Path("/sys/kernel/security/apparmor").is_dir() and security.is_dir():
         mounted = run(["mount", "--bind", "/sys/kernel/security", str(security)], check=False).returncode == 0
     try:
-        chroot.run(["apparmor_parser", "--skip-kernel-load", "--write-cache", "--quiet", "/etc/apparmor.d/"],
+        # The kernel's own features, named outright: when it doesn't load the
+        # profiles, the parser otherwise compiles for its built-in feature set, and
+        # the cache lands in a folder the new system never looks in (2.11's install
+        # test: f6da0254.0 made, 979b3ac6.0 used, 11 s at the first start-up).
+        features = ["--kernel-features=/sys/kernel/security/apparmor/features"] if mounted else []
+        chroot.run(["apparmor_parser", "--skip-kernel-load", "--write-cache", "--quiet", *features, "/etc/apparmor.d/"],
                    check=False, timeout=600)
+        # For the log: where it went, and where this (the same) kernel looks.
+        chroot.run(["sh", "-c", 'd="$(apparmor_parser --print-cache-dir ' + " ".join(features) + ')"; '
+                                'echo "apparmor cache: $d $(ls "$d" | wc -l)"'], check=False, timeout=60)
+        run(["sh", "-c", 'echo "apparmor cache this kernel uses: $(apparmor_parser --print-cache-dir 2>&1)"'],
+            check=False, timeout=60)
     except ToolFailure:
         pass
     finally:

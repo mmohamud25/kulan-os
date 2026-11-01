@@ -64,7 +64,14 @@ function reply(b) {
                                         ...(state.mail ? { mailbox: "amina@acme.test", mailbox_state: "active", mailbox_todo: "rename", mailbox_error: "Google couldn't be reached" } : {}) }],
                             removed_with_mailbox_todo: [], is_owner: true };
     case "mail": return { connection: state.mail, mailboxes: state.mail ? 1 : 0, is_owner: true };
-    case "connect-mail": state.mail = { domain: "acme.test", admin_email: b.admin_email, client_email: JSON.parse(b.key).client_email, client_id: "1122" }; return { domain: "acme.test" };
+    case "connect-mail":
+      if (b.provider === "microsoft") {
+        state.mail = { provider: "microsoft", domain: b.domain, tenant_id: b.tenant_id, client_id: b.client_id, admin_email: "a@x",
+                       licence_name: "ENTERPRISEPACK", usage_location: b.usage_location };
+        return { domain: b.domain, licence: "ENTERPRISEPACK", free: 4 };
+      }
+      state.mail = { provider: "google", domain: "acme.test", admin_email: b.admin_email, client_email: JSON.parse(b.key).client_email, client_id: "1122" }; return { domain: "acme.test" };
+    case "disconnect-mail": state.mail = null; return {};
     case "add-person": return { id: "p2", uid: 70001, ...(b.mailbox ? { mailbox: b.mailbox.address, mailbox_password: "abcd-EFGH-2346-mnpq" } : {}) };
     case "mailbox": return b.action === "new-password" ? { mailbox: "amina@acme.test", mailbox_password: "wxyz-WXYZ-2346-mnpq" } : {};
     case "admins": return { admins: [], owner: "a@x", is_owner: true };
@@ -256,8 +263,27 @@ function reply(b) {
   await page.click("#p-save");
   await page.waitForTimeout(300);
   if (state.calls.filter((c) => c.op === "set-policy").pop().policy.two_step !== "admins") throw "two_step not saved";
-  // 2.8e: connect Google Workspace, a new person with a mailbox, a new Google password, removing with the mailbox deleted.
+  // 2.12: connect Microsoft 365 (an app's IDs and secret), shown with its licence; one service at a time; disconnect.
   await view("settings");
+  await page.click("#mail-connect-ms");
+  await page.waitForSelector("#dlg >> text=User-PasswordProfile.ReadWrite.All");
+  await page.click("#dlg-actions >> text=Connect");
+  if (!(await page.textContent("#dlg")).includes("Fill in all four")) throw "Microsoft 365: empty fields not caught";
+  const msIds = ["11111111-2222-4333-8444-555555555555", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "Q~secret.value-0123456789", "acme365.test"];
+  for (const [i, v] of msIds.entries()) await page.fill(`#dlg input >> nth=${i}`, v);
+  await page.fill("#dlg input >> nth=4", "so");
+  await page.click("#dlg-actions >> text=Connect");
+  await page.waitForSelector("#mail >> text=licence ENTERPRISEPACK");
+  const cms = state.calls.filter((c) => c.op === "connect-mail").pop();
+  if (cms.provider !== "microsoft" || cms.tenant_id !== msIds[0] || cms.client_id !== msIds[1] || cms.client_secret !== msIds[2] ||
+      cms.domain !== "acme365.test" || cms.usage_location !== "SO") throw "connect-mail microsoft " + JSON.stringify(cms);
+  if (!(await page.textContent("#app-msg")).includes("ENTERPRISEPACK (4 free now)")) throw "Microsoft 365: the licence not said";
+  if (!(await page.locator("#mail-connect.hidden").count())) throw "Google's Connect still offered with Microsoft 365 connected";
+  if (!(await page.textContent("#mail-connect-ms")).includes("new secret")) throw "Microsoft 365: Connect again";
+  await page.click("#mail-disconnect");
+  await page.waitForSelector("#mail-connect:not(.hidden)");
+  if (state.mail !== null) throw "Microsoft 365 not disconnected";
+  // 2.8e: connect Google Workspace, a new person with a mailbox, a new Google password, removing with the mailbox deleted.
   if (!(await page.textContent("#mail-connect")).includes("Connect Google Workspace")) throw "mail card";
   await page.click("#mail-connect");
   await page.setInputFiles("#dlg input[type=file]", { name: "key.json", mimeType: "application/json",
@@ -446,6 +472,12 @@ function reply(b) {
   await page.waitForTimeout(300);
   if (!last("revoke-code") || last("revoke-code").code_id !== "c1") throw "revoke-code " + JSON.stringify(last("revoke-code"));
   if (await page.locator("#codes-box:not(.hidden)").count()) throw "a withdrawn code is still listed";
+  // A new code: only the code to type (Kulan's own server is built in), with Copy.
+  await page.click("#make-code");
+  await page.waitForSelector("#code-box:not(.hidden)");
+  if ((await page.textContent("#code")) !== "ABCD-EFGH-JKLM") throw "join code shown as " + await page.textContent("#code");
+  if (!(await page.textContent("#code-label")).startsWith("Join code")) throw "join code label " + await page.textContent("#code-label");
+  if (!(await page.textContent("#copy-code")).includes("Copy code")) throw "no Copy code";
   await page.click("#add-close");
   if (errors.length) throw "page errors: " + errors.join("; ");
   await page.setViewportSize({ width: 390, height: 800 });

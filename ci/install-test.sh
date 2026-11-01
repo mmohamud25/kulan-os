@@ -220,6 +220,12 @@ elif [[ -n "${UP}" ]]; then
 else
 	result info "Restore point before updates" "not reported"
 fi
+DNS="$(field "$(report 2)" dns)"
+if [[ "${DNS}" == "../run/systemd/resolve/stub-resolv.conf active "* ]]; then
+	result pass "Encrypted DNS ready" "the installed system looks names up through systemd-resolved (${DNS##* })"
+else
+	result fail "Encrypted DNS ready" "resolv.conf and systemd-resolved after installing: ${DNS:-not reported}"
+fi
 SPACE="$(field "$(report 1)" spacecheck)"
 if [[ "${SPACE}" == ok ]]; then
 	result pass "Free-space check" "Software Update's check before installing reads apt's plan without errors"

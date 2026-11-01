@@ -177,8 +177,29 @@ case "\${PHASE}" in
 		;;
 	on)
 		how
-		if [ -e /var/lib/kulan-signed-test-tpm ]; then
+		if [ -e /var/lib/kulan-signed-test-undo ]; then
+			# Started through "Undo the last update" (no restore point in this test:
+			# it says so and start-up carries on).
+			# Once the desktop has lasted a minute, the file loses its try counter and the menu isn't asked for.
+			for _ in \$(seq 50); do ls /boot/efi/EFI/Linux | grep -qE '[+][0-9]+(-[0-9]+)?[.]efi\$' || break; sleep 3; done
+			say "blessed=\$(ls /boot/efi/EFI/Linux | tr '\n' ' ') menu_after=\$(efitext \$V/LoaderConfigTimeoutOneShot-\$G)"
+			say "undo_started=\$(grep -c 'kulan.undo-update' /proc/cmdline) undo_service=\$(journalctl -b -u kulan-undo-at-start.service -o cat --no-pager 2>/dev/null | grep -c "There's no restore point") entry=\$(efitext \$V/LoaderEntrySelected-\$G)"
 			say "done"
+			exit 0
+		fi
+		if [ -e /var/lib/kulan-signed-test-tpm ]; then
+			touch /var/lib/kulan-signed-test-undo
+			V=/sys/firmware/efi/efivars; G=4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
+			# The signed file has the undo entry; this start-up asked for the menu next time.
+			for _ in \$(seq 15); do [ -e \$V/LoaderConfigTimeoutOneShot-\$G ] && break; sleep 2; done
+			journalctl -b -u kulan-boot-ok.service -o cat --no-pager 2>/dev/null | tail -n 3 | sed 's/^/KULAN-SIGNED-TEST boot-ok: /'
+			say "undo_profile=\$(grep -ac 'TITLE=Undo the last update' /boot/efi/EFI/Linux/kulan-*.efi | paste -sd, -) menu_asked=\$(efitext \$V/LoaderConfigTimeoutOneShot-\$G) default=\$(sed -n 's/^default //p' /boot/efi/loader/loader.conf)"
+			# Start through it once, as choosing it in the menu does (systemd-boot matches
+			# the one-shot entry as a pattern: the newest file's undo entry, whatever its try counter).
+			TMP=\$(mktemp)
+			{ printf '\\007\\000\\000\\000'; printf '%s' "kulan-*@undo" | iconv -f UTF-8 -t UTF-16LE; printf '\\000\\000'; } >\$TMP
+			cat \$TMP > \$V/LoaderEntryOneShot-\$G; say "oneshot=\$?"
+			restart
 			exit 0
 		fi
 		touch /var/lib/kulan-signed-test-tpm
@@ -409,6 +430,20 @@ if grep -qx 'tpm_on_exit=0' <<<"${STEPS}" && grep -qx 'key_removed=0' <<<"${STEP
 	result pass "TPM unlock on" "with the signed start-up (PCR 7), test key removed, start-up files signed again"
 else
 	result fail "TPM unlock on" "$(grep -E '^(tpm_on_exit|key_removed|rebuilt)=' <<<"${STEPS}" | tr '\n' ' ')"
+fi
+UNDO_FILE="$(grep '^undo_profile=' <<<"${STEPS}" | head -n 1)"
+UNDO_START="$(grep '^undo_started=' <<<"${STEPS}" | head -n 1)"
+if [[ "${UNDO_FILE}" =~ ^undo_profile=([1-9][0-9]*,?)+\ menu_asked=10\ default=kulan-\*\.efi$ && "${UNDO_START}" == "undo_started=1 undo_service=1 "* ]]; then
+	result pass "Undo the last update" "the signed file has the entry, the menu shows after a start that didn't reach the desktop, and choosing it starts the undo (${UNDO_START##* })"
+else
+	result fail "Undo the last update" "${UNDO_FILE:-no undo entry checked}; ${UNDO_START:-the undo entry never started}"
+fi
+BLESSED="$(grep '^blessed=' <<<"${STEPS}" | head -n 1)"
+COUNTED='[+][0-9]+(-[0-9]+)?[.]efi( |$)'
+if [[ "${BLESSED}" == blessed=* && ! "${BLESSED}" =~ ${COUNTED} && "${BLESSED}" == *"menu_after=" ]]; then
+	result pass "Start-up noted as good" "after a minute on the desktop the signed file lost its try counter and no menu is asked for (${BLESSED#blessed=})"
+else
+	result fail "Start-up noted as good" "${BLESSED:-not checked}"
 fi
 if grep -qx 'done' <<<"${STEPS}"; then
 	LAST="$(grep '^loader=' <<<"${STEPS}" | tail -n 1)"

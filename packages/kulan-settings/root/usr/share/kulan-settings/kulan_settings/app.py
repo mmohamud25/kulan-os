@@ -1,6 +1,7 @@
 """Kulan Settings: the window, sidebar and command line."""
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import sys
@@ -19,7 +20,7 @@ from .assistant import AssistantPage
 from .backups import BackupsPage
 from .battery import BatteryPage
 from .bluetooth import BluetoothPage
-from .common import Helper, open_gnome_panel
+from .common import Helper, in_thread, open_gnome_panel
 from .dateandtime import DateTimePage
 from .desktop import DesktopPage
 from .display import DisplayPage
@@ -42,7 +43,7 @@ from .sound import SoundPage
 from .storage import StoragePage
 from .topbar import TopBarPage
 from .updates import UpdatesPage
-from .users import UsersPage
+from .users import ProfilePage, UsersPage, my_picture
 from .wifi import WifiPage
 
 APP_ID = "org.kulan.Settings"
@@ -51,6 +52,8 @@ APP_ID = "org.kulan.Settings"
 # Related pages sit together, as in a Mac's System Settings; GROUP_STARTS
 # marks the first page of each group, which gets a little space above it.
 PAGES = [
+    # You (2.12): your picture and name at the top, as on a Mac
+    ("profile", ProfilePage),
     # Connections
     ("wifi", WifiPage),
     ("bluetooth", BluetoothPage),
@@ -93,7 +96,9 @@ PAGES = [
     ("help", HelpPage),
     ("about", AboutPage),
 ]
-GROUP_STARTS = {"sound", "appearance", "battery", "security", "keyboard", "date-time"}
+GROUP_STARTS = {"wifi", "sound", "appearance", "battery", "security", "keyboard", "date-time"}
+# What Kulan Settings opens at when no page is asked for.
+DEFAULT_PAGE = "wifi"
 
 # Each page's tile colour in the sidebar (2.4 look): a white symbol on a
 # rounded square, like a Mac's System Settings.
@@ -149,7 +154,7 @@ class SettingsWindow(Adw.ApplicationWindow):
         self.sidebar_list.connect("row-activated", self.on_row)
         self.rows: dict[str, Gtk.ListBoxRow] = {}
         for page_id, cls in PAGES:
-            row = self.sidebar_row(cls.title, cls.icon, page_id=page_id)
+            row = self.profile_row() if page_id == "profile" else self.sidebar_row(cls.title, cls.icon, page_id=page_id)
             row.page_id = page_id
             row.keywords = " ".join((cls.title, *cls.keywords)).lower()
             self.rows[page_id] = row
@@ -239,6 +244,37 @@ class SettingsWindow(Adw.ApplicationWindow):
                             [f"{title} (opens the Settings app)" if external else title])
         return row
 
+    def profile_row(self) -> Gtk.ListBoxRow:
+        """You, at the top of the sidebar: your picture and name (Profile)."""
+        self.profile_avatar = Adw.Avatar(size=40, show_initials=True, valign=Gtk.Align.CENTER)
+        self.profile_name = Gtk.Label(xalign=0, ellipsize=3, css_classes=["heading"])
+        words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, hexpand=True)
+        words.append(self.profile_name)
+        words.append(Gtk.Label(label="Profile", xalign=0, css_classes=["caption", "dim-label"]))
+        box = Gtk.Box(spacing=10, margin_top=6, margin_bottom=8, margin_start=2, margin_end=6)
+        box.append(self.profile_avatar)
+        box.append(words)
+        row = Gtk.ListBoxRow(child=box)
+        row.update_property([Gtk.AccessibleProperty.LABEL], ["Profile: your picture, name and password"])
+        self.update_profile()
+        return row
+
+    def update_profile(self) -> None:
+        name = GLib.get_real_name()
+        if not name or name == "Unknown":
+            name = GLib.get_user_name()
+        self.profile_name.set_label(name)
+        self.profile_avatar.set_text(name)
+
+        def load() -> Gdk.Texture | None:
+            path = my_picture()
+            try:
+                return Gdk.Texture.new_from_filename(path) if path else None
+            except GLib.Error:
+                return None
+        # The accounts service writes the new file a moment after it answers.
+        in_thread(load, lambda texture: self.profile_avatar.set_custom_image(texture), page=None)
+
     def group_gap(self, row: Gtk.ListBoxRow, before: Gtk.ListBoxRow | None) -> None:
         """A little space above the first page of each group (none while searching)."""
         gap = (before is not None and getattr(row, "page_id", None) in GROUP_STARTS
@@ -321,7 +357,7 @@ class KulanSettings(Adw.Application):
             return self.self_test(window)
         if options.get("check"):
             page_id = "updates"
-        window.show_page(page_id or window.current or PAGES[0][0])
+        window.show_page(page_id or window.current or DEFAULT_PAGE)
         window.present()
         if options.get("check"):
             GLib.idle_add(lambda: window.pages["updates"].check() and False)
@@ -450,6 +486,55 @@ class KulanSettings(Adw.Application):
             assert "filter_connections(" not in open(wifi_page.__file__).read(), "NMDevice.filter_connections is back"
         except (AssertionError, AttributeError) as exc:
             failures.append(f"wifi: {exc!r}")
+        try:  # Fingerprint (2.12): a stand-in fprintd on the session bus, the whole flow
+            fingerprint_self_test(window)
+        except (AssertionError, GLib.Error, KeyError, AttributeError) as exc:
+            failures.append(f"fingerprint: {exc!r}")
+        try:  # Profile (2.12): any picture becomes a square PNG the accounts service can read; you at the top
+            from . import users
+            from gi.repository import GdkPixbuf
+            src = os.path.join(tempfile.mkdtemp(prefix="kulan-pic-"), "wide photo.jpg")
+            wide = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 1600, 900)
+            wide.fill(0x0d9488ff)
+            wide.savev(src, "jpeg", [], [])
+            os.chmod(src, 0o600)
+            made = users.prepare_picture(src)
+            assert made and made != src, "no picture made"
+            out = GdkPixbuf.Pixbuf.new_from_file(made)
+            assert (out.get_width(), out.get_height()) == (512, 512), (out.get_width(), out.get_height())
+            assert os.stat(made).st_mode & 0o777 == 0o644, oct(os.stat(made).st_mode)
+            os.unlink(made)
+            with open(src, "w") as fh:
+                fh.write("not a picture")
+            assert users.prepare_picture(src) is None, "a text file taken as a picture"
+            assert window.profile_name.get_label(), "no name at the top of the sidebar"
+            assert window.sidebar_list.get_row_at_index(0) is window.rows["profile"], "Profile isn't first"
+            window.show_page("profile")
+        except (AssertionError, GLib.Error, OSError, KeyError) as exc:
+            failures.append(f"profile: {exc!r}")
+        try:  # Restart to finish updating, Mac-style (2.12): asked as soon as an install that needs one ends
+            from . import updates
+            window.show_page("updates")
+            page = window.pages["updates"]
+            note = os.path.join(GLib.get_user_runtime_dir(), updates.RESTART_ASKED_NOTE)
+            with contextlib.suppress(OSError):
+                os.unlink(note)
+            run, needed = window.helper.run, page.restart_needed
+            window.helper.run = lambda *_a, on_done=None, **_k: on_done and on_done(True)
+            try:
+                page.restart_needed = lambda: []
+                page.install()
+                assert not os.path.exists(note), "asked to restart though none is needed"
+                page.restart_needed = lambda: ["Linux"]
+                page.install()
+                assert os.path.exists(note), "not asked to restart after an install that needs one"
+                os.unlink(note)
+                page.run(["check"], "Checking…", None)
+                assert not os.path.exists(note), "asked to restart after a check"
+            finally:
+                window.helper.run, page.restart_needed = run, needed
+        except (AssertionError, KeyError, OSError) as exc:
+            failures.append(f"updates: restart {exc!r}")
         try:  # Connected the first time (2.11): hotspot code, models for the memory, accounts in words
             from . import accounts, assistant, netextras
             assert netextras.wifi_qr_text("Home;Net", "p:w\\1") == "WIFI:T:WPA;S:Home\\;Net;P:p\\:w\\\\1;;"
@@ -483,3 +568,104 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+
+
+FPRINT_XML = """<node>
+<interface name="net.reactivated.Fprint.Manager"><method name="GetDefaultDevice"><arg type="o" direction="out"/></method></interface>
+<interface name="net.reactivated.Fprint.Device">
+<method name="ListEnrolledFingers"><arg type="s" direction="in"/><arg type="as" direction="out"/></method>
+<method name="Claim"><arg type="s" direction="in"/></method><method name="Release"/>
+<method name="EnrollStart"><arg type="s" direction="in"/></method><method name="EnrollStop"/>
+<method name="DeleteEnrolledFingers2"/>
+<signal name="EnrollStatus"><arg type="s"/><arg type="b"/></signal>
+</interface>
+<interface name="org.freedesktop.DBus.Properties">
+<method name="Get"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="v" direction="out"/></method>
+</interface></node>"""
+
+
+def fingerprint_self_test(window) -> None:
+    """Kulan Settings › Profile › Fingerprint against a stand-in fprintd: finds the
+    reader, adds a finger touch by touch (with a bad touch), lists it, removes all,
+    and always releases the reader."""
+    from . import users
+    os.environ["KULAN_FPRINT_BUS"] = "session"
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    node = Gio.DBusNodeInfo.new_for_xml(FPRINT_XML)
+    dev_path = "/net/reactivated/Fprint/Device/0"
+    fake = {"fingers": [], "claimed": False, "calls": []}
+
+    def emit(result: str, done: bool) -> bool:
+        bus.emit_signal(None, dev_path, "net.reactivated.Fprint.Device", "EnrollStatus",
+                        GLib.Variant("(sb)", (result, done)))
+        return False
+
+    def handle(_conn, _sender, path, iface, method, params, inv) -> None:
+        fake["calls"].append(method)
+        if method == "GetDefaultDevice":
+            inv.return_value(GLib.Variant("(o)", (dev_path,)))
+        elif method == "Get":
+            inv.return_value(GLib.Variant("(v)", (GLib.Variant("i", 3),)))
+        elif method == "ListEnrolledFingers":
+            if fake["fingers"]:
+                inv.return_value(GLib.Variant("(as)", (list(fake["fingers"]),)))
+            else:
+                inv.return_dbus_error("net.reactivated.Fprint.Error.NoEnrolledPrints", "none")
+        elif method == "Claim":
+            fake["claimed"] = True
+            inv.return_value(None)
+        elif method == "Release":
+            fake["claimed"] = False
+            inv.return_value(None)
+        elif method == "EnrollStart":
+            assert fake["claimed"], "enrolling without claiming the reader"
+            finger = params.unpack()[0]
+            inv.return_value(None)
+            for n, (result, done) in enumerate((("enroll-stage-passed", False), ("enroll-retry-scan", False),
+                                                ("enroll-stage-passed", False), ("enroll-completed", True)), 1):
+                GLib.timeout_add(40 * n, emit, result, done)
+            GLib.timeout_add(170, lambda: (fake["fingers"].append(finger), False)[1])
+        elif method in ("EnrollStop",):
+            inv.return_value(None)
+        elif method == "DeleteEnrolledFingers2":
+            fake["fingers"].clear()
+            inv.return_value(None)
+    ids = [bus.register_object("/net/reactivated/Fprint/Manager", node.lookup_interface("net.reactivated.Fprint.Manager"),
+                               handle, None, None)]
+    for iface in ("net.reactivated.Fprint.Device", "org.freedesktop.DBus.Properties"):
+        ids.append(bus.register_object(dev_path, node.lookup_interface(iface), handle, None, None))
+    owner = Gio.bus_own_name_on_connection(bus, "net.reactivated.Fprint", Gio.BusNameOwnerFlags.NONE, None, None)
+
+    def wait(cond, seconds: float = 4) -> bool:
+        ctx = GLib.MainContext.default()
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not cond():
+            ctx.iteration(False)
+            time.sleep(0.01)
+        return cond()
+    try:
+        window.show_page("profile")
+        page = window.pages["profile"]
+        found = []
+        page.reader.find(found.append)
+        assert wait(lambda: found) and found == [True] and page.reader.stages == 3, ("no reader found", found)
+        page.show_fingers()
+        assert wait(lambda: page.finger_rows) and "None yet" in page.finger_rows[0].get_subtitle(), "no fingerprints shown"
+        page.add_finger([])
+        page.finger_start.emit("clicked")
+        assert wait(lambda: page.finger_start.get_label() == "Done"), page.finger_words.get_label()
+        assert wait(lambda: not fake["claimed"]), "the reader wasn't released after adding"
+        assert "EnrollStop" in fake["calls"], fake["calls"]
+        assert wait(lambda: page.finger_rows and "Right index finger" in page.finger_rows[0].get_subtitle()), \
+            "the new fingerprint isn't listed"
+        page.finger_dialog.force_close()
+        done = []
+        page.reader.delete_all(done.append)
+        assert wait(lambda: done and not fake["claimed"]) and done == [None] and not fake["fingers"], (done, fake)
+        assert users.fingerprint.plain(GLib.Error("net.reactivated.Fprint.Error.PermissionDenied: x")) == \
+            "Permission wasn’t given"
+    finally:
+        Gio.bus_unown_name(owner)
+        for i in ids:
+            bus.unregister_object(i)
+        os.environ.pop("KULAN_FPRINT_BUS", None)

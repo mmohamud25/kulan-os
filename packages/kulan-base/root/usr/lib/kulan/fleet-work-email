@@ -2,7 +2,8 @@
 """At sign-in (Kulan Fleet 2.8e): if your organisation made you a work
 mailbox and you haven't connected it, offer to, once a day. Connect opens
 Settings › Online Accounts › Google; once the account is there, the mail app
-(Geary) opens with it. Nothing otherwise."""
+(Geary) opens with it. Microsoft 365 (2.12): Open opens the mailbox in
+Outlook on the web, which is all it takes. Nothing otherwise."""
 import os
 import pwd
 import subprocess
@@ -21,6 +22,8 @@ except Exception:  # never in the way of signing in
 if not mail:
     sys.exit(0)
 
+MICROSOFT = mail.get("provider") == "microsoft"
+
 try:
     from gi.repository import Gio, GLib
 except ImportError:  # no desktop session here
@@ -31,10 +34,13 @@ try:
     (nid,) = bus.call_sync(
         "org.freedesktop.Notifications", "/org/freedesktop/Notifications", "org.freedesktop.Notifications", "Notify",
         GLib.Variant("(susssasa{sv}i)", (
-            "Kulan Settings", 0, "mail-unread-symbolic", "Connect your work email",
+            "Kulan Settings", 0, "mail-unread-symbolic", "Your work email" if MICROSOFT else "Connect your work email",
+            f"Your organisation set up {mail['address']} for you in Microsoft 365. Open it, and sign in to read your "
+            "mail in Outlook on the web." if MICROSOFT else
             f"Your organisation set up {mail['address']} for you. Connect it to get your mail, calendar, "
             "contacts and Google Drive here.",
-            ["connect", "Connect", "default", "Connect", "later", "Not now"],
+            ["connect", "Open" if MICROSOFT else "Connect", "default", "Open" if MICROSOFT else "Connect",
+             "later", "Not now"],
             {"urgency": GLib.Variant("y", 1), "desktop-entry": GLib.Variant("s", "org.kulan.Settings")}, 0)),
         GLib.VariantType("(u)"), Gio.DBusCallFlags.NONE, 10_000, None).unpack()
 except GLib.Error:
@@ -70,6 +76,10 @@ waiting = []  # set once Connect was pressed: the notification closing then does
 def on_signal(_conn, _sender, _path, _iface, signal, params):
     values = params.unpack()
     if values[0] != nid or waiting:
+        return
+    if signal == "ActionInvoked" and values[1] in ("connect", "default") and MICROSOFT:
+        workmail.connect(mail, Path(me.pw_dir))  # Outlook on the web: nothing to wait for
+        loop.quit()
         return
     if signal == "ActionInvoked" and values[1] in ("connect", "default"):
         try:

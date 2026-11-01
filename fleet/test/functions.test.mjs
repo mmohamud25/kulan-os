@@ -59,7 +59,7 @@ const authCalls = [];
 const wakes = [];
 const cf = { down: false, calls: [] };
 const env = { SUPABASE_DB_URL: DB, SUPABASE_URL: "http://auth.test", SUPABASE_ANON_KEY: "anon",
-              SUPABASE_SERVICE_ROLE_KEY: "service", FLEET_FACTOR_KEY: btoa("k".repeat(32)) };
+              SUPABASE_SERVICE_ROLE_KEY: "service", FLEET_FACTOR_KEY: btoa("k".repeat(32)), FLEET_MS_SETTLE_MS: "5,5" };
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === "http://auth.test/auth/v1/user") {
@@ -84,6 +84,7 @@ globalThis.fetch = async (url, init) => {
     return new Response(JSON.stringify(authFactors[email] ?? []), { status: 200 });
   }
   if (u.startsWith("https://oauth2.googleapis.com/") || u.startsWith("https://admin.googleapis.com/")) return fakeGoogle(u, init);
+  if (u.startsWith("https://login.microsoftonline.com/") || u.startsWith("https://graph.microsoft.com/")) return fakeMicrosoft(u, init);
   // Stand-in Supabase Realtime (the wake broadcasts) and Cloudflare's relay credentials (2.9a).
   if (u === "http://auth.test/realtime/v1/api/broadcast") {
     if (new Headers(init?.headers).get("Authorization") !== "Bearer service") return new Response("{}", { status: 401 });
@@ -167,6 +168,140 @@ async function fakeGoogle(u, init) {
   }
   return gjson(400, { error: { message: "bad request" } });
 }
+// Stand-in Microsoft (2.12): Entra's token endpoint checks the app's tenant,
+// client ID and secret; Graph keeps users, licences and admin roles in memory.
+// mstate.down makes Microsoft unreachable; mstate.consented: the app's
+// permissions were given.
+const MS = { tenant: "11111111-2222-4333-8444-555555555555", client: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+             secret: "Q~t3st.Secret_value-0123456789abcd", sku: "6fd2c87f-b296-42f0-b197-1e91e994b900" };
+const mstate = { down: false, consented: true, users: new Map(), admins: new Set(), eligible: new Set(), roleGroups: new Map(),
+                 lag: 0, calls: [], tokens: 0, ids: 0,
+                 skus: [{ skuId: "f8a1db68-be16-40ed-86d5-cb42ce701560", skuPartNumber: "POWER_BI_STANDARD", prepaidUnits: { enabled: 1000000 },
+                          consumedUnits: 0, servicePlans: [{ servicePlanName: "EXCHANGE_S_FOUNDATION" }, { servicePlanName: "BI_AZURE_P0" }] },
+                        { skuId: "11111111-0000-4000-8000-00000000dead", skuPartNumber: "OLD_E3", capabilityStatus: "Suspended",
+                          prepaidUnits: { enabled: 50 }, consumedUnits: 0, servicePlans: [{ servicePlanName: "EXCHANGE_S_ENTERPRISE" }] },
+                        { skuId: MS.sku, skuPartNumber: "ENTERPRISEPACK", prepaidUnits: { enabled: 3 }, consumedUnits: 0,
+                          servicePlans: [{ servicePlanName: "EXCHANGE_S_ENTERPRISE" }, { servicePlanName: "SHAREPOINTENTERPRISE" }] },
+                        { skuId: "c5928f49-12ba-48f7-ada3-0d743a3601d5", skuPartNumber: "VISIOCLIENT", prepaidUnits: { enabled: 9 },
+                          consumedUnits: 0, servicePlans: [{ servicePlanName: "VISIO_CLIENT_SUBSCRIPTION" }, { servicePlanName: "EXCHANGE_S_FOUNDATION" }] }],
+                 page: 999 };
+const mjson = (status, body) => new Response(body === undefined || status === 204 ? null : JSON.stringify(body), { status });
+const mshow = (x) => ({ id: x.id, userPrincipalName: x.userPrincipalName, mail: x.mail ?? x.userPrincipalName, displayName: x.displayName,
+                        accountEnabled: x.accountEnabled });
+async function fakeMicrosoft(u, init) {
+  if (mstate.down) throw new TypeError("fetch failed");
+  const method = init?.method ?? "GET";
+  mstate.calls.push(`${method} ${decodeURIComponent(u.replace(/^https:\/\/[^/]+/, ""))}`);
+  const tok = u.match(/^https:\/\/login\.microsoftonline\.com\/([^/]+)\/oauth2\/v2\.0\/token$/);
+  if (tok) {
+    const form = new URLSearchParams(String(init.body));
+    if (decodeURIComponent(tok[1]) !== MS.tenant) {
+      return mjson(400, { error: "invalid_request", error_description: "AADSTS90002: Tenant not found." });
+    }
+    if (form.get("client_id") !== MS.client) {
+      return mjson(400, { error: "unauthorized_client", error_description: "AADSTS700016: Application not found in the directory." });
+    }
+    if (form.get("client_secret") !== MS.secret) {
+      return mjson(401, { error: "invalid_client", error_description: "AADSTS7000215: Invalid client secret provided." });
+    }
+    if (form.get("grant_type") !== "client_credentials" || form.get("scope") !== "https://graph.microsoft.com/.default") {
+      return mjson(400, { error: "invalid_scope", error_description: "AADSTS70011" });
+    }
+    mstate.tokens++;
+    return mjson(200, { access_token: "eyMS.test", expires_in: 3599, token_type: "Bearer" });
+  }
+  if (new Headers(init?.headers).get("Authorization") !== "Bearer eyMS.test") return mjson(401, { error: { message: "InvalidAuthenticationToken" } });
+  if (!mstate.consented) return mjson(403, { error: { code: "Authorization_RequestDenied", message: "Insufficient privileges to complete the operation." } });
+  const url = new URL(u);
+  const p = url.pathname.replace(/^\/v1\.0/, "");
+  const body = init?.body ? JSON.parse(init.body) : {};
+  for (const x of mstate.users.values()) x.id ??= `0000000${++mstate.ids}-0000-4000-8000-000000000000`.slice(-36);
+  const find = (key) => [...mstate.users.values()].find((x) => x.id === key);
+  if (p === "/subscribedSkus" && method === "GET") return mjson(200, { value: mstate.skus });
+  for (const [kind, set] of [["roleAssignments", mstate.admins], ["roleEligibilityScheduleInstances", mstate.eligible]]) {
+    if (p === `/roleManagement/directory/${kind}` && method === "GET") {
+      if (mstate.noRoles) return mjson(403, { error: { code: "Authorization_RequestDenied", message: "Insufficient privileges to complete the operation." } });
+      const f = (url.searchParams.get("$filter") ?? "").match(/^principalId eq '([^']+)'$/);
+      const ids = [...set, ...[...mstate.roleGroups.keys()].filter(() => kind === "roleAssignments")];
+      const all = ids.map((id, i) => ({ id: `ra${i}`, principalId: id, roleDefinitionId: "62e90394-69f5-4237-9190-012177145e10" }));
+      return mjson(200, { value: f ? all.filter((a) => a.principalId === f[1]) : all });
+    }
+  }
+  if (p === "/groups" && method === "GET") return mjson(200, { value: [...mstate.roleGroups.keys()].map((id) => ({ id })) });
+  const tm = p.match(/^\/users\/([^/]+)\/transitiveMemberOf\/microsoft\.graph\.group$/);
+  if (tm) {
+    const uid = decodeURIComponent(tm[1]);
+    return mjson(200, { value: [...mstate.roleGroups].filter(([, members]) => members.has(uid)).map(([id]) => ({ id, isAssignableToRole: true })) });
+  }
+  if (p === "/users" && method === "GET" && url.searchParams.get("$filter")) {
+    // userPrincipalName eq 'x' or mail eq 'x' (quotes doubled), as Graph takes it.
+    const f = url.searchParams.get("$filter").match(/^userPrincipalName eq '((?:[^']|'')*)' or mail eq '((?:[^']|'')*)'$/);
+    if (!f) return mjson(400, { error: { code: "BadRequest", message: "Invalid filter clause" } });
+    const k = f[1].replaceAll("''", "'");
+    return mjson(200, { value: [...mstate.users.values()].filter((x) => x.userPrincipalName.toLowerCase() === k ||
+                                                                       (x.mail ?? "").toLowerCase() === k).map(mshow) });
+  }
+  if (p === "/users" && method === "GET") {
+    const all = [...mstate.users.values()].sort((a, b) => a.id.localeCompare(b.id));
+    const from = Number(url.searchParams.get("$skiptoken") ?? 0);
+    const page = all.slice(from, from + mstate.page);
+    const more = from + mstate.page < all.length;
+    return mjson(200, { value: page.map(mshow), ...(more ? { "@odata.nextLink": `https://graph.microsoft.com/v1.0/users?$skiptoken=${from + mstate.page}` } : {}) });
+  }
+  if (p === "/users" && method === "POST") {
+    if (find(body.userPrincipalName)) {
+      return mjson(400, { error: { code: "Request_BadRequest", message: "Another object with the same value for property userPrincipalName already exists." } });
+    }
+    const pw = body.passwordProfile?.password ?? "";
+    if ([/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/].filter((r) => r.test(pw)).length < 3 || pw.length < 8) {
+      return mjson(400, { error: { code: "Request_BadRequest", message: "The specified password does not comply with password complexity requirements." } });
+    }
+    const x = { ...body, id: `0000000${++mstate.ids}-0000-4000-8000-000000000000`.slice(-36), licences: [] };
+    mstate.users.set(x.userPrincipalName.toLowerCase(), x);
+    return mjson(201, mshow(x));
+  }
+  const m = p.match(/^\/users\/([^/]+)(?:\/(assignLicense|revokeSignInSessions))?$/);
+  if (!m) return mjson(404, { error: { message: "Resource not found for the segment" } });
+  const x = find(decodeURIComponent(m[1]));
+  // Just made: Microsoft doesn't know it everywhere yet.
+  if (x && mstate.lag > 0) {
+    mstate.lag--;
+    return mjson(404, { error: { code: "Request_ResourceNotFound", message: `Resource '${m[1]}' does not exist.` } });
+  }
+  if (!x) return mjson(404, { error: { code: "Request_ResourceNotFound", message: `Resource '${m[1]}' does not exist.` } });
+  if (m[2] === "assignLicense" && method === "POST") {
+    if (mstate.failAssign) return mjson(400, { error: { message: "License assignment failed because service plans are not available." } });
+    for (const l of body.addLicenses ?? []) {
+      const sku = mstate.skus.find((k) => k.skuId === l.skuId);
+      if (!sku || sku.consumedUnits >= sku.prepaidUnits.enabled) {
+        return mjson(400, { error: { code: "Request_BadRequest", message: "License assignment failed because service plans are not available." } });
+      }
+      if (!x.usageLocation) return mjson(400, { error: { message: "License assignment cannot be done for user with invalid usage location." } });
+      sku.consumedUnits++;
+      x.licences.push(l.skuId);
+    }
+    return mjson(200, mshow(x));
+  }
+  if (m[2] === "revokeSignInSessions" && method === "POST") {
+    x.revoked = (x.revoked ?? 0) + 1;
+    return mjson(200, { value: true });
+  }
+  if (method === "GET") return mjson(200, mshow(x));
+  const privileged = mstate.admins.has(x.id) || mstate.eligible.has(x.id) || [...mstate.roleGroups.values()].some((m) => m.has(x.id));
+  if ((method === "PATCH" && ("accountEnabled" in body || "passwordProfile" in body) || method === "DELETE") && privileged && !mstate.appIsAdmin) {
+    return mjson(403, { error: { code: "Authorization_RequestDenied", message: "Insufficient privileges to complete the operation." } });
+  }
+  if (method === "PATCH") {
+    Object.assign(x, body);
+    return mjson(204);
+  }
+  if (method === "DELETE") {
+    for (const s of x.licences ?? []) mstate.skus.find((k) => k.skuId === s).consumedUnits--;
+    mstate.users.delete(x.userPrincipalName.toLowerCase());
+    return mjson(204);
+  }
+  return mjson(400, { error: { message: "bad request" } });
+}
 const run = path.join(here, ".run");
 fs.mkdirSync(run, { recursive: true });
 for (const name of ["fleet", "fleet-admin"]) {
@@ -181,7 +316,9 @@ for (const name of ["fleet", "fleet-admin"]) {
   // actions.ts and secrets.ts (2.9b): the same in both too.
   for (const f of ["actions.ts", "secrets.ts"]) fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, f), path.join(run, f));
   if (name === "fleet-admin") {
-    fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, "google.ts"), path.join(run, "google.ts"));
+    for (const f of ["google.ts", "microsoft.ts", "mail.ts"]) {
+      fs.copyFileSync(path.join(here, "..", "supabase", "functions", name, f), path.join(run, f));
+    }
   }
   serving = name;
   await import(file);
@@ -1010,7 +1147,7 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.status === 200 && (await db`select 1 from fleet.mail_connections`).length === 0, "disconnected: the key is gone", r);
   ok((await row("deqa")).mailbox_todo === "suspend", "what was left to do is kept after disconnecting (still an alert)");
   r = await admin(HELPER, { op: "mailbox", person_id: deqa, action: "retry" });
-  ok(r.body.mailbox_error === "Google Workspace isn't connected", "retrying says why it can't", r.body);
+  ok(r.body.mailbox_error === "work email isn't connected (Google Workspace or Microsoft 365)", "retrying says why it can't", r.body);
   ok(!("mail" in (await accountOf(A, "sahra2"))) && !(await report(A)).body.policy.required_apps?.some((x) => x.id === "geary"),
      "the computers stop offering work email", 0);
   r = await admin(HELPER, { op: "remove-person", person_id: kofi, confirm: "kofi" });
@@ -1018,8 +1155,225 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(gstate.tokens === 1, "Google's access token is reused, not asked for every call", gstate.tokens);
 }
 
+// --- Microsoft 365 mailboxes (2.12) ---------------------------------------------------------
+{
+  const accountOf = async (c, who) => (await report(c)).body.accounts.find((x) => x.username === who);
+  const row = async (who) => (await db`select mailbox, mailbox_state, mailbox_todo, mailbox_error, mailbox_google_id, enabled
+                                       from fleet.people where organisation_id = ${org} and username = ${who}`)[0];
+  const APP = { tenant_id: MS.tenant, client_id: MS.client, client_secret: MS.secret, domain: "acme365.test", usage_location: "so" };
+  const connect = (who, extra = {}) => admin(who, { op: "connect-mail", organisation_id: org, provider: "microsoft", ...APP, ...extra });
+  r = await connect(HELPER);
+  ok(r.status === 403 && r.body.error.includes("Microsoft 365"), "only the Owner connects Microsoft 365", r);
+  // Google Workspace's mailboxes from before are still People's: unlinked first.
+  r = await connect(NEWOWNER);
+  ok(r.status === 409 && r.body.error.includes("Google Workspace mailbox") && r.body.error.includes("Unlink"),
+     "switching services: the old mailboxes are unlinked first", r.body);
+  for (const x of await db`select id, removed_at from fleet.people where organisation_id = ${org} and mailbox is not null
+                            and mailbox_state is distinct from 'deleted' and (removed_at is null or mailbox_todo is not null)`) {
+    r = await admin(NEWOWNER, { op: "mailbox", person_id: x.id, action: x.removed_at ? "forget" : "unlink" });
+    ok(r.status === 200, "unlinked (removed people's left to do: stopped)", r);
+  }
+  r = await connect(NEWOWNER, { tenant_id: "not-a-guid" });
+  ok(r.status === 400 && r.body.error.includes("Directory (tenant) ID") && r.body.permissions?.includes("User.ReadWrite.All"),
+     "the IDs must be the app's, with the permissions it needs", r.body);
+  r = await connect(NEWOWNER, { tenant_id: "99999999-2222-4333-8444-555555555555" });
+  ok(r.status === 400 && r.body.error.includes("no tenant"), "a tenant Microsoft doesn't have", r.body);
+  r = await connect(NEWOWNER, { client_secret: "Q~wrong.Secret_value-0123456789abcd" });
+  ok(r.status === 400 && r.body.error.includes("client secret"), "a secret Microsoft doesn't accept: says which value to copy", r.body);
+  mstate.consented = false;
+  r = await connect(NEWOWNER);
+  ok(r.status === 400 && r.body.error.includes("admin consent"), "permissions not given yet: says which", r.body);
+  mstate.consented = true;
+  mstate.noRoles = true;
+  r = await connect(NEWOWNER);
+  ok(r.status === 400 && r.body.error.includes("RoleManagement.Read.Directory"), "no permission to see admin roles: says which", r.body);
+  mstate.noRoles = false;
+  const skus = mstate.skus;
+  // Only licences without a mailbox (Power BI and Visio carry Exchange's "foundation", not a mailbox), and a suspended one.
+  mstate.skus = skus.filter((k) => k.skuId !== MS.sku);
+  r = await connect(NEWOWNER);
+  ok(r.status === 400 && r.body.error.includes("no licence with a mailbox"), "no licence with Exchange Online: says so", r.body);
+  mstate.skus = skus;
+  ok((await db`select 1 from fleet.mail_connections`).length === 0, "nothing kept until it works");
+  r = await connect(NEWOWNER, { licence: "SPE_E5" });
+  ok(r.status === 400 && r.body.error.includes("no licence SPE_E5") && r.body.error.includes("ENTERPRISEPACK") &&
+     !r.body.error.includes("POWER_BI"), "a licence asked for that isn't there (or has no mailbox): says which there are", r.body);
+  r = await connect(NEWOWNER);
+  ok(r.status === 200 && r.body.domain === "acme365.test" && r.body.licence === "ENTERPRISEPACK" && r.body.free === 3,
+     "connected, with the licence that has email", r.body);
+  const tokensAtConnect = mstate.tokens;
+  const [mc] = await db`select provider, private_key, tenant_id, client_id, licence, usage_location from fleet.mail_connections
+                        where organisation_id = ${org}`;
+  ok(mc.provider === "microsoft" && mc.private_key.startsWith("m1:") && !mc.private_key.includes("Secret") &&
+     mc.tenant_id === MS.tenant && mc.licence === MS.sku && mc.usage_location === "SO", "the client secret is kept sealed",
+     { ...mc, private_key: mc.private_key.slice(0, 8) });
+  r = await admin(HELPER, { op: "mail", organisation_id: org });
+  ok(r.body.connection?.provider === "microsoft" && r.body.connection.licence_name === "ENTERPRISEPACK" &&
+     !JSON.stringify(r.body).includes("Secret") && !JSON.stringify(r.body).includes("m1:"), "admins see it, never the secret", r.body);
+  r = await admin(NEWOWNER, { op: "connect-mail", organisation_id: org, key: "{}", admin_email: "it@acme.test" });
+  ok(r.status === 409 && r.body.error.includes("Microsoft 365 is connected"), "one service at a time", r.body);
+
+  // A new person with a new mailbox: made, with the licence, a first password.
+  r = await add(HELPER, { username: "ayaanw", full_name: "Ayaan Warsame", mailbox: { action: "create", address: "Ayaanw@acme365.test" } });
+  ok(r.status === 200 && r.body.mailbox === "ayaanw@acme365.test" && /^([A-Za-z0-9]{4}-){3}[A-Za-z0-9]{4}$/.test(r.body.mailbox_password),
+     "added with a Microsoft 365 mailbox and a first password (shown once)", r.body);
+  const ayaan = r.body.id;
+  let x = mstate.users.get("ayaanw@acme365.test");
+  ok(x && x.givenName === "Ayaan" && x.surname === "Warsame" && x.displayName === "Ayaan Warsame" && x.mailNickname === "ayaanw" &&
+     x.usageLocation === "SO" && x.passwordProfile.forceChangePasswordNextSignIn === true &&
+     x.passwordProfile.password === r.body.mailbox_password && x.licences.includes(MS.sku),
+     "made in Microsoft 365: the name, the country, the licence, a new password at first sign-in", x);
+  ok((await row("ayaanw")).mailbox_google_id === x.id, "kept by Microsoft's own id");
+  r = await add(HELPER, { username: "ayaanw2", mailbox: { action: "create", address: "ayaanw@other.test" } });
+  ok(r.status === 200 && r.body.mailbox_error?.includes("acme365.test"), "made only on the connected domain", r.body);
+
+  // The computers: the work email; no Geary for it (it opens in Outlook on the web).
+  const a = await accountOf(A, "ayaanw");
+  ok(JSON.stringify(a.mail) === JSON.stringify({ address: "ayaanw@acme365.test", provider: "microsoft" }), "the computer gets it", a);
+  ok(!(await report(A)).body.policy.required_apps?.some((y) => y.id === "geary"), "and no mail app it can't use", 0);
+
+  // Disable and enable: signed out and blocked, then back.
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: ayaan, enabled: false });
+  x = mstate.users.get("ayaanw@acme365.test");
+  ok(r.status === 200 && x.accountEnabled === false && x.revoked === 1 && (await row("ayaanw")).mailbox_state === "suspended",
+     "disabled: the account blocked, signed out everywhere", { r: r.body, x });
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: ayaan, enabled: true });
+  ok(mstate.users.get("ayaanw@acme365.test").accountEnabled === true && (await row("ayaanw")).mailbox_state === "active", "enabled again");
+
+  // A new name, a new password.
+  r = await admin(HELPER, { op: "edit-person", person_id: ayaan, full_name: "Ayaan Cali Warsame" });
+  x = mstate.users.get("ayaanw@acme365.test");
+  ok(x.givenName === "Ayaan Cali" && x.surname === "Warsame" && x.displayName === "Ayaan Cali Warsame", "renamed in Microsoft 365 too", x);
+  r = await admin(HELPER, { op: "mailbox", person_id: ayaan, action: "new-password" });
+  ok(r.status === 200 && mstate.users.get("ayaanw@acme365.test").passwordProfile.password === r.body.mailbox_password,
+     "a new password, changed at next sign-in", r.body);
+
+  // An admin account (an Entra role): only the Owner changes it.
+  mstate.users.set("it@acme365.test", { userPrincipalName: "it@acme365.test", displayName: "IT", accountEnabled: true, licences: [] });
+  r = await admin(NEWOWNER, { op: "mail-users", organisation_id: org });
+  ok(r.status === 200 && r.body.users.length === 2 && r.body.users.every((u) => u.address.endsWith("@acme365.test")),
+     "the Owner sees the domain's mailboxes", r.body);
+  mstate.admins.add(mstate.users.get("it@acme365.test").id);
+  mstate.page = 1; // Graph's pages, followed
+  r = await admin(NEWOWNER, { op: "mail-users", organisation_id: org });
+  ok(r.body.users.find((u) => u.address === "it@acme365.test")?.admin === true && r.body.users.length === 2,
+     "every page, and which are admin accounts", r.body);
+  mstate.page = 999;
+  r = await add(NEWOWNER, { username: "itdesk", role: "admin", mailbox: { action: "create", address: "desk@acme365.test" } });
+  ok(r.status === 200 && r.body.mailbox === "desk@acme365.test", "the Owner adds an admin with a mailbox", r);
+  const itdesk = r.body.id;
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: itdesk, action: "unlink" });
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: itdesk, action: "link", address: "it@acme365.test" });
+  ok(r.status === 200, "the Owner links an admin account's mailbox", r);
+  r = await add(HELPER, { username: "worker" });
+  const worker = r.body.id;
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: worker, action: "link", address: "ayaanw@acme365.test" });
+  ok(r.status === 409, "a mailbox someone has", r);
+  r = await admin(HELPER, { op: "mailbox", person_id: itdesk, action: "new-password" });
+  ok(r.status === 403, "an admin can't reset a Microsoft 365 admin account's password", r);
+  await db`update fleet.people set role = 'employee' where id = ${itdesk}`;
+  r = await admin(HELPER, { op: "mailbox", person_id: itdesk, action: "new-password" });
+  ok(r.status === 403 && r.body.error.includes("Microsoft admin account") && mstate.users.get("it@acme365.test").passwordProfile === undefined,
+     "nor through an employee linked to it", r.body);
+
+  // Admin accounts Microsoft would let through: eligible for a role (PIM), or in a group that holds one.
+  for (const [who, how] of [["pim@acme365.test", "eligible"], ["grp@acme365.test", "group"]]) {
+    const id = `0000000${++mstate.ids}-0000-4000-8000-000000000000`.slice(-36);
+    mstate.users.set(who, { id, userPrincipalName: who, displayName: who, accountEnabled: true, licences: [] });
+    if (how === "eligible") mstate.eligible.add(id);
+    else mstate.roleGroups.set("99999999-0000-4000-8000-000000000001", new Set([id]));
+    r = await add(HELPER, { username: who.split("@")[0] });
+    const pid = r.body.id;
+    await admin(NEWOWNER, { op: "mailbox", person_id: pid, action: "link", address: who });
+    r = await admin(HELPER, { op: "mailbox", person_id: pid, action: "new-password" });
+    ok(r.status === 403 && r.body.error.includes("Microsoft admin account"), `an admin can't change an account that's an admin ${how === "eligible" ? "by eligibility" : "through a group"}`, r.body);
+    // The Owner can try; Microsoft refuses unless the app has a role itself, and says so, without calling the connection broken.
+    r = await admin(NEWOWNER, { op: "mailbox", person_id: pid, action: "new-password" });
+    ok(r.status === 502 && r.body.error.includes("Privileged Authentication Administrator") &&
+       (await db`select last_error from fleet.mail_connections where organisation_id = ${org}`)[0].last_error === null,
+       "the Owner: Microsoft's refusal for an admin account explained", r.body);
+    await admin(NEWOWNER, { op: "mailbox", person_id: pid, action: "unlink" });
+    await admin(NEWOWNER, { op: "remove-person", person_id: pid, confirm: who.split("@")[0] });
+  }
+
+  // A sign-in name that isn't the mailbox's address (onmicrosoft.com), and an address with an apostrophe.
+  mstate.users.set("hodan@acme365.onmicrosoft.com", { id: "abcdef01-0000-4000-8000-000000000001", userPrincipalName: "hodan@acme365.onmicrosoft.com",
+                                                      mail: "Hodan@acme365.test", displayName: "Hodan", accountEnabled: true, licences: [] });
+  mstate.users.set("o'brien@acme365.test", { id: "abcdef01-0000-4000-8000-000000000002", userPrincipalName: "o'brien@acme365.test",
+                                             displayName: "O'Brien", accountEnabled: true, licences: [] });
+  for (const [username, address] of [["hodanm", "hodan@acme365.test"], ["obrien", "o'brien@acme365.test"]]) {
+    r = await add(HELPER, { username });
+    const pid = r.body.id;
+    r = await admin(NEWOWNER, { op: "mailbox", person_id: pid, action: "link", address });
+    ok(r.status === 200 && (await row(username)).mailbox === address, `linked by its address: ${address}`, r.body);
+    r = await admin(HELPER, { op: "set-person-enabled", person_id: pid, enabled: false });
+    ok(r.status === 200 && !r.body.mailbox_error && (await row(username)).mailbox_state === "suspended", `and blocked: ${address}`, r.body);
+    await admin(NEWOWNER, { op: "mailbox", person_id: pid, action: "unlink" });
+    await admin(NEWOWNER, { op: "remove-person", person_id: pid, confirm: username });
+  }
+
+  // Microsoft takes a moment to know a user it has just made: asked again.
+  mstate.lag = 1;
+  r = await add(HELPER, { username: "lagged", mailbox: { action: "create", address: "lagged@acme365.test" } });
+  ok(r.status === 200 && r.body.mailbox === "lagged@acme365.test" && mstate.users.get("lagged@acme365.test")?.licences.includes(MS.sku),
+     "a new user Microsoft doesn't know yet: its licence given once it does", r.body);
+  const lagged = r.body.id;
+  mstate.lag = 0;
+
+  // A mailbox from the other service is never looked for in this one.
+  await db`update fleet.people set mailbox_provider = 'google' where id = ${lagged}`;
+  r = await admin(HELPER, { op: "mailbox", person_id: lagged, action: "new-password" });
+  ok(r.status >= 400 && r.body.error.includes("is a Google Workspace mailbox"), "a Google mailbox while Microsoft 365 is connected: refused", r.body);
+  await db`update fleet.people set mailbox_provider = 'microsoft' where id = ${lagged}`;
+  ok((await db`select mailbox_provider from fleet.people where id = ${ayaan}`)[0].mailbox_provider === "microsoft", "each mailbox says its service");
+  await admin(HELPER, { op: "remove-person", person_id: lagged, confirm: "lagged", mailbox: "delete" });
+
+  // No free licence: nothing made, nothing left behind.
+  const E3 = mstate.skus.find((k) => k.skuId === MS.sku);
+  E3.consumedUnits = E3.prepaidUnits.enabled;
+  r = await add(HELPER, { username: "nasra", mailbox: { action: "create", address: "nasra@acme365.test" } });
+  ok(r.status === 200 && r.body.mailbox_error?.includes("no free ENTERPRISEPACK licence") && !mstate.users.has("nasra@acme365.test"),
+     "no free licence: added, no mailbox, and it says so", r.body);
+  // A licence taken between the check and the assignment: the user just made is taken away again.
+  E3.consumedUnits = 0;
+  mstate.failAssign = true;
+  r = await add(HELPER, { username: "nasra2", mailbox: { action: "create", address: "nasra2@acme365.test" } });
+  ok(r.status === 200 && r.body.mailbox_error?.includes("licence") && !mstate.users.has("nasra2@acme365.test") &&
+     (await row("nasra2")).mailbox === null, "the licence refused: no user left without a mailbox", r.body);
+  mstate.failAssign = false;
+
+  // Microsoft can't be reached: Fleet's change happens anyway; what's left is an alert and can be retried.
+  mstate.down = true;
+  r = await admin(HELPER, { op: "set-person-enabled", person_id: ayaan, enabled: false });
+  ok(r.status === 200 && (await row("ayaanw")).enabled === false && (await row("ayaanw")).mailbox_todo === "suspend" &&
+     r.body.mailbox_error?.includes("Microsoft couldn't be reached"), "Microsoft down: disabled at once; the suspension is still to do", r.body);
+  r = await admin(HELPER, { op: "overview" });
+  ok(r.body.alerts.some((y) => y.kind === "mail" && y.title === "Microsoft 365"), "the alert names Microsoft 365", r.body.alerts.slice(0, 3));
+  mstate.down = false;
+  r = await admin(HELPER, { op: "mailbox", person_id: ayaan, action: "retry" });
+  ok(r.status === 200 && mstate.users.get("ayaanw@acme365.test").accountEnabled === false && (await row("ayaanw")).mailbox_todo === null,
+     "retried once Microsoft is back", r.body);
+
+  // Removed with their mailbox deleted (Microsoft keeps it 30 days as a deleted user).
+  r = await admin(HELPER, { op: "remove-person", person_id: ayaan, confirm: "ayaanw", mailbox: "delete" });
+  ok(r.status === 200 && !mstate.users.has("ayaanw@acme365.test") && (await row("ayaanw")).mailbox_state === "deleted", "deleted in Microsoft 365", r);
+
+  // The log, the token reused, disconnecting.
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "Microsoft" });
+  ok(r.body.entries.some((e) => e.what === "connected Microsoft 365" && e.detail.licence === "ENTERPRISEPACK") &&
+     r.body.entries.some((e) => e.what === "gave ayaanw a new Microsoft password"), "in the activity log", r.body.entries.map((e) => e.what));
+  ok(!JSON.stringify((await db`select detail from fleet.audit`).map((y) => y.detail)).includes(MS.secret), "no secret in the log");
+  ok(mstate.tokens === tokensAtConnect, "Microsoft's access token is reused, not asked for every call",
+     { tokensAtConnect, now: mstate.tokens });
+  r = await admin(NEWOWNER, { op: "disconnect-mail", organisation_id: org });
+  ok(r.status === 200 && (await db`select 1 from fleet.mail_connections`).length === 0, "disconnected: the secret is gone", r);
+  r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "disconnected" });
+  ok(r.body.entries[0]?.what === "disconnected Microsoft 365", "disconnecting is in the log too", r.body.entries);
+  for (const who of [itdesk, worker]) await admin(NEWOWNER, { op: "remove-person", person_id: who, confirm: who === itdesk ? "itdesk" : "worker" });
+}
+
 // --- the activity log ------------------------------------------------------------------------
-r = await admin(NEWOWNER, { op: "log", organisation_id: org });
+r = await admin(NEWOWNER, { op: "log", organisation_id: org, limit: 10000 });
 const whats = r.body.entries.map((e) => `${e.email}: ${e.what}`);
 for (const want of [`${HELPER}: added amina`, `${OWNER}: added omar`, `${HELPER}: disabled amina`,
                     `${HELPER}: gave amina a new setup code`, `${HELPER}: removed amina`, `${OWNER}: added admin ${HELPER}`,

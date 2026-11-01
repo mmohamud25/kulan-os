@@ -100,6 +100,35 @@ with tempfile.TemporaryDirectory() as tmp:
     note.mkdir()  # can't be written: still asks, never fails
     check("a note that can't be kept: still asks, no crash", wm.ask_today("amina", home, public, day1) == G("amina@acme.test"))
 
+    # Microsoft 365 (2.12): Outlook on the web, signed in as the work address; opening it is connecting it.
+    M = {"address": "ayaan@acme365.test", "provider": "microsoft"}
+    got = wm.apply([acct("ayaan", M)], {"ayaan"}, public, lambda u: me)
+    check("a Microsoft 365 mailbox is kept like a Google one", got == {"ayaan": M} and wm.mine("ayaan", public) == M, got)
+    mhome = t / "ayaan"
+    mhome.mkdir()
+    check("Microsoft 365: not connected until opened", not wm.connected(M, mhome))
+    url = "https://outlook.office.com/mail/?login_hint=ayaan%40acme365.test"
+    check("Microsoft 365: opens Outlook on the web with the address filled in",
+          wm.connect_command(M) == ["gio", "open", url] and wm.open_command(M) == ["gio", "open", url],
+          wm.connect_command(M))
+    opened = []
+    check("Microsoft 365: connecting opens it", wm.connect(M, mhome, popen=opened.append) and opened == [["gio", "open", url]], opened)
+    check("Microsoft 365: then it's connected (and asked no more)", wm.connected(M, mhome) and
+          wm.ask_today("ayaan", mhome, public, day1 + 5 * 86400) is None)
+    wm.connect(M, mhome, popen=opened.append)
+    check("opened twice: noted once", (mhome / ".local/state/kulan/work-email-opened").read_text() == "ayaan@acme365.test\n")
+    check("a Google account with that address isn't the Microsoft one", not wm.connected(
+        {"address": "other@acme365.test", "provider": "microsoft"}, mhome))
+    def broken(_argv):
+        raise OSError("no gio")
+    check("nothing to open it with: says so, notes nothing", not wm.connect(
+        {"address": "new@acme365.test", "provider": "microsoft"}, mhome, popen=broken) and
+        "new@acme365.test" not in (mhome / ".local/state/kulan/work-email-opened").read_text())
+    google_opened = []
+    wm.connect(G("amina@acme.test"), home, popen=google_opened.append)
+    check("Google: connecting opens Online Accounts and notes nothing", google_opened ==
+          [["gnome-control-center", "online-accounts", "add", "google"]] and not wm.connected(G("amina@acme.test"), home))
+
     wm.remove_all(public)
     check("leaving: no work email offered", not public.exists() and wm.mine("amina", public) is None)
     public.mkdir()
@@ -133,6 +162,10 @@ with tempfile.TemporaryDirectory() as tmp:
         check("Settings: not connected yet, with a Connect button",
               row is not None and "Not connected" in row.get_subtitle() and "me@acme.test" in row.get_subtitle(),
               row and row.get_subtitle())
+        (public / me).write_text(json.dumps({"address": "me@acme365.test", "provider": "microsoft"}))
+        row = page.work_email_row()
+        check("Settings: Microsoft 365, not opened yet, with an Open button",
+              row is not None and "Microsoft 365. Click Open" in row.get_subtitle(), row and row.get_subtitle())
         (public / me).unlink()
         check("Settings: no row without a work mailbox", page.work_email_row() is None)
 

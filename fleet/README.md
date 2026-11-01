@@ -17,7 +17,11 @@ us-east-2). Computers talk to it with `/usr/bin/kulan-fleet` (kulan-base).
   on with no policies, so the API roles can't read anything.
 
 Server address for computers:
-`https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet`
+`https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet`. It's built in
+(kulan-base's `joining.py`), so people type only the join code. For another
+server, the dashboard and the Fleet app show a join link instead
+(`<server>#<code>`), which Kulan Settings › About › Join an organisation takes
+as it is.
 
 Add an organisation and a join code (SQL editor):
 
@@ -47,7 +51,7 @@ lock-screen, restart):
   asked a computer to do something, and when.
 - Hourly reports older than 90 days are pruned.
 
-## Secrets and Google Workspace (Kulan OS 2.8d, 2.8e)
+## Secrets, Google Workspace and Microsoft 365 (Kulan OS 2.8d, 2.8e, 2.12)
 
 - `FLEET_FACTOR_KEY` (32 random bytes, base64): seals people's phone-code
   secrets (2.8d) and organisations' Google service account keys (2.8e).
@@ -58,6 +62,14 @@ lock-screen, restart):
   suspended, renamed and deleted with People. The guide for organisations
   is `docs/fleet-google-workspace.md`. Fleet's own change never waits for
   Google. What's left is kept on the person (`mailbox_todo`) as an alert.
+- Microsoft 365 (Kulan OS 2.12, `microsoft.ts`, the same table; `mail.ts`
+  picks the organisation's service): the Owner connects an app registered
+  in Microsoft Entra (tenant ID, client ID, a client secret, sealed like
+  Google's key) with the Graph application permissions User.ReadWrite.All,
+  User-PasswordProfile.ReadWrite.All, Organization.Read.All,
+  RoleManagement.Read.Directory and GroupMember.Read.All. New mailboxes get the licence with
+  Exchange Online chosen when connecting. The guide is
+  `docs/fleet-microsoft-365.md`. One service per organisation at a time.
 
 ## Remote help (Kulan OS 2.9a)
 

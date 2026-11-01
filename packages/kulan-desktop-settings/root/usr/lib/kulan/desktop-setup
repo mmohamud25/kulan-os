@@ -107,6 +107,29 @@ else
 	rm -f "${STORE}"
 fi
 
+# GNOME Settings is hidden (2.12) while Kulan Settings is there: one Settings
+# app in the grid and in search (Kulan Settings' own pages are found there).
+# It stays installed, because Kulan Settings opens a few of its pages (Online
+# Accounts, Printers, Sharing...) and gnome-control-center <page> still works;
+# the gear in the top-right menu opens Kulan Settings (Kulan Shell). A copy
+# of the real launcher with NoDisplay=true, not Hidden (which would make the
+# app disappear for those pages too). Remade each time; removed with either.
+GNOME_SETTINGS_SRC=/usr/share/applications/org.gnome.Settings.desktop
+GNOME_SETTINGS=/usr/share/kulan/xdg/applications/org.gnome.Settings.desktop
+if [ -f "${GNOME_SETTINGS_SRC}" ] && [ -f /usr/share/applications/org.kulan.Settings.desktop ]; then
+	mkdir -p "$(dirname "${GNOME_SETTINGS}")"
+	awk '
+		/^\[/ { main = ($0 == "[Desktop Entry]") }
+		main && /^\[Desktop Entry\]$/ { print; print "# Kulan OS: hidden; Kulan Settings is the Settings app."; print "NoDisplay=true"; next }
+		main && /^NoDisplay=/ { next }
+		{ print }
+	' "${GNOME_SETTINGS_SRC}" > "${GNOME_SETTINGS}.tmp"
+	chmod 0644 "${GNOME_SETTINGS}.tmp"
+	mv -f "${GNOME_SETTINGS}.tmp" "${GNOME_SETTINGS}"
+else
+	rm -f "${GNOME_SETTINGS}"
+fi
+
 # Short names for apps whose full names are cut off under their icons
 # ("LibreOffice ...", "GNU Image ..."). Copies of the real launchers with only
 # the English name changed (translations, search words and actions stay; the

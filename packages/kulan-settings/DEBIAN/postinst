@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+
+# Fingerprint sign-in (2.12): password prompts (sudo, administrator changes)
+# take a finger once someone has added one in Kulan Settings › Profile;
+# without one, pam_fprintd steps aside at once. Switched on once, the first
+# time libpam-fprintd is here (now or later: the trigger), and never again:
+# if you switch it off with pam-auth-update, it stays off. GDM's sign-in and
+# lock screen use their own gdm-fingerprint service.
+fingerprint_once() {
+	DONE=/var/lib/kulan/fingerprint-sign-in
+	[ -f /usr/share/pam-configs/fprintd ] || return 0
+	[ -e "${DONE}" ] && return 0
+	command -v pam-auth-update >/dev/null 2>&1 || return 0
+	if pam-auth-update --enable fprintd; then
+		mkdir -p /var/lib/kulan
+		echo "# Kulan OS switched fingerprint sign-in on here once (pam-auth-update --enable fprintd)." > "${DONE}"
+	else
+		echo "W: kulan-settings: fingerprint sign-in wasn't switched on; it's tried again at the next update" >&2
+	fi
+}
+
+case "$1" in
+	configure | triggered)
+		fingerprint_once
+		;;
+esac
+
+exit 0

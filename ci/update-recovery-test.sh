@@ -247,7 +247,16 @@ boot_ok() {
 		: >"${B}/grub/grub.cfg"
 		grub-editenv "${B}/grub/grubenv" create && grub-editenv "${B}/grub/grubenv" set kulan_boot_pending=1 || return 1
 	fi
+	sh "${KULAN}/boot-ok" pending || return 1
+	[[ ! -e "${B}/vars/LoaderConfigTimeoutOneShot-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f" ]] || { echo "systemd-boot's menu asked for under GRUB"; return 1; }
+	# Started by systemd-boot: its menu is asked for at the next start-up (10 seconds), once.
+	{ printf '\007\000\000\000'; printf 'systemd-boot 257.9' | iconv -f UTF-8 -t UTF-16LE; printf '\000\000'; } \
+		>"${B}/vars/LoaderInfo-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+	local ONESHOT="${B}/vars/LoaderConfigTimeoutOneShot-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
+	sh "${KULAN}/boot-ok" pending || return 1
+	[[ "$(od -An -tx1 "${ONESHOT}" | tr -d ' \n')" == 0700000031003000"0000" ]] || { echo "one-shot timeout: $(od -An -tx1 "${ONESHOT}" 2>&1)"; return 1; }
 	sh "${KULAN}/boot-ok" now || return 1
+	[[ ! -e "${ONESHOT}" ]] || { echo "the menu is still asked for after a start-up that worked"; return 1; }
 	[[ -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64.efi" && ! -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64+2-1.efi" ]] ||
 		{ ls "${B}/esp/EFI/Linux"; return 1; }
 	[[ "$(sh "${KULAN}/boot-ok" status)" == ok ]] || return 1
@@ -257,7 +266,7 @@ boot_ok() {
 	unset KULAN_ESP KULAN_EFIVARS KULAN_GRUBENV KULAN_BOOT_OK_MARK
 	return 0
 }
-check "a start-up that worked: GRUB's note cleared, the signed start-up file loses its try counter" boot_ok
+check "a start-up that worked: GRUB's note cleared, the signed start-up file loses its try counter, systemd-boot's menu not asked for" boot_ok
 
 # --- restore points: undo needs power; the restore point before automatic updates -----------
 RP="${T}/rp"
@@ -291,6 +300,29 @@ undo_power() {
 	bash "${RP}/restore-points" undo-at-start >/dev/null 2>&1 && grep -q -- "--restore --snapshot" "${RP}/calls"
 }
 check "undo the last update: only with the charger or a charged battery; also from the start-up menu" undo_power
+undo_signed() {
+	# Signed start-up: its key stays this computer's (not the restore point's), and
+	# its start-up files are signed again for the restored system's kernels.
+	local SS="${RP}/signed-start"
+	rm -rf "${SS}" "${RP}/kept" "${RP}/calls"
+	mkdir -p "${SS}"
+	echo current-key >"${SS}/kulan.key"
+	# Timeshift putting back the restore point's (older) copy.
+	printf '#!/bin/sh\necho "$0 $*" >> "%s/calls"\ncase "$*" in *--restore*) echo old-key >"%s/kulan.key" ;; esac\n' "${RP}" "${SS}" >"${RP}/bin/timeshift"
+	printf '#!/bin/sh\necho "kulan-signed-start $* key=$(cat %s/kulan.key)" >> "%s/calls"\n' "${SS}" "${RP}" >"${RP}/bin/kulan-signed-start"
+	chmod +x "${RP}/bin/timeshift" "${RP}/bin/kulan-signed-start"
+	echo 1 >"${RP}/power/AC/online"
+	KULAN_SIGNED_START_DIR="${SS}" KULAN_SIGNED_START_KEEP="${RP}/kept" bash "${RP}/restore-points" undo-update >/dev/null 2>&1 || return 1
+	local ok=0
+	[[ "$(cat "${SS}/kulan.key")" == current-key ]] || { echo "the key went back to the restore point's"; ok=1; }
+	grep -q "^kulan-signed-start rebuild key=current-key$" "${RP}/calls" || { echo "not signed again: $(cat "${RP}/calls")"; ok=1; }
+	[[ "$(grep -n -- '--restore' "${RP}/calls" | cut -d: -f1)" -lt "$(grep -n 'kulan-signed-start' "${RP}/calls" | cut -d: -f1)" ]] || { echo "signed before the restore"; ok=1; }
+	[[ ! -e "${RP}/kept" ]] || { echo "kept copy left in /run"; ok=1; }
+	rm -f "${RP}/bin/kulan-signed-start"
+	printf '#!/bin/sh\necho "$0 $*" >> "%s/calls"\n' "${RP}" >"${RP}/bin/timeshift"
+	return "${ok}"
+}
+check "undo the last update with signed start-up: the key stays, the start-up files are signed again" undo_signed
 
 before_auto_update() {
 	export KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="${RP}/snaps" KULAN_RESTORE_USAGE="${RP}/u.json"

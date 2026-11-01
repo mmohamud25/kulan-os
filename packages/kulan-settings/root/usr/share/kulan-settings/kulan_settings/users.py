@@ -13,9 +13,11 @@ import sys
 import time
 from typing import Callable
 
-from gi.repository import Adw, Gdk, Gio, GLib, Gtk
+import tempfile
 
-from . import keyring
+from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk
+
+from . import fingerprint, keyring
 from .common import Page, in_thread
 
 ACCOUNTS = "org.freedesktop.Accounts"
@@ -292,6 +294,43 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
     dialog.present(parent)
 
 
+FACE_SIZE = 512
+FACE_MAX_BYTES = 30 * 1024 * 1024
+
+
+def prepare_picture(path: str) -> str | None:
+    """The picture as the accounts service takes it: a square PNG (the middle of
+    the picture), at most 512 pixels, in a file it can read. The file chosen
+    may be one the service can't open (a folder only you can read, a
+    removable drive, a portal's copy) or far too big, which is why Change
+    picture seemed to do nothing. The caller removes the file afterwards.
+    None if it isn't a picture."""
+    try:
+        if os.path.getsize(path) > FACE_MAX_BYTES:
+            return None
+        pixbuf = GdkPixbuf.Pixbuf.new_from_file(path)
+        pixbuf = pixbuf.apply_embedded_orientation() or pixbuf
+        side = min(pixbuf.get_width(), pixbuf.get_height())
+        square = pixbuf.new_subpixbuf((pixbuf.get_width() - side) // 2, (pixbuf.get_height() - side) // 2, side, side)
+        size = min(FACE_SIZE, side)
+        square = square.scale_simple(size, size, GdkPixbuf.InterpType.HYPER) if size != side else square
+        fd, out = tempfile.mkstemp(prefix="kulan-picture-", suffix=".png")
+        os.close(fd)
+        square.savev(out, "png", [], [])
+        os.chmod(out, 0o644)
+        return out
+    except (GLib.Error, OSError, ValueError):
+        return None
+
+
+def my_picture() -> str | None:
+    """This account's picture file (the accounts service's, else ~/.face), for the sidebar."""
+    for candidate in (f"/var/lib/AccountsService/icons/{GLib.get_user_name()}", os.path.expanduser("~/.face")):
+        if os.path.isfile(candidate) and os.access(candidate, os.R_OK):
+            return candidate
+    return None
+
+
 class UsersPage(Page):
     title = "Users"
     icon = "avatar-default-symbolic|system-users-symbolic"
@@ -350,7 +389,13 @@ class UsersPage(Page):
         me, users, asks = loaded
         self.me = me
         if me is not None:
-            self.fill_mine(me, asks)
+            # Your own picture, name and password are on Profile (2.12); here, a way there.
+            mine = Adw.ActionRow(title=GLib.markup_escape_text(prop(me, "RealName", "") or prop(me, "UserName", "")),
+                                 subtitle="Your picture, name, password and sign-in", activatable=True)
+            mine.add_prefix(self.avatar(me, 40))
+            mine.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            mine.connect("activated", lambda _r: self.window.show_page("profile"))
+            self.add(self.mine, mine)
         my_uid = os.getuid()
         others = [u for u in users if prop(u, "Uid", 0) != my_uid]
         for user in sorted(others, key=lambda u: (prop(u, "RealName", "") or prop(u, "UserName", "")).lower()):
@@ -382,7 +427,12 @@ class UsersPage(Page):
                 pass
         return avatar
 
-    def fill_mine(self, me: Gio.DBusProxy, asks: bool) -> None:
+    def fill_mine(self, me: Gio.DBusProxy, asks: bool, head_row: bool = True) -> None:
+        if head_row:
+            self.mine_head(me)
+        self.mine_rows(me, asks)
+
+    def mine_head(self, me: Gio.DBusProxy) -> None:
         head = Adw.ActionRow(title=GLib.markup_escape_text(prop(me, "RealName", "") or prop(me, "UserName", "")),
                              subtitle=("Administrator" if prop(me, "AccountType", 0) == ADMINISTRATOR
                                        else "Standard account") + f" · {prop(me, 'UserName', '')}")
@@ -392,9 +442,11 @@ class UsersPage(Page):
         head.add_suffix(picture)
         self.add(self.mine, head)
 
+    def mine_rows(self, me: Gio.DBusProxy, asks: bool) -> None:
         name = Adw.EntryRow(title="Full name", text=prop(me, "RealName", ""), show_apply_button=True)
         name.connect("apply", lambda r: call(me, "SetRealName", GLib.Variant("(s)", (r.get_text().strip(),)),
-                                             lambda e, _r: (self.toast(e or "Name changed"), self.refresh())))
+                                             lambda e, _r: (self.toast(e or "Name changed"), self.window.update_profile(),
+                                                            self.refresh())))
         self.add(self.mine, name)
 
         password = Adw.ActionRow(title="Password", subtitle="Change the password you sign in with", activatable=True)
@@ -446,10 +498,13 @@ class UsersPage(Page):
     def choose_picture(self, me: Gio.DBusProxy) -> None:
         dialog = Gtk.FileDialog(title="Choose a picture")
         images = Gtk.FileFilter(name="Pictures")
-        images.add_mime_type("image/*")
+        images.add_pixbuf_formats()
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(images)
         dialog.set_filters(filters)
+        pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
+        if pictures and os.path.isdir(pictures):
+            dialog.set_initial_folder(Gio.File.new_for_path(pictures))
 
         def chosen(d, result) -> None:
             try:
@@ -457,13 +512,30 @@ class UsersPage(Page):
             except GLib.Error:
                 return
             if file is None or file.get_path() is None:
+                self.toast("Choose a picture saved on this computer")
                 return
-            if os.path.getsize(file.get_path()) > 10 * 1024 * 1024:
-                self.toast("That picture is too large (over 10 MB)")
-                return
-            call(me, "SetIconFile", GLib.Variant("(s)", (file.get_path(),)),
-                 lambda e, _r: (self.toast(e or "Picture changed"), self.refresh()))
+            in_thread(lambda: prepare_picture(file.get_path()), lambda made: self.set_picture(me, made), page=self)
         dialog.open(self.window, None, chosen)
+
+    def set_picture(self, me: Gio.DBusProxy, made: str | None, removing: bool = False) -> None:
+        if made is None and not removing:
+            self.toast("That isn’t a picture Kulan OS can open")
+            return
+
+        def done(error: str | None, _reply) -> None:
+            if made:
+                try:
+                    os.unlink(made)
+                except OSError:
+                    pass
+            if error:
+                self.toast(f"The picture wasn’t changed. {error}")
+                return
+            self.toast("Picture removed" if removing else "Picture changed")
+            self.window.update_profile()
+            GLib.timeout_add(1500, lambda: (self.window.update_profile(), False)[1])
+            self.refresh()
+        call(me, "SetIconFile", GLib.Variant("(s)", (made or "",)), done)
 
     def password_dialog(self) -> None:
         dialog = Adw.AlertDialog(heading="Change your password",
@@ -629,3 +701,203 @@ class UsersPage(Page):
         dialog.connect("response", answered)
         dialog.present(self.window)
 
+
+
+class ProfilePage(UsersPage):
+    """You (2.12): your picture, name, password and how you sign in, at the top of
+    the sidebar as on a Mac. Other people's accounts stay on Users."""
+    title = "Profile"
+    icon = "avatar-default-symbolic"
+    keywords = ("profile", "me", "my account", "your account", "picture", "photo", "avatar", "name", "password",
+                "change password", "sign in automatically", "automatic login", "saved passwords", "unlock keyring")
+
+    def __init__(self, window) -> None:
+        Page.__init__(self, window)
+        self.accounts = Accounts()
+        self.me = None
+        self.status = self.add_group()
+        self.status_row = Adw.ActionRow(title="Loading your account…")
+        self.status.add(self.status_row)
+        self.hero = self.add_group()
+        self.mine = self.add_group("Your account")
+        self.others = self.mine  # (no other people here)
+        # Fingerprint sign-in (2.12): only on computers with a reader.
+        self.finger_group = self.add_group("Fingerprint", "Touch the reader to sign in, unlock the screen and "
+                                                          "approve changes. Your password always works too. "
+                                                          "Fingerprints stay on this computer.")
+        self.finger_group.set_visible(False)
+        self.finger_rows: list[Gtk.Widget] = []
+        self.reader = fingerprint.Reader()
+        self.hero.set_visible(False)
+        self.mine.set_visible(False)
+        self.rows: list[Gtk.Widget] = []
+        self.fill_turn = 0
+        self.fill()
+
+    def show_accounts(self, loaded) -> None:
+        for group, row in self.rows:
+            group.remove(row)
+        self.rows = []
+        me = loaded[0] if loaded else None
+        if me is None:
+            self.status_row.set_title("Your account can’t be changed right now")
+            self.status_row.set_subtitle("The accounts service isn’t running")
+            self.status.set_visible(True)
+            self.hero.set_visible(False)
+            self.mine.set_visible(False)
+            return
+        self.me = me
+        self.status.set_visible(False)
+        self.hero.set_visible(True)
+        self.mine.set_visible(True)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8, halign=Gtk.Align.CENTER, margin_bottom=6)
+        box.append(self.avatar(me, 128))
+        box.append(Gtk.Label(label=prop(me, "RealName", "") or prop(me, "UserName", ""), css_classes=["title-1"]))
+        box.append(Gtk.Label(label=("Administrator" if prop(me, "AccountType", 0) == ADMINISTRATOR else "Standard account")
+                             + f" · {prop(me, 'UserName', '')}", css_classes=["dim-label"]))
+        buttons = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER, margin_top=4)
+        change = Gtk.Button(label="Change picture…", css_classes=["pill", "suggested-action"])
+        change.connect("clicked", lambda _b: self.choose_picture(me))
+        buttons.append(change)
+        if prop(me, "IconFile", "") and os.path.isfile(prop(me, "IconFile", "")):
+            remove = Gtk.Button(label="Remove", css_classes=["pill"])
+            remove.connect("clicked", lambda _b: self.set_picture(me, None, removing=True))
+            buttons.append(remove)
+        box.append(buttons)
+        self.add(self.hero, box)
+        self.mine_rows(me, loaded[2])
+        if self.reader.path is None:
+            self.reader.find(lambda found: found and not self.torn_down and self.show_fingers())
+        else:
+            self.show_fingers()
+
+    # --- Fingerprint (2.12) ----------------------------------------------------------
+    def show_fingers(self) -> None:
+        def got(fingers: list[str] | None, error: str | None) -> None:
+            if self.torn_down:
+                return
+            for row in self.finger_rows:
+                self.finger_group.remove(row)
+            self.finger_rows = []
+            self.finger_group.set_visible(True)
+            if fingers is None:
+                row = Adw.ActionRow(title="The fingerprint reader can’t be used right now",
+                                    subtitle=error or "", subtitle_lines=0)
+                row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+                self.finger_add(row)
+                return
+            row = Adw.ActionRow(title="Fingerprints", subtitle_lines=0, subtitle=GLib.markup_escape_text(
+                fingerprint.finger_names(fingers) if fingers else "None yet. Add one to sign in with a touch"))
+            row.add_prefix(Gtk.Image(icon_name="auth-fingerprint-symbolic"))
+            if len(fingers) < len(fingerprint.FINGERS):
+                add = Gtk.Button(label="Add a fingerprint…", valign=Gtk.Align.CENTER,
+                                 css_classes=[] if fingers else ["suggested-action"])
+                add.connect("clicked", lambda _b: self.add_finger(fingers))
+                row.add_suffix(add)
+            self.finger_add(row)
+            if fingers:
+                remove = Adw.ActionRow(title="Remove all fingerprints…", activatable=True, css_classes=["error"])
+                remove.connect("activated", lambda _r: self.remove_fingers())
+                self.finger_add(remove)
+        self.reader.enrolled(GLib.get_user_name(), got)
+
+    def finger_add(self, row: Gtk.Widget) -> None:
+        self.finger_group.add(row)
+        self.finger_rows.append(row)
+
+    def add_finger(self, have: list[str]) -> Adw.Dialog:
+        """Choose a finger, then touch the reader until it has enough of it. A window of
+        its own (not an alert, which would close on Start), showing each touch."""
+        free = [f for f in fingerprint.FINGERS if f not in have]
+        stages = max(1, self.reader.stages or 5)
+        state = {"stage": 0, "running": False}
+        dialog = Adw.Dialog(title="Add a fingerprint", content_width=420)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, margin_start=24, margin_end=24,
+                      margin_top=6, margin_bottom=24)
+        box.append(Gtk.Image(icon_name="auth-fingerprint-symbolic", pixel_size=72, css_classes=["dim-label"]))
+        words = Gtk.Label(wrap=True, justify=Gtk.Justification.CENTER,
+                          label="Choose the finger, then touch the reader with it each time it asks, moving it a "
+                                "little each time.")
+        box.append(words)
+        which = Adw.ComboRow(title="Finger", model=Gtk.StringList.new([fingerprint.FINGERS[f] for f in free]))
+        chooser = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        chooser.append(which)
+        box.append(chooser)
+        progress = Gtk.ProgressBar(visible=False)
+        box.append(progress)
+        start = Gtk.Button(label="Start", halign=Gtk.Align.CENTER, css_classes=["pill", "suggested-action"])
+        box.append(start)
+        view.set_content(box)
+        dialog.set_child(view)
+
+        def finger() -> str:
+            return free[which.get_selected()] if free else ""
+
+        def status(result: str, finished: bool) -> None:
+            if result == "enroll-completed":
+                state["running"] = False
+                progress.set_fraction(1.0)
+                words.set_label("Added. You can sign in with this finger now.")
+                start.set_label("Done")
+                start.set_sensitive(True)
+                self.toast(f"{fingerprint.FINGERS.get(finger(), 'Fingerprint')} added")
+                self.show_fingers()
+                return
+            if result in fingerprint.FAILED or finished:
+                failed(fingerprint.FAILED.get(result, "The fingerprint wasn’t added. Try again"))
+                return
+            if result == "enroll-stage-passed":
+                state["stage"] += 1
+                progress.set_fraction(min(0.95, state["stage"] / stages))
+            words.set_label(fingerprint.STEPS.get(result, "Touch the reader again"))
+
+        def failed(why: str) -> None:
+            state["running"] = False
+            words.set_label(why)
+            start.set_label("Try again")
+            start.set_sensitive(True)
+            which.set_sensitive(True)
+
+        def clicked(_b) -> None:
+            if start.get_label() == "Done":
+                dialog.close()
+                return
+            state.update(stage=0, running=True)
+            which.set_sensitive(False)
+            start.set_sensitive(False)
+            progress.set_visible(True)
+            progress.set_fraction(0)
+            words.set_label("Touch the reader with your finger")
+            self.reader.enroll(finger(), status, failed)
+        start.connect("clicked", clicked)
+
+        def closed(_d) -> None:
+            if state["running"]:
+                state["running"] = False
+                self.reader.stop()
+        dialog.connect("closed", closed)
+        dialog.present(self.window)
+        self.finger_dialog = dialog  # for the self-test
+        self.finger_start = start
+        self.finger_words = words
+        return dialog
+
+    def remove_fingers(self) -> None:
+        dialog = Adw.AlertDialog(heading="Remove all your fingerprints?",
+                                 body="You then sign in with your password only, until you add one again.")
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+
+        def answered(_d, response: str) -> None:
+            if response == "remove":
+                self.reader.delete_all(lambda error: (self.toast(error or "Fingerprints removed"),
+                                                      None if self.torn_down else self.show_fingers()))
+        dialog.connect("response", answered)
+        dialog.present(self.window)
+
+    def teardown(self) -> None:
+        self.reader.stop()
+        super().teardown()

@@ -129,6 +129,9 @@ case "$1" in
 		# Most-used apps read into memory after sign-in (kulan-prewarm), for
 		# every account; "systemctl --user disable kulan-prewarm.timer" opts out.
 		systemctl --global enable kulan-prewarm.timer >/dev/null 2>&1 || true
+		# Chrome-type browsers take Kulan's look (kulan-browser-look), at sign-in
+		# and when one is installed; "systemctl --user mask" opts out.
+		systemctl --global enable kulan-browser-look.path kulan-browser-look.service >/dev/null 2>&1 || true
 		soft /usr/lib/kulan/boot-splash-setup
 		# Rebuild the initramfs so the boot splash change takes effect.
 		if command -v update-initramfs >/dev/null 2>&1; then

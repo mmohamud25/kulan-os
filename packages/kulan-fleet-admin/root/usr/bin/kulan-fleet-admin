@@ -58,6 +58,14 @@ SUPABASE_URL = os.environ.get("KULAN_FLEET_URL", "").rstrip("/") or "https://xeg
 PUBLISHABLE_KEY = "sb_publishable_Z7MrJQBPYz3_CmXviZuTJA_kWNAMOA1"  # public by design
 API = f"{SUPABASE_URL}/functions/v1/fleet-admin"
 FLEET_SERVER = f"{SUPABASE_URL}/functions/v1/fleet"
+# The server computers join by default (kulan-base's joining.py, KULAN_SERVER):
+# for it, people type only the code; for another one, a join link (server#code).
+KULAN_SERVER = "https://xegnwqxpegznsufulclx.supabase.co/functions/v1/fleet"
+
+
+def join_text(code: str) -> str:
+    """What to type in Kulan Settings › About Kulan OS › Join an organisation."""
+    return code if FLEET_SERVER == KULAN_SERVER else f"{FLEET_SERVER}#{code}"
 ACTIONS = [("refresh", "Report now", "view-refresh-symbolic"),
            ("install-updates", "Install updates", "software-update-available-symbolic"),
            ("compliance-on", "Turn compliance mode on", "security-high-symbolic"),
@@ -118,6 +126,20 @@ ALERT_ICON = {"offline": "network-offline-symbolic", "updates": "software-update
 # Google Workspace (2.8e)
 GOOGLE_SCOPE = "https://www.googleapis.com/auth/admin.directory.user"
 GOOGLE_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-google-workspace.md"
+# Microsoft 365 (2.12): an app registration with these Microsoft Graph application permissions.
+MS_PERMISSIONS = ["User.ReadWrite.All", "User-PasswordProfile.ReadWrite.All", "Organization.Read.All",
+                  "RoleManagement.Read.Directory", "GroupMember.Read.All"]
+MS_GUIDE = "https://github.com/mmohamud25/kulan-os/blob/main/docs/fleet-microsoft-365.md"
+GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def mail_short(org: dict | None) -> str:
+    """The organisation's mail service, in a word: Google or Microsoft."""
+    return "Microsoft" if (org or {}).get("mail_provider") == "microsoft" else "Google"
+
+
+def mail_label(org: dict | None) -> str:
+    return "Microsoft 365" if (org or {}).get("mail_provider") == "microsoft" else "Google Workspace"
 # Remote help (2.9a) runs in the web dashboard (any browser, phones too): this app opens it there.
 DASHBOARD = os.environ.get("KULAN_FLEET_DASHBOARD", "").rstrip("/") or "https://os.kulangroup.com/fleet"
 MAILBOX_TODO = {"suspend": "still to suspend", "unsuspend": "still to unsuspend", "delete": "still to delete",
@@ -2373,21 +2395,24 @@ class FleetWindow(Adw.ApplicationWindow):
             if error:
                 self.toast(error)
                 return
+            text = join_text(result["code"])
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-            box.append(Gtk.Label(label="Server address", xalign=0, css_classes=["dim-label"]))
-            box.append(Gtk.Label(label=FLEET_SERVER, xalign=0, selectable=True, wrap=True))
-            box.append(Gtk.Label(label="Join code", xalign=0, css_classes=["dim-label"], margin_top=8))
-            box.append(Gtk.Label(label=result["code"], xalign=0, selectable=True, css_classes=["fleet-code"]))
+            box.append(Gtk.Label(label="Join code" if text == result["code"] else "Join link", xalign=0,
+                                 css_classes=["dim-label"]))
+            box.append(Gtk.Label(label=text, xalign=0, selectable=True, wrap=True, wrap_mode=Pango.WrapMode.CHAR,
+                                 css_classes=["fleet-code"] if text == result["code"] else []))
             dialog = Adw.AlertDialog(heading="Join code",
-                                     body=f"Works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
-                                          f"within {result['hours']} hours. It's shown only once."
+                                     body="On each computer, open Kulan Settings › About Kulan OS › Join an "
+                                          f"organisation, and type {'the code' if text == result['code'] else 'or paste the link'}. "
+                                          f"It works for {result['uses']} computer{'s' if result['uses'] != 1 else ''} "
+                                          f"within {result['hours']} hours, and is shown only once."
                                           + (" Computers that join with it wait for the Owner's approval."
                                              if result.get("approved") is False else ""))
             dialog.set_extra_child(box)
-            dialog.add_response("copy", "Copy code")
+            dialog.add_response("copy", "Copy code" if text == result["code"] else "Copy link")
             dialog.add_response("close", "Done")
             dialog.set_default_response("close")
-            dialog.connect("response", lambda _d, r: r == "copy" and Gdk.Display.get_default().get_clipboard().set(result["code"]))
+            dialog.connect("response", lambda _d, r: r == "copy" and Gdk.Display.get_default().get_clipboard().set(text))
             dialog.present(self)
         self.background(lambda: self.session.call({"op": "new-code", "organisation_id": org_id,
                                                     "hours": hours, "uses": uses}), done)
@@ -3524,7 +3549,7 @@ class FleetWindow(Adw.ApplicationWindow):
             leaving = (result or {}).get("removed_with_mailbox_todo") or []
             if leaving:
                 gone = Adw.PreferencesGroup(title="Removed, mailbox still to finish",
-                                            description="Google refused or couldn't be reached when they were removed.")
+                                            description=f"{mail_short(org)} refused or couldn't be reached when they were removed.")
                 page.add(gone)
                 for pe in leaving:
                     gone.add(self.mailbox_todo_row(org, pe, is_owner))
@@ -3663,8 +3688,8 @@ class FleetWindow(Adw.ApplicationWindow):
         for w in (full, user, email, role):
             box.append(w)
         domain = org.get("mail_domain")
-        make_mailbox = Adw.SwitchRow(title="Make a Google mailbox", subtitle=GLib.markup_escape_text(
-            f"On {domain}. Google asks them to choose a password at first sign-in."), active=bool(domain),
+        make_mailbox = Adw.SwitchRow(title=f"Make a {mail_label(org)} mailbox", subtitle=GLib.markup_escape_text(
+            f"On {domain}. {mail_short(org)} asks them to choose a password at first sign-in."), active=bool(domain),
             visible=bool(domain))
         address = Adw.EntryRow(title="Mailbox address", visible=bool(domain))
         make_mailbox.connect("notify::active", lambda sw, _p: (address.set_visible(sw.get_active()),
@@ -3750,7 +3775,7 @@ class FleetWindow(Adw.ApplicationWindow):
                 r = r or {}
                 self.show_setup_code(display, code, first=True)
                 if r.get("mailbox_password"):
-                    self.show_mailbox_password(display, r["mailbox"], r["mailbox_password"])
+                    self.show_mailbox_password(display, r["mailbox"], r["mailbox_password"], org)
                 self.after_people_change(org, f"Added {user.get_text()}" + (
                     f", but the mailbox wasn't made: {r['mailbox_error']}" if r.get("mailbox_error") else ""))
             self.background(work, done)
@@ -3898,12 +3923,15 @@ class FleetWindow(Adw.ApplicationWindow):
         entry = Adw.EntryRow(title=f"Type {user}")
         box.append(files)
         mailbox = person.get("mailbox") if person.get("mailbox_state") not in (None, "deleted") and org.get("mail_domain") else None
+        ms = org.get("mail_provider") == "microsoft"
+        kept = "Mail is kept and can be restored. Its licence stays in use." if ms else \
+            "Mail is kept and can be restored. Google may still charge for it."
+        gone = "Microsoft 365 can restore it for 30 days, then it's gone." if ms else \
+            "Google can restore it for 20 days, then it's gone."
         choice = Adw.ComboRow(title=GLib.markup_escape_text(f"Their mailbox {mailbox}" if mailbox else "Their mailbox"),
-                              model=Gtk.StringList.new(["Suspend it", "Delete it"]), visible=bool(mailbox),
-                              subtitle="Mail is kept and can be restored. Google may still charge for it.")
-        choice.connect("notify::selected", lambda c, _p: c.set_subtitle(
-            "Mail is kept and can be restored. Google may still charge for it." if c.get_selected() == 0 else
-            "Google can restore it for 20 days, then it's gone."))
+                              model=Gtk.StringList.new(["Block it" if ms else "Suspend it", "Delete it"]),
+                              visible=bool(mailbox), subtitle=kept)
+        choice.connect("notify::selected", lambda c, _p: c.set_subtitle(kept if c.get_selected() == 0 else gone))
         box.append(choice)
         box.append(entry)
         dialog.set_extra_child(box)
@@ -3926,10 +3954,10 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog.present(self)
         return dialog
 
-    # --- Google Workspace mailboxes (2.8e) ------------------------------------------------------
+    # --- Work email: Google Workspace (2.8e), Microsoft 365 (2.12) -----------------------------
     @staticmethod
     def mailbox_note(reply: dict | None) -> str:
-        """What a toast adds when Google couldn't follow Fleet's change."""
+        """What a toast adds when Google or Microsoft couldn't follow Fleet's change."""
         err = (reply or {}).get("mailbox_error")
         return f". The mailbox wasn't updated ({err}). Retry it from their page." if err else ""
 
@@ -3941,7 +3969,7 @@ class FleetWindow(Adw.ApplicationWindow):
         if mailbox:
             label, kind = MAILBOX_STATE.get(state, (state or "unknown", "dim"))
             row = Adw.ActionRow(title=GLib.markup_escape_text(mailbox), subtitle_selectable=True,
-                                subtitle="Google Workspace" if live else "Deleted when they were removed")
+                                subtitle=mail_label(org) if live else "Deleted when they were removed")
             row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic"))
             row.add_suffix(tag(label, kind))
             group.add(row)
@@ -3951,16 +3979,16 @@ class FleetWindow(Adw.ApplicationWindow):
             return group
         if live:
             for title, subtitle, icon, action in (
-                    ("Give a new Google password", "For a forgotten password",
+                    (f"Give a new {mail_short(org)} password", "For a forgotten password",
                      "dialog-password-symbolic", "new-password"),
-                    ("Stop managing this mailbox", "The mailbox stays in Google as it is",
+                    ("Stop managing this mailbox", f"The mailbox stays in {mail_short(org)} as it is",
                      "list-remove-symbolic", "unlink")):
                 row = Adw.ActionRow(title=title, subtitle=subtitle, activatable=manages, sensitive=manages)
                 row.add_prefix(Gtk.Image(icon_name=icon))
                 row.connect("activated", lambda _r, a=action: self.mailbox_action(org, person, a))
                 group.add(row)
         else:
-            choices = [("Make a mailbox", f"A new Google mailbox on {org['mail_domain']}", "list-add-symbolic", "create",
+            choices = [("Make a mailbox", f"A new {mail_label(org)} mailbox on {org['mail_domain']}", "list-add-symbolic", "create",
                         manages)]
             choices.append(("Link an existing mailbox", "Only the Owner can link a mailbox", "insert-link-symbolic",
                             "link", is_owner))
@@ -3974,14 +4002,16 @@ class FleetWindow(Adw.ApplicationWindow):
     def mailbox_todo_row(self, org: dict, person: dict, is_owner: bool) -> Adw.ActionRow:
         todo = MAILBOX_TODO.get(person.get("mailbox_todo"), "needs a retry")
         row = Adw.ActionRow(title=GLib.markup_escape_text(f"{person.get('username')}: mailbox {todo}"),
-                            subtitle=GLib.markup_escape_text(person.get("mailbox_error") or "Google didn't answer"),
+                            subtitle=GLib.markup_escape_text(person.get("mailbox_error") or f"{mail_short(org)} didn't answer"),
                             subtitle_lines=0)
         row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
         manages = is_owner or person.get("role", "employee") == "employee"
         for label, action in (("Retry", "retry"), ("Done by hand", "forget")):
             b = Gtk.Button(label=label, valign=Gtk.Align.CENTER, sensitive=manages,
                            css_classes=["suggested-action"] if action == "retry" else ["flat"],
-                           tooltip_text=None if action == "retry" else "Already done in the Google Admin console")
+                           tooltip_text=None if action == "retry" else
+                           "Already done in the " + ("Microsoft 365 admin center" if org.get("mail_provider") == "microsoft"
+                                                      else "Google Admin console"))
             b.connect("clicked", lambda _b, a=action: self.mailbox_action(org, person, a))
             row.add_suffix(b)
         return row
@@ -3996,9 +4026,9 @@ class FleetWindow(Adw.ApplicationWindow):
                     return
                 if r.get("mailbox_password"):
                     self.show_mailbox_password(person.get("full_name") or person["username"], r["mailbox"],
-                                               r["mailbox_password"])
+                                               r["mailbox_password"], org)
                 self.after_people_change(org, {"retry": "Done", "forget": "No longer retried",
-                                               "new-password": f"New Google password for {person['username']}",
+                                               "new-password": f"New {mail_short(org)} password for {person['username']}",
                                                "unlink": "Kulan Fleet no longer manages that mailbox"}[action])
             self.call({"op": "mailbox", "person_id": person["id"], "action": action}, done,
                       {"mailbox": person.get("mailbox"), "mailbox_password": "abcd-EFGH-2346-mnpq"}
@@ -4007,11 +4037,11 @@ class FleetWindow(Adw.ApplicationWindow):
             go()
             return None
         dialog = Adw.AlertDialog(
-            heading=f"A new Google password for {person['username']}?" if action == "new-password" else
+            heading=f"A new {mail_short(org)} password for {person['username']}?" if action == "new-password" else
             f"Stop managing {person.get('mailbox')}?",
-            body="Their current Google password stops working now. The new one is shown once. Give it to them "
+            body=f"Their current {mail_short(org)} password stops working now. The new one is shown once. Give it to them "
                  "in person." if action == "new-password" else
-                 "The mailbox stays in Google Workspace. Kulan Fleet stops suspending, renaming or removing it "
+                 f"The mailbox stays in {mail_label(org)}. Kulan Fleet stops suspending, renaming or removing it "
                  "with their account, and their computers stop offering it.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Make a password" if action == "new-password" else "Stop managing")
@@ -4026,9 +4056,9 @@ class FleetWindow(Adw.ApplicationWindow):
         domain = org.get("mail_domain") or ""
         dialog = Adw.AlertDialog(
             heading=f"A mailbox for {person['username']}" if action == "create" else f"Link a mailbox to {person['username']}",
-            body=("Its first password is shown once. Google asks them to change it at first sign-in."
+            body=(f"Its first password is shown once. {mail_short(org)} asks them to change it at first sign-in."
                   if action == "create" else
-                  "A mailbox already in Google Workspace. From now on it's suspended, renamed and removed "
+                  f"A mailbox already in {mail_label(org)}. From now on it's suspended, renamed and removed "
                   "with their account."))
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
         address = Adw.EntryRow(title="Mailbox address", text=f"{person['username']}@{domain}" if domain else "")
@@ -4061,7 +4091,7 @@ class FleetWindow(Adw.ApplicationWindow):
                     return
                 if r.get("mailbox_password"):
                     self.show_mailbox_password(person.get("full_name") or person["username"], r["mailbox"],
-                                               r["mailbox_password"])
+                                               r["mailbox_password"], org)
                 self.after_people_change(org, f"{where} {'made' if action == 'create' else 'linked'}" +
                                          self.mailbox_note(r))
             self.call({"op": "mailbox", "person_id": person["id"], "action": action, "address": where}, done,
@@ -4070,11 +4100,12 @@ class FleetWindow(Adw.ApplicationWindow):
         dialog.present(self)
         return dialog
 
-    def show_mailbox_password(self, display: str, address: str, password: str) -> Adw.AlertDialog:
+    def show_mailbox_password(self, display: str, address: str, password: str, org: dict | None = None) -> Adw.AlertDialog:
+        word = mail_short(org)
         dialog = Adw.AlertDialog(
-            heading=f"Google password for {display}",
+            heading=f"{word} password for {display}",
             body=(f"Give this to {display} in person or by phone, not by email. They use it to sign in to "
-                  f"Google as {address}, then choose their own password. It's shown only once."))
+                  f"{word} as {address}, then choose their own password. It's shown only once."))
         dialog.set_extra_child(Gtk.Label(label=password, selectable=True, css_classes=["fleet-code"], margin_top=6))
         dialog.add_response("copy", "Copy password")
         dialog.add_response("close", "Done")
@@ -4084,10 +4115,14 @@ class FleetWindow(Adw.ApplicationWindow):
         return dialog
 
     def open_mail(self, org: dict) -> None:
-        if self.nav.find_page("mail") is not None:
-            self.nav.pop_to_tag("org")
-        page, _header = self.push_page("Google Workspace", "mail")
-        group = Adw.PreferencesGroup(title="Google Workspace", description="Loading…")
+        old = self.nav.find_page("mail")
+        if old is not None:  # shown again (after connecting): the old one and anything above it go, at once
+            stack = self.nav.get_navigation_stack()
+            pages = [stack.get_item(i) for i in range(stack.get_n_items())]
+            if old in pages and pages.index(old) > 0:
+                self.nav.replace(pages[:pages.index(old)])
+        page, _header = self.push_page("Work email", "mail")
+        group = Adw.PreferencesGroup(title="Work email", description="Loading…")
         page.add(group)
 
         def done(result, error):
@@ -4097,14 +4132,20 @@ class FleetWindow(Adw.ApplicationWindow):
             result = result or {}
             c, is_owner = result.get("connection"), bool(result.get("is_owner"))
             org["mail_domain"] = c.get("domain") if c else None
+            org["mail_provider"] = c.get("provider") if c else None
+            ms = bool(c) and c.get("provider") == "microsoft"
+            group.set_title(mail_label(org) if c else "Work email")
             group.set_description(
                 "Mailboxes are made, suspended and removed along with people's accounts." if c else
-                "Connect Google Workspace to manage mailboxes with People. New people get a mailbox. Mailboxes "
-                "are suspended when people are disabled, and suspended or deleted when they're removed.")
+                "Connect Google Workspace or Microsoft 365 to manage mailboxes with People. New people get a mailbox. "
+                "Mailboxes are suspended when people are disabled, and suspended or deleted when they're removed.")
             if c:
-                for title, value in (("Domain", c.get("domain")), ("Acting as", c.get("admin_email")),
-                                     ("Service account", c.get("client_email")), ("Client ID", c.get("client_id") or "–"),
-                                     ("Connected", f"{ago(c.get('connected_at'))} by {c.get('connected_by') or '–'}"),
+                rows = ((("Domain", c.get("domain")), ("Licence for new mailboxes", c.get("licence_name") or "–"),
+                         ("Directory (tenant) ID", c.get("tenant_id")), ("Application (client) ID", c.get("client_id")),
+                         ("Mailboxes used in", c.get("usage_location") or "–")) if ms else
+                        (("Domain", c.get("domain")), ("Acting as", c.get("admin_email")),
+                         ("Service account", c.get("client_email")), ("Client ID", c.get("client_id") or "–")))
+                for title, value in (*rows, ("Connected", f"{ago(c.get('connected_at'))} by {c.get('connected_by') or '–'}"),
                                      ("Managed mailboxes", str(result.get("mailboxes", 0)))):
                     row = Adw.ActionRow(title=title, subtitle=GLib.markup_escape_text(str(value)), subtitle_selectable=True)
                     row.add_css_class("property")
@@ -4119,9 +4160,13 @@ class FleetWindow(Adw.ApplicationWindow):
             for title, subtitle, icon, opener, show in (
                     ("Connect again with a new key" if c else "Connect Google Workspace",
                      "Choose a service account's JSON key. Kulan Fleet checks it before saving.",
-                     "insert-link-symbolic", lambda: self.connect_mail(org), True),
+                     "insert-link-symbolic", lambda: self.connect_mail(org), not ms),
+                    ("Connect again with a new secret" if c else "Connect Microsoft 365",
+                     "Enter the IDs of the app you registered in Microsoft Entra, and its client secret. "
+                     "Kulan Fleet checks them before saving.",
+                     "insert-link-symbolic", lambda: self.connect_microsoft(org), ms or not c),
                     ("Existing mailboxes", "Every mailbox on the domain, and who has each", "mail-unread-symbolic", lambda: self.open_mail_users(org), bool(c)),
-                    ("Disconnect", "Mailboxes stay in Google as they are",
+                    ("Disconnect", f"Mailboxes stay in {mail_short(org)} as they are",
                      "list-remove-symbolic", lambda: self.disconnect_mail(org), bool(c))):
                 if not show:
                     continue
@@ -4132,24 +4177,99 @@ class FleetWindow(Adw.ApplicationWindow):
                 if title == "Disconnect":
                     row.add_css_class("error")
                 actions.add(row)
-            how = Adw.PreferencesGroup(title="How to connect it",
-                                       description="Do this once as a Google Workspace super admin. It takes about 10 minutes.")
-            page.add(how)
-            for n_, step in enumerate((
-                    "In Google Cloud at console.cloud.google.com, make a project and turn on the Admin SDK API",
-                    "In IAM & Admin › Service accounts, make a service account with no roles, then add a JSON key "
-                    "under Keys",
-                    "In the Google Admin console, go to Security › Access and data control › API controls › "
-                    f"Domain-wide delegation and add the service account's client ID with the scope {GOOGLE_SCOPE}",
-                    "Here, choose Connect Google Workspace, then the key file and a super admin's email"), 1):
-                row = Adw.ActionRow(title=GLib.markup_escape_text(f"{n_}. {step}"), title_lines=0)
-                how.add(row)
-            guide = Adw.ActionRow(title="Full guide", activatable=True)
-            guide.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
-            guide.connect("activated", lambda _r: Gtk.UriLauncher.new(GOOGLE_GUIDE).launch(self, None, None, None))
-            how.add(guide)
+            google_steps = (
+                "In Google Cloud at console.cloud.google.com, make a project and turn on the Admin SDK API",
+                "In IAM & Admin › Service accounts, make a service account with no roles, then add a JSON key "
+                "under Keys",
+                "In the Google Admin console, go to Security › Access and data control › API controls › "
+                f"Domain-wide delegation and add the service account's client ID with the scope {GOOGLE_SCOPE}",
+                "Here, choose Connect Google Workspace, then the key file and a super admin's email")
+            ms_steps = (
+                "In Microsoft Entra at entra.microsoft.com, open App registrations › New registration, and register "
+                "an app for Kulan Fleet (this organisation only, no redirect address)",
+                "In its API permissions, add the Microsoft Graph application permissions "
+                f"{', '.join(result.get('permissions') or MS_PERMISSIONS)}, then choose Grant admin consent",
+                "In Certificates & secrets, make a client secret and copy its Value",
+                "Here, choose Connect Microsoft 365 and enter the Directory (tenant) ID and Application (client) ID "
+                "from the app's Overview page, the secret's Value and your email domain")
+            for name, steps, link, wanted in (("Google Workspace", google_steps, GOOGLE_GUIDE, not ms),
+                                               ("Microsoft 365", ms_steps, MS_GUIDE, ms or not c)):
+                if not wanted:
+                    continue
+                how = Adw.PreferencesGroup(title=f"How to connect {name}" if not c else "How to connect it",
+                                           description=f"Do this once as a {name} admin. It takes about 10 minutes.")
+                page.add(how)
+                for n_, step in enumerate(steps, 1):
+                    how.add(Adw.ActionRow(title=GLib.markup_escape_text(f"{n_}. {step}"), title_lines=0))
+                guide = Adw.ActionRow(title="Full guide", activatable=True)
+                guide.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+                guide.connect("activated", lambda _r, u=link: Gtk.UriLauncher.new(u).launch(self, None, None, None))
+                how.add(guide)
         self.call({"op": "mail", "organisation_id": org["id"]}, done,
                   lambda: (self.data or {}).get("sample_mail", {}))
+
+    def connect_microsoft(self, org: dict) -> Adw.AlertDialog:
+        dialog = Adw.AlertDialog(heading="Connect Microsoft 365",
+                                 body="From the app you registered in Microsoft Entra for Kulan Fleet. Without a "
+                                      "licence named, new mailboxes get your first Microsoft 365 licence with a mailbox "
+                                      "that has seats free. The secret is stored "
+                                      "encrypted and can't be read back. When it expires, connect again with a new one.")
+        box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
+        tenant = Adw.EntryRow(title="Directory (tenant) ID")
+        client = Adw.EntryRow(title="Application (client) ID")
+        secret = Adw.PasswordEntryRow(title="Client secret's Value")
+        domain = Adw.EntryRow(title="Your email domain", text=org.get("mail_domain") or "")
+        region = (GLib.get_language_names()[0].split(".")[0].split("_") + [""])[1]
+        country = Adw.EntryRow(title="Country people's mailboxes are used in (two letters)",
+                               text=region if re.fullmatch(r"[A-Z]{2}", region) else "US")
+        licence = Adw.EntryRow(title="Licence for new mailboxes (optional: ENTERPRISEPACK…)")
+        for row in (tenant, client, secret, domain, country, licence):
+            box.append(row)
+        note = Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"], margin_top=6)
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.append(box)
+        outer.append(note)
+        dialog.set_extra_child(outer)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("connect", "Connect")
+        dialog.set_response_appearance("connect", Adw.ResponseAppearance.SUGGESTED)
+
+        def ready(*_a) -> None:
+            ids = GUID.match(tenant.get_text().strip()) and GUID.match(client.get_text().strip())
+            ok = bool(ids) and len(secret.get_text().strip()) >= 16 and "." in domain.get_text() and \
+                bool(re.fullmatch(r"[A-Za-z]{2}", country.get_text().strip()))
+            note.set_label("" if ok or not (tenant.get_text() or client.get_text()) or ids else
+                           "The IDs look like 00000000-0000-0000-0000-000000000000 (on the app's Overview page)")
+            dialog.set_response_enabled("connect", ok)
+        for row in (tenant, client, secret, domain, country):
+            row.connect("changed", ready)
+        ready()
+        dialog.fields = (tenant, client, secret, domain, country)  # for the self-test
+
+        def answered(_d, response):
+            if response != "connect":
+                return
+            body = {"op": "connect-mail", "organisation_id": org["id"], "provider": "microsoft",
+                    "tenant_id": tenant.get_text().strip(), "client_id": client.get_text().strip(),
+                    "client_secret": secret.get_text().strip(), "domain": domain.get_text().strip().lower(),
+                    "usage_location": country.get_text().strip().upper(),
+                    **({"licence": licence.get_text().strip()} if licence.get_text().strip() else {})}
+            secret.set_text("")
+
+            def done(r, error):
+                if error:
+                    self.toast(error)
+                    return
+                r = r or {}
+                self.toast(f"Connected to {r.get('domain', '')}. New mailboxes get {r.get('licence') or 'a licence'} "
+                           f"({r.get('free', 0)} free now)")
+                self.reload()
+                self.open_mail(org)
+            self.last_connect_microsoft = body  # for the self-test
+            self.call(body, done, {"domain": body["domain"], "licence": "ENTERPRISEPACK", "free": 4})
+        dialog.connect("response", answered)
+        dialog.present(self)
+        return dialog
 
     def connect_mail(self, org: dict) -> Adw.AlertDialog:
         dialog = Adw.AlertDialog(heading="Connect Google Workspace",
@@ -4239,11 +4359,12 @@ class FleetWindow(Adw.ApplicationWindow):
         return dialog
 
     def disconnect_mail(self, org: dict) -> Adw.AlertDialog:
-        dialog = Adw.AlertDialog(heading="Disconnect Google Workspace?",
-                                 body="Kulan Fleet deletes its copy of the key. Mailboxes stay in Google but are no "
-                                      "longer managed with People, and computers stop offering them. Unfinished "
-                                      "suspensions or deletions are left for you to do by hand. To revoke the key, "
-                                      "delete it in Google Cloud.")
+        ms = org.get("mail_provider") == "microsoft"
+        dialog = Adw.AlertDialog(heading=f"Disconnect {mail_label(org)}?",
+                                 body=f"Kulan Fleet deletes its copy of the {'client secret' if ms else 'key'}. Mailboxes stay in "
+                                      f"{mail_short(org)} but are no longer managed with People, and computers stop offering "
+                                      "them. Unfinished suspensions or deletions are left for you to do by hand. To revoke "
+                                      f"the {'secret, delete it in Microsoft Entra' if ms else 'key, delete it in Google Cloud'}.")
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("go", "Disconnect")
         dialog.set_response_appearance("go", Adw.ResponseAppearance.DESTRUCTIVE)
@@ -4252,8 +4373,9 @@ class FleetWindow(Adw.ApplicationWindow):
             if error:
                 self.toast(error)
                 return
-            org["mail_domain"] = None
-            self.toast("Google Workspace disconnected")
+            label = mail_label(org)
+            org["mail_domain"] = org["mail_provider"] = None
+            self.toast(f"{label} disconnected")
             self.reload()
             self.open_mail(org)
         dialog.connect("response", lambda _d, r: r == "go" and self.call(
@@ -4279,7 +4401,7 @@ class FleetWindow(Adw.ApplicationWindow):
                                         u.get("name"), f"in People as {u['username']}" if u.get("username") else
                                         "not in People") if x)))
                 if u.get("admin"):
-                    row.add_suffix(tag("Google admin", "dim"))
+                    row.add_suffix(tag(f"{mail_short(org)} admin", "dim"))
                 if u.get("suspended"):
                     row.add_suffix(tag("suspended", "warn"))
                 group.add(row)
@@ -4288,7 +4410,7 @@ class FleetWindow(Adw.ApplicationWindow):
 
     # --- admins and the Owner ---------------------------------------------------------------------
     def open_admins(self, org: dict) -> None:
-        """Settings: the admins and the Owner, Google Workspace, your sign-in, organisations."""
+        """Settings: the admins and the Owner, work email, your sign-in, organisations."""
         if org.get("id") != self.org_id:
             return  # a reply about another organisation, after it was switched
         page, _actions = self.section_page("settings")
@@ -4371,8 +4493,10 @@ class FleetWindow(Adw.ApplicationWindow):
             group.add(row)
         mail = Adw.PreferencesGroup(title="Email")
         page.add(mail)
-        link(mail, "Google Workspace", f"Mailboxes on {org['mail_domain']} are managed with People" if org.get("mail_domain")
-             else "Not connected. Connect it to manage mailboxes with People", "mail-unread-symbolic", lambda: self.open_mail(org))
+        link(mail, mail_label(org) if org.get("mail_domain") else "Work email",
+             f"Mailboxes on {org['mail_domain']} are managed with People" if org.get("mail_domain")
+             else "Not connected. Connect Google Workspace or Microsoft 365 to manage mailboxes with People",
+             "mail-unread-symbolic", lambda: self.open_mail(org))
         mine = Adw.PreferencesGroup(title="Your sign-in", description=GLib.markup_escape_text(self.session.email or ""))
         page.add(mine)
         link(mine, "Your authenticator app", "Asked for after the email link, once you've set one up", "phone-symbolic",
@@ -4818,6 +4942,28 @@ class FleetApp(Adw.Application):
                     assert not connect.get_response_enabled("connect"), "not a key: not ready"
                     connect.force_close()
                     win.disconnect_mail(org).force_close()
+                    # Microsoft 365 (2.12): the app's IDs, a secret and the domain before Connect; sent as they are.
+                    ms = win.connect_microsoft(org)
+                    assert not ms.get_response_enabled("connect"), "nothing entered: not ready"
+                    tenant, client, secret, domain, country = ms.fields
+                    tenant.set_text("11111111-2222-4333-8444-555555555555")
+                    client.set_text("not an id")
+                    secret.set_text("Q~secret.value-0123456789")
+                    domain.set_text("Acme365.example")
+                    country.set_text("so")
+                    assert not ms.get_response_enabled("connect"), "a client ID that isn't one"
+                    client.set_text("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
+                    assert ms.get_response_enabled("connect"), "every field filled in: ready"
+                    ms.emit("response", "connect")
+                    sent = win.last_connect_microsoft
+                    assert sent["provider"] == "microsoft" and sent["domain"] == "acme365.example" and \
+                        sent["usage_location"] == "SO" and sent["client_secret"] == "Q~secret.value-0123456789", sent
+                    assert secret.get_text() == "", "the secret isn't kept in the dialog"
+                    ms.force_close()
+                    ms_org = {**org, "mail_provider": "microsoft", "mail_domain": "acme365.example"}
+                    assert mail_short(ms_org) == "Microsoft" and mail_label(ms_org) == "Microsoft 365" and mail_short(org) == "Google"
+                    win.show_mailbox_password("Amina", "amina@acme365.example", "abcd-EFGH-2346-mnpq", ms_org).force_close()
+                    win.disconnect_mail(ms_org).force_close()
                     win.open_mail_users(org)
                     win.nav.pop_to_tag("org")
                     amina, omar = win.data["sample_people"][0], win.data["sample_people"][1]

@@ -408,19 +408,33 @@ class AboutPage(Page):
         if not mail:
             return None
         done = wm.connected(mail, Path.home())
-        row = Adw.ActionRow(title="Work email", subtitle_lines=0, subtitle=GLib.markup_escape_text(
-            f"{mail['address']} · Connected to mail, calendar, contacts and Google Drive" if done else
-            f"{mail['address']} · Not connected. Click Connect and sign in as {mail['address']}"))
+        ms = mail.get("provider") == "microsoft"
+        if ms:  # Microsoft 365 (2.12): Outlook on the web; opening it is connecting it
+            subtitle = (f"{mail['address']} · Microsoft 365, in Outlook on the web" if done else
+                        f"{mail['address']} · Microsoft 365. Click Open and sign in as {mail['address']}")
+        else:
+            subtitle = (f"{mail['address']} · Connected to mail, calendar, contacts and Google Drive" if done else
+                        f"{mail['address']} · Not connected. Click Connect and sign in as {mail['address']}")
+        row = Adw.ActionRow(title="Work email", subtitle_lines=0, subtitle=GLib.markup_escape_text(subtitle))
         row.add_prefix(Gtk.Image(icon_name="mail-unread-symbolic" if done else "dialog-information-symbolic"))
         if done:
             command = wm.open_command(mail) if hasattr(wm, "open_command") else ["geary"]
-            button = Gtk.Button(label="Open mail" if command == ["geary"] else "Accounts", valign=Gtk.Align.CENTER)
+            button = Gtk.Button(label="Open mail" if ms or command == ["geary"] else "Accounts", valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda _b: self.run_app(command))
         else:
-            command = wm.connect_command(mail)
-            button = Gtk.Button(label="Connect", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
-        button.connect("clicked", lambda _b: self.run_app(command))
+            button = Gtk.Button(label="Open" if ms else "Connect", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+            button.connect("clicked", lambda _b: self.connect_work_email(wm, mail))
         row.add_suffix(button)
         return row
+
+    def connect_work_email(self, wm, mail: dict) -> None:
+        if hasattr(wm, "connect"):
+            if not wm.connect(mail, Path.home()):
+                self.window.toast("That app isn’t installed")
+            elif mail.get("provider") == "microsoft":
+                GLib.timeout_add_seconds(2, lambda: (self.window.reload_page(self), False)[1])
+        else:
+            self.run_app(wm.connect_command(mail))
 
     def run_app(self, argv: list[str]) -> None:
         try:

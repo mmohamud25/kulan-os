@@ -13,11 +13,15 @@
 #    this start came from keeps its try counter (EFI/Linux/kulan-<version>+2-1.efi);
 #    after three tries that never got this far, systemd-boot starts the
 #    previous version by itself. Once it worked, the counter goes
-#    (kulan-<version>.efi), as systemd-bless-boot does it.
+#    (kulan-<version>.efi), as systemd-bless-boot does it. And systemd-boot's
+#    one-time menu timeout (LoaderConfigTimeoutOneShot, 10 seconds) is set:
+#    the next start-up shows its menu, with the earlier Linux and "Undo the
+#    last update" (kulan-signed-start), unless this one worked.
 #  - /run/kulan/boot-ok is missing (fast-restart then restarts the Linux
 #    that's running rather than a newer one).
 #
 #   boot-ok          wait for that, then note it (the service)
+#   boot-ok pending  note that it hasn't worked yet (what wait does first)
 #   boot-ok now      note it now
 #   boot-ok status   "ok" or "pending" (this start-up)
 set -u
@@ -61,7 +65,7 @@ desktop_session() {
 bless_signed_start() {
 	var="${EFIVARS}/LoaderBootCountPath-${LOADER_GUID}"
 	[ -r "${var}" ] || return 0
-	path="$(tail -c +5 "${var}" | iconv -f UTF-16LE -t UTF-8 2>/dev/null | tr -d '\000' | tr '\134' /)"
+	path="$(cat "${var}" | tail -c +5 | iconv -f UTF-16LE -t UTF-8 2>/dev/null | tr -d '\000' | tr '\134' /)"
 	case "${path}" in
 		/EFI/Linux/kulan-*.efi | /efi/linux/kulan-*.efi) ;;
 		*) return 0 ;;
@@ -82,7 +86,43 @@ bless_signed_start() {
 	fi
 }
 
+# systemd-boot started this computer (signed start-up): it says so in LoaderInfo.
+have_systemd_boot() {
+	[ -r "${EFIVARS}/LoaderInfo-${LOADER_GUID}" ] &&
+		cat "${EFIVARS}/LoaderInfo-${LOADER_GUID}" | tail -c +5 | tr -d '\000' | grep -q '^systemd-boot'
+}
+
+# The menu at the next start-up, for 10 seconds (systemd-boot reads the
+# variable once and removes it). efivarfs: 4 bytes of attributes (non-volatile,
+# boot and runtime), then the value in UTF-16, ending in a zero.
+ONESHOT="${EFIVARS}/LoaderConfigTimeoutOneShot-${LOADER_GUID}"
+show_menu_next_time() {
+	have_systemd_boot || return 0
+	[ -e "${ONESHOT}" ] && return 0
+	# In one write, as efivarfs needs: made in /run first, then copied.
+	tmp="$(mktemp)" || return 0
+	printf '\007\000\000\000\061\000\060\000\000\000' >"${tmp}"
+	cat "${tmp}" >"${ONESHOT}" 2>/dev/null || log "couldn't ask for systemd-boot's menu at the next start-up"
+	rm -f "${tmp}"
+}
+no_menu_next_time() {
+	[ -e "${ONESHOT}" ] || return 0
+	chattr -i "${ONESHOT}" 2>/dev/null || true
+	rm -f "${ONESHOT}" 2>/dev/null || log "couldn't clear systemd-boot's menu for the next start-up"
+}
+
+# Not yet known to work: GRUB's note made here too (for disks where GRUB can't
+# write it itself), and systemd-boot's menu asked for.
+note_pending() {
+	if have_grub; then
+		[ -e "${GRUBENV}" ] || grub-editenv "${GRUBENV}" create 2>/dev/null || true
+		grub-editenv "${GRUBENV}" set kulan_boot_pending=1 2>/dev/null || log "couldn't update GRUB's environment block"
+	fi
+	show_menu_next_time
+}
+
 mark_ok() {
+	no_menu_next_time
 	if have_grub; then
 		grub-editenv "${GRUBENV}" unset kulan_boot_pending 2>/dev/null || log "couldn't update GRUB's environment block"
 	fi
@@ -94,11 +134,7 @@ mark_ok() {
 
 case "${1:-wait}" in
 	wait)
-		# Not yet: noted here too, for disks where GRUB can't note it itself.
-		if have_grub; then
-			[ -e "${GRUBENV}" ] || grub-editenv "${GRUBENV}" create 2>/dev/null || true
-			grub-editenv "${GRUBENV}" set kulan_boot_pending=1 2>/dev/null || log "couldn't update GRUB's environment block"
-		fi
+		note_pending
 		seen="" since=0
 		while :; do
 			id="$(desktop_session)"
@@ -113,12 +149,13 @@ case "${1:-wait}" in
 		done
 		mark_ok
 		;;
+	pending) note_pending ;;
 	now) mark_ok ;;
 	status)
 		if [ -e "${MARK}" ]; then echo ok; else echo pending; fi
 		;;
 	*)
-		echo "usage: boot-ok [wait|now|status]" >&2
+		echo "usage: boot-ok [wait|pending|now|status]" >&2
 		exit 2
 		;;
 esac

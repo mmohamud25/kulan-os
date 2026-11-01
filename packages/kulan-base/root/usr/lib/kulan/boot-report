@@ -42,6 +42,8 @@ sleep 5 # let the session settle
 	echo "timezone=$(readlink /etc/localtime 2>/dev/null | sed "s|.*/zoneinfo/||")"
 	echo "background=$(systemctl show -p CPUWeight --value apt-daily-upgrade.service 2>/dev/null) $(systemctl is-failed thermald.service 2>/dev/null)"
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
+	# Names through systemd-resolved (Kulan Settings' encrypted DNS), and whether a lookup works.
+	echo "dns=$(readlink /etc/resolv.conf 2>/dev/null || echo file) $(systemctl is-active systemd-resolved.service 2>/dev/null) lookup=$(timeout 8 getent hosts deb.debian.org >/dev/null 2>&1 && echo yes || echo no)"
 	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
 	# Kernel loading switched off (1) on PCs; left on (0) with fast restart
 	# set up in ARM VMs, where a normal restart freezes.
@@ -50,6 +52,9 @@ sleep 5 # let the session settle
 	echo "kexec=$(cat /proc/sys/kernel/kexec_load_disabled 2>/dev/null) ${FAST} $(uname -m)"
 	# "no": start-up skipped ldconfig and friends (the image is marked up to date).
 	echo "needs_update=$(systemctl show -P ConditionResult ldconfig.service 2>/dev/null)"
+	# AppArmor's compiled profiles (made by the installer): the folder this kernel
+	# uses, and each folder there with its file count and time (seconds).
+	echo "aacache=$(apparmor_parser --print-cache-dir 2>/dev/null) $(for d in /var/cache/apparmor/*/; do [ -d "$d" ] && printf '%s:%s:%s;' "$(basename "$d")" "$(find "$d" -maxdepth 1 -type f | wc -l)" "$(stat -c %Y "$d")"; done) aaload=$(systemctl show -P ExecMainStartTimestampMonotonic apparmor.service 2>/dev/null)"
 	# How an encrypted disk was opened (TPM unlock test): systemd-cryptsetup's own words.
 	echo "unlock=$(journalctl -b -o cat -t systemd-cryptsetup 2>/dev/null | grep -m1 -iE 'tpm2|token' | cut -c1-200)"
 	echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
