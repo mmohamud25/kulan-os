@@ -180,8 +180,9 @@ case "\${PHASE}" in
 		if [ -e /var/lib/kulan-signed-test-undo ]; then
 			# Started through "Undo the last update" (no restore point in this test:
 			# it says so and start-up carries on).
-			# Once the desktop has lasted a minute, the file loses its try counter and the menu isn't asked for.
-			for _ in \$(seq 50); do ls /boot/efi/EFI/Linux | grep -qE '[+][0-9]+(-[0-9]+)?[.]efi\$' || break; sleep 3; done
+			# Once the desktop has lasted a minute, the file loses its try counter and the menu isn't asked for
+			# (this file already had: wait for boot-ok to note this start as good).
+			for _ in \$(seq 50); do [ -e /run/kulan/boot-ok ] && break; sleep 3; done
 			say "blessed=\$(ls /boot/efi/EFI/Linux | tr '\n' ' ') menu_after=\$(efitext \$V/LoaderConfigTimeoutOneShot-\$G)"
 			say "undo_started=\$(grep -c 'kulan.undo-update' /proc/cmdline) undo_service=\$(journalctl -b -u kulan-undo-at-start.service -o cat --no-pager 2>/dev/null | grep -c "There's no restore point") entry=\$(efitext \$V/LoaderEntrySelected-\$G)"
 			say "done"
