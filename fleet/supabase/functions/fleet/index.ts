@@ -505,18 +505,23 @@ Deno.serve(async (req: Request) => {
       const passwords = dev.approved ? passwordsIn : [];
       delete body.factors; // into fleet.person_factors only, never into the reports
       delete body.factors_removed;
-      // Who was signed in here at the last report (before this one): an admin's
-      // or the Owner's password or second step is taken only from a computer
-      // they were signed in on, so one computer can't change theirs unseen.
-      const [prev] = await sql`select last_report->'sign_ins' as sign_ins, hostname from fleet.devices where id = ${dev.id}`;
-      const signedInBefore = new Set((cleanSignIns(prev?.sign_ins) ?? []).filter((x) => x.now).map((x) => x.username));
+      // A computer can't vouch for who signed in on it (anyone with
+      // administrator rights there can say anything in its reports), so it
+      // never weakens an account that has administrator rights everywhere: an
+      // admin's or the Owner's password, and the removal of their second
+      // steps, stay on the computer they were changed on (those change in
+      // Kulan Fleet). A second step they set up is taken: it only ever asks
+      // for more than the password. An employee's changes follow them to
+      // their other computers.
+      // The name it had at its last report (a rename is noted in the log below).
+      const [prev] = await sql`select hostname from fleet.devices where id = ${dev.id}`;
       // A person on this computer, if they may use it and aren't disabled or removed.
-      const allowedHere = async (username: string): Promise<string | null> => {
+      const allowedHere = async (username: string, anyRole = false): Promise<string | null> => {
         const rows = await sql`
           select pe.id from fleet.people pe
           where pe.organisation_id = ${dev.organisation_id} and pe.username = ${username}
             and pe.removed_at is null and pe.enabled
-            and (pe.role = 'employee' or ${signedInBefore.has(username)})
+            and (pe.role = 'employee' or ${anyRole})
             and (pe.all_computers
                  or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
                  or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id
@@ -524,7 +529,7 @@ Deno.serve(async (req: Request) => {
         return rows.length ? rows[0].id : null;
       };
       for (const f of factorsAdded) {
-        const pid = await allowedHere(f.username);
+        const pid = await allowedHere(f.username, true);
         if (!pid) continue;
         let data = f.data;
         if (f.kind === "code") {
@@ -566,7 +571,7 @@ Deno.serve(async (req: Request) => {
                  password_changed_at = greatest(extract(epoch from now())::bigint, pe.password_changed_at + 1)
           where pe.organisation_id = ${dev.organisation_id} and pe.username = ${p.username}
             and pe.removed_at is null and pe.enabled and pe.password_hash is distinct from ${p.hash}
-            and (pe.role = 'employee' or ${signedInBefore.has(p.username)})
+            and pe.role = 'employee'
             and (pe.all_computers
                  or exists (select 1 from fleet.person_computers pc where pc.person_id = pe.id and pc.device_id = ${dev.id})
                  or exists (select 1 from fleet.person_groups pg join fleet.group_devices gd on gd.group_id = pg.group_id

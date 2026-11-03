@@ -108,6 +108,27 @@ start remote help from it, and mark it done with an optional answer. The
 answer reaches that person's screen with the computer's next report, which
 starts at once.
 
+## What the server is trusted with (Kulan OS 2.13)
+Protect the Supabase project (its service key, the database URL and the
+accounts that can deploy it) as carefully as the Owner's own sign-in:
+
+- **Accounts.** Computers take the people list from the server, including
+  who has administrator rights and their password hashes and second steps.
+  Someone in control of the server could make an administrator account on
+  every computer. Scripts are different: computers run only those the
+  Owner's signing code approved, and that code never reaches the server.
+- **The script key.** A computer keeps the first script key the server
+  gives it. A later key is taken only if the old one signed it.
+- **What computers say.** A computer's reports are never trusted to weaken
+  an account with administrator rights: a password changed on a computer, or
+  a second step removed there, stays on that computer (change them in Kulan
+  Fleet). A second step they set up is passed on, as it only ever asks for
+  more. An employee's changes follow them to their other computers.
+- **Admins.** Only the Owner changes an admin's or the Owner's account, the
+  computers they sign in on (directly, or through a group's computers), and
+  the mailbox of anyone who is an admin of Kulan Fleet itself (Kulan Fleet
+  signs in by email, so that mailbox is their Kulan Fleet sign-in).
+
 ## Dashboard
 
 `dashboard/` is a static page, published with the website at
