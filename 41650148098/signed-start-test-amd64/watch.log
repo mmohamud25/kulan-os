@@ -1,0 +1,19 @@
+MOK screen after 1 s: Booting in 10 seconds  Shim UEFI key management  Press any key to perform MOK managenent  
+1 s: BdsDxe: loading Boot0006 “Kulan OS” from HD (1,GPT .C667C44E-4395-44FE-8A85-EC7524A79493 , Ox800 .0x10000 0) /NEFI\kulan\shimx64 efi  BdsDxe: starting Boot0006 
+11 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:23  4  ao O 
+21 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:23  4  ao O 
+31 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:24  4  ao O 
+41 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied!  Speculative Return Stack Overflow: HARNING: See https://kernel.org/doc/html/latest/adm
+51 s: po kulan 052.13 Kulan OS 2.13 Undo the last update) EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+1 s: OK OK  OK OK OK OK OK OK OK OK OK  OK OK OK OK OK OK OK OK OK OK OK OK OK OK OK OK OK  OK  Stopped target tpm2.target - Trusted Platform Module. Finished initrd
+11 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:25  4  ao O 
+21 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:25  4  ao O 
+31 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:25  4  ao O 
+41 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:25  4  ao O 
+51 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:25  4  ao O 
+1 s: 
+11 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:26  4  ao O 
+21 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:26  4  ao O 
+31 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:26  4  ao O 
+41 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:26  4  ao O 
+51 s: @ TUESDAY  3  November 2026 Nothing  Tue Nov 3 15:27  4  ao O 
