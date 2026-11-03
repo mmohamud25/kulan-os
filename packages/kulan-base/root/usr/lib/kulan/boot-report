@@ -81,6 +81,31 @@ sleep 5 # let the session settle
 			grep -oE "'(state|error)': <[^>]*>" | tr '\n' ' ' | cut -c1-300)"
 	fi
 	echo "kulanshell=${SHELL_EXT}"
+	# A window that asks to be bigger than the screen opens to fit it, above the
+	# dock (Kulan Shell's windowfit.js): its size and the screen's.
+	FIT=""
+	if [ -n "${U}" ]; then
+		FIT="$(runuser -u "${U}" -- env XDG_RUNTIME_DIR="/run/user/${UID_}" WAYLAND_DISPLAY=wayland-0 GDK_BACKEND=wayland \
+			DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${UID_}/bus" timeout 20 python3 -I -c '
+import gi
+gi.require_version("Gtk", "4.0")
+from gi.repository import GLib, Gtk
+app = Gtk.Application(application_id="org.kulan.BootReportFit")
+def report(win):
+    g = win.get_display().get_monitor_at_surface(win.get_surface()).get_geometry()
+    print(win.get_width(), win.get_height(), g.width, g.height, flush=True)
+    app.quit()
+    return False
+def activate(a):
+    win = Gtk.ApplicationWindow(application=a, title="Kulan fit test")
+    win.set_default_size(5000, 5000)
+    win.present()
+    GLib.timeout_add(4000, report, win)
+app.connect("activate", activate)
+app.run([])
+' 2>/dev/null | tail -n 1)"
+	fi
+	echo "windowfit=${FIT}"
 	# Lighter mode (on by itself under 5 GB): the flag, and file search
 	# really running at the lowest priority in the person's session.
 	LIGHT=off

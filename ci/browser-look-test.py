@@ -19,7 +19,8 @@ for d in (home, system_fp, user_fp, root):
     d.mkdir()
 ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(home),
        "KULAN_FLATPAK_DIRS": f"{system_fp}:{user_fp}", "KULAN_ROOT": str(root)}
-STATE = home / ".local/state/kulan/browser-look"
+STATE = home / ".local/state/kulan/browser-look-2"
+OLD_STATE = home / ".local/state/kulan/browser-look"  # 2.12's
 
 
 def run() -> str:
@@ -62,12 +63,17 @@ chrome = install(system_fp, "com.google.Chrome") / "google-chrome"
 brave = install(user_fp, "com.brave.Browser") / "BraveSoftware/Brave-Browser"
 brave_prefs = used(brave, {"browser": {"window_placement": {"left": 5}}, "extensions": {"settings": {"x": {}}}})
 used(brave, {"extensions": {"theme": {"id": ""}}}, "Profile 1")
-# Edge: Classic chosen. Chromium: a Web Store theme. Ungoogled: open.
+# Edge: Chrome's own colours (Classic, a colour picked or synced), already done by 2.12.
+# Chromium: a Web Store theme. Chrome Dev: Qt.
 edge = install(system_fp, "com.microsoft.Edge") / "microsoft-edge"
-edge_text = json.dumps({"extensions": {"theme": {"system_theme": 0}}})
-used(edge, json.loads(edge_text))
+used(edge, {"extensions": {"theme": {"system_theme": 0}}, "browser": {"theme": {"user_color": -4144960}}})
+OLD_STATE.parent.mkdir(parents=True)
+OLD_STATE.write_text(f"{edge}\n")
 chromium = install(system_fp, "org.chromium.Chromium") / "chromium"
 used(chromium, {"extensions": {"theme": {"id": "abcdefghijklmnop"}}})
+dev = install(system_fp, "com.google.ChromeDev") / "google-chrome-unstable"
+dev_text = json.dumps({"extensions": {"theme": {"system_theme": 2}}})
+used(dev, json.loads(dev_text))
 # Chrome as a package, with a broken Preferences file.
 (root / "opt/google/chrome").mkdir(parents=True)
 (root / "opt/google/chrome/chrome").write_text("")
@@ -88,24 +94,28 @@ check(p["extensions"]["theme"] == {"system_theme": 1} and p["browser"]["window_p
       and p["extensions"]["settings"] == {"x": {}}, "used Brave gets GTK, keeps everything else")
 check(brave_prefs.stat().st_mode & 0o777 == 0o600, "permissions kept")
 check(prefs(brave, "Profile 1")["extensions"]["theme"]["system_theme"] == 1, "every profile")
-check((edge / "Default/Preferences").read_text() == edge_text, "Classic chosen: left alone")
+check(prefs(edge)["extensions"]["theme"] == {"system_theme": 1} and prefs(edge)["browser"]["theme"]["user_color"] == -4144960,
+      "Chrome's own colours: GTK once (2.14), the colour kept for Classic")
+check((dev / "Default/Preferences").read_text() == dev_text, "Qt: left alone")
 check(prefs(chromium)["extensions"]["theme"] == {"id": "abcdefghijklmnop"}, "Web Store theme: left alone")
 check((native / "Default/Preferences").read_text() == "{not json", "broken file: left alone")
 check(prefs(open_one) == {"a": 1}, "open browser: left alone")
 check(not list(brave.glob("*/.kulan-*")), "no temporary files left")
 done = STATE.read_text().splitlines()
-check(sorted(done) == sorted(map(str, (chrome, brave, edge, chromium))), f"done list: {done}")
-check(out.count("uses Kulan's look") == 4, out)
+check(sorted(done) == sorted(map(str, (chrome, brave, edge, chromium, dev))), f"done list: {done}")
+check(out.count("uses Kulan's look") == 5, out)
 
 # Once done, never again: choosing Classic later sticks, even after "Reset".
 (chrome / "Default/Preferences").write_text("{}")
+used_classic = {"extensions": {"theme": {"system_theme": 0}}}
+(edge / "Default/Preferences").write_text(json.dumps(used_classic))
 # The open one closes, the broken one gets fixed by the browser.
 (open_one / "SingletonLock").unlink()
 (native / "Default/Preferences").write_text(json.dumps({"profile": {"name": "Me"}}))
 run()
-check(prefs(chrome) == {}, "not changed back once done")
+check(prefs(chrome) == {} and prefs(edge) == used_classic, "not changed back once done")
 check(prefs(open_one) == {"a": 1, "extensions": {"theme": {"system_theme": 1}}}, "done once closed")
 check(prefs(native)["extensions"]["theme"]["system_theme"] == 1 and prefs(native)["profile"]["name"] == "Me", "done once readable")
-check(len(STATE.read_text().splitlines()) == 6, "everything done once")
+check(len(STATE.read_text().splitlines()) == 7, "everything done once")
 check(run() == "", "nothing more to do")
 print("browser-look: every case passed")

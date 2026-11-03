@@ -225,6 +225,16 @@ elif [[ -n "${SHELL_EXT}" ]]; then
 else
 	result info "Kulan Shell" "not reported"
 fi
+FIT="$(field windowfit)"
+if [[ "${FIT}" =~ ^([0-9]+)\ ([0-9]+)\ ([0-9]+)\ ([0-9]+)$ ]]; then
+	if (( BASH_REMATCH[1] <= BASH_REMATCH[3] && BASH_REMATCH[2] < BASH_REMATCH[4] )); then
+		result pass "Windows fit the screen" "a window asking for 5000x5000 opened at ${BASH_REMATCH[1]}x${BASH_REMATCH[2]} on a ${BASH_REMATCH[3]}x${BASH_REMATCH[4]} screen, clear of the top bar and the dock"
+	else
+		result fail "Windows fit the screen" "a window asking for 5000x5000 opened at ${BASH_REMATCH[1]}x${BASH_REMATCH[2]} on a ${BASH_REMATCH[3]}x${BASH_REMATCH[4]} screen"
+	fi
+else
+	result fail "Windows fit the screen" "no test window: ${FIT:-not reported}"
+fi
 LIGHT="$(field lighter)"
 if [[ -z "${LIGHT}" ]]; then
 	result info "Lighter mode" "not reported"

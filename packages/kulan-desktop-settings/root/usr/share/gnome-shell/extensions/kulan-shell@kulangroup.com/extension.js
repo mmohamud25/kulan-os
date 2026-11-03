@@ -34,6 +34,7 @@ import {AskKulan} from './askkulan.js';
 import {QuickNote} from './quicknote.js';
 import {DesktopWidgets} from './widgets.js';
 import {VmDisplayKeeper} from './vmdisplay.js';
+import {WindowFit} from './windowfit.js';
 import {ReopenApps} from './reopen.js';
 import {RestartPrompt, restartNeeded} from './restartprompt.js';
 import {LightEffects, ANIMATION_FACTOR} from './lighteffects.js';
@@ -507,6 +508,7 @@ export default class KulanShellExtension extends Extension {
         this._vmDisplay = new VmDisplayKeeper();
         this._lightEffects = new LightEffects(() => this._applySettings());
         this._reopenApps = Main.sessionMode.isLocked ? null : new ReopenApps(this._settings);
+        this._windowFit = new WindowFit();
         this._quickNote = new QuickNote();
         this._widgets = this._settings?.settings_schema.has_key('desktop-widgets')
             ? new DesktopWidgets(this._settings, () => this._quickNote?.open()) : null;
@@ -706,6 +708,8 @@ export default class KulanShellExtension extends Extension {
         this._lightEffects = null;
         this._reopenApps?.destroy();
         this._reopenApps = null;
+        this._windowFit?.destroy();
+        this._windowFit = null;
         this._vmDisplay = null;
         this._spotlight = null;
         this._widgets?.destroy();
