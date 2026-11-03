@@ -383,6 +383,35 @@ def release_disk(disk: str) -> None:
                 run(["umount", "-l", parts[1].strip()], check=False)
 
 
+def unmount(path: Path) -> None:
+    """Unmounted for real (so the disk can be closed and used again), waiting a
+    little for whatever still has a file open there; lazily as a last resort."""
+    for _ in range(10):
+        if not os.path.ismount(path):
+            return
+        if run(["umount", str(path)], check=False).returncode == 0:
+            return
+        run(["udevadm", "settle", "--timeout=2"], check=False)
+        time.sleep(0.5)
+    if os.path.ismount(path):
+        run(["umount", "-l", str(path)], check=False)
+
+
+def close_crypt() -> bool:
+    """The encrypted system disk's mapping closed (retried while it's still busy).
+    True once it's gone, or wasn't there."""
+    mapper = Path(f"/dev/mapper/{CRYPT_NAME}")
+    for _ in range(10):
+        if not mapper.exists():
+            return True
+        run(["cryptsetup", "close", CRYPT_NAME], check=False)
+        if not mapper.exists():
+            return True
+        run(["udevadm", "settle", "--timeout=2"], check=False)
+        time.sleep(0.5)
+    return not mapper.exists()
+
+
 def partition(plan: dict) -> dict:
     """Make the partitions; returns their paths: esp, boot (or None), root,
     and whether the EFI partition is new (to be formatted)."""
@@ -476,8 +505,9 @@ def format_and_mount(plan: dict, parts: dict, target: Path) -> dict:
     root_dev = parts["root"]
     luks_uuid = None
     if encrypt:
-        if Path(f"/dev/mapper/{CRYPT_NAME}").exists():
-            run(["cryptsetup", "close", CRYPT_NAME], check=False)
+        if not close_crypt():
+            raise Failure("The disk is still in use from the last try. Restart the computer from the USB stick, "
+                          "then try again")
         run(["cryptsetup", "luksFormat", "-q", "--type", "luks2", "--pbkdf", "argon2id", "--key-file=-",
              parts["root"]], input_text=plan["password"])
         run(["cryptsetup", "open", "--key-file=-", parts["root"], CRYPT_NAME], input_text=plan["password"])
@@ -902,10 +932,9 @@ def install(plan: dict) -> None:
     finally:
         for point in ("boot/efi", "boot", ""):
             path = target / point if point else target
-            if os.path.ismount(path):
-                run(["umount", "-l", str(path)], check=False)
+            unmount(path)
         if disk_info.get("luks_uuid"):
-            run(["cryptsetup", "close", CRYPT_NAME], check=False)
+            close_crypt()
         try:
             target.rmdir()
         except OSError:

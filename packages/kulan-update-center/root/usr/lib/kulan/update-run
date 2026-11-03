@@ -422,7 +422,13 @@ firmware_install() {
 		"${FIRMWARE_LIST}" 2>/dev/null || return 1
 	echo "pmstatus:firmware:95:Updating device firmware"
 	if timeout 1800 fwupdmgr update -y --no-reboot-check --no-unreported-check 1>&2; then
-		rm -f "${FIRMWARE_LIST}"
+		mv -f "${FIRMWARE_LIST}" "${FIRMWARE_LIST}.done"
+		# The computer's own firmware (and Secure Boot's lists) changes what the TPM
+		# measures, so TPM unlock can't open the disk at the next start: said now.
+		if grep -q '"on": *true' /var/lib/kulan/tpm.json 2>/dev/null &&
+			grep -qiE '"(Plugin|Protocol)": *"(uefi_capsule|uefi_dbx|org.uefi.capsule|org.uefi.dbx)' "${FIRMWARE_LIST}.done" 2>/dev/null; then
+			echo "say:The computer's firmware was updated. At the next start it may ask for your disk password once: then turn TPM unlock off and on again in Kulan Settings › Security."
+		fi
 		return 0
 	fi
 	echo "Couldn't update device firmware. It will try again with the next updates." >&2

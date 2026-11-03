@@ -282,7 +282,11 @@ LAST_UPDATE="${KULAN_LAST_UPDATE:-/var/lib/kulan/last-update.json}"
 record_last_update() { # record_last_update <point or ""> [undone point]
 	mkdir -p "$(dirname "${LAST_UPDATE}")"
 	local tmp="${LAST_UPDATE}.tmp"
-	printf '{"point": "%s", "undone": "%s", "time": %d}\n' "$1" "${2:-}" "$(date +%s)" >"${tmp}"
+	# The kernel running when the point was taken: the start-up menu's undo starts
+	# that one (12_kulan-undo), in case the update's own kernel is what broke.
+	local kernel
+	kernel="$(uname -r | tr -dc 'A-Za-z0-9._+~-')"
+	printf '{"point": "%s", "undone": "%s", "time": %d, "kernel": "%s"}\n' "$1" "${2:-}" "$(date +%s)" "${kernel}" >"${tmp}"
 	chmod 0644 "${tmp}"
 	mv -f "${tmp}" "${LAST_UPDATE}"
 }

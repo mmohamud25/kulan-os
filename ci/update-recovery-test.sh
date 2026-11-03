@@ -220,6 +220,17 @@ grub_scripts() {
 	grep -q "^menuentry 'Undo the last update' .*'kulan-undo-update' {" "${T}/menu.cfg" &&
 		grep -q "linux	/vmlinuz-6.12.48+deb13-amd64 root=UUID=5678 ro  splash kulan.undo-update$" "${T}/menu.cfg" &&
 		[[ "$(grep -c '^menuentry' "${T}/menu.cfg")" -eq 1 ]] || { cat "${T}/menu.cfg"; return 1; }
+	# The kernel running when the restore point was taken (still installed): the undo starts
+	# that one, not the update's (which may be what broke start-up). Unknown kernel: the newest.
+	printf '{"point": "x", "undone": "", "time": 1, "kernel": "6.12.43+deb13-amd64"}\n' >"${T}/last.json"
+	local undo
+	undo="$(KULAN_LAST_UPDATE="${T}/last.json" sh "${T}/12")"
+	grep -q "linux	/vmlinuz-6.12.43+deb13-amd64 root=UUID=5678 ro kulan.undo-update$" <<<"${undo}" ||
+		{ echo "the undo didn't start the kernel from before the update: ${undo}"; return 1; }
+	printf '{"point": "x", "undone": "", "time": 1, "kernel": "6.1.0-gone"}\n' >"${T}/last.json"
+	undo="$(KULAN_LAST_UPDATE="${T}/last.json" sh "${T}/12")"
+	grep -q "linux	/vmlinuz-6.12.48+deb13-amd64 .*kulan.undo-update$" <<<"${undo}" ||
+		{ echo "a kernel that's gone: not the newest: ${undo}"; return 1; }
 	# GRUB can't write its block on Btrfs: no save_env (it would show an error at every start).
 	FAKE_FS=btrfs grub_probe="${T}/grub-probe" sh "${T}/01" | grep -q save_env && { echo "save_env on btrfs"; return 1; }
 	# Without kulan-update-center, the file left in /etc/grub.d does nothing.
