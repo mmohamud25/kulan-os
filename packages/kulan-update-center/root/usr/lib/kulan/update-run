@@ -79,6 +79,16 @@ die() {
 
 [[ ${EUID} -eq 0 ]] || die "update-run must run as root (through pkexec)."
 
+# Changes to the computer's security or to who controls it: through pkexec,
+# only by way of update-run-confirm, whose policy asks for the password every
+# time (org.kulan.updates.confirm). The password given for everything else is
+# remembered for a few minutes, for every program in that session, so it
+# mustn't cover these.
+CONFIRMED_ACTIONS=" fleet-join fleet-leave fleet-allow-erase tpm-on tpm-on-pin tpm-off signed-start-off compliance-off remote-desktop-on sharing-on phone-link-on "
+if [[ -n "${PKEXEC_UID:-}" && "${CONFIRMED_ACTIONS}" == *" ${1:-} "* && "${KULAN_CONFIRMED:-}" != 1 ]]; then
+	die "This change needs your password each time. Use Kulan Settings to make it."
+fi
+
 # --- the long changes, as their own system service ------------------------------------
 UNIT=kulan-update.service
 RUN_DIR=/run/kulan

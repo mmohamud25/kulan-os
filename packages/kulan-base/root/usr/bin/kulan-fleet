@@ -203,10 +203,13 @@ def write_json(path: Path, data: dict, mode: int) -> None:
 
 
 def check_server(server: str) -> str:
-    """HTTPS only (plain HTTP just for a server on this computer, for tests)."""
+    """HTTPS only. Plain HTTP just for a stand-in server on this computer, and only
+    when root runs kulan-fleet itself with KULAN_FLEET_TEST_HTTP=1 (the tests):
+    never through Kulan Settings (pkexec gives update-run a clean environment),
+    so a program in someone's session can't join the computer to a server of its own."""
     server = server.strip().rstrip("/")
     parts = urllib.parse.urlsplit(server)
-    local = parts.hostname in ("localhost", "127.0.0.1", "::1")
+    local = parts.hostname in ("localhost", "127.0.0.1", "::1") and os.environ.get("KULAN_FLEET_TEST_HTTP") == "1"
     if parts.scheme != "https" and not (parts.scheme == "http" and local):
         raise ValueError("the server address must start with https://")
     if not parts.hostname:

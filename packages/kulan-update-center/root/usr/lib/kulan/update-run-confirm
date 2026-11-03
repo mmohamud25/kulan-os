@@ -1,0 +1,16 @@
+#!/bin/sh
+# Kulan OS: the changes to the computer's security, or to who controls it,
+# that ask for an administrator's password every time (polkit action
+# org.kulan.updates.confirm, never remembered). update-run makes them; it
+# refuses them from pkexec unless they came this way. The same list as
+# update-run's CONFIRMED_ACTIONS (and Kulan Settings' common.CONFIRMED_ACTIONS).
+set -eu
+CONFIRMED_ACTIONS=" fleet-join fleet-leave fleet-allow-erase tpm-on tpm-on-pin tpm-off signed-start-off compliance-off remote-desktop-on sharing-on phone-link-on "
+case "${1:-}" in
+	"" | *[!a-z-]*) echo "update-run-confirm: not one of its changes" >&2; exit 64 ;;
+esac
+case "${CONFIRMED_ACTIONS}" in
+	*" $1 "*) ;;
+	*) echo "update-run-confirm: not one of its changes: $1" >&2; exit 64 ;;
+esac
+KULAN_CONFIRMED=1 exec /usr/lib/kulan/update-run "$@"
