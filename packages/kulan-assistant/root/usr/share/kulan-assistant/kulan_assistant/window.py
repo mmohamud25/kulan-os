@@ -56,7 +56,7 @@ class AssistantWindow(Adw.ApplicationWindow):
         box.append(self.status)
         self.view = Gtk.TextView(editable=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, vexpand=True,
                                  left_margin=10, right_margin=10, top_margin=10, bottom_margin=10)
-        self.view.update_property([Gtk.AccessibleProperty.LABEL], ["Kulan Assistant's answer"])
+        self.view.update_property([Gtk.AccessibleProperty.LABEL], ["Kulan Assistant’s answer"])
         scroller = Gtk.ScrolledWindow(child=self.view, vexpand=True, css_classes=["card"])
         box.append(scroller)
 

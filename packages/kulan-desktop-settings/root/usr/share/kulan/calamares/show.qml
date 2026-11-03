@@ -70,7 +70,7 @@ Presentation
     }
     KulanSlide {
         image: "slide-shortcuts.png"
-        headline: qsTr("Feels like a Mac")
+        headline: qsTr("Quick to get around")
         body: qsTr("Super+Space to search, Super+Shift+4 for a screenshot, plus Live Text, window snapping and Quick Look.")
     }
     KulanSlide {

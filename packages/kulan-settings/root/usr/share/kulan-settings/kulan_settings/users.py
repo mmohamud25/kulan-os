@@ -182,7 +182,7 @@ def call(proxy: Gio.DBusProxy, method: str, args: GLib.Variant | None,
             if "dismissed" in message or "not authorized" in message or name.endswith("PermissionDenied"):
                 done("Not changed. An administrator’s password is needed.", None)
             elif name.endswith("UserExists"):
-                done("That user name is taken. Choose another.", None)
+                done("That username is taken. Choose another.", None)
             elif name.endswith("UserDoesNotExist"):
                 done("That account isn’t on this computer any more.", None)
             else:
@@ -204,7 +204,7 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
                              body="They can sign in with this name and password.")
     box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
     full = Adw.EntryRow(title="Full name")
-    user = Adw.EntryRow(title="User name")
+    user = Adw.EntryRow(title="Username")
     password = Adw.PasswordEntryRow(title="Password")
     again = Adw.PasswordEntryRow(title="Password again")
     admin = Adw.SwitchRow(title="Administrator", subtitle="Can install apps and change the whole computer")
@@ -236,7 +236,7 @@ def add_account_dialog(parent: Gtk.Widget, accounts: Accounts, standard_only: bo
     def check() -> None:
         name = user.get_text()
         in_use = taken["names"] is not None and name in taken["names"]
-        user.set_title("User name (taken, choose another)" if in_use else "User name")
+        user.set_title("Username (taken, choose another)" if in_use else "Username")
         ok = (taken["names"] is not None and full.get_text().strip() != "" and NAME_RULE.match(name) is not None
               and not in_use and len(password.get_text()) >= 1 and password.get_text() == again.get_text())
         dialog.set_response_enabled("add", ok)

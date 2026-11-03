@@ -42,7 +42,7 @@ BUTTON_STYLES = {
     "symbols": {"gtk-4.0": f"{GTK_DIR}/gtk-4.0.css", "gtk-3.0": f"{GTK_DIR}/gtk-3.0.css"},
     "dots": {"gtk-4.0": f"{GTK_DIR}/dots/gtk-4.0.css", "gtk-3.0": f"{GTK_DIR}/dots/gtk-3.0.css"},
 }
-GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK's own. */"
+GTK_COMMENT = "/* Kulan OS window buttons. Delete this line to use GTK’s own. */"
 
 LAYOUT_LEFT = "close,minimize,maximize:appmenu"
 LAYOUT_RIGHT = "appmenu:minimize,maximize,close"
@@ -184,11 +184,11 @@ class AppearancePage(Page):
 
         windows = self.add_group("Window buttons", "Changes apply to apps as you open them.")
         windows.add(choice_row("Style", None,
-                               [("symbols", "Coloured with symbols"), ("dots", "Mac dots"),
+                               [("symbols", "Coloured with symbols"), ("dots", "Small dots"),
                                 ("gnome", "GNOME standard")],
                                button_style, set_button_style))
         if has_key(self.wm, "button-layout"):
-            windows.add(choice_row("Position", None, [("left", "Left, like a Mac"), ("right", "Right")],
+            windows.add(choice_row("Position", None, [("left", "Left"), ("right", "Right")],
                                    lambda: "right" if self.wm.get_string("button-layout").startswith("appmenu")
                                    else "left",
                                    lambda v: self.wm.set_string("button-layout",

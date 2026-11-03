@@ -35,7 +35,8 @@ pub fn net_error(e: reqwest::Error) -> String {
     if e.is_connect() || e.is_timeout() {
         "Kulan OS couldn't be downloaded. Check the internet connection and try again.".into()
     } else {
-        format!("Kulan OS couldn't be downloaded: {e}")
+        eprintln!("download: {e}");
+        "Kulan OS couldn't be downloaded. Try again in a few minutes.".into()
     }
 }
 
@@ -108,7 +109,8 @@ pub fn download(client: &reqwest::blocking::Client, url: &str, dest: &Path,
         total = response.content_length().unwrap_or(0);
         out = File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
     } else {
-        return Err(format!("Kulan OS couldn't be downloaded: the server said {status}"));
+        eprintln!("download: the server said {status}");
+        return Err("Kulan OS couldn't be downloaded right now. Try again in a few minutes.".into());
     }
     if status.as_u16() != 416 {
         let mut buf = vec![0u8; CHUNK];
@@ -116,7 +118,10 @@ pub fn download(client: &reqwest::blocking::Client, url: &str, dest: &Path,
             if stop.load(Ordering::Relaxed) {
                 return Err(crate::STOPPED.into());
             }
-            let n = response.read(&mut buf).map_err(|e| format!("The download stopped: {e}. Try again to carry on."))?;
+            let n = response.read(&mut buf).map_err(|e| {
+                eprintln!("download: {e}");
+                "The download stopped. Check the internet connection, then try again to carry on.".to_string()
+            })?;
             if n == 0 {
                 break;
             }
@@ -144,7 +149,8 @@ fn disk_error(e: std::io::Error) -> String {
     if e.raw_os_error() == Some(28) || e.raw_os_error() == Some(112) {
         "There isn't enough free space on this computer for Kulan OS (about 4 GB is needed).".into()
     } else {
-        format!("The download couldn't be saved: {e}")
+        eprintln!("saving the download: {e}");
+        "The download couldn't be saved. Check there's free space on this computer, then try again.".into()
     }
 }
 

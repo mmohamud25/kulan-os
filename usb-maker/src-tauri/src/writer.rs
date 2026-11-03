@@ -110,7 +110,10 @@ pub fn config_offset(image_len: u64) -> u64 {
 fn write(job: &Job, status: &mut Status) -> Result<(), String> {
     let stop = job.stop;
     let drive = drives::find(job.drive, Some(job.fingerprint))?;
-    let mut source = File::open(job.image).map_err(|e| format!("{}: {e}", job.image.display()))?;
+    let mut source = File::open(job.image).map_err(|e| {
+        eprintln!("{}: {e}", job.image.display());
+        "The Kulan OS file couldn't be opened. Download it again.".to_string()
+    })?;
     let len = source.metadata().map_err(|e| e.to_string())?.len();
     let block = match job.config {
         Some(p) => Some(config_block(&std::fs::read(p).map_err(|e| e.to_string())?)?),
@@ -147,7 +150,7 @@ fn write(job: &Job, status: &mut Status) -> Result<(), String> {
         }
         let n = read_full(&mut source, buf)?;
         if n == 0 {
-            return Err("Kulan OS's file ended early".into());
+            return Err("The Kulan OS file is incomplete. Download it again.".into());
         }
         hasher.update(&buf[..n]);
         write_padded(&mut target, &buf[..n])?;
@@ -242,7 +245,10 @@ fn read_full(r: &mut impl Read, buf: &mut [u8]) -> Result<usize, String> {
             Ok(0) => break,
             Ok(k) => n += k,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(format!("Reading failed: {e}")),
+            Err(e) => {
+                eprintln!("reading: {e}");
+                return Err("The Kulan OS file couldn't be read. Download it again.".into());
+            }
         }
     }
     Ok(n)
@@ -258,8 +264,11 @@ fn write_padded(target: &mut File, data: &[u8]) -> Result<(), String> {
     target.write_all(&padded).map_err(write_error)
 }
 
+const STICK_UNOPENED: &str = "The USB stick couldn't be opened. Unplug it, plug it in again and try again.";
+
 fn write_error(e: std::io::Error) -> String {
-    format!("Writing to the USB stick failed ({e}). Unplug it, plug it in again and try again, or try another stick.")
+    eprintln!("writing: {e}");
+    "Writing to the USB stick failed. Unplug it, plug it in again and try again, or try another stick.".into()
 }
 
 #[cfg(target_os = "macos")]
@@ -269,12 +278,12 @@ mod platform {
         let out = std::process::Command::new("/usr/sbin/diskutil").args(["unmountDisk", "force", &format!("/dev/{}", drive.id)])
             .output().map_err(|e| e.to_string())?;
         if !out.status.success() {
-            return Err("The USB stick couldn't be unmounted. Close any windows showing it and try again.".into());
+            return Err("The USB stick is in use. Close any windows showing it and try again.".into());
         }
         Ok(())
     }
     pub fn open(drive: &drives::Drive) -> Result<File, String> {
-        OpenOptions::new().read(true).write(true).open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
+        OpenOptions::new().read(true).write(true).open(&drive.path).map_err(|e| { eprintln!("{}: {e}", drive.path); STICK_UNOPENED.to_string() })
     }
     /// The same open stick: /dev/rdisk reads come from the stick itself, and
     /// it stays open, so macOS doesn't mount the new partitions mid-check.
@@ -315,14 +324,17 @@ mod platform {
     pub fn open(drive: &drives::Drive) -> Result<File, String> {
         use std::os::windows::fs::OpenOptionsExt;
         OpenOptions::new().read(true).write(true).share_mode(3).custom_flags(0x8000_0000) // FILE_FLAG_WRITE_THROUGH
-            .open(&drive.path).map_err(|e| format!("The USB stick couldn't be opened: {e}"))
+            .open(&drive.path).map_err(|e| { eprintln!("{}: {e}", drive.path); STICK_UNOPENED.to_string() })
     }
     /// Opened again without Windows' cache, so it really comes from the stick.
     pub fn for_reading(drive: &drives::Drive, target: File) -> Result<File, String> {
         use std::os::windows::fs::OpenOptionsExt;
         drop(target);
         OpenOptions::new().read(true).share_mode(3).custom_flags(0x2000_0000) // FILE_FLAG_NO_BUFFERING
-            .open(&drive.path).map_err(|e| format!("The USB stick couldn't be read back: {e}"))
+            .open(&drive.path).map_err(|e| {
+                eprintln!("{}: {e}", drive.path);
+                "The USB stick couldn't be checked after writing. Unplug it, plug it in again and try again.".to_string()
+            })
     }
     pub fn finish(_drive: &drives::Drive) {}
 }
@@ -343,12 +355,12 @@ mod platform {
         Ok(())
     }
     pub fn open(drive: &drives::Drive) -> Result<File, String> {
-        OpenOptions::new().read(true).write(true).open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
+        OpenOptions::new().read(true).write(true).open(&drive.path).map_err(|e| { eprintln!("{}: {e}", drive.path); STICK_UNOPENED.to_string() })
     }
     pub fn for_reading(drive: &drives::Drive, target: File) -> Result<File, String> {
         drop(target);
         let _ = std::process::Command::new("blockdev").args(["--flushbufs", &drive.path]).output();
-        File::open(&drive.path).map_err(|e| format!("{}: {e}", drive.path))
+        File::open(&drive.path).map_err(|e| { eprintln!("{}: {e}", drive.path); STICK_UNOPENED.to_string() })
     }
     pub fn finish(_drive: &drives::Drive) {}
 }

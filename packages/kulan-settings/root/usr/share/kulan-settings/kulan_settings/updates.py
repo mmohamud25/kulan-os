@@ -220,7 +220,7 @@ class Prefs:
 class UpdatesPage(Page):
     title = "Software Update"
     icon = "software-update-available-symbolic"
-    keywords = ("update", "updates", "upgrade", "security", "restore", "restore point", "timeshift", "what's new",
+    keywords = ("update", "updates", "upgrade", "security", "restore", "restore point", "timeshift", "what’s new",
                 "automatic updates", "update center", "restart", "apps", "flatpak", "recovery", "history")
 
     def __init__(self, window) -> None:
@@ -371,7 +371,7 @@ class UpdatesPage(Page):
         self.status_detail.set_visible(False)
         self.details_button.set_visible(True)
         self.check_button.set_visible(True)
-        self.check_button.set_label(f"Last checked {when_text(self.status.get('checked') or 0)} · Check Now")
+        self.check_button.set_label(f"Last checked {when_text(self.status.get('checked') or 0)} · Check now")
         if self.running():
             self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
@@ -420,7 +420,7 @@ class UpdatesPage(Page):
             self.status_icon.set_css_classes([])
         if not self.running() and not self.working:
             self.progress.set_visible(False)
-        labels = {"install": "Update Now" if new_version else "Install Now", "restart": "Restart Now",
+        labels = {"install": "Update now" if new_version else "Install now", "restart": "Restart now",
                   "repair": "Finish now"}
         self.action_button.set_label(labels.get(self.action, ""))
         self.action_button.set_visible(bool(self.action) and not self.running() and not self.working)
@@ -729,7 +729,7 @@ class UpdatesPage(Page):
                  f"restarts.{later} Save your work first. Your files aren’t touched, and a restore point "
                  "is made first so you can undo this.")
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("undo", "Undo and Restart")
+        dialog.add_response("undo", "Undo and restart")
         dialog.set_response_appearance("undo", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.connect("response", lambda _d, r: r == "undo" and self.run(

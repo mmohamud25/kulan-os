@@ -204,7 +204,7 @@ class NetworkExtras:
         methods = [("peap", "PEAP (most work and school networks)"), ("ttls-pap", "TTLS with PAP"),
                    ("ttls-mschapv2", "TTLS with MSCHAPv2")]
         method = Adw.ComboRow(title="Sign-in method", model=Gtk.StringList.new([m[1] for m in methods]))
-        identity = entry_row("User name (often your email)")
+        identity = entry_row("Username (often your email)")
         password = entry_row("Password", password=True)
         anonymous = entry_row("Anonymous identity (optional)")
         domain = entry_row("Server domain (for example, radius.example.org)")

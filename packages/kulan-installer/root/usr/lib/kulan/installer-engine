@@ -106,7 +106,7 @@ def run(argv: list[str], input_text: str | None = None, check: bool = True, env:
         result = subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout,
                                 env={**os.environ, "LC_ALL": "C.UTF-8", **(env or {})})
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ToolFailure(f"{argv[0]} couldn't run: {exc}") from exc
+        raise ToolFailure(f"{argv[0]} couldn’t run: {exc}") from exc
     if result.stdout.strip():
         log(result.stdout.strip()[-4000:])
     if result.stderr.strip():
@@ -313,13 +313,13 @@ def check_plan(plan: dict) -> dict:
         raise Failure("Choose to erase the disk or to use its free space")
     user = plan.get("user") or {}
     if not NAME_RULE.match(user.get("username", "")):
-        raise Failure("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
+        raise Failure("Use lowercase letters, digits, - or _ for the username, starting with a letter")
     if user["username"] in taken_names():  # checked before the disk is touched
-        raise Failure(f"The user name “{user['username']}” is used by the system. Choose another")
+        raise Failure(f"The username “{user['username']}” is used by the system. Choose another")
     if not user.get("password"):
         raise Failure("Choose a password for the account")
     if any(c in str(user["password"]) for c in "\r\n\0"):  # chpasswd reads one account per line
-        raise Failure("A password can't have a line break in it")
+        raise Failure("A password can’t have a line break in it")
     if plan.get("encrypt") and len(plan.get("password", "")) < 8:
         raise Failure("The disk password must be at least 8 characters")
     if not HOST_RULE.match(plan.get("hostname", "")):

@@ -495,14 +495,14 @@ class WelcomeWindow(Adw.ApplicationWindow):
         try:
             Gio.Subprocess.new(["kulan-settings", page], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("Kulan Settings isn't installed")
+            self.toast("Kulan Settings isn’t installed")
 
     # --- 1: hello -------------------------------------------------------------
     def build_welcome(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER, vexpand=True)
         box.append(Gtk.Image(icon_name="kulan-logo", pixel_size=112))
         box.append(Gtk.Label(label="hello", css_classes=["kulan-hello"]))
-        box.append(Gtk.Label(label=f"Welcome to {self.name}. Let's get you set up.",
+        box.append(Gtk.Label(label=f"Welcome to {self.name}. Let’s get you set up.",
                              css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER))
         box.append(Gtk.Label(label="You can skip any step and change it later in Kulan Settings.",
                              css_classes=["dim-label", "caption"], wrap=True, justify=Gtk.Justification.CENTER))
@@ -921,7 +921,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         try:
             Gio.Subprocess.new(["gnome-control-center", panel], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("Settings isn't installed")
+            self.toast("Settings isn’t installed")
 
     # --- 4: privacy -------------------------------------------------------------
     def build_privacy(self) -> Gtk.Widget:
@@ -1078,7 +1078,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         # Never this computer's own files: home itself, a folder inside it,
         # or a folder that contains it (such as /home or /).
         if chosen == home or home in chosen.parents or chosen in home.parents:
-            self.toast("That folder holds this computer's own files. Choose a folder on the drive or backup.")
+            self.toast("That folder holds this computer’s own files. Choose a folder on the drive or backup.")
             return
         if chosen == Path("/media") / GLib.get_user_name() or chosen.parent == Path("/media"):
             self.toast("Open the drive first, then choose the folder on it.")
@@ -1141,7 +1141,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
             return False
         self.migrate_progress.set_fraction(1.0)
         where = ", ".join(targets) or "your folders"
-        note = f"; {failed} couldn't be read" if failed else ""
+        note = f"; {failed} couldn’t be read" if failed else ""
         if copied == 0:
             self.migrate_progress.set_text("Nothing new to copy")
             self.migrate_row.set_subtitle(GLib.markup_escape_text(
@@ -1185,12 +1185,12 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                 "Firefox can fill them in with the KeePassXC add-on.",
                                 "dialog-password-symbolic"))
         group = Adw.PreferencesGroup(description="Choose a strong main password and keep it somewhere safe. "
-                                     "It can't be recovered.")
+                                     "It can’t be recovered.")
         vault = Adw.ActionRow(title="Set up your password vault",
                               subtitle="In KeePassXC, choose “Create new database”")
         button = Gtk.Button(label="Open KeePassXC", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         button.connect("clicked", lambda _b: self.open_app("org.keepassxc.KeePassXC.desktop",
-                                                           "KeePassXC isn't installed. Get it in Software."))
+                                                           "KeePassXC isn’t installed. Get it from the Store."))
         vault.add_suffix(button)
         group.add(vault)
         self.bitwarden_row = Adw.ActionRow(title="Already use Bitwarden or 1Password?",
@@ -1211,7 +1211,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         box.append(
             self.heading(
                 "Add your apps",
-                "Choose apps to install. Find more in Software.",
+                "Choose apps to install. Find more in the Store.",
             )
         )
         self.apps_status = Gtk.Label(label="Checking which apps this computer can run…", css_classes=["dim-label"],
@@ -1272,7 +1272,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def load_app_availability(self) -> None:
         if shutil.which("flatpak") is None:
-            self.apps_status.set_label("These apps can’t be added here. Add apps later in Software.")
+            self.apps_status.set_label("These apps can’t be added here. Add them later from the Store.")
             self.bitwarden_row.set_subtitle(self.bitwarden_text(False))
             return
 
@@ -1292,7 +1292,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
                     self.apps_connect.set_visible(True)
                 else:
                     print(f"kulan-welcome: flathub: {err.strip()[-300:]}", file=sys.stderr)
-                    self.apps_status.set_label("Couldn’t reach the app store right now. Try again in a minute.")
+                    self.apps_status.set_label("Couldn’t reach the Store right now. Try again in a minute.")
                     self.apps_retry.set_visible(True)
                 return False
             self.apps_connect.set_visible(False)
@@ -1545,7 +1545,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- 9: protection ---------------------------------------------------------------
     def build_security(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("How you're protected", f"{self.name} turns on these protections for you.",
+        box.append(self.heading("How you’re protected", f"{self.name} turns on these protections for you.",
                                 "security-high-symbolic"))
         group = Adw.PreferencesGroup()
         live = self.live
@@ -1665,7 +1665,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
     def build_done(self) -> Gtk.Widget:
         status = Adw.StatusPage(
             icon_name="object-select-symbolic",
-            title="You're all set",
+            title="You’re all set",
             description="You can open Setup Assistant again from your apps.",
             vexpand=True,
         )
@@ -1673,7 +1673,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         group = Adw.PreferencesGroup()
         # On only if it would show at the next sign-in anyway (opened from the apps, not finished yet).
         self.startup_initial = not DONE_FILE.exists() and not self.autostart
-        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=self.startup_initial)
+        self.startup_switch = Adw.SwitchRow(title="Show this at start-up", active=self.startup_initial)
         group.add(self.startup_switch)
         inner.append(group)
         url = self.conf.get("KULAN_HOME_URL", "")

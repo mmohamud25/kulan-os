@@ -222,7 +222,7 @@ class RegionPage(Page):
                 return
             if not self.torn_down:
                 row.set_subtitle(locale_label(name))
-                self.toast(f"The login screen uses {locale_label(name)}")
+                self.toast(f"The sign-in screen uses {locale_label(name)}")
         self.localed.call("SetLocale", GLib.Variant("(asb)", ([f"LANG={name}"], True)),
                           Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION, 120000, None, finish)
 

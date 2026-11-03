@@ -169,13 +169,13 @@ def self_test() -> None:
         assert store.list() == []
         c = Conversation()
         store.save(c)
-        assert store.list() == [], "an empty conversation isn't saved"
-        c.add("user", "  Tidy   my Downloads folder please, it is a total mess and I can't find anything at all  ")
+        assert store.list() == [], "an empty conversation isn’t saved"
+        c.add("user", "  Tidy   my Downloads folder please, it is a total mess and I can’t find anything at all  ")
         assert c.title.endswith("…") and len(c.title) <= TITLE_LEN and "  " not in c.title, c.title
-        c.add("assistant", "I'll tidy Downloads.", [{"text": "Tidy Downloads", "changes": True, "action": "tidy_folder",
+        c.add("assistant", "I’ll tidy Downloads.", [{"text": "Tidy Downloads", "changes": True, "action": "tidy_folder",
                                                      "args": {"where": "downloads"}, "ok": True, "message": "Moved 3"}])
         c.add("user", "and the Desktop too")
-        assert c.history() == [{"user": c.messages[0]["text"], "reply": "I'll tidy Downloads.",
+        assert c.history() == [{"user": c.messages[0]["text"], "reply": "I’ll tidy Downloads.",
                                  "steps": [{"action": "tidy_folder", "args": {"where": "downloads"}}]}], c.history()
         store.save(c)
         assert (tmp / "conversations").stat().st_mode & 0o777 == 0o700

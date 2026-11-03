@@ -45,7 +45,7 @@ export class Dictation {
         if (this._busy)
             return;
         if (!this._assistant?.installed) {
-            Main.notify(TITLE, 'Dictation needs Kulan Assistant. Turn it on in Kulan Settings › Add-ons.');
+            Main.notify(TITLE, 'Dictation needs Kulan Assistant. Install it in Kulan Settings › Add-ons.');
             return;
         }
         if (!this._assistant.enabled('dictation')) {

@@ -89,7 +89,7 @@ class StoragePage(Page):
         overview.add(box)
 
         self.clean = self.add_group("Free up space", "Nothing here removes your documents, photos or apps.")
-        self.bin_row = self.action_row("Bin", "Files you deleted", "Empty Bin", self.empty_bin, destructive=True)
+        self.bin_row = self.action_row("Bin", "Files you deleted", "Empty bin", self.empty_bin, destructive=True)
         self.thumbs_row = self.action_row("Picture previews", "Made again when needed", "Clear", self.clear_thumbnails)
         self.apt_row = self.action_row("Downloaded update files", "Not needed once updates are installed",
                                        "Remove", lambda: self.helper(["clean-cache"], "Update files removed"))
@@ -114,7 +114,7 @@ class StoragePage(Page):
         self.buttons = [row.button for row in (self.apt_row, self.old_row, self.logs_row, self.restore_row)]
 
         more = self.add_group()
-        row = Adw.ActionRow(title="See what uses space", subtitle="Disk Usage Analyzer shows folders by size",
+        row = Adw.ActionRow(title="See what uses space", subtitle="Disk Usage shows folders by size",
                             activatable=True)
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         row.connect("activated", lambda _r: launch("org.gnome.baobab.desktop", self.toast))
@@ -211,7 +211,7 @@ class StoragePage(Page):
         dialog = Adw.AlertDialog(heading="Empty the bin?",
                                  body="Everything in the bin is permanently deleted.")
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("empty", "Empty Bin")
+        dialog.add_response("empty", "Empty bin")
         dialog.set_response_appearance("empty", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.connect("response", lambda _d, r: r == "empty" and self.run_user(["gio", "trash", "--empty"],
                                                                                "Bin emptied"))

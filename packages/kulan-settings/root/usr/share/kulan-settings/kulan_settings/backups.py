@@ -80,7 +80,7 @@ class BackupsPage(Page):
         self.drive = settings(f"{DEJA_DUP}.Drive")
         self.local = settings(f"{DEJA_DUP}.Local")
         if self.deja is None or shutil.which("deja-dup") is None:
-            group = self.add_group(None, "Backups need the Backups app, which isn’t installed. Get it in Software.")
+            group = self.add_group(None, "Backups need the Backups app, which isn’t installed. Get it from the Store.")
             group.add(Adw.ActionRow(title="Restore points still protect the system",
                                     subtitle="Software Update takes one before every update"))
             return

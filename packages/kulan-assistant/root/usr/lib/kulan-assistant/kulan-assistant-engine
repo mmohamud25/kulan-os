@@ -18,7 +18,7 @@ from kulan_assistant import engine  # noqa: E402
 def main() -> int:
     model_id = engine.usable_model()
     if model_id is None:
-        print("kulan-assistant: no model downloaded; choose one in Kulan Settings > Assistant", file=sys.stderr)
+        print("kulan-assistant: no model downloaded; choose one in Kulan Settings › Assistant", file=sys.stderr)
         return 1
     model = engine.model_path(model_id)
     # Half the processor's threads (its cores, on most): the rest stay free for

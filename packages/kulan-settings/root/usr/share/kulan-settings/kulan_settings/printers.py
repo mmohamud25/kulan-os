@@ -140,7 +140,7 @@ class PrintersPage(Page):
 
         more = self.add_group(description="Printers that need their maker’s software are added in More printer "
                                           "options.")
-        gnome = Adw.ActionRow(title="More printer options", subtitle="Opens the Settings app", activatable=True)
+        gnome = Adw.ActionRow(title="More printer options", subtitle="Opens GNOME Settings", activatable=True)
         gnome.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
         gnome.connect("activated", lambda _r: self.open_gnome())
         more.add(gnome)
@@ -208,11 +208,11 @@ class PrintersPage(Page):
             if printer["default"]:
                 row.add_suffix(Gtk.Label(label="Default", css_classes=["dim-label", "caption"]))
             name = printer["name"]
-            actions = [("Print a Test Page", lambda n=name: self.test_page(n), True)]
+            actions = [("Print a test page", lambda n=name: self.test_page(n), True)]
             if not printer["default"]:
-                actions.append(("Make Default", lambda n=name: self.make_default(n), True))
+                actions.append(("Make default", lambda n=name: self.make_default(n), True))
             if printer["jobs"]:
-                actions.append((f"Cancel {printer['jobs']} Waiting", lambda n=name: self.cancel_jobs(n), True))
+                actions.append((f"Cancel {printer['jobs']} waiting", lambda n=name: self.cancel_jobs(n), True))
             if printer["state"] == "disabled":
                 actions.append(("Resume", lambda n=name: self.lp_admin(["cupsenable", n], "Resumed"), True))
             else:
@@ -290,12 +290,12 @@ class PrintersPage(Page):
         try:
             Gio.Subprocess.new(["gnome-control-center", "printers"], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("More printer options aren’t installed. Install Settings in Software")
+            self.toast("More printer options are missing. Update Kulan OS in Software Update to put them back")
 
     def open_scanner(self) -> None:
         app = Gio.DesktopAppInfo.new("org.gnome.SimpleScan.desktop")
         if app is None:
-            self.toast("Document Scanner isn’t installed. Install it in Software")
+            self.toast("Document Scanner isn’t installed. Get it from the Store")
             return
         try:
             app.launch([], None)

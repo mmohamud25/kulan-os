@@ -181,7 +181,7 @@ def download() -> str:
 <p class="muted">kulan-os-amd64.iso · <span data-size="kulan-os-amd64.iso">about 2 GB</span></p>
 </div>
 <div class="card dl">
-<div class="row"><h2>ARM</h2><span class="tag amber">Apple Silicon Macs</span></div>
+<div class="row"><h2>ARM</h2><span class="tag amber">Apple silicon Macs</span></div>
 <p>For M1 to M5 Macs using the free UTM app, and other ARM computers.</p>
 <a class="btn btn-ghost" data-asset="kulan-os-arm64.iso" href="{DOWNLOAD}/kulan-os-arm64.iso">{ICONS['download']}Download for ARM</a>
 <p class="muted">kulan-os-arm64.iso · <span data-size="kulan-os-arm64.iso">about 1.6 GB</span></p>
@@ -193,7 +193,7 @@ def download() -> str:
 <div class="facts">
 <span><strong>Memory:</strong> 2 GB minimum, 4 GB or more recommended</span>
 <span><strong>Storage:</strong> 20 GB of free space</span>
-<span><strong>USB stick:</strong> 8 GB or larger (it will be erased)</span>
+<span><strong>USB stick:</strong> 4 GB or larger (it will be erased)</span>
 <span><strong>Internet:</strong> not needed to install</span>
 </div>
 </div>
@@ -271,7 +271,7 @@ def install() -> str:
 </div>
 <div class="step"><div>
 <div class="step-title"><span class="num">1</span><h3>Make a USB stick</h3></div>
-<p>Get Kulan USB Maker for <a href="{USB_MAKER_WINDOWS}">Windows</a> or <a href="{USB_MAKER_MAC}">Mac</a>, plug in a USB stick of 8 GB or more, pick it and click Make. It downloads {e(NAME)}, checks it’s genuine and writes the stick, then shows the key that starts your computer from it. Everything on the stick is erased.</p>
+<p>Get Kulan USB Maker for <a href="{USB_MAKER_WINDOWS}">Windows</a> or <a href="{USB_MAKER_MAC}">Mac</a>, plug in a USB stick of 4 GB or more, pick it and click Make. It downloads {e(NAME)}, checks it’s genuine and writes the stick, then shows the key that starts your computer from it. Everything on the stick is erased.</p>
 <p class="muted">The first time you open it, Windows may say it protected your PC: choose More info, then Run anyway. On a Mac, open it once, then choose Open Anyway in System Settings › Privacy &amp; Security. Rather use your own tool? <a href="/download/">Download the .iso</a> and write it with balenaEtcher, Raspberry Pi Imager (Use custom) or, on Windows, Rufus in DD image mode.</p>
 </div><figure>{flow}</figure></div>
 <div class="step"><div>
@@ -297,7 +297,7 @@ def install() -> str:
 </section>
 <section class="band" id="mac">
 <div class="wrap">
-<div class="head"><h2>On a Mac with UTM</h2><p class="lead">On an Apple Silicon Mac, {e(NAME)} runs in a window using the free UTM app. Your Mac isn’t changed.</p></div>
+<div class="head"><h2>On a Mac with UTM</h2><p class="lead">On an Apple silicon Mac, {e(NAME)} runs in a window using the free UTM app. Your Mac isn’t changed.</p></div>
 <div class="grid">
 <div class="card"><span class="small-num">1</span><p><a href="/download/">Download {e(NAME)} for ARM</a> and install UTM from mac.getutm.app or the App Store.</p></div>
 <div class="card"><span class="small-num">2</span><p>In UTM choose Create a New Virtual Machine, then Virtualize, then Linux, and pick the .iso as the boot image.</p></div>
@@ -383,7 +383,7 @@ def help_page() -> str:
 <section class="wrap"><div class="grid">
 <div class="outline stack" id="security"><h3>Security</h3><p class="muted" style="font-size:15px">Every update is signed with Kulan’s key (<a href="/apt/kulan-archive-keyring.gpg">download the key</a>). Found a security problem? Tell us privately at <a href="mailto:{SECURITY}">{SECURITY}</a>.</p></div>
 <div class="outline stack" id="privacy"><h3>Privacy</h3><p class="muted" style="font-size:15px">No ads, no tracking and no account. {e(NAME)} goes online for updates from os.kulangroup.com and for the things you use, like the weather widget and Firefox. Once a week it sends an anonymous count, which you can switch off. Kulan Assistant runs on your computer, so nothing you type in it leaves it. <a href="/privacy/">Read the privacy policy</a>.</p></div>
-<div class="outline stack" id="contact"><h3>Still stuck?</h3><p class="muted" style="font-size:15px">Email <a href="mailto:{SUPPORT}">{SUPPORT}</a>. Tell us what happened and which {e(NAME)} version you have, shown in Kulan Settings › About.</p></div>
+<div class="outline stack" id="contact"><h3>Still stuck?</h3><p class="muted" style="font-size:15px">Email <a href="mailto:{SUPPORT}">{SUPPORT}</a>. Tell us what happened and which {e(NAME)} version you have, shown in Kulan Settings › About Kulan OS.</p></div>
 </div></section>"""
     script = """<script>
 (function () {
@@ -411,7 +411,7 @@ IDs, and it never sends what you do on your computer, your files, or what you ty
 itself is an anonymous weekly count, described below, which you can switch off.</p>"""),
         ("The anonymous weekly count", f"""<p>To know roughly how many computers run {e(NAME)}, and which versions
 to keep supporting, each installed computer is counted once a week. It sends exactly four things:</p>
-<ul><li>the {e(NAME)} version, like 2.6;</li><li>whether it’s a PC (amd64) or a Mac or other Arm computer
+<ul><li>the {e(NAME)} version, like 2.6;</li><li>whether it’s a PC (amd64) or a Mac or other ARM computer
 (arm64);</li><li>roughly how long it’s been installed: under a week, under a month, under six months, or
 longer;</li><li>which week it’s counting (the same for every computer that week), so a count sent just before
 midnight isn’t added to the next week as well.</li></ul>
@@ -430,7 +430,7 @@ code that receives it</a>.</p>"""),
 os.kulangroup.com, to check for and download updates; Flathub for app updates.</li>
 <li><strong>The clock</strong>: a Debian time server.</li>
 <li><strong>Encrypted DNS</strong>: Quad9, Mullvad or Cloudflare for Families, only if you turn it on.</li>
-<li><strong>Organisations</strong>: if your computer is added to an organisation (Kulan Settings › About ›
+<li><strong>Organisations</strong>: if your computer is added to an organisation (Kulan Settings › About Kulan OS ›
 Organisation), it reports its status to that organisation, and the organisation can see it. Its admins can also ask to see
 your screen to help you, and nothing is shared unless you allow it. Leaving the organisation stops all of this.</li>
 <li><strong>Apps</strong>: apps you use, like Firefox or the weather, connect to their own services under their
@@ -456,7 +456,7 @@ def security() -> str:
         ("Report a security problem", f"""<p>Found a way to get around {e(NAME)}’s protections, in the system,
 Kulan Fleet, the installer, Kulan USB Maker or this website? Please tell us privately first, at
 <a href="mailto:{SECURITY}">{SECURITY}</a>, before telling anyone else.</p>
-<ul><li>Say what you found and how to repeat it, and which version you used (Kulan Settings › About).</li>
+<ul><li>Say what you found and how to repeat it, and which version you used (Kulan Settings › About Kulan OS).</li>
 <li>We confirm we got it, keep you told as we fix it, and release the fix as an update. Tell us if you’d like
 to be thanked by name in the release notes.</li>
 <li>Please don’t look at, change or keep other people’s data, or test against computers or organisations that
@@ -471,7 +471,7 @@ or by Debian.</li>
 <li><strong>Disk encryption</strong> is on when you install, and Secure Boot is supported.</li>
 <li><strong>A firewall</strong> blocks connections from outside; sharing and remote desktop are let in from your
 local network only, and only when you turn them on.</li>
-<li><strong>Kulan Fleet</strong> (for organisations) can only do what’s listed in Kulan Settings › About ›
+<li><strong>Kulan Fleet</strong> (for organisations) can only do what’s listed in Kulan Settings › About Kulan OS ›
 Organisation; remote help needs the person at the computer to agree, every time.</li>
 <li><strong>Kulan Assistant</strong> runs on your computer, and nothing you type in it leaves it.</li>
 <li>The <a href="https://github.com/{REPO}">source code</a> is open for anyone to check.</li></ul>"""),

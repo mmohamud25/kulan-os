@@ -823,7 +823,7 @@ def erase_check() -> tuple[bool, list[str] | str]:
     """Whether this computer may be erased now: (True, the LUKS partitions)
     or (False, why not)."""
     if not read_json(CONFIG, {}).get("allow_erase"):
-        return False, "not allowed on this computer (Kulan Settings > About > Organisation)"
+        return False, "not allowed on this computer (Kulan Settings › About Kulan OS › Organisation)"
     ok, devices, why = disk_protection()
     if not ok or not devices:
         return False, f"can't be erased from afar: {why or 'nothing encrypted found'}"

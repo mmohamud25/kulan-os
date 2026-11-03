@@ -274,7 +274,7 @@ class AboutPage(Page):
             when = time.strftime("%d %b %Y, %H:%M", time.localtime(last)) if last else "not yet"
             head = Adw.ActionRow(title=GLib.markup_escape_text(f"Managed by {data.get('organisation', '')}"),
                                  subtitle=GLib.markup_escape_text(
-                                     ("Waiting for the organisation's Owner to approve this computer · "
+                                     ("Waiting for the organisation’s Owner to approve this computer · "
                                       if data.get("pending") else "")
                                      + f"Reports to {data.get('server', '')} every hour · last report {when}"
                                      + (f" · last problem: {data['last_error']}" if data.get("last_error") else "")),
@@ -478,7 +478,7 @@ class AboutPage(Page):
                                    timeout=300, check=False)
                 ok, msg = r.returncode == 0, failure_text(r.stderr.strip().splitlines())
                 if r.returncode in (126, 127):
-                    msg = "Not changed. The password wasn't entered."
+                    msg = "Not changed. The password wasn’t entered."
             except (OSError, subprocess.TimeoutExpired):
                 ok, msg = False, "That took too long. Try again"
             GLib.idle_add(lambda: (done(ok, msg), False)[1])

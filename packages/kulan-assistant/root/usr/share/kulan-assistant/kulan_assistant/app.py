@@ -709,7 +709,7 @@ def self_test() -> None:
             w.on_pick(w.conv_list, row)
             assert w.current.id == first and len(w.current.messages) == 6
             reopened = [t for t in w.turns.values() if t.message is w.current.messages[-1]][0]
-            assert not reopened.pending(), "an old plan can't be done again"
+            assert not reopened.pending(), "an old plan can’t be done again"
             assert reopened is turn, "switching back shows the same answer (its Undo kept), not a copy from disk"
             # Deleted while waiting for its answer: it stays deleted.
             w.new_conversation()
@@ -731,7 +731,7 @@ def self_test() -> None:
                 assert w.banner.get_revealed()
                 w.ask("what time is it")
                 spin(lambda: w.thinking_for is None)
-                assert w.current.messages[-1]["text"].startswith("It's "), w.current.messages[-1]
+                assert w.current.messages[-1]["text"].startswith("It’s "), w.current.messages[-1]
                 w.ask("why slow")
                 spin(lambda: w.thinking_for is None)
                 assert w.current.messages[-1]["text"] == "Kulan Assistant needs a model first."

@@ -78,7 +78,7 @@ def time_answer(now: datetime.datetime | None = None, twelve: bool | None = None
     now = now or datetime.datetime.now()
     twelve = _uses_12_hour() if twelve is None else twelve
     clock = now.strftime("%-I:%M %p") if twelve else now.strftime("%H:%M")
-    return f"It's {clock}."
+    return f"It’s {clock}."
 
 
 def date_answer(now: datetime.datetime | None = None) -> str:
@@ -117,8 +117,8 @@ def _battery_reading() -> tuple[int, str] | None:
 def battery_answer(reading: tuple[int, str] | None | bool = False) -> str:
     reading = _battery_reading() if reading is False else reading
     if reading is None:
-        return ("This computer doesn't report a battery, so it's running on mains power. (Virtual machines "
-                "don't see the host's battery.)")
+        return ("This computer doesn’t report a battery, so it’s running on mains power. (Virtual machines "
+                "don’t see the host’s battery.)")
     percent, state = reading
     how = {"charging": "and charging", "discharging": "on battery power", "full": "fully charged",
            "not charging": "plugged in but not charging"}.get(state, "")
@@ -141,7 +141,7 @@ def storage_answer(usage: dict[str, shutil._ntuple_diskusage] | None = None) -> 
             except OSError:
                 pass
     if not usage:
-        return "I couldn't read how much space is free."
+        return "I couldn’t read how much space is free."
     home = usage.get("home") or usage.get("system")
     text = (f"{facts.gb(home.free)} free of {facts.gb(home.total)} "
             f"({home.free * 100 // max(home.total, 1)}% free).")
@@ -149,7 +149,7 @@ def storage_answer(usage: dict[str, shutil._ntuple_diskusage] | None = None) -> 
     if system and "home" in usage and system.total != home.total:
         text += f" The system disk has {facts.gb(system.free)} free of {facts.gb(system.total)}."
     if home.free * 100 // max(home.total, 1) < 10:
-        text += " That's getting low: Kulan Settings › Storage can help free some up."
+        text += " That’s getting low: Kulan Settings › Storage can help free some up."
     return text
 
 
@@ -186,10 +186,10 @@ def self_test() -> None:
               "what's the date of the invoice from last month", "battery saver on", "", "   ?  "]:
         assert kind(q) is None, (q, kind(q))
     noon = datetime.datetime(2026, 10, 23, 14, 5)
-    assert time_answer(noon, twelve=False) == "It's 14:05.", time_answer(noon, twelve=False)
-    assert time_answer(noon, twelve=True) == "It's 2:05 PM."
+    assert time_answer(noon, twelve=False) == "It’s 14:05.", time_answer(noon, twelve=False)
+    assert time_answer(noon, twelve=True) == "It’s 2:05 PM."
     assert date_answer(noon) == "Today is Friday 23 October 2026."
-    assert battery_answer(None).startswith("This computer doesn't report a battery")
+    assert battery_answer(None).startswith("This computer doesn’t report a battery")
     assert battery_answer((57, "charging")) == "The battery is at 57%, and charging."
     assert battery_answer((9, "discharging")) == "The battery is at 9%, on battery power. Plug in soon."
     assert battery_answer((100, "full")) == "The battery is full (100%)."
@@ -201,7 +201,7 @@ def self_test() -> None:
     two = storage_answer({"home": du(500 * g, 450 * g, 50 * g), "system": du(30 * g, 20 * g, 10 * g)})
     assert two == "50.0 GB free of 500.0 GB (10% free). The system disk has 10.0 GB free of 30.0 GB.", two
     assert "getting low" in storage_answer({"home": du(100 * g, 95 * g, 5 * g)})
-    assert storage_answer({}) == "I couldn't read how much space is free."
+    assert storage_answer({}) == "I couldn’t read how much space is free."
     # And on this computer, for real: each kind answers.
     for q in ("what time is it", "what's the date", "battery", "how much space do I have"):
         assert answer(q), q

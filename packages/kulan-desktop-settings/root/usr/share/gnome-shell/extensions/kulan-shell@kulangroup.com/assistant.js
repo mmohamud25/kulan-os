@@ -125,7 +125,7 @@ export class Assistant {
     // Shift+Super+W: the selected text, in the Kulan Assistant window.
     async writingTools() {
         if (!this.installed) {
-            this.notifyFix('Kulan Assistant isn’t installed. Turn it on in Kulan Settings › Add-ons.', 'add-ons');
+            this.notifyFix('Kulan Assistant isn’t installed. Install it in Kulan Settings › Add-ons.', 'add-ons');
             return;
         }
         if (!this._settings.get_boolean('writing-tools')) {

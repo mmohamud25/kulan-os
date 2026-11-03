@@ -78,7 +78,7 @@ class Action:
 def _set(schema: str, key: str, value: GLib.Variant, done: str) -> Result:
     s = _settings(schema)
     if s is None:
-        return Result(False, "That setting isn't available here")
+        return Result(False, "That setting isn’t available here")
     if not s.is_writable(key):
         return Result(False, "This setting is locked by compliance mode or your organisation")
     old = s.get_value(key)
@@ -132,7 +132,7 @@ def open_settings(a: dict) -> Result:
     try:
         subprocess.Popen(["kulan-settings", a["page"]], start_new_session=True)
     except OSError:
-        return Result(False, "Kulan Settings couldn't be opened. Open it from the app grid")
+        return Result(False, "Kulan Settings couldn’t be opened. Open it from the app grid")
     return Result(True, "Opened Kulan Settings")
 
 
@@ -149,7 +149,7 @@ def _place(where: str) -> Path:
 def create_folder(a: dict) -> Result:
     name = a["name"].strip().strip("/")
     if not name or "/" in name or name in (".", "..") or len(name) > 120:
-        return Result(False, "That isn't a folder name")
+        return Result(False, "That isn’t a folder name")
     path = _place(a["where"]) / name
     if path.exists():
         return Result(False, f"“{name}” is already there")
@@ -192,30 +192,30 @@ def _undo_tool(argv: list[str]) -> None:
     """An undo that runs a tool; raises when it didn't work, so Undo can say so."""
     r = _tool(argv)
     if r is None or r.returncode != 0:
-        raise RuntimeError(f"{argv[0]} couldn't undo it")
+        raise RuntimeError(f"{argv[0]} couldn’t undo it")
 
 
 def set_volume(a: dict) -> Result:
     percent = max(0, min(100, int(a["percent"])))
     tool = shutil.which("wpctl")
     if tool is None:
-        return Result(False, "Sound settings aren't available")
+        return Result(False, "Sound settings aren’t available")
     old = _tool([tool, "get-volume", "@DEFAULT_AUDIO_SINK@"])
     match = re.search(r"([\d.]+)", old.stdout) if old is not None and old.returncode == 0 else None
     r = _tool([tool, "set-volume", "@DEFAULT_AUDIO_SINK@", f"{percent / 100:.2f}"])
     if r is None or r.returncode != 0:
-        return Result(False, "The volume couldn't be changed")
+        return Result(False, "The volume couldn’t be changed")
     undo = (lambda: _undo_tool([tool, "set-volume", "@DEFAULT_AUDIO_SINK@", match.group(1)])) if match else None
     return Result(True, f"Volume {percent}%", undo=undo)
 
 
 def set_wifi(a: dict) -> Result:
     if shutil.which("nmcli") is None:
-        return Result(False, "Wi-Fi settings aren't available")
+        return Result(False, "Wi-Fi settings aren’t available")
     state = "on" if a["on"] else "off"
     r = _tool(["nmcli", "radio", "wifi", state])
     if r is None or r.returncode != 0:
-        return Result(False, "Wi-Fi couldn't be changed. Try the Wi-Fi switch at the top right")
+        return Result(False, "Wi-Fi couldn’t be changed. Try the Wi-Fi switch at the top right")
     back = "off" if a["on"] else "on"
     return Result(True, f"Wi-Fi {state}", undo=lambda: _undo_tool(["nmcli", "radio", "wifi", back]))
 
@@ -296,10 +296,10 @@ def describe_tidy(a: dict) -> str:
 def tidy_folder(a: dict) -> Result:
     folder = _place(a["where"])
     if not folder.is_dir():
-        return Result(False, f"There's no {a['where'].capitalize()} folder")
+        return Result(False, f"There’s no {a['where'].capitalize()} folder")
     moves = tidy_moves(folder)
     if not moves:
-        return Result(True, "It's already tidy")
+        return Result(True, "It’s already tidy")
     made: list[Path] = []
     done: list[tuple[Path, Path]] = []
     for src, dst in moves:
@@ -393,9 +393,9 @@ def set_reminder(a: dict) -> Result:
     minutes = int(a["minutes"])
     message = " ".join(str(a["message"]).split())[:120]
     if not 1 <= minutes <= MAX_REMINDER_MINUTES or not message:
-        return Result(False, "That reminder time isn't possible")
+        return Result(False, "That reminder time isn’t possible")
     if shutil.which("systemctl") is None:
-        return Result(False, "Reminders aren't available here")
+        return Result(False, "Reminders aren’t available here")
     # The time shown in the plan, even if "Do it" is pressed a while later.
     at = reminder_at(a)
     if at <= datetime.datetime.now():
@@ -417,8 +417,8 @@ def set_reminder(a: dict) -> Result:
     started = _systemctl("enable", "--now", f"{unit}.timer")
     if started.returncode != 0:
         remove_reminder(rid)
-        return Result(False, "The reminder couldn't be set. Try again")
-    return Result(True, f"I'll remind you {when_words(at)}", undo=lambda: remove_reminder(rid))
+        return Result(False, "The reminder couldn’t be set. Try again")
+    return Result(True, f"I’ll remind you {when_words(at)}", undo=lambda: remove_reminder(rid))
 
 
 def list_reminders() -> list[dict]:
@@ -535,7 +535,7 @@ def find_large_files(a: dict) -> Result:
     hits.sort(reverse=True)
     total = sum(n for n, _p in hits)
     return Result(True, f"{len(hits)} file{'s' if len(hits) != 1 else ''} of {a['min_mb']} MB or more, "
-                        f"{total / 1024 ** 3:.1f} GB together. Biggest first; delete the ones you don't need in Files",
+                        f"{total / 1024 ** 3:.1f} GB together. Biggest first; delete the ones you don’t need in Files",
                   found=[p for _n, p in hits[:MAX_FOUND]])
 
 
@@ -573,7 +573,7 @@ def duplicate_groups(top: Path, deadline: float) -> list[list[Path]]:
 def find_duplicates(a: dict) -> Result:
     top = _place(a["where"])
     if not top.is_dir():
-        return Result(False, f"There's no {a['where'].capitalize()} folder")
+        return Result(False, f"There’s no {a['where'].capitalize()} folder")
     groups = duplicate_groups(top, time.monotonic() + 20)
     if not groups:
         return Result(True, f"No duplicate files in {a['where'].capitalize()}")
@@ -615,7 +615,7 @@ def write_todos(items: list[dict]) -> None:
 def add_todo(a: dict) -> Result:
     text = " ".join(str(a["task"]).split())[:200]
     if not text:
-        return Result(False, "There's no task to add")
+        return Result(False, "There’s no task to add")
     items = read_todos()
     if len(items) >= 200:
         return Result(False, "The to-do list is full. Clear completed tasks first")
@@ -630,29 +630,29 @@ def add_todo(a: dict) -> Result:
 # --- fixing common problems --------------------------------------------------------------
 def fix_wifi(_a: dict) -> Result:
     if shutil.which("nmcli") is None:
-        return Result(False, "Wi-Fi settings aren't available")
+        return Result(False, "Wi-Fi settings aren’t available")
     subprocess.run(["nmcli", "radio", "wifi", "off"], capture_output=True, timeout=20)
     time.sleep(2)
     on = subprocess.run(["nmcli", "radio", "wifi", "on"], capture_output=True, text=True, timeout=20)
     if on.returncode != 0:
-        return Result(False, "Wi-Fi couldn't be turned back on. Use the Wi-Fi switch at the top right")
+        return Result(False, "Wi-Fi couldn’t be turned back on. Use the Wi-Fi switch at the top right")
     for _ in range(25):
         time.sleep(1)
         state = subprocess.run(["nmcli", "-t", "-f", "CONNECTIVITY", "general"], capture_output=True,
                                text=True, timeout=10).stdout.strip()
         if state == "full":
             return Result(True, "Wi-Fi restarted, and the internet works")
-    return Result(False, "Wi-Fi restarted, but there's no internet yet. Open Wi-Fi settings to pick a network, "
+    return Result(False, "Wi-Fi restarted, but there’s no internet yet. Open Wi-Fi settings to pick a network, "
                          "or restart the router")
 
 
 def fix_sound(_a: dict) -> Result:
     if shutil.which("systemctl") is None:
-        return Result(False, "Sound settings aren't available")
+        return Result(False, "Sound settings aren’t available")
     r = subprocess.run(["systemctl", "--user", "restart", "wireplumber", "pipewire", "pipewire-pulse"],
                        capture_output=True, text=True, timeout=30)
     if r.returncode != 0:
-        return Result(False, "The sound system couldn't be restarted. Sign out and in again to restart it")
+        return Result(False, "The sound system couldn’t be restarted. Sign out and in again to restart it")
     time.sleep(2)
     if shutil.which("wpctl"):
         volume = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True,
@@ -661,7 +661,7 @@ def fix_sound(_a: dict) -> Result:
             return Result(False, "Sound restarted, but no speakers or headphones were found. Check the cable or "
                                  "Bluetooth")
         if "MUTED" in volume:
-            return Result(True, "Sound restarted. It's muted, so press the volume key or open Sound settings")
+            return Result(True, "Sound restarted. It’s muted, so press the volume key or open Sound settings")
     return Result(True, "Sound restarted")
 
 
@@ -681,14 +681,14 @@ def _size(path: Path, deadline: float) -> int:
 def fix_bluetooth(_a: dict) -> Result:
     tool = shutil.which("bluetoothctl")
     if tool is None:
-        return Result(False, "Bluetooth isn't available on this computer")
+        return Result(False, "Bluetooth isn’t available on this computer")
     if shutil.which("rfkill"):
         subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=10)
     subprocess.run([tool, "power", "off"], capture_output=True, timeout=20)
     time.sleep(2)
     on = subprocess.run([tool, "power", "on"], capture_output=True, text=True, timeout=20)
     if on.returncode != 0 or "Failed" in on.stdout:
-        return Result(False, "Bluetooth couldn't be turned on. Is there a Bluetooth switch or key on the computer?")
+        return Result(False, "Bluetooth couldn’t be turned on. Is there a Bluetooth switch or key on the computer?")
     time.sleep(3)
     connected = subprocess.run([tool, "devices", "Connected"], capture_output=True, text=True, timeout=10).stdout
     names = [line.split(" ", 2)[2] for line in connected.splitlines() if line.startswith("Device ") and line.count(" ") >= 2]
@@ -700,7 +700,7 @@ def fix_bluetooth(_a: dict) -> Result:
 
 def fix_printer(_a: dict) -> Result:
     if shutil.which("lpstat") is None:
-        return Result(False, "Printing isn't set up on this computer")
+        return Result(False, "Printing isn’t set up on this computer")
     printers = subprocess.run(["lpstat", "-p"], capture_output=True, text=True, timeout=15).stdout
     names = [line.split()[1] for line in printers.splitlines() if line.startswith("printer ")]
     if not names:
@@ -717,23 +717,23 @@ def fix_printer(_a: dict) -> Result:
         message += (f"{len(jobs)} print job{'s are' if len(jobs) != 1 else ' is'} waiting. Check the printer is on and "
                     "has paper")
     else:
-        message += "Nothing is waiting to print. If the printer is on and still doesn't print, remove and add it again in Printers"
+        message += "Nothing is waiting to print. If the printer is on and still doesn’t print, remove and add it again in Printers"
     return Result(bool(resumed) or not jobs, message)
 
 
 def back_up_now(_a: dict) -> Result:
     if shutil.which("deja-dup") is None:
-        return Result(False, "Backups aren't installed")
+        return Result(False, "Backups aren’t installed")
     deja = _settings("org.gnome.DejaDup")
     backend = deja.get_string("backend") if deja is not None and deja.props.settings_schema.has_key("backend") else ""
     if backend not in ("drive", "local", "remote", "google", "microsoft"):
         open_settings({"page": "backups"})
-        return Result(False, "Backups aren't set up yet. Choose a drive in Kulan Settings › Backups")
+        return Result(False, "Backups aren’t set up yet. Choose a drive in Kulan Settings › Backups")
     try:
         subprocess.Popen(["deja-dup", "--backup"], start_new_session=True, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     except OSError:
-        return Result(False, "The backup didn't start. Open Backups from the app grid and start it there")
+        return Result(False, "The backup didn’t start. Open Backups from the app grid and start it there")
     return Result(True, "Backing up now. Backups shows the progress")
 
 
@@ -803,13 +803,13 @@ ACTIONS = [
            {"message": {"type": "string", "maxLength": 120},
             "minutes": {"type": "integer", "minimum": 1, "maximum": MAX_REMINDER_MINUTES}}, True,
            lambda a: f"Remind you {when_words(reminder_at(a))}: “{a['message']}”", set_reminder),
-    Action("fix_wifi", "Wi-Fi or the internet isn't working: turn Wi-Fi off and on again and check the connection.",
+    Action("fix_wifi", "Wi-Fi or the internet isn’t working: turn Wi-Fi off and on again and check the connection.",
            {}, True, lambda a: "Restart Wi-Fi and check the internet", fix_wifi),
     Action("fix_sound", "No sound or the wrong speakers: restart the sound system and check the output.",
            {}, True, lambda a: "Restart the sound system and check the speakers", fix_sound),
     Action("check_storage", "See how much disk space is free and what uses the most (the computer is full, or "
            "slow because the disk is nearly full).",
-           {}, False, lambda a: "Check what's using disk space", check_storage),
+           {}, False, lambda a: "Check what’s using disk space", check_storage),
     Action("find_photos", "Find photos from a time (today, last week, last month...) in Pictures, Downloads, "
            "Desktop and Documents.",
            {"when": {"enum": PHOTO_WHEN}}, False,
@@ -824,14 +824,14 @@ ACTIONS = [
            {"minutes": {"type": "integer", "minimum": 1, "maximum": 180}, "label": {"type": "string", "maxLength": 60}},
            True, lambda a: f"Set a {a['minutes']}-minute timer ({' '.join(str(a['label']).split())[:60] or 'Timer'})",
            set_timer),
-    Action("add_todo", "Add a task to the person's to-do list (the To-do widget).",
+    Action("add_todo", "Add a task to the person’s to-do list (the To-do widget).",
            {"task": {"type": "string", "maxLength": 200}}, True,
            lambda a: f"Add “{' '.join(str(a['task']).split())[:200]}” to your to-do list", add_todo),
-    Action("fix_bluetooth", "Bluetooth headphones, mouse or keyboard won't connect: restart Bluetooth.",
-           {}, True, lambda a: "Restart Bluetooth and check what's connected", fix_bluetooth),
-    Action("fix_printer", "The printer won't print: turn paused printers back on and check the queue.",
+    Action("fix_bluetooth", "Bluetooth headphones, mouse or keyboard won’t connect: restart Bluetooth.",
+           {}, True, lambda a: "Restart Bluetooth and check what’s connected", fix_bluetooth),
+    Action("fix_printer", "The printer won’t print: turn paused printers back on and check the queue.",
            {}, True, lambda a: "Check the printers and their queue", fix_printer),
-    Action("back_up_now", "Back up the person's files now (to the drive chosen in Backups).",
+    Action("back_up_now", "Back up the person’s files now (to the drive chosen in Backups).",
            {}, True, lambda a: "Back up your files now", back_up_now),
 ]
 BY_ID = {a.id: a for a in ACTIONS}
@@ -986,7 +986,7 @@ def plan(request: str, history: list[dict] | None = None, long: bool = False) ->
     try:
         return validate(json.loads(content), max_reply)
     except ValueError:
-        return "Sorry, I couldn't work out what to do. Try saying it another way.", []
+        return "Sorry, I couldn’t work out what to do. Try saying it another way.", []
 
 
 def run_step(step: Step) -> Result:
@@ -994,7 +994,7 @@ def run_step(step: Step) -> Result:
         step.result = step.action.run(step.args)
     except Exception as e:  # an action never takes the window down
         print(f"kulan-assistant: {step.action.id} failed: {e!r}", file=sys.stderr)  # for the log
-        step.result = Result(False, "That didn't work. Try again, or do it in Kulan Settings")
+        step.result = Result(False, "That didn’t work. Try again, or do it in Kulan Settings")
     return step.result
 
 
@@ -1062,7 +1062,7 @@ def self_test() -> None:
             with mock.patch(f"{__name__}._systemctl", side_effect=fake), \
                     mock.patch("shutil.which", return_value="/usr/bin/systemctl"):
                 result = set_reminder({"message": "Call   Amina", "minutes": 90})
-                assert result.ok and result.message.startswith("I'll remind you "), result
+                assert result.ok and result.message.startswith("I’ll remind you "), result
                 [timer] = list(units_dir().glob("kulan-reminder-*.timer"))
                 rid = timer.stem.rsplit("-", 1)[1]
                 assert "Persistent=true" in timer.read_text() and "OnCalendar=" in timer.read_text()

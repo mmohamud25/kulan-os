@@ -162,7 +162,7 @@ class HelpPage(Page):
         row.connect("activated", lambda _r: self.ask_kulan())
         ask.add(row)
         self.group(description="On a work or school computer, your IT team can help you from here once the "
-                               "computer has joined your organisation (About Kulan OS › Join an organisation).")
+                               "computer has joined your organisation (About Kulan OS › Organisation).")
 
     def ask_kulan(self) -> None:
         """Ask Kulan itself (not its settings); says so if Kulan Assistant isn't installed."""
@@ -172,7 +172,7 @@ class HelpPage(Page):
                 return
         except (GLib.Error, TypeError):
             pass
-        self.toast("Ask Kulan needs Kulan Assistant. Turn it on in Add-ons")
+        self.toast("Ask Kulan needs Kulan Assistant. Install it in Kulan Settings › Add-ons")
 
     def open(self, uri: str) -> None:
         try:
@@ -382,13 +382,13 @@ def self_test(window) -> None:
     big = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 3840, 2160)
     big.fill(0x336699FF)
     data = shrink(big)
-    assert data is not None and data[:3] == b"\xff\xd8\xff" and len(data) <= SCREENSHOT_MAX, "a 4K screenshot wasn't made small"
+    assert data is not None and data[:3] == b"\xff\xd8\xff" and len(data) <= SCREENSHOT_MAX, "a 4K screenshot wasn’t made small"
     loader = GdkPixbuf.PixbufLoader()
     loader.write(data)
     loader.close()
     assert max(loader.get_pixbuf().get_width(), loader.get_pixbuf().get_height()) <= 1600, "the screenshot is still too large"
-    assert when("not a date") == "" and when(None) == "", "a missing date isn't hidden"
-    assert when(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")).startswith("Today, "), "today isn't 'Today'"
+    assert when("not a date") == "" and when(None) == "", "a missing date isn’t hidden"
+    assert when(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")).startswith("Today, "), "today isn’t 'Today'"
     global PUBLIC, MINE_DIR, HELPER
     saved = PUBLIC, MINE_DIR, HELPER
     with tempfile.TemporaryDirectory() as tmp:
@@ -398,16 +398,16 @@ def self_test(window) -> None:
             {"id": "1", "text": "Printer <b>broken</b>\nsecond line", "state": "done", "reply": "Fixed it"},
             {"id": "2", "text": "Slow", "state": "open"}, "not a request"]}))
         try:
-            assert [r["id"] for r in my_requests()] == ["1", "2"], "the person's requests weren't read"
+            assert [r["id"] for r in my_requests()] == ["1", "2"], "the person’s requests weren’t read"
             page = HelpPage(window)
             assert page.rendered_for == "Acme" and page.mine_group is not None, "the form or the requests are missing"
             assert not page.send_button.get_sensitive(), "Send works with nothing written"
             page.text.get_buffer().set_text("x" * (TEXT_MAX + 1))
-            assert not page.send_button.get_sensitive() and "too long" in page.count.get_label(), "too long isn't caught"
-            page.text.get_buffer().set_text("The printer won't print")
-            assert page.send_button.get_sensitive(), "Send doesn't work with something written"
+            assert not page.send_button.get_sensitive() and "too long" in page.count.get_label(), "too long isn’t caught"
+            page.text.get_buffer().set_text("The printer won’t print")
+            assert page.send_button.get_sensitive(), "Send doesn’t work with something written"
             page.show_screenshot(data)
-            assert page.preview.get_visible() and page.shot_button.get_label() == "Remove", "the screenshot isn't shown first"
+            assert page.preview.get_visible() and page.shot_button.get_label() == "Remove", "the screenshot isn’t shown first"
             page.show_screenshot(None)
             PUBLIC.write_text(json.dumps({"joined": False}))
             page.render()

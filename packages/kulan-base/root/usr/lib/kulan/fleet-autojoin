@@ -73,8 +73,8 @@ def main() -> int:
     tries = int(settings.get("tries", 0)) if str(settings.get("tries", 0)).isdigit() else 0
     if tries >= GIVE_UP:
         tell("It couldn’t reach your organisation for 14 days. Ask your IT team for a new code, then join in "
-             "Kulan Settings › About")
-        return done("Couldn't join the organisation for 14 days: stopped trying. Join in Kulan Settings › About")
+             "Kulan Settings › About Kulan OS › Organisation")
+        return done("Couldn't join the organisation for 14 days: stopped trying. Join in Kulan Settings › About Kulan OS › Organisation")
     settings["tries"] = tries + 1
     # Written 0600 from the start (the code must never be readable by others, even for a moment).
     tmp = JOIN.with_suffix(".new")
@@ -96,7 +96,7 @@ def main() -> int:
     # Refused (kulan-fleet join's 2: the code is used up, expired or wrong), not just offline or busy.
     if out.returncode == 2:
         tell("Your organisation didn’t accept the USB stick’s join code (it may be used up or expired). Ask "
-             "your IT team for a new code, then join in Kulan Settings › About")
+             "your IT team for a new code, then join in Kulan Settings › About Kulan OS › Organisation")
         return done("The organisation's server refused the USB stick's join code (used up or expired): "
                     "join in Kulan Settings › About with a new code")
     return 0  # not online yet, or the server busy: next time

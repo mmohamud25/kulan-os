@@ -96,7 +96,8 @@ pub fn run_helper(exe: &Path, args: &[String]) -> Result<i32, String> {
         if ShellExecuteExW(&mut info) == 0 {
             let error = GetLastError();
             return Err(if error == ERROR_CANCELLED { CANCELLED.into() } else {
-                format!("The writing part couldn't start (error {error}).")
+                eprintln!("ShellExecuteExW: error {error}");
+                "Kulan USB Maker couldn't start writing to the USB stick. Try again.".to_string()
             });
         }
         if info.hProcess.is_null() {
