@@ -464,6 +464,14 @@ ok(onA?.status === "created", "admins see how each account is doing on each comp
 r = await report(A, { passwords: [{ username: "amina", password_hash: HASH("amina-own") }] });
 const [{ count: logs }] = await db`select count(*)::int from fleet.audit where what like '%password%'`;
 ok(logs === 1, "the same password again changes nothing", logs);
+// mo is the Owner's account: a new password from a computer stays there, even when
+// the computer says mo is signed in on it (2.13: anyone with administrator rights
+// there could say so).
+await report(A, { sign_ins: [{ username: "mo", last: 1790000000, now: true }] });
+await report(A, { sign_ins: [{ username: "mo", last: 1790000000, now: true }],
+                  passwords: [{ username: "mo", password_hash: HASH("taken-over"), changed_at: 5 }] });
+const [mo2] = await db`select password_hash from fleet.people where username = 'mo'`;
+ok(mo2.password_hash === HASH("setup"), "an admin's or the Owner's password is never taken from a computer", mo2);
 
 // --- roles and computers --------------------------------------------------------------------
 r = await admin(HELPER, { op: "edit-person", person_id: amina, role: "admin" });
@@ -609,7 +617,15 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   r = await admin(HELPER, { op: "people", organisation_id: org });
   const fp = r.body.people.find((x) => x.username === "farah");
   ok(fp.on.map((o) => o.hostname).join() === "laptop-b" && fp.groups.length === 1, "the People list shows where through groups", fp);
+  // An admin's account allowed through the group: only the Owner changes the group's computers.
+  await db`update fleet.people set role = 'admin' where id = ${farah}`;
   r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [A.device_id, B.device_id] });
+  ok(r.status === 403, "an admin can't widen where an admin's account signs in through a group", r);
+  r = await admin(HELPER, { op: "edit-group", group_id: finance, name: "Finance", devices: [B.device_id] });
+  ok(r.status === 200, "the same computers (a rename or a new policy): any admin", r);
+  await db`update fleet.people set role = 'employee' where id = ${farah}`;
+  r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [A.device_id, B.device_id] });
+  ok(r.status === 200, "employees only: any admin changes the group's computers", r);
   ok((await report(A)).body.accounts.some((x) => x.username === "farah"), "a computer added to the group gets her account too");
 
   // Asking a whole group.
@@ -806,17 +822,17 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.body.summary.people.two_step === "everyone" && r.body.summary.people.two_step_missing.includes("omar") &&
      !r.body.summary.people.two_step_missing.includes("mo"), "the weekly report lists who hasn't set it up", r.body.summary.people);
 
-  // mo removes the phone code on laptop-b; an admin resets two-step (a lost key).
-  // mo is the Owner's account: taken only from a computer mo was signed in on at its last report.
+  // mo is the Owner's account: a computer never removes their second steps, even
+  // saying mo is signed in on it (anyone with administrator rights there could say so).
   await report(B, { factors_removed: [{ username: "mo", id: id(2) }] });
-  ok((await db`select id from fleet.person_factors`).length === 2, "the Owner's second step isn't removed from a computer they weren't signed in on");
+  ok((await db`select id from fleet.person_factors`).length === 2, "the Owner's second step isn't removed from a computer");
   await report(B, { sign_ins: [{ username: "mo", last: 1790000000, now: true }] });
   await report(B, { factors_removed: [{ username: "mo", id: id(2) }, { username: "omar", id: id(1) }] });
-  ok((await db`select id from fleet.person_factors`).map((x) => x.id).join() === id(1), "the code removed; someone else's can't be", 0);
+  ok((await db`select id from fleet.person_factors`).length === 2, "nor when the computer says mo is signed in; someone else's can't be either", 0);
   r = await admin(HELPER, { op: "reset-two-step", person_id: moP.id });
   ok(r.status === 403, "an admin can't reset the Owner's account's two-step", r);
   r = await admin(NEWOWNER, { op: "reset-two-step", person_id: moP.id });
-  ok(r.status === 200 && r.body.removed === 1, "the Owner resets it", r);
+  ok(r.status === 200 && r.body.removed === 2, "the Owner resets it", r);
   ok((await report(A, { sign_ins: [{ username: "mo", last: 1790000000, now: true }] })).body.accounts
        .find((x) => x.username === "mo").two_step.factors.length === 0, "and the computers drop it");
 
@@ -874,8 +890,8 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   ok(r.body.entries.map((e) => e.what).includes(`reset ${HELPER}'s authenticator app`) &&
      r.body.entries.map((e) => e.what).includes("required an authenticator app for Kulan Fleet admins"), "in the log", r.body.entries);
   r = await admin(NEWOWNER, { op: "log", organisation_id: org, what: "sign" }, "aal2");
-  ok(r.body.entries.some((e) => e.what === "set up a security key for signing in" && e.email === "mo") &&
-     r.body.entries.some((e) => e.what === "removed a second step for signing in"), "the person's own changes too", r.body.entries.map((e) => e.what));
+  ok(r.body.entries.some((e) => e.what === "set up a security key for signing in" && e.email === "mo"),
+     "the person's own changes too", r.body.entries.map((e) => e.what));
   delete authFactors[NEWOWNER];
 }
 
@@ -987,6 +1003,15 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   r = await admin(HELPER, { op: "mailbox", person_id: leyla, action: "new-password" });
   ok(r.status === 200 && r.body.mailbox_password && gstate.users.get("leyla@acme.test").password === r.body.mailbox_password &&
      gstate.users.get("leyla@acme.test").changePasswordAtNextLogin === true, "a new Google password, changed at next sign-in", r.body);
+  // The mailbox of someone who is an admin of Kulan Fleet: whoever sets its password
+  // could sign in to Kulan Fleet as them. Only the Owner (2.13).
+  await db`insert into fleet.admins (email, organisation_id) values ('leyla@acme.test', ${org})`;
+  const leylaPw = gstate.users.get("leyla@acme.test").password;
+  r = await admin(HELPER, { op: "mailbox", person_id: leyla, action: "new-password" });
+  ok(r.status === 403 && gstate.users.get("leyla@acme.test").password === leylaPw, "an admin can't reset a Kulan Fleet admin's mailbox", r);
+  r = await admin(NEWOWNER, { op: "mailbox", person_id: leyla, action: "new-password" });
+  ok(r.status === 200 && r.body.mailbox_password, "the Owner can", r);
+  await db`delete from fleet.admins where email = 'leyla@acme.test' and organisation_id = ${org}`;
 
   // A Google admin account: only the Owner changes it (a Fleet admin can't take over Google through Fleet).
   gstate.users.set("ceo@acme.test", { primaryEmail: "ceo@acme.test", name: { givenName: "C", familyName: "E" }, suspended: false, isAdmin: true });

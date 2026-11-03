@@ -28,11 +28,11 @@ def text_of(path: Path, limit: int = 200_000) -> str:
         raise ExtractError("Kulan Assistant can summarise PDFs, Word and LibreOffice documents, and text files.")
     if suffix == ".pdf":
         if shutil.which("pdftotext") is None:
-            raise ExtractError("PDFs can’t be read on this computer: a part of Kulan OS that reads them was removed. "
-                               "To add it back, open Terminal and type: sudo apt install poppler-utils")
+            raise ExtractError("PDFs can’t be read because a part of Kulan OS is missing. Update Kulan OS in "
+                               "Software Update to put it back.")
         out = _pdftotext(path)
         if out.returncode != 0:
-            raise ExtractError("This PDF couldn't be read. It may be password-protected.")
+            raise ExtractError("This PDF couldn’t be read. It may be password-protected.")
         text = out.stdout.decode("utf-8", "replace")
         if not text.strip():
             raise ExtractError("This PDF has no text, so it may be scanned. Try Live Text on it.")
@@ -75,7 +75,7 @@ def _zipped_xml(path: Path, member: str) -> str:
                 raise ExtractError("This document is too large to summarise.")
             root = ElementTree.fromstring(z.read(member))
     except (zipfile.BadZipFile, KeyError, ElementTree.ParseError) as exc:
-        raise ExtractError("This document couldn't be read.") from exc
+        raise ExtractError("This document couldn’t be read.") from exc
     paragraphs = []
     for element in root.iter():
         tag = element.tag.rsplit("}", 1)[-1]

@@ -165,7 +165,7 @@ class AddonsPage(Page):
         if installed and addon["id"] in self.builtin:
             dialog = Adw.AlertDialog(heading=f"{title} come with Kulan OS",
                                      body="They’re part of this computer, so they aren’t removed here. To remove "
-                                          "one of them, find it in Store and choose Uninstall.")
+                                          "one of them, find it in the Store and choose Uninstall.")
             dialog.add_response("ok", "OK")
             dialog.present(self.window)
             return

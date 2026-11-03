@@ -442,6 +442,14 @@ class BatteryPage(Page):
         """Every few seconds while the page is open: each app's share of the processor."""
         if self.torn_down:
             return GLib.SOURCE_REMOVE
+        # Only while it's on screen: the page that saves battery mustn't use it
+        # (the next look after coming back measures from then).
+        if not self.get_mapped():
+            self.last_cpu = None
+            return GLib.SOURCE_CONTINUE
+        if self.last_cpu is None:
+            self.last_cpu = (time.monotonic(), app_cpu())
+            return GLib.SOURCE_CONTINUE
         then, before = self.last_cpu
         now, after = time.monotonic(), app_cpu()
         self.last_cpu = (now, after)

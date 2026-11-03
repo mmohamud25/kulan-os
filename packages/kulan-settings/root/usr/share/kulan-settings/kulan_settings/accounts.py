@@ -138,7 +138,7 @@ class AccountsPage(Page):
     def open_accounts(self, *params: str) -> None:
         """GNOME's sign-in window, at a provider (add google) or an account (its id)."""
         if Gio.DesktopAppInfo.new("org.gnome.Settings.desktop") is None:
-            self.toast("The sign-in window isn’t installed. Install Settings in Software")
+            self.toast("The sign-in window is missing. Update Kulan OS in Software Update to put it back")
             return
         open_gnome_panel("online-accounts", *params)
 

@@ -101,7 +101,7 @@ export class PrayerTimes {
             this._indicator.menu.addMenuItem(item);
         }
         this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._indicator.menu.addAction('Prayer Times Settings', () => {
+        this._indicator.menu.addAction('Prayer times settings', () => {
             try {
                 Gio.Subprocess.new(['kulan-settings', 'prayer-times'], Gio.SubprocessFlags.NONE);
             } catch (e) {

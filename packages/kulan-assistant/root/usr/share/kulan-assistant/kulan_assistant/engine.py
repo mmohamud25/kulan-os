@@ -62,7 +62,7 @@ def prepare_runtime_dir() -> Path:
     os.chmod(path, 0o700)
     info = path.stat()
     if info.st_uid != os.getuid():
-        raise EngineError("The assistant's folder belongs to another user, so it can't be used.")
+        raise EngineError("The assistant’s folder belongs to another user, so it can’t be used.")
     return path
 
 
@@ -141,7 +141,7 @@ def readiness(kind: str = "writing") -> tuple[str, str] | None:
     """None when the assistant can answer; otherwise (what to tell the person,
     the Kulan Settings page that fixes it), to show before they try."""
     if not ENGINE.exists():
-        return ("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.", "add-ons")
+        return ("Kulan Assistant isn’t installed. Install it in Kulan Settings › Add-ons.", "add-ons")
     if usable_model(kind) is None:
         if kind == "dictation":
             return ("Dictation needs a speech model first. Download one for free in Kulan Settings › "
@@ -247,7 +247,7 @@ def ensure_running(timeout: float = 120) -> None:
     if state == "ready":
         return
     if not ENGINE.exists():
-        raise EngineError("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.")
+        raise EngineError("Kulan Assistant isn’t installed. Install it in Kulan Settings › Add-ons.")
     if usable_model() is None:
         raise EngineError("Kulan Assistant needs a model first. Download one for free in Kulan Settings › "
                           "Assistant.")
@@ -268,10 +268,10 @@ def ensure_running(timeout: float = 120) -> None:
             return
         if (proc is not None and proc.poll() is not None) or (under_systemd and _service_failed()):
             raise EngineError("The assistant stopped while starting. The model may need more free memory than "
-                              "this computer has: try a smaller one in Kulan Settings > Assistant.")
+                              "this computer has: try a smaller one in Kulan Settings › Assistant.")
         time.sleep(0.5)
-    raise EngineError("The assistant didn't start in time. The model may need more free memory than this "
-                      "computer has: try a smaller one in Kulan Settings > Assistant.")
+    raise EngineError("The assistant didn’t start in time. The model may need more free memory than this "
+                      "computer has: try a smaller one in Kulan Settings › Assistant.")
 
 
 def chat(messages: list[dict], max_tokens: int = 1024, temperature: float = 0.3) -> Iterator[str]:

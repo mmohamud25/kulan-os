@@ -21,7 +21,7 @@ from pathlib import Path
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from . import updatelist
-from .common import Page, launch, os_release, plural, read_json, restart_computer
+from .common import Page, in_thread, launch, os_release, plural, read_json, restart_computer
 
 # Kulan Shell's restartprompt.js reads it (ASKED_NOTE there).
 RESTART_ASKED_NOTE = "kulan-restart-asked"
@@ -220,7 +220,7 @@ class Prefs:
 class UpdatesPage(Page):
     title = "Software Update"
     icon = "software-update-available-symbolic"
-    keywords = ("update", "updates", "upgrade", "security", "restore", "restore point", "timeshift", "what's new",
+    keywords = ("update", "updates", "upgrade", "security", "restore", "restore point", "timeshift", "what’s new",
                 "automatic updates", "update center", "restart", "apps", "flatpak", "recovery", "history")
 
     def __init__(self, window) -> None:
@@ -345,9 +345,14 @@ class UpdatesPage(Page):
         return isinstance(until, (int, float)) and until > time.time()
 
     def render_top(self) -> None:
-        self.auto_value.set_label("Paused" if self.paused() else ("On" if auto_updates_on() else "Off"))
-        runs = history(limit=1)
-        self.history_value.set_label(when_text(runs[0]["time"]) if runs and runs[0]["time"] else "")
+        # apt-config and the whole apt history log: never on the window's thread.
+        def done(found) -> None:
+            if found is None:
+                return
+            on, runs = found
+            self.auto_value.set_label("Paused" if self.paused() else ("On" if on else "Off"))
+            self.history_value.set_label(when_text(runs[0]["time"]) if runs and runs[0]["time"] else "")
+        in_thread(lambda: (auto_updates_on(), history(limit=1)), done, page=self)
 
     def render_status(self) -> None:
         if self.working and self.working != "check":
@@ -366,7 +371,7 @@ class UpdatesPage(Page):
         self.status_detail.set_visible(False)
         self.details_button.set_visible(True)
         self.check_button.set_visible(True)
-        self.check_button.set_label(f"Last checked {when_text(self.status.get('checked') or 0)} · Check Now")
+        self.check_button.set_label(f"Last checked {when_text(self.status.get('checked') or 0)} · Check now")
         if self.running():
             self.status_icon.set_from_icon_name("view-refresh-symbolic")
             self.status_title.set_label("Installing updates…")
@@ -415,7 +420,7 @@ class UpdatesPage(Page):
             self.status_icon.set_css_classes([])
         if not self.running() and not self.working:
             self.progress.set_visible(False)
-        labels = {"install": "Update Now" if new_version else "Install Now", "restart": "Restart Now",
+        labels = {"install": "Update now" if new_version else "Install now", "restart": "Restart now",
                   "repair": "Finish now"}
         self.action_button.set_label(labels.get(self.action, ""))
         self.action_button.set_visible(bool(self.action) and not self.running() and not self.working)
@@ -724,7 +729,7 @@ class UpdatesPage(Page):
                  f"restarts.{later} Save your work first. Your files aren’t touched, and a restore point "
                  "is made first so you can undo this.")
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("undo", "Undo and Restart")
+        dialog.add_response("undo", "Undo and restart")
         dialog.set_response_appearance("undo", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.connect("response", lambda _d, r: r == "undo" and self.run(

@@ -11,13 +11,15 @@
       <li>Which computers need security updates, and which don't meet the organisation's policy</li>
       <li>Policies for automatic updates, the firewall, the screen lock and disk encryption</li>
       <li>Each computer's apps, alerts and an activity log</li>
+      <li>People's accounts on the computers, with Google Workspace or Microsoft 365 mailboxes</li>
+      <li>Remote help, when the person at the computer agrees</li>
       <li>Lock, restart or erase a lost or stolen computer. Erasing needs the user's permission and an encrypted disk</li>
     </ul>
-    <p>Sign in with your work email. Computers join from Kulan Settings.</p>
+    <p>Sign in with your work email. Computers join from Kulan Settings › About Kulan OS › Organisation.</p>
   </description>
   <launchable type="desktop-id">org.kulan.Fleet.desktop</launchable>
   <developer id="com.kulangroup">
-    <name>Kulan Group</name>
+    <name>Kulan Group LLC</name>
   </developer>
   <url type="homepage">https://os.kulangroup.com</url>
   <url type="help">https://os.kulangroup.com/help/</url>
@@ -36,6 +38,7 @@
   </provides>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="2.13" date="2026-11-03"/>
     <release version="2.7" date="2026-10-24"/>
   </releases>
 </component>

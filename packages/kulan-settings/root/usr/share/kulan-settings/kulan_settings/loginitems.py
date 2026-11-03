@@ -95,7 +95,7 @@ class LoginItemsPage(Page):
         self.group = self.add_group(None, "Apps that start when you sign in.")
         add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="Add an app", valign=Gtk.Align.CENTER,
                          css_classes=["flat"])
-        add.update_property([Gtk.AccessibleProperty.LABEL], ["Add an app to open at login"])
+        add.update_property([Gtk.AccessibleProperty.LABEL], ["Add an app to open when you sign in"])
         add.connect("clicked", lambda _b: self.pick_app())
         self.group.set_header_suffix(add)
         self.rows: list[Gtk.Widget] = []
@@ -134,7 +134,7 @@ class LoginItemsPage(Page):
         self.rows = []
         items = self.entries()
         if not items:
-            row = Adw.ActionRow(title="No apps open at login", subtitle="Use + to add one")
+            row = Adw.ActionRow(title="No apps open when you sign in", subtitle="Use + to add one")
             self.group.add(row)
             self.rows.append(row)
             return
@@ -182,7 +182,7 @@ class LoginItemsPage(Page):
         except OSError:
             pass
         self.shown()
-        self.toast("Removed from login items")
+        self.toast("Removed from Open at sign-in")
 
     def pick_app(self) -> None:
         dialog = Adw.Dialog(title="Open at sign-in", content_width=420, content_height=520)
@@ -225,4 +225,4 @@ class LoginItemsPage(Page):
         target.parent.mkdir(parents=True, exist_ok=True)
         keyfile.save_to_file(str(target))
         self.shown()
-        self.toast(f"{app.get_display_name()} will open at login")
+        self.toast(f"{app.get_display_name()} will open when you sign in")

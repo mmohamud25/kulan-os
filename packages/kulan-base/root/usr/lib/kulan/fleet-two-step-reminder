@@ -19,5 +19,5 @@ if mine.get("required") and not mine.get("ready"):
                     "Kulan Settings", "0", "kulan-settings",
                     "Set up two-step sign-in",
                     "Your organisation asks you to sign in with a security key or phone code. Set it up in "
-                    "Kulan Settings › About › Organisation.",
+                    "Kulan Settings › About Kulan OS › Organisation.",
                     "[]", "{'urgency': <byte 2>}", "0"], capture_output=True, timeout=10, check=False)

@@ -17,6 +17,7 @@ from collections.abc import Callable
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import Page, plain_error
+from .common import run_async as run_timed
 
 TEST_PAGE = "/usr/share/cups/data/testprint"
 STATES = {"idle": "Ready", "printing": "Printing", "disabled": "Paused"}
@@ -139,7 +140,7 @@ class PrintersPage(Page):
 
         more = self.add_group(description="Printers that need their maker’s software are added in More printer "
                                           "options.")
-        gnome = Adw.ActionRow(title="More printer options", subtitle="Opens the Settings app", activatable=True)
+        gnome = Adw.ActionRow(title="More printer options", subtitle="Opens GNOME Settings", activatable=True)
         gnome.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
         gnome.connect("activated", lambda _r: self.open_gnome())
         more.add(gnome)
@@ -163,28 +164,37 @@ class PrintersPage(Page):
         self.reload()
 
     def refresh_tick(self) -> bool:
-        if not self.torn_down and self.get_mapped():
+        # Not while the last look is still running (a slow or stuck print service).
+        if not self.torn_down and self.get_mapped() and not getattr(self, "reloading", False):
             self.reload()
         return GLib.SOURCE_CONTINUE
 
     # --- the list --------------------------------------------------------------------
     def reload(self) -> None:
         results: dict[str, str] = {}
+        self.reloading = True
 
         def collect(key: str):
             def done(_ok: bool, out: str, _err: str) -> None:
                 results[key] = out
-                if len(results) == 3 and not self.torn_down:
-                    self.printers = parse_printers(results["printers"], results["default"], results["jobs"])
-                    self.render()
+                if len(results) == 3:
+                    self.reloading = False
+                    if not self.torn_down:
+                        self.printers = parse_printers(results["printers"], results["default"], results["jobs"])
+                        self.render()
             return done
 
-        env = ["env", "LC_ALL=C"]
-        run_async([*env, "lpstat", "-l", "-p"], collect("printers"))
-        run_async([*env, "lpstat", "-d"], collect("default"))
-        run_async([*env, "lpstat", "-o"], collect("jobs"))
+        env = {"LC_ALL": "C"}
+        for key, argv in (("printers", ["lpstat", "-l", "-p"]), ("default", ["lpstat", "-d"]), ("jobs", ["lpstat", "-o"])):
+            run_timed(argv, collect(key), timeout=20, env=env)
 
     def render(self) -> None:
+        # Only when something changed: rebuilding closes a printer someone opened.
+        shown = repr(sorted((sorted(p.items()) for p in self.printers), key=repr))
+        if shown == getattr(self, "shown_printers", None):
+            return
+        self.shown_printers = shown
+        expanded = {row.printer_name for row in self.rows if row.get_expanded()}
         for row in self.rows:
             self.list_group.remove(row)
         self.rows = []
@@ -192,15 +202,17 @@ class PrintersPage(Page):
         for printer in sorted(self.printers, key=lambda p: (not p["default"], p["description"].lower())):
             row = Adw.ExpanderRow(title=GLib.markup_escape_text(printer["description"]),
                                   subtitle=GLib.markup_escape_text(self.status_text(printer)))
+            row.printer_name = printer["name"]
+            row.set_expanded(printer["name"] in expanded)
             row.add_prefix(Gtk.Image(icon_name="printer-symbolic", pixel_size=24))
             if printer["default"]:
                 row.add_suffix(Gtk.Label(label="Default", css_classes=["dim-label", "caption"]))
             name = printer["name"]
-            actions = [("Print a Test Page", lambda n=name: self.test_page(n), True)]
+            actions = [("Print a test page", lambda n=name: self.test_page(n), True)]
             if not printer["default"]:
-                actions.append(("Make Default", lambda n=name: self.make_default(n), True))
+                actions.append(("Make default", lambda n=name: self.make_default(n), True))
             if printer["jobs"]:
-                actions.append((f"Cancel {printer['jobs']} Waiting", lambda n=name: self.cancel_jobs(n), True))
+                actions.append((f"Cancel {printer['jobs']} waiting", lambda n=name: self.cancel_jobs(n), True))
             if printer["state"] == "disabled":
                 actions.append(("Resume", lambda n=name: self.lp_admin(["cupsenable", n], "Resumed"), True))
             else:
@@ -278,12 +290,12 @@ class PrintersPage(Page):
         try:
             Gio.Subprocess.new(["gnome-control-center", "printers"], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("More printer options aren’t installed. Install Settings in Software")
+            self.toast("More printer options are missing. Update Kulan OS in Software Update to put them back")
 
     def open_scanner(self) -> None:
         app = Gio.DesktopAppInfo.new("org.gnome.SimpleScan.desktop")
         if app is None:
-            self.toast("Document Scanner isn’t installed. Install it in Software")
+            self.toast("Document Scanner isn’t installed. Get it from the Store")
             return
         try:
             app.launch([], None)

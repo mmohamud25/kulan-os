@@ -13,6 +13,10 @@ from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 OS_RELEASE = Path("/usr/lib/os-release")
 HELPER = "/usr/lib/kulan/update-run"
+# Security changes: the password every time (update-run-confirm's own polkit action).
+HELPER_CONFIRM = "/usr/lib/kulan/update-run-confirm"
+CONFIRMED_ACTIONS = {"fleet-join", "fleet-leave", "fleet-allow-erase", "tpm-on", "tpm-on-pin", "tpm-off",
+                     "signed-start-off", "compliance-off", "remote-desktop-on", "sharing-on", "phone-link-on"}
 KULAN_SCHEMA = "org.kulan.desktop"
 
 
@@ -384,7 +388,8 @@ class Helper:
             flags = Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE
             if stdin is not None:
                 flags |= Gio.SubprocessFlags.STDIN_PIPE
-            proc = Gio.Subprocess.new(["pkexec", HELPER, *args], flags)
+            helper = HELPER_CONFIRM if args and args[0] in CONFIRMED_ACTIONS else HELPER
+            proc = Gio.Subprocess.new(["pkexec", helper, *args], flags)
         except GLib.Error as exc:
             print(f"kulan-settings: {exc.message}", file=sys.stderr)
             self.toast("Couldn’t start that change. Try again")

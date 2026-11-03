@@ -99,7 +99,7 @@ def status() -> dict:
 def ask(plans: Plans, text: str) -> dict:
     text = " ".join(text.split())[:MAX_TEXT]
     if not text:
-        return {"error": "Type a question or what you'd like done."}
+        return {"error": "Type a question or what you’d like done."}
     quick = instant.answer(text)  # the time, the date, battery, free space: no model needed
     if quick:
         return {"id": "", "reply": quick, "steps": [], "confirm": False, "instant": True}
@@ -119,7 +119,7 @@ def ask(plans: Plans, text: str) -> dict:
     if steps and not out["confirm"]:
         out.update(run(plans, pid))  # only opening, finding or checking: nothing to confirm
     if not steps and not reply:
-        out["reply"] = "Sorry, I couldn't work that out. Try saying it another way."
+        out["reply"] = "Sorry, I couldn’t work that out. Try saying it another way."
     return out
 
 
@@ -129,7 +129,7 @@ def run(plans: Plans, pid: str) -> dict:
         return {"error": "That plan has expired. Ask again."}
     with plans.lock:
         if item["ran"]:
-            return {"error": "That's already done."}
+            return {"error": "That’s already done."}
         item["ran"] = True
     results = []
     for step in item["steps"]:
@@ -145,7 +145,7 @@ def run(plans: Plans, pid: str) -> dict:
 def undo(plans: Plans, pid: str) -> dict:
     item = plans.get(pid)
     if item is None or not item["undos"]:
-        return {"ok": False, "message": "There's nothing to undo."}
+        return {"ok": False, "message": "There’s nothing to undo."}
     failed = 0
     for fn in reversed(item["undos"]):
         try:
@@ -240,14 +240,14 @@ def self_test() -> None:
         assert not out["confirm"] and out["results"][0]["ok"] and calls == ["open"], (out, calls)
         # A change waits for Run; Undo puts it back; Run twice is refused.
         steps = [agent.Step(act("tidy", True, undoable=True), {}, "Tidy"), agent.Step(act("wifi", True, ok=False), {}, "Wi-Fi")]
-        with mock.patch.object(agent, "plan", return_value=("I'll tidy up.", steps)):
+        with mock.patch.object(agent, "plan", return_value=("I’ll tidy up.", steps)):
             out = ask(plans, "tidy downloads")
         assert out["confirm"] and "results" not in out and calls == ["open"], (out, calls)
         done = run(plans, out["id"])
         assert done["undo"] and done["summary"] == "Done, but not everything worked." and calls[-2:] == ["tidy", "wifi"]
-        assert run(plans, out["id"])["error"] == "That's already done."
+        assert run(plans, out["id"])["error"] == "That’s already done."
         assert undo(plans, out["id"])["ok"] and calls[-1] == "undo tidy"
-        assert undo(plans, out["id"])["message"] == "There's nothing to undo."
+        assert undo(plans, out["id"])["message"] == "There’s nothing to undo."
         assert run(plans, "nope")["error"].startswith("That plan has expired")
         # Engine trouble comes back as a message.
         with mock.patch.object(agent, "plan", side_effect=engine.EngineError("No model yet.")):
@@ -259,7 +259,7 @@ def self_test() -> None:
         assert status()["note"] == INSTANT_NOTE
         # Instant answers need no model, and no plan is kept for them.
         before = len(plans.items)
-        for question in ("What time is it?", "what's the date", "how much space do I have left"):
+        for question in ("What time is it?", "what’s the date", "how much space do I have left"):
             out = ask(plans, question)
             assert out.get("instant") and out["reply"] and not out["steps"] and "error" not in out, out
         assert len(plans.items) == before

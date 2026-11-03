@@ -45,7 +45,7 @@ class AppsPage(Page):
             switch_row(media, "autorun-never", "Never start software from a drive",
                        "Safer. A drive can’t start a program when plugged in."),
         )
-        store = Adw.ActionRow(title="Install and remove apps", subtitle="In Software", activatable=True)
+        store = Adw.ActionRow(title="Install and remove apps", subtitle="In the Store", activatable=True)
         store.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         store.connect("activated", lambda _r: self.open_software())
         self.add_group().add(store)

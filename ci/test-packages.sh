@@ -252,7 +252,7 @@ check "Auto-update switch" "update-run auto-off then auto-on" bash -c '/usr/lib/
 check "Interrupted update finished" "update-run install first finishes a package an earlier update left half-installed" bash -c 'd=$(mktemp -d); cd "$d" && apt-get download -q hello >/dev/null 2>&1 && dpkg --unpack hello_*.deb >/dev/null 2>&1 && dpkg --audit | grep -q hello && out="$(/usr/lib/kulan/update-run install 2>&1)"; echo "$out" | grep -i "interrupted" | head -n 2; ok=0; dpkg-query -W -f="\${Status}" hello 2>/dev/null | grep -qx "install ok installed" && test -z "$(dpkg --audit)" && ok=1; dpkg --purge hello >/dev/null 2>&1; [ "$ok" = 1 ]'
 check "Restore point before automatic updates" "taken before automatic updates take apt's lock (apt-daily-upgrade.service), not in apt's hook; without restore points set up it does nothing" bash -c '! apt-config dump | grep -q "restore-points before-auto-update" && grep -q "restore-points before-auto-update" /usr/lib/systemd/system/apt-daily-upgrade.service.d/60-kulan-restore-point.conf && rm -f /var/lib/kulan/auto-update-restore-point && /usr/lib/kulan/restore-points before-auto-update && test ! -e /var/lib/kulan/auto-update-restore-point'
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Updates can't leave it broken" "installs run as their own service and survive their caller; waits for automatic updates; interrupted and running states; the start-up menu after a failed start-up, with Undo the last update; signed start-up's boot counting; undo needs power; timers and time limits" bash -c 'out="$(bash ci/update-recovery-test.sh / 2>&1)"; echo "$out" | grep -qx "update recovery: every case passed" || { echo "$out" | grep -v "^ok:" | tail -n 6; exit 1; }'
+check "Updates can't leave it broken" "installs run as their own service and survive their caller; waits for automatic updates; interrupted and running states; the start-up menu after a failed start-up, with Undo the last update; signed start-up's boot counting; undo needs power, a safety point and keeps accounts and security settings; timers and time limits" bash -c 'out="$(bash ci/update-recovery-test.sh / 2>&1)"; echo "$out" | grep -qx "update recovery: every case passed" || { echo "$out" | grep -v "^ok:" | tail -n 6; exit 1; }'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Start-up repair and menu services" "an interrupted update is finished at start-up (only then), start-ups are noted, the start-up menu's undo is ready" bash -c 'for u in kulan-update-repair.service kulan-boot-ok.service kulan-undo-at-start.service; do systemctl is-enabled "$u" >/dev/null || { echo "$u not enabled"; exit 1; }; done; /usr/lib/kulan/update-run needs-repair && { echo "says repair is needed on a healthy system"; exit 1; }; test -x /etc/grub.d/01_kulan-boot-check && test -x /etc/grub.d/12_kulan-undo'
 check "Restart after automatic updates" "a new kernel from automatic updates shows as restart needed" bash -c 'mkdir -p /run && echo linux-image-test > /run/reboot-required.pkgs && touch /run/reboot-required && /usr/lib/kulan/update-status refresh && python3 -c "import json; d = json.load(open(\"/var/lib/kulan/updates.json\")); assert \"linux-image-test\" in d[\"restart_required\"], d[\"restart_required\"]"; ok=$?; rm -f /run/reboot-required /run/reboot-required.pkgs; /usr/lib/kulan/update-status refresh; exit $ok'
@@ -379,7 +379,8 @@ check "Phone link works with GNOME 48" "Debian's GSConnect (the Phone link add-o
 	apt-get purge -y -q gnome-shell-extension-gsconnect >/dev/null 2>&1; rm -rf /usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io; exit $ok'
 check "Free-space check before updates" "reads apt's plan (apt answers no and exits 1) into one number, and stops when the disk is too full" bash -c '
 	space() { bash -c "set -euo pipefail; APT_LOCK=(-o DPkg::Lock::Timeout=60); die() { echo \"die: \$*\"; exit 3; }
-		eval \"\$(sed -n \"/^check_space() {/,/^}/p\" /usr/lib/kulan/update-run)\"
+		ROOM_PROBLEM=\"\"; for f in check_space room_for_updates room_for_kernel free_mb remove_old_kernels; do eval \"\$(sed -n \"/^\$f() {/,/^}/p\" /usr/lib/kulan/update-run)\"; done
+		eval \"\$(grep -E \"^KERNEL_(BOOT|ESP)_MB=\" /usr/lib/kulan/update-run)\"
 		$1
 		check_space install $2 && echo ok"; }
 	for pkg in hello cowsay sl figlet; do dpkg -s "$pkg" >/dev/null 2>&1 || break; done
@@ -485,13 +486,14 @@ for css in ("stylesheet-dark.css", "stylesheet-light.css"):
     assert ".kulan-todo-check" in open(os.path.join(d, css)).read(), css
 PY
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Undo last update" "restores the newest pre-update point after saving the current one, pauses automatic updates, restarts" bash -c '
+check "Undo last update" "restores the last update's point after saving the current one, pauses automatic updates, restarts" bash -c '
 	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps/2026-01-01_00-00-00" "$D/snaps/2026-01-03_00-00-00" "$D/snaps/2026-01-02_00-00-00"
 	printf "#!/bin/sh\necho \"\$0 \$*\" >> \"\$D/calls\"\n" | sed "s|\\\$D|$D|" > "$D/bin/timeshift"; cp "$D/bin/timeshift" "$D/bin/systemctl"; chmod +x "$D/bin/"*
 	for n in 2026-01-01_00-00-00 2026-01-03_00-00-00; do printf "{\"tags\":\"O\",\"comments\":\"Before installing updates\"}" > "$D/snaps/$n/info.json"; done
 	printf "{\"tags\":\"D\",\"comments\":\"\"}" > "$D/snaps/2026-01-02_00-00-00/info.json"
 	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" -e "s/^MIN_FREE_PERCENT=.*/MIN_FREE_PERCENT=0/" -e "s/^MIN_FREE_GIB=.*/MIN_FREE_GIB=0/" /usr/lib/kulan/restore-points > "$D/rp"; echo "{}" > "$D/ts.json"
-	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" KULAN_POWER_SUPPLIES="$D/no-power-supplies" bash "$D/rp" undo-update >/dev/null
+	mkdir -p "$D/root"; printf "{\"point\": \"2026-01-03_00-00-00\", \"undone\": \"\", \"time\": 1}\n" > "$D/last.json"
+	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" KULAN_POWER_SUPPLIES="$D/no-power-supplies" KULAN_LAST_UPDATE="$D/last.json" KULAN_KEEP_ROOT="$D/root" KULAN_KEPT="$D/kept" bash "$D/rp" undo-update >/dev/null
 	grep -q -- "--create --scripted --comments Before undoing an update" "$D/calls"
 	grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "$D/calls"
 	grep -q "systemctl reboot" "$D/calls"
@@ -560,7 +562,7 @@ def helper(text):
     return p
 on, name = about.acceleration(helper("llvmpipe (LLVM 19.1.7, 256 bits)"))
 assert on is False and name.startswith("llvmpipe"), (on, name)
-assert about.acceleration_text(on, name).startswith("Off, using llvmpipe")
+assert about.acceleration_text(on, name).startswith("Off. Animations can be slow")
 on, name = about.acceleration(helper("Mesa Intel(R) UHD Graphics 620 (KBL GT2)"))
 assert on is True and about.acceleration_text(on, name) == "On (Mesa Intel(R) UHD Graphics 620 (KBL GT2))"
 assert about.acceleration(helper("virgl (Apple M5)"))[0] is True, "a virtual machine with 3D on"
@@ -770,8 +772,8 @@ ids.discard("org.kulan.Assistant.Test")
 missing = sorted(i for i in ids if not pathlib.Path(f"/usr/share/applications/{i}.desktop").exists())
 assert "org.kulan.Assistant" in ids and not missing, missing
 PY
-check "Ask Kulan without a model" "the service says how to get one" bash -c 'out="$(HOME=$(mktemp -d) timeout 60 dbus-run-session -- gdbus call --session --dest org.kulan.Assistant.Ask --object-path /org/kulan/Assistant/Ask --method org.kulan.Assistant.Ask.Ask "why is it slow" 2>&1)"; echo "$out" | cut -c1-200; echo "$out" | grep -qE "needs a model first|isn.t fully installed"'
-check "Assistant without a model" "says how to get one instead of failing silently" bash -c 'out="$(kulan-assistant ask proofread "hello there" 2>&1)"; rc=$?; echo "$out"; [ "$rc" -eq 1 ] && echo "$out" | grep -qE "needs a model first|isn.t fully installed"'
+check "Ask Kulan without a model" "the service says how to get one" bash -c 'out="$(HOME=$(mktemp -d) timeout 60 dbus-run-session -- gdbus call --session --dest org.kulan.Assistant.Ask --object-path /org/kulan/Assistant/Ask --method org.kulan.Assistant.Ask.Ask "why is it slow" 2>&1)"; echo "$out" | cut -c1-200; echo "$out" | grep -qE "needs a model first|isn.t installed"'
+check "Assistant without a model" "says how to get one instead of failing silently" bash -c 'out="$(kulan-assistant ask proofread "hello there" 2>&1)"; rc=$?; echo "$out"; [ "$rc" -eq 1 ] && echo "$out" | grep -qE "needs a model first|isn.t installed"'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Model helper refuses bad input" "only listed models, by id" bash -c 'for id in "../etc" "QWEN" "" "qwen3-1.7b;id" "nope"; do out="$(/usr/lib/kulan/update-run assistant-model "$id" 2>&1)" && exit 1; echo "$out" | grep -q "Unknown model" || { echo "$id: $out"; exit 1; }; done'
 check "Assistant search reads files" "the question search provider imports (LocalSearch bindings)" python3 -c 'import sys; sys.path.insert(0, "/usr/share/kulan-assistant"); from kulan_assistant import search; t, n = search.sparql({"words": ["invoice", "x\"} DROP"], "kind": "pdf", "after": "2026-09-01", "before": "2026-09-30"}); assert "fts:match" in t and "nfo:PaginatedTextDocument" in n and "2026-09-30T23:59:59Z" in t and "\"}" not in t + n'
@@ -839,6 +841,8 @@ check "Welcome app runs" "--help" kulan-welcome --help
 
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Signed start-up" "kulan-signed-start says why it can't be used here, takes only its commands, and its hooks, service and update-run commands are in place" bash -c 'kulan-signed-start status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"phase\"] == \"off\" and d[\"possible\"] is False and d[\"reasons\"], d; print(d[\"reasons\"][0])" && kulan-signed-start nope 2>/dev/null; [ $? -eq 64 ] && kulan-signed-start rebuild && kulan-signed-start finish && test -x /etc/kernel/postinst.d/zz-kulan-signed-start && test -x /etc/kernel/postrm.d/zz-kulan-signed-start && test -x /etc/initramfs/post-update.d/zz-kulan-signed-start && systemctl is-enabled kulan-signed-start.service && grep -q "signed-start-on|signed-start-off)" /usr/lib/kulan/update-run && grep -q "interest-noawait /usr/lib/shim" /var/lib/dpkg/info/kulan-base.triggers'
+check "Security changes ask every time" "2.13: joining Fleet, disk unlock, signed start-up off, compliance off and opening the firewall ask for the password each time (their own polkit action); the remembered one doesn't cover them" bash -c 'grep -q "<allow_active>auth_admin</allow_active>" /usr/share/polkit-1/actions/org.kulan.updates.policy && grep -q "exec.path\">/usr/lib/kulan/update-run-confirm<" /usr/share/polkit-1/actions/org.kulan.updates.policy && a="$(grep "^CONFIRMED_ACTIONS=" /usr/lib/kulan/update-run)" && b="$(grep "^CONFIRMED_ACTIONS=" /usr/lib/kulan/update-run-confirm)" && c="CONFIRMED_ACTIONS=\"$(python3 -c "import sys; sys.path.insert(0, \"/usr/share/kulan-settings\"); from kulan_settings import common; print(\" \" + \" \".join(sorted(common.CONFIRMED_ACTIONS)) + \" \")")\"" && [ "$(tr " " "\n" <<<"$a" | sort | tr -d "\n")" = "$(tr " " "\n" <<<"$b" | sort | tr -d "\n")" ] && [ "$(tr " " "\n" <<<"$a" | sort | tr -d "\n")" = "$(tr " " "\n" <<<"$c" | sort | tr -d "\n")" ] || { echo "lists differ: [$a] [$b] [$c]"; exit 1; }; out="$(PKEXEC_UID=1000 /usr/lib/kulan/update-run fleet-leave 2>&1)"; echo "$out" | grep -q "needs your password each time" || { echo "$out"; exit 1; }; /usr/lib/kulan/update-run-confirm install >/dev/null 2>&1; [ $? -eq 64 ]'
+check "Signed start-up files" "2.13: the file that worked is kept to fall back on until the new one works; failed builds change nothing; power-safe writes; the undo entry never starts by itself; off keeps signed start-up without GRUB's menu" bash -c 'out="$(timeout 60 python3 -I -B ci/signed-start-files-test.py /usr/bin/kulan-signed-start 2>&1)"; echo "$out" | grep -qx "signed start-up files: every case passed" || { echo "$out" | tail -n 4; exit 1; }'
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "GRUB's installer" "Kulan's grub-install puts GRUB in EFI/debian (the system's name would give EFI/kulan) and leaves it out while signed start-up is on" bash -c '
 	set -e
@@ -858,7 +862,8 @@ check "TPM unlock PIN" "status says whether a PIN is needed; the helper takes on
 # --- Fleet management (the computer's side, against a stand-in server) ----------------
 python3 ci/fleet-mock.py 18765 /tmp/fleet-log.json & FLEET_MOCK=$!
 sleep 1
-echo TEST-CODE | kulan-fleet join http://127.0.0.1:18765 >/tmp/fleet-join.log 2>&1
+check "Fleet: no plain HTTP on this computer" "2.13: a stand-in server over plain HTTP here is only for the tests (KULAN_FLEET_TEST_HTTP=1), never through Kulan Settings" bash -c '! echo TEST-CODE | kulan-fleet join http://127.0.0.1:18765 >/dev/null 2>&1 && ! test -e /etc/kulan/fleet.json'
+echo TEST-CODE | KULAN_FLEET_TEST_HTTP=1 kulan-fleet join http://127.0.0.1:18765 >/tmp/fleet-join.log 2>&1
 # shellcheck disable=SC2016  # expanded by the inner bash
 check "Fleet join" "joined with a one-time code; the key is root-only; anyone can see who manages it and what is shared" bash -c 'test "$(stat -c %a /etc/kulan/fleet.json)" = 600 && kulan-fleet status --json | python3 -c "import json, sys; d = json.load(sys.stdin); assert d[\"joined\"] and d[\"organisation\"] == \"Kulan Test Org\" and d[\"shared\"] and d[\"last_report\"], d"'
 # shellcheck disable=SC2016  # expanded by the inner bash
@@ -961,7 +966,7 @@ fail = True
 ok, detail = kf.erase()
 assert not ok and "erase failed on /dev/fake-luks2" in detail and "not switched off" in detail, detail
 assert subprocess.run(["kulan-fleet", "allow-erase", "off"], capture_output=True).returncode == 0
-assert kf.erase() == (False, "not allowed on this computer (Kulan Settings > About > Organisation)")
+assert kf.erase() == (False, "not allowed on this computer (Kulan Settings › About Kulan OS › Organisation)")
 PY
 # Erasing a lost computer (2.7): a notice first, and switching off during
 # it doesn't stop the erase. Stand-ins for the disk: nothing is erased here.

@@ -117,7 +117,7 @@ def understand(question: str) -> dict | None:
     today = datetime.date.today()
     prompt = (f"Today is {today:%A %d %B %Y} ({today.isoformat()}). Someone is searching their files with this "
               f"request:\n\n{question}\n\nGive the 1 to 4 most useful words to search for (words that would be in "
-              "the file's name or text, not words like 'file', 'find', 'my' or dates), the kind of file "
+              "the file’s name or text, not words like 'file', 'find', 'my' or dates), the kind of file "
               "(or 'any'), and the date range it was changed in as YYYY-MM-DD, or null when no date is given.")
     body_messages = [{"role": "system", "content": "You turn file-search requests into JSON. Reply with JSON only."},
                      {"role": "user", "content": prompt}]

@@ -149,13 +149,13 @@ NOLOGIN = Path("/etc/nologin")
 LOST_MARK = "Kulan Fleet lost mode"
 LOST_BANNER = Path("/etc/dconf/db/gdm.d/90-kulan-fleet-lost")
 LOST_NOTICE_S = 20
-SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version and kernel",
+SHARED = ["Computer model, processor, memory and disk space", "Kulan OS and Linux versions",
           "Waiting updates and whether a restart is needed", "Compliance mode results", "TPM unlock on or off",
           "Disk encryption and firewall on or off", "Names and versions of installed apps (once a day)",
-          "Host name and when it last started",
+          "The computer’s name and when it last started",
           "For accounts the organisation manages, a scrambled copy of a new password, never the password itself",
           "If the organisation controls USB drives, the maker, model, serial number and name of drives you "
-          "plug in. Nothing about what's on them",
+          "plug in. Nothing about what’s on them",
           "Each account's username and when it was last used. Not what anyone does",
           "If you set up two-step sign-in, your security key's public key or your phone code's secret, so it "
           "works on your organisation's other computers",
@@ -203,10 +203,13 @@ def write_json(path: Path, data: dict, mode: int) -> None:
 
 
 def check_server(server: str) -> str:
-    """HTTPS only (plain HTTP just for a server on this computer, for tests)."""
+    """HTTPS only. Plain HTTP just for a stand-in server on this computer, and only
+    when root runs kulan-fleet itself with KULAN_FLEET_TEST_HTTP=1 (the tests):
+    never through Kulan Settings (pkexec gives update-run a clean environment),
+    so a program in someone's session can't join the computer to a server of its own."""
     server = server.strip().rstrip("/")
     parts = urllib.parse.urlsplit(server)
-    local = parts.hostname in ("localhost", "127.0.0.1", "::1")
+    local = parts.hostname in ("localhost", "127.0.0.1", "::1") and os.environ.get("KULAN_FLEET_TEST_HTTP") == "1"
     if parts.scheme != "https" and not (parts.scheme == "http" and local):
         raise ValueError("the server address must start with https://")
     if not parts.hostname:
@@ -820,7 +823,7 @@ def erase_check() -> tuple[bool, list[str] | str]:
     """Whether this computer may be erased now: (True, the LUKS partitions)
     or (False, why not)."""
     if not read_json(CONFIG, {}).get("allow_erase"):
-        return False, "not allowed on this computer (Kulan Settings > About > Organisation)"
+        return False, "not allowed on this computer (Kulan Settings › About Kulan OS › Organisation)"
     ok, devices, why = disk_protection()
     if not ok or not devices:
         return False, f"can't be erased from afar: {why or 'nothing encrypted found'}"

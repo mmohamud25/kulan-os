@@ -180,8 +180,9 @@ case "\${PHASE}" in
 		if [ -e /var/lib/kulan-signed-test-undo ]; then
 			# Started through "Undo the last update" (no restore point in this test:
 			# it says so and start-up carries on).
-			# Once the desktop has lasted a minute, the file loses its try counter and the menu isn't asked for.
-			for _ in \$(seq 50); do ls /boot/efi/EFI/Linux | grep -qE '[+][0-9]+(-[0-9]+)?[.]efi\$' || break; sleep 3; done
+			# Once the desktop has lasted a minute, the file loses its try counter and the menu isn't asked for
+			# (this file already had: wait for boot-ok to note this start as good).
+			for _ in \$(seq 50); do [ -e /run/kulan/boot-ok ] && break; sleep 3; done
 			say "blessed=\$(ls /boot/efi/EFI/Linux | tr '\n' ' ') menu_after=\$(efitext \$V/LoaderConfigTimeoutOneShot-\$G)"
 			say "undo_started=\$(grep -c 'kulan.undo-update' /proc/cmdline) undo_service=\$(journalctl -b -u kulan-undo-at-start.service -o cat --no-pager 2>/dev/null | grep -c "There's no restore point") entry=\$(efitext \$V/LoaderEntrySelected-\$G)"
 			say "done"
@@ -194,8 +195,12 @@ case "\${PHASE}" in
 			for _ in \$(seq 15); do [ -e \$V/LoaderConfigTimeoutOneShot-\$G ] && break; sleep 2; done
 			journalctl -b -u kulan-boot-ok.service -o cat --no-pager 2>/dev/null | tail -n 3 | sed 's/^/KULAN-SIGNED-TEST boot-ok: /'
 			say "undo_profile=\$(grep -ac 'TITLE=Undo the last update' /boot/efi/EFI/Linux/kulan-*.efi | paste -sd, -) menu_asked=\$(efitext \$V/LoaderConfigTimeoutOneShot-\$G) default=\$(sed -n 's/^default //p' /boot/efi/loader/loader.conf)"
-			# Start through it once, as choosing it in the menu does (systemd-boot matches
-			# the one-shot entry as a pattern: the newest file's undo entry, whatever its try counter).
+			# This start was a new file's (rebuilt, still counted): the normal entry started, not the undo one.
+			say "new_file_start=\$(grep -c 'kulan.undo-update' /proc/cmdline) counted=\$(efitext \$V/LoaderBootCountPath-\$G | grep -cE '[+][0-9]+(-[0-9]+)?[.]efi')"
+			# Start through it once, as choosing it in the menu does. systemd-boot matches the
+			# one-shot entry as a pattern on the entry's ID, which has "@undo" only once the
+			# file has lost its try counter (the desktop lasted a minute): wait for that.
+			for _ in \$(seq 50); do ls /boot/efi/EFI/Linux | grep -qE '[+][0-9]+(-[0-9]+)?[.]efi\$' || break; sleep 3; done
 			TMP=\$(mktemp)
 			{ printf '\\007\\000\\000\\000'; printf '%s' "kulan-*@undo" | iconv -f UTF-8 -t UTF-16LE; printf '\\000\\000'; } >\$TMP
 			cat \$TMP > \$V/LoaderEntryOneShot-\$G; say "oneshot=\$?"
@@ -437,6 +442,12 @@ if [[ "${UNDO_FILE}" =~ ^undo_profile=([1-9][0-9]*,?)+\ menu_asked=10\ default=k
 	result pass "Undo the last update" "the signed file has the entry, the menu shows after a start that didn't reach the desktop, and choosing it starts the undo (${UNDO_START##* })"
 else
 	result fail "Undo the last update" "${UNDO_FILE:-no undo entry checked}; ${UNDO_START:-the undo entry never started}"
+fi
+NEW_START="$(grep '^new_file_start=' <<<"${STEPS}" | head -n 1)"
+if [[ "${NEW_START}" == "new_file_start=0 counted=1" && "${UNDO_START}" == *"entry=kulan-"*"@undo"* ]]; then
+	result pass "Undo never by itself" "a new signed file (still counted) starts normally; the undo entry starts only when chosen"
+else
+	result fail "Undo never by itself" "${NEW_START:-not checked}; ${UNDO_START:-the undo entry never started}"
 fi
 BLESSED="$(grep '^blessed=' <<<"${STEPS}" | head -n 1)"
 COUNTED='[+][0-9]+(-[0-9]+)?[.]efi( |$)'

@@ -290,7 +290,7 @@ class Installer(Adw.ApplicationWindow):
         self.zone_row = Adw.ComboRow(title="Time zone", model=Gtk.StringList.new([zone_label(z) for z in self.zones]),
                                      enable_search=True,
                                      expression=Gtk.PropertyExpression.new(Gtk.StringObject, None, "string"))
-        self.username = Adw.EntryRow(title="User name")
+        self.username = Adw.EntryRow(title="Username")
         self.hostname = Adw.EntryRow(title="This computer’s name")
         self.encrypt_row = Adw.SwitchRow(title="Encrypt the disk",
                                          subtitle="Protects your files if the computer is lost or stolen",
@@ -583,10 +583,10 @@ class Installer(Adw.ApplicationWindow):
             return "The two passwords aren’t the same"
         if not NAME_RULE.match(self.username.get_text()):
             self.more.set_expanded(True)
-            return "Use lowercase letters, digits, - or _ for the user name, starting with a letter"
+            return "Use lowercase letters, digits, - or _ for the username, starting with a letter"
         if self.username.get_text() in taken_names():
             self.more.set_expanded(True)
-            return f"The user name “{self.username.get_text()}” is used by the system. Choose another"
+            return f"The username “{self.username.get_text()}” is used by the system. Choose another"
         if not HOST_RULE.match(self.hostname.get_text()):
             self.more.set_expanded(True)
             return "Use lowercase letters, digits and dashes for the computer’s name"
@@ -596,7 +596,7 @@ class Installer(Adw.ApplicationWindow):
         layout, variant, _d = self.layouts[self.layout_row.get_selected()]
         password = self.password.get_text()
         return {
-            "disk": self.choice["disk"]["path"], "mode": self.choice["mode"],
+            "disk": self.choice["disk"]["path"], "disk_id": self.choice["disk"].get("id"), "mode": self.choice["mode"],
             "encrypt": self.encrypt_row.get_active(), "password": password,
             "locale": self.chosen_locale(), "keyboard": {"layout": layout, "variant": variant},
             "timezone": self.zones[self.zone_row.get_selected()], "hostname": self.hostname.get_text(),
@@ -732,7 +732,7 @@ class Installer(Adw.ApplicationWindow):
             box.append(Gtk.Label(label=what, wrap=True, xalign=0))
             box.append(Gtk.Label(label=f"The full log is in {LOG}.", wrap=True, xalign=0, css_classes=["dim-label"]))
             page = self.page("failed", "Not installed", "Not installed", "Kulan OS couldn’t be installed", None, box,
-                             next_label="Try Again", on_next=self.try_again)
+                             next_label="Try again", on_next=self.try_again)
             page.set_can_pop(False)
             self.push(page)
             return
@@ -833,7 +833,7 @@ class App(Adw.Application):
     def walk(self, window: Installer) -> bool:
         """Every check and page with sample answers (no pkexec, no disks touched)."""
         try:
-            assert suggested_username("Bin Li", {"bin"}) == "binl", "not the system's bin account"
+            assert suggested_username("Bin Li", {"bin"}) == "binl", "not the system’s bin account"
             assert suggested_username("Man", {"man"}) == "man1", suggested_username("Man", {"man"})
             assert window.choice.get("disk"), "the sample disk is chosen"
             assert window.choice["mode"] == "free", "next to Windows first: nothing is lost"

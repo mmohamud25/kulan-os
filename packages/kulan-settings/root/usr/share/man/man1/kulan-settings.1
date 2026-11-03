@@ -1,4 +1,4 @@
-.TH KULAN-SETTINGS 1 "October 2026" "Kulan OS" "User Commands"
+.TH KULAN-SETTINGS 1 "November 2026" "Kulan OS" "User Commands"
 .SH NAME
 kulan-settings \- Kulan OS settings
 .SH SYNOPSIS
@@ -6,19 +6,27 @@ kulan-settings \- Kulan OS settings
 [\fIpage\fR] [\fB\-\-check\fR]
 .SH DESCRIPTION
 .B kulan-settings
-is one place for Kulan OS options: Wi-Fi and network, Bluetooth, sound,
-battery and power, displays and Night Light, appearance, the dock, the top
-bar, desktop and windows, keyboard, login items, updates and recovery,
-add-ons, sharing and remote desktop, Get help and About Kulan OS. Online
-accounts open in GNOME Settings.
+is the settings app of Kulan OS: your profile and the people who use the
+computer, Wi-Fi and network, Bluetooth, phones, printers, sharing, sound,
+focus and notifications, online accounts, parental controls, appearance, the
+desktop, dock and top bar, displays, battery, storage, apps that open at
+sign-in, security, privacy, backups, keyboard, mouse, accessibility, the
+assistant, prayer times, date and time, language and region, Software Update,
+add-ons, Get help and About Kulan OS.
 .PP
-Installing updates or add-ons and changing automatic updates ask for an
-administrator password through
+Everyday system changes (installing updates or add-ons, restore points)
+ask for an administrator's password once for a few minutes. Changes to the
+computer's security (joining an organisation, disk unlock, signed start-up,
+compliance mode, opening the firewall) ask for it every time. Both go through
 .BR pkexec (1).
 .SH PAGES
-.IR wifi ", " bluetooth ", " sound ", " battery ", " display ", "
-.IR appearance ", " dock ", " top-bar ", " desktop ", " keyboard ", "
-.IR login-items ", " sharing ", " updates ", " add-ons ", " help ", " about .
+.IR profile ", " wifi ", " bluetooth ", " phone ", " printers ", " sharing ", "
+.IR sound ", " focus ", " notifications ", " users ", " accounts ", "
+.IR parental-controls ", " appearance ", " desktop ", " dock ", " top-bar ", "
+.IR display ", " battery ", " storage ", " login-items ", " apps ", " security ", "
+.IR privacy ", " backups ", " keyboard ", " mouse ", " accessibility ", "
+.IR assistant ", " prayer-times ", " date-time ", " region ", " updates ", "
+.IR add-ons ", " help ", " about .
 .SH OPTIONS
 .TP
 .B \-\-check
@@ -38,5 +46,5 @@ The "Create a restore point before installing" choice.
 .I ~/.config/gtk-4.0/gtk.css, ~/.config/gtk-3.0/gtk.css
 Where the Kulan window-button style is switched on or off.
 .SH SEE ALSO
-.BR gnome-control-center (1),
+.BR kulan-updates (1),
 .BR timeshift (1)

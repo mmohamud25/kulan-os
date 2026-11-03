@@ -596,8 +596,24 @@ Deno.serve(async (req: Request) => {
       await sql`update fleet.mail_connections set checked_at = now(), last_error = ${error ? error.slice(0, 300) : null}
                 where organisation_id = ${org}`;
     };
-    // Only the Owner manages admins' and the Owner's accounts; the same for their mailboxes.
-    const mayManage = async (p: Record<string, any>) => p.role === "employee" || await isOwner(p.organisation_id);
+    // Only the Owner manages admins' and the Owner's accounts; the same for their
+    // mailboxes. Also the mailbox of anyone who is an admin of Kulan Fleet itself
+    // (or its Owner), whatever their role on the computers: Kulan Fleet signs
+    // people in by email, so whoever can set that mailbox's password can sign in
+    // to Kulan Fleet as them.
+    const mayManage = async (p: Record<string, any>) => {
+      if (await isOwner(p.organisation_id)) return true;
+      if (p.role !== "employee") return false;
+      const addresses = [p.mailbox, p.email].filter((a) => typeof a === "string" && a).map((a: string) => a.toLowerCase());
+      if (!addresses.length) return true;
+      const fleetAdmin = await sql`
+        select 1 from fleet.admins where lower(email) = any(${addresses})
+          and (organisation_id is null or organisation_id = ${p.organisation_id})
+        union all
+        select 1 from fleet.organisations where id = ${p.organisation_id} and lower(owner_email) = any(${addresses})
+        limit 1`;
+      return fleetAdmin.length === 0;
+    };
     const adminMailbox = (c: mail.Connection | null) =>
       `that mailbox is a ${mail.short(c?.provider)} admin account, so only the Owner can change it`;
     // What's left to do, strongest first: a rename never hides a suspend or a delete.
@@ -647,7 +663,7 @@ Deno.serve(async (req: Request) => {
         p = { ...p, ...now };
         return await mailboxDo(p, "rename");
       }
-      if (!(await mayManage(p))) return await fail("only the Owner changes an admin's or the Owner's mailbox");
+      if (!(await mayManage(p))) return await fail("only the Owner changes the mailbox of an admin or the Owner");
       let conn: mail.Connection | null;
       try {
         conn = await mailConn(org);
@@ -1375,6 +1391,18 @@ Deno.serve(async (req: Request) => {
         if (body.devices !== undefined && devices === null) return reply(400, { error: "choose computers from this organisation" });
         const members = body.people === undefined ? null : await peopleOf(org, body.people);
         if (body.people !== undefined && members === null) return reply(400, { error: "choose people from this organisation" });
+        // The group's computers are where the people allowed on it may sign in:
+        // for an admin's or the Owner's account, only the Owner changes that.
+        if (devices) {
+          const had = (await sql`select device_id from fleet.group_devices where group_id = ${g.id}`).map((r) => r.device_id as string);
+          const want = new Set(devices);
+          const changes = want.size !== new Set(had).size || [...want].some((d) => !had.includes(d));
+          const [privileged] = changes ? await sql`select 1 as x from fleet.person_groups pg join fleet.people pe on pe.id = pg.person_id
+                                         where pg.group_id = ${g.id} and pe.role <> 'employee' and pe.removed_at is null limit 1` : [];
+          if (privileged && !(await isOwner(org))) {
+            return reply(403, { error: "an admin or the Owner signs in on this group's computers, so only the Owner changes them" });
+          }
+        }
         try {
           await sql.begin(async (tx) => {
             await tx`update fleet.groups set name = ${name}, policy = ${json(policy)} where id = ${g.id}`;
@@ -1780,7 +1808,7 @@ Deno.serve(async (req: Request) => {
         const p = await person(uuid(body.person_id), body.action === "retry" || body.action === "forget");
         if (!p) return reply(404, { error: "no such person" });
         const org = p.organisation_id;
-        if (!(await mayManage(p))) return reply(403, { error: "only the Owner manages an admin's or the Owner's mailbox" });
+        if (!(await mayManage(p))) return reply(403, { error: "only the Owner manages the mailbox of an admin or the Owner" });
         const action = body.action;
         if (action === "retry") {
           if (!p.mailbox_todo) return reply(200, {});

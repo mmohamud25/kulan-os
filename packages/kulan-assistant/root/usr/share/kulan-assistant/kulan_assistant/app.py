@@ -224,6 +224,11 @@ class AskKulanWindow(Adw.ApplicationWindow):
         self.cancel: threading.Event | None = None
         self.running = False  # steps being done
         self.turns: dict[int, Turn] = {}  # id(message) -> Turn, for answers on screen
+        # The conversations opened while the app is open, by id: switching back
+        # shows the same one (with its Undo, and steps still running), never an
+        # older copy read from disk that would then be saved over the newer one.
+        self.live: dict[str, conversation.Conversation] = {}
+        self.deleted: set[str] = set()  # never saved again (an answer or a step finishing late)
 
         # --- the side: conversations ---
         new = Gtk.Button(icon_name="list-add-symbolic", tooltip_text="New conversation (Ctrl+N)")
@@ -365,8 +370,9 @@ class AskKulanWindow(Adw.ApplicationWindow):
 
     # --- conversations -----------------------------------------------------------------------------
     def save(self, conv: conversation.Conversation) -> None:
-        if not self.store:
+        if not self.store or conv.id in self.deleted:
             return
+        self.live[conv.id] = conv
         try:
             self.store.save(conv)
         except OSError as e:
@@ -399,10 +405,10 @@ class AskKulanWindow(Adw.ApplicationWindow):
         if row.conv_id == self.current.id:
             self.split.set_show_content(True)
             return
-        conv = next((c for c in (self.store.list() if self.store else []) if c.id == row.conv_id), None)
+        conv = self.live.get(row.conv_id) or next(
+            (c for c in (self.store.list() if self.store else []) if c.id == row.conv_id), None)
         if conv is not None:
-            if self.thinking_for is not None and self.thinking_for.id == conv.id:
-                conv = self.thinking_for  # the live copy, still waiting for its answer
+            self.live[conv.id] = conv
             self.current = conv
             self.show_conversation(conv)
         self.split.set_show_content(True)
@@ -418,7 +424,19 @@ class AskKulanWindow(Adw.ApplicationWindow):
         self.split.set_show_content(True)
         self.input.grab_focus()
 
+    def forget(self, conv_id: str) -> None:
+        """Gone for good: an answer still on its way is dropped, nothing saves it again."""
+        self.deleted.add(conv_id)
+        self.live.pop(conv_id, None)
+        if self.thinking_for is not None and self.thinking_for.id == conv_id:
+            if self.cancel is not None:
+                self.cancel.set()
+            self.thinking_for = None
+            self.update_send()
+        self.turns = {k: v for k, v in self.turns.items() if v.conv.id != conv_id}
+
     def delete(self, conv: conversation.Conversation) -> None:
+        self.forget(conv.id)
         if self.store:
             self.store.delete(conv.id)
         if conv.id == self.current.id:
@@ -438,6 +456,8 @@ class AskKulanWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def delete_all(self) -> None:
+        for conv_id in {c.id for c in (self.store.list() if self.store else [])} | set(self.live) | {self.current.id}:
+            self.forget(conv_id)
         if self.store:
             self.store.delete_all()
         self.current = conversation.Conversation()
@@ -451,7 +471,8 @@ class AskKulanWindow(Adw.ApplicationWindow):
             nxt = child.get_next_sibling()
             self.messages.remove(child)
             child = nxt
-        self.turns = {k: v for k, v in self.turns.items() if v.conv is conv}
+        # Answers of the conversations still open in this window stay (their Undo).
+        self.turns = {k: v for k, v in self.turns.items() if v.conv is conv or self.live.get(v.conv.id) is v.conv}
         for message in conv.messages:
             if message["role"] == "user":
                 self.add_question(message["text"])
@@ -629,8 +650,12 @@ def self_test() -> None:
         "dark mode": ("Switching to dark mode.", [agent.Step(act("dark", True), {}, "Switch to the dark style")]),
     }
     seen_history: list = []
+    release = threading.Event()
 
     def fake_plan(text, history=None, long=False):
+        if text == "slow":  # an answer that arrives after its conversation was deleted
+            release.wait(10)
+            return "Late answer.", []
         assert long, "the app asks for long answers"
         quick = agent.instant.answer(text)  # as the real planner does, before any model
         if quick:
@@ -684,14 +709,29 @@ def self_test() -> None:
             w.on_pick(w.conv_list, row)
             assert w.current.id == first and len(w.current.messages) == 6
             reopened = [t for t in w.turns.values() if t.message is w.current.messages[-1]][0]
-            assert not reopened.pending(), "an old plan can't be done again"
+            assert not reopened.pending(), "an old plan can’t be done again"
+            assert reopened is turn, "switching back shows the same answer (its Undo kept), not a copy from disk"
+            # Deleted while waiting for its answer: it stays deleted.
+            w.new_conversation()
+            w.ask("slow")
+            gone = w.current.id
+            w.delete(w.current)
+            release.set()
+            spin(lambda: w.thinking_for is None)
+            for _ in range(20):
+                GLib.MainContext.default().iteration(False)
+            assert all(c.id != gone for c in store.list()), "a deleted conversation came back with its answer"
+            row = w.conv_list.get_first_child()
+            while row is not None and getattr(row, "conv_id", None) != first:
+                row = row.get_next_sibling()
+            w.on_pick(w.conv_list, row)
             # No model: questions say so, with the fix; instant answers still work.
             with mock.patch.object(engine, "readiness", return_value=("Kulan Assistant needs a model first.", "assistant")):
                 w.check_ready()
                 assert w.banner.get_revealed()
                 w.ask("what time is it")
                 spin(lambda: w.thinking_for is None)
-                assert w.current.messages[-1]["text"].startswith("It's "), w.current.messages[-1]
+                assert w.current.messages[-1]["text"].startswith("It’s "), w.current.messages[-1]
                 w.ask("why slow")
                 spin(lambda: w.thinking_for is None)
                 assert w.current.messages[-1]["text"] == "Kulan Assistant needs a model first."

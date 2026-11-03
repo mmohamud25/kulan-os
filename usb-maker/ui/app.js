@@ -150,7 +150,8 @@ async function make() {
     await invoke("start", { source: source(), drive: agreed.id, fingerprint: agreed.fingerprint,
                             organisation: organisation().value });
   } catch (e) {
-    failed(String(e));
+    // The app's own messages are plain sentences; anything else isn't shown as it is.
+    failed(typeof e === "string" && e ? e : "Something went wrong. Try again.");
   }
 }
 

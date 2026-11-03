@@ -27,7 +27,7 @@ def language() -> str:
 
 def transcribe(audio: Path) -> str:
     if not WHISPER.exists():
-        raise engine.EngineError("Kulan Assistant isn't fully installed. Turn it on in Kulan Settings › Add-ons.")
+        raise engine.EngineError("Kulan Assistant isn’t installed. Install it in Kulan Settings › Add-ons.")
     model_id = engine.usable_model("dictation")
     if model_id is None:
         raise engine.EngineError("No dictation model yet. Download one in Kulan Settings › Assistant.")
@@ -36,6 +36,6 @@ def transcribe(audio: Path) -> str:
                           "-t", str(threads), "-nt", "-np"],
                          capture_output=True, text=True, timeout=TIMEOUT_S, check=False)
     if out.returncode != 0:
-        raise engine.EngineError("Dictation couldn't read the recording.")
+        raise engine.EngineError("Dictation couldn’t read the recording.")
     lines = [line.strip() for line in out.stdout.splitlines() if line.strip() and not NOISE.match(line)]
     return " ".join(lines).strip()

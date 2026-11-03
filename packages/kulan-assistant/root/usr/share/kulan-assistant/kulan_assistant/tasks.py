@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from . import engine
 
-SYSTEM = ("You are Kulan Assistant, a writing helper built into Kulan OS. You run entirely on this person's "
+SYSTEM = ("You are Kulan Assistant, a writing helper built into Kulan OS. You run entirely on this person’s "
           "computer. Do exactly the task asked. Reply with the result only: no greeting, no explanation of what "
           "you changed, no quotation marks around it, unless the task asks for an explanation.")
 
@@ -21,7 +21,7 @@ TERMINAL_SYSTEM = (
     "cannot see their screen, files or the internet, and you have not run anything. Answer briefly and "
     "practically. When a command helps, put each one on its own line, exactly as it should be typed, for Debian "
     "(apt, not dnf or brew), and say when it needs sudo. Prefer Kulan Settings for anything it can do. If you "
-    "aren't sure, say so instead of guessing.")
+    "aren’t sure, say so instead of guessing.")
 
 # Long documents are cut to fit the model's context window, leaving room for
 # the instructions and the reply. Counted in the model's own tokens when the
@@ -64,8 +64,8 @@ class Task:
 TASKS = [
     Task("proofread", "Proofread", "tools-check-spelling-symbolic",
          "Proofread the text below and return it corrected. Fix every spelling, grammar and punctuation mistake, "
-         "including real words used wrongly (their/there/they're, your/you're, its/it's, to/too, by/buy). "
-         "Keep the meaning, tone, language and wording otherwise; don't add or remove ideas."),
+         "including real words used wrongly (their/there/they’re, your/you’re, its/it’s, to/too, by/buy). "
+         "Keep the meaning, tone, language and wording otherwise; don’t add or remove ideas."),
     Task("rewrite", "Rewrite", "edit-symbolic",
          "Rewrite the text below so it reads clearly and naturally. Keep the meaning and the language."),
     Task("friendly", "Make friendlier", "face-smile-symbolic",

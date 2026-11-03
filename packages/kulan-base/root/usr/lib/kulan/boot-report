@@ -104,7 +104,11 @@ sleep 5 # let the session settle
 		RC=$?
 		echo "updatepoint=${RC} $(( $(find /timeshift/snapshots -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) - BEFORE )) $(tail -n 2 /tmp/kulan-rp.log | tr '\n' ' ' | cut -c1-200)"
 		SPACE="$(bash -c 'set -euo pipefail; APT_LOCK=(-o DPkg::Lock::Timeout=60); die() { echo "die: $*"; exit 3; }
-			eval "$(sed -n "/^check_space() {/,/^}/p" /usr/lib/kulan/update-run)"
+			ROOM_PROBLEM=""; run_apt() { :; }
+			for f in check_space room_for_updates room_for_kernel free_mb remove_old_kernels; do
+				eval "$(sed -n "/^${f}() {/,/^}/p" /usr/lib/kulan/update-run)"
+			done
+			eval "$(grep -E "^KERNEL_(BOOT|ESP)_MB=" /usr/lib/kulan/update-run)"
 			check_space --with-new-pkgs upgrade && echo ok' 2>&1 | tail -n 1 | cut -c1-200)"
 		echo "spacecheck=${SPACE}"
 	fi

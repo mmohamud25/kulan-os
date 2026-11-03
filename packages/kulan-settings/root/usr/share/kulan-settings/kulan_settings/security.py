@@ -332,7 +332,7 @@ class SecurityPage(Page):
         self.signed_row.set_subtitle(GLib.markup_escape_text(text))
         busy = self.window.helper.busy
         if phase == "off":
-            self.signed_button.set_label("Turn On…")
+            self.signed_button.set_label("Turn on…")
             self.signed_button.set_visible(True)
             self.signed_button.set_sensitive(bool(data.get("possible")) and not busy)
         elif phase == "on":
@@ -352,7 +352,7 @@ class SecurityPage(Page):
             "change how it starts without you knowing. At the next restart, a blue screen asks once to enroll "
             "the key, with a code shown here. It takes a few minutes."))
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("on", "Turn On")
+        dialog.add_response("on", "Turn on")
         dialog.set_response_appearance("on", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_close_response("cancel")
 
@@ -391,7 +391,7 @@ class SecurityPage(Page):
         extra.append(hint)
         dialog.set_extra_child(extra)
         dialog.add_response("cancel", "Cancel")
-        dialog.add_response("on", "Turn On")
+        dialog.add_response("on", "Turn on")
         dialog.set_response_appearance("on", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("on")
         dialog.set_close_response("cancel")

@@ -112,7 +112,7 @@ def live_session() -> bool:
 
 def skip_reason() -> str | None:
     if OFF.exists():
-        return "switched off in Kulan Settings > Privacy"
+        return "switched off in Kulan Settings › Privacy"
     cmdline = kernel_options()
     if live_session():
         return "the live session isn't counted, only installed computers"

@@ -11,11 +11,21 @@ LINUX_ENTRIES=/etc/grub.d/10_linux
 [ -x "${LINUX_ENTRIES}" ] || exit 0
 [ -x /usr/lib/kulan/restore-points ] && command -v timeshift >/dev/null 2>&1 || exit 0
 
-# The first entry 10_linux makes (the newest Linux), whole.
-ENTRY="$(GRUB_DISABLE_SUBMENU=true GRUB_DISABLE_RECOVERY=true "${LINUX_ENTRIES}" 2>/dev/null | awk '
-	/^menuentry / && !found { found = 1; inside = 1 }
-	inside { print }
-	inside && /^}/ { exit }
+# The Linux the computer ran when the restore point was taken (recorded by
+# restore-points), if it's still installed: the update's own kernel may be what
+# broke start-up. Else the newest. One entry of 10_linux's, whole.
+KERNEL="$(sed -n 's/.*"kernel": *"\([A-Za-z0-9._+~-]*\)".*/\1/p' "${KULAN_LAST_UPDATE:-/var/lib/kulan/last-update.json}" 2>/dev/null | head -n 1)"
+ENTRY="$(GRUB_DISABLE_SUBMENU=true GRUB_DISABLE_RECOVERY=true "${LINUX_ENTRIES}" 2>/dev/null | awk -v kernel="${KERNEL}" '
+	/^menuentry / { n++; inside = 1; entry = "" }
+	inside { entry = entry $0 "\n" }
+	inside && /^[[:space:]]*linux[[:space:]]/ && kernel != "" && index($2, "/vmlinuz-" kernel) > 0 && index($2, "/vmlinuz-" kernel) == length($2) - length("/vmlinuz-" kernel) + 1 { match_entry = 1 }
+	inside && /^}/ {
+		inside = 0
+		if (n == 1) first = entry
+		if (match_entry && chosen == "") chosen = entry
+		match_entry = 0
+	}
+	END { printf "%s", (chosen != "" ? chosen : first) }
 ')" || exit 0
 printf '%s\n' "${ENTRY}" | grep -q '^[[:space:]]*linux[[:space:]]' || exit 0
 printf '%s\n' "${ENTRY}" | tail -n 1 | grep -qx '}' || exit 0

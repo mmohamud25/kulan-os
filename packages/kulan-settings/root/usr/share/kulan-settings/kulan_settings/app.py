@@ -160,7 +160,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             self.rows[page_id] = row
             self.sidebar_list.append(row)
         heading = Gtk.ListBoxRow(activatable=False, selectable=False)
-        heading.set_child(Gtk.Label(label="More in the Settings app", xalign=0, css_classes=["heading", "dim-label"],
+        heading.set_child(Gtk.Label(label="More in GNOME Settings", xalign=0, css_classes=["heading", "dim-label"],
                                     margin_top=12, margin_start=6))
         heading.page_id = None
         heading.keywords = ""
@@ -241,7 +241,7 @@ class SettingsWindow(Adw.ApplicationWindow):
             box.append(Gtk.Image(icon_name="adw-external-link-symbolic", css_classes=["dim-label"]))
         row = Gtk.ListBoxRow(child=box)
         row.update_property([Gtk.AccessibleProperty.LABEL],
-                            [f"{title} (opens the Settings app)" if external else title])
+                            [f"{title} (opens GNOME Settings)" if external else title])
         return row
 
     def profile_row(self) -> Gtk.ListBoxRow:
@@ -334,7 +334,7 @@ class SettingsWindow(Adw.ApplicationWindow):
 
 # Programs the pages ask (self-test: made slow, to show none is waited for on the window's thread).
 SLOW_PROGRAMS = ("lscpu", "lspci", "gnome-shell", "systemctl", "findmnt", "lsblk", "dpkg-query", "flatpak",
-                 "locale", "openssl")
+                 "locale", "openssl", "apt-config", "qrencode")
 SLOW_S = 3
 
 
@@ -393,9 +393,15 @@ class KulanSettings(Adw.Application):
         finally:
             os.environ["PATH"] = path
         took = time.monotonic() - started
+        # What pages queue up after they're shown (list refreshes) runs now, so the
+        # pass below opens each page again the way someone coming back to it does.
+        settle = time.monotonic() + 1.5
+        while time.monotonic() < settle:
+            GLib.MainContext.default().iteration(False)
+            time.sleep(0.01)
         if took > SLOW_S * 2:
             failures.append(f"opening every page took {took:.1f} s with slow programs: something waits for "
-                            "them on the window's thread")
+                            "them on the window’s thread")
         for page_id, _cls in PAGES:
             try:
                 window.show_page(page_id)
@@ -481,9 +487,12 @@ class KulanSettings(Adw.Application):
             hotspot = conn(wifi_page.HOTSPOT_ID, "Kulan", mode="ap")
             saved = [wired, other_card, hotspot, home]
             assert wifi_page.saved_for(card, saved, "Home") is home, "the saved network for this card"
-            assert wifi_page.saved_for(card, saved, "Kulan") is None, "its own hotspot isn't a saved network"
+            assert wifi_page.saved_for(card, saved, "Kulan") is None, "its own hotspot isn’t a saved network"
             assert wifi_page.saved_for(card, saved, "Cafe") is None and wifi_page.saved_for(card, [], "Home") is None
             assert "filter_connections(" not in open(wifi_page.__file__).read(), "NMDevice.filter_connections is back"
+            from .netextras import password_ok
+            assert password_ok("0123456789abcdef" * 4) and not password_ok("z" * 64) and password_ok("x", "sae"), \
+                "Wi-Fi passwords: a 64-digit key and WPA3's any length"
         except (AssertionError, AttributeError) as exc:
             failures.append(f"wifi: {exc!r}")
         try:  # Fingerprint (2.12): a stand-in fprintd on the session bus, the whole flow
@@ -508,7 +517,7 @@ class KulanSettings(Adw.Application):
                 fh.write("not a picture")
             assert users.prepare_picture(src) is None, "a text file taken as a picture"
             assert window.profile_name.get_label(), "no name at the top of the sidebar"
-            assert window.sidebar_list.get_row_at_index(0) is window.rows["profile"], "Profile isn't first"
+            assert window.sidebar_list.get_row_at_index(0) is window.rows["profile"], "Profile isn’t first"
             window.show_page("profile")
         except (AssertionError, GLib.Error, OSError, KeyError) as exc:
             failures.append(f"profile: {exc!r}")
@@ -539,7 +548,7 @@ class KulanSettings(Adw.Application):
             from . import accounts, assistant, netextras
             assert netextras.wifi_qr_text("Home;Net", "p:w\\1") == "WIFI:T:WPA;S:Home\\;Net;P:p\\:w\\\\1;;"
             writing = [{"id": "s", "memory_gb": 3}, {"id": "m", "memory_gb": 4}, {"id": "l", "memory_gb": 7}]
-            assert assistant.recommended(writing, 2) is None, "a model recommended that can't run"
+            assert assistant.recommended(writing, 2) is None, "a model recommended that can’t run"
             assert assistant.recommended(writing, 4) == "s" and assistant.recommended(writing, 16) == "l"
             assert assistant.recommended(writing, 0) == "s" and not assistant.can_run(writing[2], 6)
             assert accounts.account_subtitle("ms_graph", "", True).startswith("Microsoft 365 · Signed out")
@@ -593,7 +602,7 @@ def fingerprint_self_test(window) -> None:
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     node = Gio.DBusNodeInfo.new_for_xml(FPRINT_XML)
     dev_path = "/net/reactivated/Fprint/Device/0"
-    fake = {"fingers": [], "claimed": False, "calls": []}
+    fake = {"fingers": [], "claimed": False, "calls": [], "slow_claim": False}
 
     def emit(result: str, done: bool) -> bool:
         bus.emit_signal(None, dev_path, "net.reactivated.Fprint.Device", "EnrollStatus",
@@ -613,7 +622,10 @@ def fingerprint_self_test(window) -> None:
                 inv.return_dbus_error("net.reactivated.Fprint.Error.NoEnrolledPrints", "none")
         elif method == "Claim":
             fake["claimed"] = True
-            inv.return_value(None)
+            if fake["slow_claim"]:  # as when fprintd asks for permission first
+                GLib.timeout_add(300, lambda: (inv.return_value(None), False)[1])
+            else:
+                inv.return_value(None)
         elif method == "Release":
             fake["claimed"] = False
             inv.return_value(None)
@@ -654,11 +666,20 @@ def fingerprint_self_test(window) -> None:
         page.add_finger([])
         page.finger_start.emit("clicked")
         assert wait(lambda: page.finger_start.get_label() == "Done"), page.finger_words.get_label()
-        assert wait(lambda: not fake["claimed"]), "the reader wasn't released after adding"
+        assert wait(lambda: not fake["claimed"]), "the reader wasn’t released after adding"
         assert "EnrollStop" in fake["calls"], fake["calls"]
         assert wait(lambda: page.finger_rows and "Right index finger" in page.finger_rows[0].get_subtitle()), \
-            "the new fingerprint isn't listed"
+            "the new fingerprint isn’t listed"
         page.finger_dialog.force_close()
+        # Closed while the reader is still being claimed: it's given back, nothing starts.
+        fake["slow_claim"] = True
+        calls = len(fake["calls"])
+        page.reader.enroll("left-index-finger", lambda *_a: None, lambda *_a: None)
+        page.reader.stop()
+        assert wait(lambda: "Release" in fake["calls"][calls:] and not fake["claimed"]), \
+            ("the reader stayed claimed after closing early", fake["calls"][calls:])
+        assert "EnrollStart" not in fake["calls"][calls:], fake["calls"][calls:]
+        fake["slow_claim"] = False
         done = []
         page.reader.delete_all(done.append)
         assert wait(lambda: done and not fake["claimed"]) and done == [None] and not fake["fingers"], (done, fake)

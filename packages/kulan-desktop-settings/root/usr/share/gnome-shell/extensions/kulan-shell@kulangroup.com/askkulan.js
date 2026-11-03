@@ -281,7 +281,7 @@ export class AskKulan {
                         return;
                     reply = e instanceof GLib.Error && Gio.DBusError.get_remote_error(e) ===
                         'org.freedesktop.DBus.Error.ServiceUnknown'
-                        ? {error: 'Kulan Assistant isn’t installed. Turn it on in Kulan Settings › Add-ons.', settings: 'add-ons'}
+                        ? {error: 'Kulan Assistant isn’t installed. Install it in Kulan Settings › Add-ons.', settings: 'add-ons'}
                         : {error: 'Ask Kulan didn’t answer. Try again in a moment.'};
                     if (!(e instanceof GLib.Error))
                         logError(e, 'Kulan Shell: Ask Kulan');
@@ -493,7 +493,7 @@ export class AskKulan {
         try {
             Gio.Subprocess.new(argv, Gio.SubprocessFlags.NONE);
         } catch (e) {
-            Main.notify('Kulan Assistant', 'Kulan Assistant isn’t installed. Turn it on in Kulan Settings › Add-ons.');
+            Main.notify('Kulan Assistant', 'Kulan Assistant isn’t installed. Install it in Kulan Settings › Add-ons.');
         }
     }
 }

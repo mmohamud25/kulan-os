@@ -3,6 +3,7 @@ older (WEP) Wi-Fi, hidden networks, a hotspot, VPNs, the proxy and the
 connection's details. Uses NetworkManager (libnm) like the Wi-Fi page."""
 from __future__ import annotations
 
+import re
 import secrets
 import shutil
 import string
@@ -11,6 +12,17 @@ from typing import Callable
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .common import has_key, settings
+
+
+def password_ok(text: str, kind: str = "psk") -> bool:
+    """A password the network can take: WPA2 (psk) 8 to 63 characters, or its key
+    written as 64 hexadecimal digits; WPA3 (sae) any length; WEP 5 or more."""
+    if kind == "sae":
+        return len(text) >= 1
+    if kind == "wep":
+        return len(text) >= 5
+    return 8 <= len(text) <= 63 or bool(re.fullmatch(r"[0-9A-Fa-f]{64}", text))
+
 
 try:
     import gi
@@ -178,7 +190,7 @@ class NetworkExtras:
 
         def ready() -> bool:
             text = password.get_text()
-            return len(text) >= 5 if kind == "wep" else 8 <= len(text) <= 63
+            return password_ok(text, kind)
 
         def go() -> None:
             connection = wifi_connection(ssid, hidden)
@@ -192,7 +204,7 @@ class NetworkExtras:
         methods = [("peap", "PEAP (most work and school networks)"), ("ttls-pap", "TTLS with PAP"),
                    ("ttls-mschapv2", "TTLS with MSCHAPv2")]
         method = Adw.ComboRow(title="Sign-in method", model=Gtk.StringList.new([m[1] for m in methods]))
-        identity = entry_row("User name (often your email)")
+        identity = entry_row("Username (often your email)")
         password = entry_row("Password", password=True)
         anonymous = entry_row("Anonymous identity (optional)")
         domain = entry_row("Server domain (for example, radius.example.org)")
@@ -246,16 +258,27 @@ class NetworkExtras:
         return None
 
     def fill_vpns(self) -> None:
+        # Only when a VPN was added, removed, renamed or connected: rebuilding
+        # under someone's click would drop it.
+        vpns = self.vpn_connections()
+        shown = tuple((c.get_uuid(), c.get_id(), self.active_for(c) is not None) for c in vpns)
+        # A switch turned on that didn't connect is put right too.
+        matches = all(sw.get_active() == on for sw, (_u, _i, on) in zip(getattr(self, "vpn_switches", []), shown))
+        if shown == getattr(self, "shown_vpns", None) and matches:
+            return
+        self.shown_vpns = shown
         for row in self.vpn_rows:
             self.vpn_group.remove(row)
         self.vpn_rows = []
-        for connection in self.vpn_connections():
+        self.vpn_switches = []
+        for connection in vpns:
             active = self.active_for(connection)
             row = Adw.ActionRow(title=GLib.markup_escape_text(connection.get_id() or "VPN"),
                                 subtitle="WireGuard" if connection.get_connection_type() == "wireguard" else "VPN")
             switch = Gtk.Switch(active=active is not None, valign=Gtk.Align.CENTER)
             switch.update_property([Gtk.AccessibleProperty.LABEL], [connection.get_id() or "VPN"])
             switch.connect("notify::active", lambda s, _p, c=connection: self.toggle_vpn(c, s.get_active()))
+            self.vpn_switches.append(switch)
             remove = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER,
                                 css_classes=["flat", "circular"], tooltip_text="Remove")
             remove.update_property([Gtk.AccessibleProperty.LABEL], [f"Remove {connection.get_id()}"])
@@ -273,6 +296,8 @@ class NetworkExtras:
         self.vpn_rows.append(add)
 
     def toggle_vpn(self, connection, on: bool) -> None:
+        # If it didn't happen (nothing else changes then), the switch is put right.
+        GLib.timeout_add_seconds(5, lambda: (self.page.torn_down or self.page.queue_refresh(), False)[1])
         active = self.active_for(connection)
         if on and active is None:
             self.client.activate_connection_async(connection, None, None, None,
@@ -445,7 +470,7 @@ class NetworkExtras:
             self.client.activate_connection_async(existing, device, None, None,
                                                   self.page.finish_quietly("activate_connection_finish",
                                                                            "Couldn’t start the hotspot"))
-            self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
+            self.page.toast("Starting the hotspot. Wi-Fi leaves other networks while it’s on.")
             return
         password = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(12))
         name = f"{GLib.get_host_name()} hotspot"[:32]
@@ -465,7 +490,7 @@ class NetworkExtras:
         self.hotspot_password = password
         self.hotspot_details.set_subtitle(GLib.markup_escape_text(f"{name} · password {password}"))
         self.hotspot_details.set_visible(True)
-        self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
+        self.page.toast("Starting the hotspot. Wi-Fi leaves other networks while it’s on.")
 
     # --- proxy -----------------------------------------------------------------------------
     def build_proxy(self) -> None:

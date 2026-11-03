@@ -495,14 +495,14 @@ class WelcomeWindow(Adw.ApplicationWindow):
         try:
             Gio.Subprocess.new(["kulan-settings", page], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("Kulan Settings isn't installed")
+            self.toast("Kulan Settings isn’t installed")
 
     # --- 1: hello -------------------------------------------------------------
     def build_welcome(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, valign=Gtk.Align.CENTER, vexpand=True)
         box.append(Gtk.Image(icon_name="kulan-logo", pixel_size=112))
         box.append(Gtk.Label(label="hello", css_classes=["kulan-hello"]))
-        box.append(Gtk.Label(label=f"Welcome to {self.name}. Let's get you set up.",
+        box.append(Gtk.Label(label=f"Welcome to {self.name}. Let’s get you set up.",
                              css_classes=["dim-label"], wrap=True, justify=Gtk.Justification.CENTER))
         box.append(Gtk.Label(label="You can skip any step and change it later in Kulan Settings.",
                              css_classes=["dim-label", "caption"], wrap=True, justify=Gtk.Justification.CENTER))
@@ -676,7 +676,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
         dialog.set_default_response("join")
         dialog.set_close_response("cancel")
         dialog.set_response_enabled("join", False)
-        entry.connect("changed", lambda e: dialog.set_response_enabled("join", 8 <= len(e.get_text()) <= 63))
+        # 8 to 63 characters, or the key as 64 hexadecimal digits (WPA3 networks take
+        # any length, but Setup can't tell them apart before joining: the same rule
+        # with no upper limit).
+        entry.connect("changed", lambda e: dialog.set_response_enabled(
+            "join", len(e.get_text()) >= 8 or bool(re.fullmatch(r"[0-9A-Fa-f]{64}", e.get_text()))))
         dialog.connect("response", lambda _d, answer: then(entry.get_text()) if answer == "join" else None)
         dialog.present(self)
         entry.grab_focus()
@@ -917,7 +921,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         try:
             Gio.Subprocess.new(["gnome-control-center", panel], Gio.SubprocessFlags.NONE)
         except GLib.Error:
-            self.toast("Settings isn't installed")
+            self.toast("Settings isn’t installed")
 
     # --- 4: privacy -------------------------------------------------------------
     def build_privacy(self) -> Gtk.Widget:
@@ -928,7 +932,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         # A standard account can still ask an administrator to type their password.
         group = Adw.PreferencesGroup(description="" if self.admin or self.live else
                                      "Changing the computer name, ad blocking and the anonymous count needs an "
-                                     "administrator’s password: ask one to type it when it’s asked for.")
+                                     "administrator’s password. If you’re not an administrator, ask one to type it.")
         location = settings("org.gnome.system.location")
         if has_key(location, "enabled"):
             loc = Adw.SwitchRow(title="Location services", subtitle="Lets apps like Maps and Weather use your location")
@@ -1074,7 +1078,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         # Never this computer's own files: home itself, a folder inside it,
         # or a folder that contains it (such as /home or /).
         if chosen == home or home in chosen.parents or chosen in home.parents:
-            self.toast("That folder holds this computer's own files. Choose a folder on the drive or backup.")
+            self.toast("That folder holds this computer’s own files. Choose a folder on the drive or backup.")
             return
         if chosen == Path("/media") / GLib.get_user_name() or chosen.parent == Path("/media"):
             self.toast("Open the drive first, then choose the folder on it.")
@@ -1137,7 +1141,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
             return False
         self.migrate_progress.set_fraction(1.0)
         where = ", ".join(targets) or "your folders"
-        note = f"; {failed} couldn't be read" if failed else ""
+        note = f"; {failed} couldn’t be read" if failed else ""
         if copied == 0:
             self.migrate_progress.set_text("Nothing new to copy")
             self.migrate_row.set_subtitle(GLib.markup_escape_text(
@@ -1181,12 +1185,12 @@ class WelcomeWindow(Adw.ApplicationWindow):
                                 "Firefox can fill them in with the KeePassXC add-on.",
                                 "dialog-password-symbolic"))
         group = Adw.PreferencesGroup(description="Choose a strong main password and keep it somewhere safe. "
-                                     "It can't be recovered.")
+                                     "It can’t be recovered.")
         vault = Adw.ActionRow(title="Set up your password vault",
                               subtitle="In KeePassXC, choose “Create new database”")
         button = Gtk.Button(label="Open KeePassXC", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
         button.connect("clicked", lambda _b: self.open_app("org.keepassxc.KeePassXC.desktop",
-                                                           "KeePassXC isn't installed. Get it in Software."))
+                                                           "KeePassXC isn’t installed. Get it from the Store."))
         vault.add_suffix(button)
         group.add(vault)
         self.bitwarden_row = Adw.ActionRow(title="Already use Bitwarden or 1Password?",
@@ -1207,7 +1211,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         box.append(
             self.heading(
                 "Add your apps",
-                "Choose apps to install. Find more in Software.",
+                "Choose apps to install. Find more in the Store.",
             )
         )
         self.apps_status = Gtk.Label(label="Checking which apps this computer can run…", css_classes=["dim-label"],
@@ -1268,12 +1272,12 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     def load_app_availability(self) -> None:
         if shutil.which("flatpak") is None:
-            self.apps_status.set_label("These apps can’t be added here. Add apps later in Software.")
+            self.apps_status.set_label("These apps can’t be added here. Add them later from the Store.")
             self.bitwarden_row.set_subtitle(self.bitwarden_text(False))
             return
 
-        code, out, _ = run(["flatpak", "--default-arch"], timeout=10)
-        arch = out.strip() if code == 0 and out.strip() else None
+        # Flatpak's name for this processor (what "flatpak --default-arch" says), without running it.
+        arch = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(os.uname().machine)
         cmd = ["flatpak", "remote-ls", "--system", "--app", "--columns=application", "flathub"]
         if arch:
             cmd.append(f"--arch={arch}")
@@ -1288,7 +1292,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
                     self.apps_connect.set_visible(True)
                 else:
                     print(f"kulan-welcome: flathub: {err.strip()[-300:]}", file=sys.stderr)
-                    self.apps_status.set_label("Couldn’t reach the app store right now. Try again in a minute.")
+                    self.apps_status.set_label("Couldn’t reach the Store right now. Try again in a minute.")
                     self.apps_retry.set_visible(True)
                 return False
             self.apps_connect.set_visible(False)
@@ -1541,28 +1545,31 @@ class WelcomeWindow(Adw.ApplicationWindow):
     # --- 9: protection ---------------------------------------------------------------
     def build_security(self) -> Gtk.Widget:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.append(self.heading("How you're protected", f"{self.name} turns on these protections for you.",
+        box.append(self.heading("How you’re protected", f"{self.name} turns on these protections for you.",
                                 "security-high-symbolic"))
         group = Adw.PreferencesGroup()
         live = self.live
 
         group.add(self.status_row("Firewall", "Blocks connections coming in from the network",
                                   self.firewall_enabled()))
-        group.add(self.status_row("Automatic security updates", "Security fixes install every day",
-                                  self.auto_updates_enabled()))
+        # Checked without holding up the window (apt-config and lsblk can be slow):
+        # the rows say On or Off as soon as each answer is in.
+        updates = self.status_row("Automatic security updates", "Security fixes install every day", None)
+        group.add(updates)
+        run_async(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"],
+                  lambda code, out, _e: self.set_state(updates, code == 0 and '"1"' in out), timeout=10)
         if live:
             group.add(self.info_row("Disk encryption", "On by default when you install"))
         else:
-            encrypted = self.disk_encrypted()
-            group.add(
-                self.status_row(
-                    "Disk encryption",
-                    "Your files are locked if this computer is lost"
-                    if encrypted
-                    else "Reinstall with encryption to protect your files if this computer is lost",
-                    encrypted,
-                )
-            )
+            disk = self.status_row("Disk encryption", "Your files are locked if this computer is lost", None)
+            group.add(disk)
+
+            def encrypted(code: int, out: str, _e: str) -> None:
+                on = code == 0 and "crypt" in out.split()
+                self.set_state(disk, on)
+                if not on:
+                    disk.set_subtitle("Reinstall with encryption to protect your files if this computer is lost")
+            run_async(["lsblk", "--noheadings", "--output", "TYPE"], encrypted, timeout=10)
         group.add(self.screen_lock_row())
         if not live and self.automatic_sign_in():
             group.add(self.automatic_sign_in_row())
@@ -1621,16 +1628,25 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     @staticmethod
     def status_row(title: str, subtitle: str, state: bool | None) -> Adw.ActionRow:
+        """On (True), Off (False) or not known yet (None, set later with set_state)."""
         row = Adw.ActionRow(title=title, subtitle=subtitle)
-        if state is True:
-            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["success"]))
-            row.add_suffix(Gtk.Label(label="On", css_classes=["success"]))
-        elif state is False:
-            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
-            row.add_suffix(Gtk.Label(label="Off", css_classes=["warning"]))
-        else:
-            row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+        row.state_icon = Gtk.Image(icon_name="dialog-information-symbolic")
+        row.state_label = Gtk.Label(visible=False)
+        row.add_prefix(row.state_icon)
+        row.add_suffix(row.state_label)
+        WelcomeWindow.set_state(row, state)
         return row
+
+    @staticmethod
+    def set_state(row: Adw.ActionRow, state: bool | None) -> None:
+        if state is None:
+            return
+        css = "success" if state else "warning"
+        row.state_icon.set_from_icon_name("object-select-symbolic" if state else "dialog-warning-symbolic")
+        row.state_icon.set_css_classes([css])
+        row.state_label.set_label("On" if state else "Off")
+        row.state_label.set_css_classes([css])
+        row.state_label.set_visible(True)
 
     @staticmethod
     def info_row(title: str, subtitle: str) -> Adw.ActionRow:
@@ -1645,21 +1661,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
         except OSError:
             return False
 
-    @staticmethod
-    def auto_updates_enabled() -> bool:
-        code, out, _ = run(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"], timeout=10)
-        return code == 0 and '"1"' in out
-
-    @staticmethod
-    def disk_encrypted() -> bool:
-        code, out, _ = run(["lsblk", "--noheadings", "--output", "TYPE"], timeout=10)
-        return code == 0 and "crypt" in out.split()
-
     # --- 10: done -------------------------------------------------------------------
     def build_done(self) -> Gtk.Widget:
         status = Adw.StatusPage(
             icon_name="object-select-symbolic",
-            title="You're all set",
+            title="You’re all set",
             description="You can open Setup Assistant again from your apps.",
             vexpand=True,
         )
@@ -1667,7 +1673,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         group = Adw.PreferencesGroup()
         # On only if it would show at the next sign-in anyway (opened from the apps, not finished yet).
         self.startup_initial = not DONE_FILE.exists() and not self.autostart
-        self.startup_switch = Adw.SwitchRow(title="Show this at startup", active=self.startup_initial)
+        self.startup_switch = Adw.SwitchRow(title="Show this at start-up", active=self.startup_initial)
         group.add(self.startup_switch)
         inner.append(group)
         url = self.conf.get("KULAN_HOME_URL", "")

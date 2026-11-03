@@ -1,38 +1,38 @@
-.TH KULAN-WELCOME 1 "October 2026" "Kulan OS" "User Commands"
+.TH KULAN-WELCOME 1 "November 2026" "Kulan OS" "User Commands"
 .SH NAME
-kulan-welcome \- Kulan OS welcome tour
+kulan-welcome \- Kulan OS Setup Assistant
 .SH SYNOPSIS
 .B kulan-welcome
 [\fB\-\-autostart\fR]
 .SH DESCRIPTION
 .B kulan-welcome
 opens the Kulan OS Setup Assistant: get online (Wi-Fi, when the computer
-isn't connected), choose light or dark mode and an accent color, install
+isn't connected), choose light or dark mode and an accent colour, install
 popular apps from Flathub in one go (only apps that run on this computer are
 offered; the list fills in by itself once online), download Ask Kulan's
 model when the assistant is installed, and see which security protections
 are on.
 .PP
-It opens automatically at first login, and never in the live session. It is
-marked done when it's finished; closed early, it opens once more at the next
-login, and then not again. It can be reopened at any time from the app grid.
+It opens automatically the first time you sign in, and never in the live session. It is
+marked done when it's finished; closed early, it opens once more the next time
+you sign in, and then not again. It can be reopened at any time from the app grid.
 .SH OPTIONS
 .TP
 .B \-\-autostart
 Exit straight away if Setup is done for this user or if running in the
-live session. Used by the login autostart entry.
+live session. Used by the sign-in autostart entry.
 .SH FILES
 .TP
 .I ~/.config/kulan-welcome/done
 Created when Setup is finished (or after it has opened twice); delete it
-to see Setup at next login. The autostart entry checks it too
+to see Setup the next time you sign in. The autostart entry checks it too
 (AutostartCondition), so nothing starts once it exists.
 .TP
 .I ~/.config/kulan-welcome/reminded
-Setup opened at login but wasn't finished: it opens once more.
+Setup opened at sign-in but wasn't finished: it opens once more.
 .TP
 .I /usr/share/kulan/kulan.conf
-Product name and website shown in the tour.
+Product name and website shown in Setup.
 .SH SEE ALSO
 .BR flatpak (1),
 .BR ufw (8)

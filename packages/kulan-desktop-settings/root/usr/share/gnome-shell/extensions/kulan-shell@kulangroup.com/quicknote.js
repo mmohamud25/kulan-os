@@ -195,12 +195,12 @@ export class QuickNote {
         }
         if (this._status) {
             this._status.visible = why !== null;
-            this._status.text = why ? `Couldn’t save the note (${why}). Your text is still here.` : '';
+            this._status.text = why ? `Couldn’t save the note because ${why}. Your text is still here.` : '';
         }
     }
 
     _tellUnsaved() {
-        Main.notify('Quick Note isn’t saved yet', `Your note couldn’t be saved (${this._saveError}). ` +
+        Main.notify('Quick Note isn’t saved yet', `Your note couldn’t be saved because ${this._saveError}. ` +
             `It’s kept until you sign out. ${failureAdvice(this._saveError)}`);
     }
 

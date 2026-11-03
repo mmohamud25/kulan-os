@@ -106,7 +106,7 @@ def run(argv: list[str], input_text: str | None = None, check: bool = True, env:
         result = subprocess.run(argv, input=input_text, capture_output=True, text=True, timeout=timeout,
                                 env={**os.environ, "LC_ALL": "C.UTF-8", **(env or {})})
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ToolFailure(f"{argv[0]} couldn't run: {exc}") from exc
+        raise ToolFailure(f"{argv[0]} couldn’t run: {exc}") from exc
     if result.stdout.strip():
         log(result.stdout.strip()[-4000:])
     if result.stderr.strip():
@@ -238,7 +238,7 @@ def systems_on(children: list[dict]) -> list[str]:
 
 def disks() -> list[dict]:
     """Disks Kulan OS could go on, with what's on them now."""
-    out = subprocess.run(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MODEL,TRAN,RM,RO,FSTYPE,LABEL"],
+    out = subprocess.run(["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MODEL,SERIAL,WWN,TRAN,RM,RO,FSTYPE,LABEL"],
                          capture_output=True, text=True).stdout
     skip = live_disks()
     found = []
@@ -257,8 +257,27 @@ def disks() -> list[dict]:
             "contents": systems, "windows": any("ntfs" == (c.get("fstype") or "") for c in children),
             "table": table.get("label", ""), "largest_free": free[0]["bytes"] if free else 0,
             "big_enough": int(dev.get("size") or 0) >= MIN_SIZE,
+            "id": disk_id(dev),
         })
     return found
+
+
+def disk_id(dev: dict) -> dict:
+    """What tells this disk apart from the others (its /dev name can change when
+    a USB stick is plugged in or out): size, model, serial number, WWN."""
+    return {"size": int(dev.get("size") or 0), "model": (dev.get("model") or "").strip(),
+            "serial": (dev.get("serial") or "").strip(), "wwn": (dev.get("wwn") or "").strip()}
+
+
+def same_disk(path: str, wanted: dict) -> bool:
+    """Whether path is still the disk the person chose."""
+    out = run(["lsblk", "-J", "-b", "-d", "-o", "PATH,SIZE,MODEL,SERIAL,WWN", path], check=False).stdout
+    try:
+        devs = json.loads(out or "{}").get("blockdevices") or []
+    except ValueError:
+        return False
+    return len(devs) == 1 and disk_id(devs[0]) == {k: wanted.get(k, "" if k != "size" else 0) for k in
+                                                 ("size", "model", "serial", "wwn")}
 
 
 # --- checks ---------------------------------------------------------------------------
@@ -285,17 +304,22 @@ def check_plan(plan: dict) -> dict:
         raise Failure("Choose a disk to install on")
     if disk in live_disks() and not plan.get("source"):
         raise Failure("That’s the Kulan OS USB stick. Choose another disk")
+    # The disk chosen, not whatever has its name now: a USB stick plugged in or
+    # out since the list was made can move the names along.
+    if plan.get("disk_id") is not None and not same_disk(disk, plan["disk_id"]):
+        raise Failure("The disks changed since you chose one (a USB stick plugged in or out?). "
+                      "Choose the disk again")
     if plan.get("mode") not in ("erase", "free"):
         raise Failure("Choose to erase the disk or to use its free space")
     user = plan.get("user") or {}
     if not NAME_RULE.match(user.get("username", "")):
-        raise Failure("Use lowercase letters, digits, - or _ for the user name, starting with a letter")
+        raise Failure("Use lowercase letters, digits, - or _ for the username, starting with a letter")
     if user["username"] in taken_names():  # checked before the disk is touched
-        raise Failure(f"The user name “{user['username']}” is used by the system. Choose another")
+        raise Failure(f"The username “{user['username']}” is used by the system. Choose another")
     if not user.get("password"):
         raise Failure("Choose a password for the account")
     if any(c in str(user["password"]) for c in "\r\n\0"):  # chpasswd reads one account per line
-        raise Failure("A password can't have a line break in it")
+        raise Failure("A password can’t have a line break in it")
     if plan.get("encrypt") and len(plan.get("password", "")) < 8:
         raise Failure("The disk password must be at least 8 characters")
     if not HOST_RULE.match(plan.get("hostname", "")):
@@ -357,6 +381,35 @@ def release_disk(disk: str) -> None:
                 run(["swapoff", parts[0]], check=False)
             else:
                 run(["umount", "-l", parts[1].strip()], check=False)
+
+
+def unmount(path: Path) -> None:
+    """Unmounted for real (so the disk can be closed and used again), waiting a
+    little for whatever still has a file open there; lazily as a last resort."""
+    for _ in range(10):
+        if not os.path.ismount(path):
+            return
+        if run(["umount", str(path)], check=False).returncode == 0:
+            return
+        run(["udevadm", "settle", "--timeout=2"], check=False)
+        time.sleep(0.5)
+    if os.path.ismount(path):
+        run(["umount", "-l", str(path)], check=False)
+
+
+def close_crypt() -> bool:
+    """The encrypted system disk's mapping closed (retried while it's still busy).
+    True once it's gone, or wasn't there."""
+    mapper = Path(f"/dev/mapper/{CRYPT_NAME}")
+    for _ in range(10):
+        if not mapper.exists():
+            return True
+        run(["cryptsetup", "close", CRYPT_NAME], check=False)
+        if not mapper.exists():
+            return True
+        run(["udevadm", "settle", "--timeout=2"], check=False)
+        time.sleep(0.5)
+    return not mapper.exists()
 
 
 def partition(plan: dict) -> dict:
@@ -452,8 +505,9 @@ def format_and_mount(plan: dict, parts: dict, target: Path) -> dict:
     root_dev = parts["root"]
     luks_uuid = None
     if encrypt:
-        if Path(f"/dev/mapper/{CRYPT_NAME}").exists():
-            run(["cryptsetup", "close", CRYPT_NAME], check=False)
+        if not close_crypt():
+            raise Failure("The disk is still in use from the last try. Restart the computer from the USB stick, "
+                          "then try again")
         run(["cryptsetup", "luksFormat", "-q", "--type", "luks2", "--pbkdf", "argon2id", "--key-file=-",
              parts["root"]], input_text=plan["password"])
         run(["cryptsetup", "open", "--key-file=-", parts["root"], CRYPT_NAME], input_text=plan["password"])
@@ -768,6 +822,12 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
             chroot.run([a for a in argv if a != "--recheck"] + ["--removable", "--no-nvram"])
     else:
         chroot.run(["grub-install", "--target=i386-pc", "--recheck", plan["disk"]])
+        # Where GRUB goes when it's updated later (non-interactively): by a name
+        # that doesn't change. Without it, a GRUB update can leave its start-up
+        # code on the disk older than its files, and the computer won't start.
+        chroot.run(["debconf-set-selections"], input_text=(
+            f"grub-pc grub-pc/install_devices multiselect {stable_name(plan['disk'])}\n"
+            "grub-pc grub-pc/install_devices_empty boolean false\n"))
     progress(0.85, "Adding Kulan OS to the start-up menu…")
     chroot.run(["update-grub"])
     # GRUB names a loop device (tests) by its path, which won't exist at start-up.
@@ -779,6 +839,22 @@ def install_boot_loader(chroot: Chroot, plan: dict, parts: dict, disk_info: dict
     if signed_start_wanted(plan):
         progress(0.9, "Signing the start-up files…")
         signed_start(chroot)
+
+
+def stable_name(disk: str) -> str:
+    """The disk's /dev/disk/by-id name (as Debian's grub-pc asks for), else its path."""
+    by_id = Path("/dev/disk/by-id")
+    try:
+        real = os.path.realpath(disk)
+        names = sorted(p.name for p in by_id.iterdir() if os.path.realpath(p) == real)
+    except OSError:
+        return disk
+    # wwn- and nvme-eui. first (they never change), then the maker's model and serial.
+    for prefix in ("wwn-", "nvme-eui.", "nvme-", "ata-", "scsi-", "virtio-", ""):
+        for name in names:
+            if name.startswith(prefix) and "-part" not in name:
+                return str(by_id / name)
+    return disk
 
 
 def signed_start(chroot: Chroot) -> None:
@@ -856,10 +932,9 @@ def install(plan: dict) -> None:
     finally:
         for point in ("boot/efi", "boot", ""):
             path = target / point if point else target
-            if os.path.ismount(path):
-                run(["umount", "-l", str(path)], check=False)
+            unmount(path)
         if disk_info.get("luks_uuid"):
-            run(["cryptsetup", "close", CRYPT_NAME], check=False)
+            close_crypt()
         try:
             target.rmdir()
         except OSError:

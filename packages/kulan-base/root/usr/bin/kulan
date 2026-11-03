@@ -262,7 +262,7 @@ def cmd_settings(args: list[str]) -> int:
 # --- Kulan Assistant ------------------------------------------------------------------
 def assistant(task: str, text: str) -> int:
     if not Path(ASSISTANT).exists():
-        print("Kulan Assistant isn't installed. Turn it on in Kulan Settings › Add-ons.", file=sys.stderr)
+        print("Kulan Assistant isn't installed. Install it in Kulan Settings › Add-ons.", file=sys.stderr)
         return 1
     print(f"{DIM}Kulan Assistant is thinking…{OFF}", file=sys.stderr)
     return subprocess.call([ASSISTANT, "ask", task, text])

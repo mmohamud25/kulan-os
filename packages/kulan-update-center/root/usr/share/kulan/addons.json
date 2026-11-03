@@ -57,7 +57,7 @@
     "description": "Look after an organisation's computers from this one: who needs updates, policies (updates, firewall, encryption, screen lock), installed apps, alerts and an activity log, and lock, restart or erase a lost computer",
     "icon": "network-workgroup-symbolic",
     "size": "under 1 MB",
-    "note": "Open Kulan Fleet from your apps and sign in with your work email: it sends you a one-time code. Computers join your organisation from Kulan Settings › About.",
+    "note": "Open Kulan Fleet from your apps and sign in with your work email. Computers join your organisation from Kulan Settings › About Kulan OS › Organisation.",
     "packages": [
       "kulan-fleet-admin"
     ]
@@ -93,7 +93,7 @@
   {
     "id": "nearby-share",
     "title": "Nearby Share",
-    "description": "Send files to nearby phones and computers on the same Wi-Fi, like AirDrop (LocalSend: iPhone, Android, Mac and Windows)",
+    "description": "Send files to nearby phones and computers on the same Wi-Fi (LocalSend: iPhone, Android, Mac and Windows)",
     "icon": "send-to-symbolic",
     "size": "about 60 MB from Flathub",
     "note": "Install LocalSend on your other devices too, then open it on both.",

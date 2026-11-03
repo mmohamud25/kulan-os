@@ -87,7 +87,7 @@ export class RestartPrompt {
                 source, title: TITLE, body, iconName: 'system-reboot-symbolic',
                 urgency: MessageTray.Urgency.HIGH,
             });
-            notification.addAction('Restart Now', () => this.restartNow());
+            notification.addAction('Restart now', () => this.restartNow());
             notification.addAction('Later', () => this._remindLater());
             notification.connect('destroy', () => {
                 if (this._notification === notification)

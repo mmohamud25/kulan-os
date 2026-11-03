@@ -56,7 +56,7 @@ class AssistantWindow(Adw.ApplicationWindow):
         box.append(self.status)
         self.view = Gtk.TextView(editable=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, vexpand=True,
                                  left_margin=10, right_margin=10, top_margin=10, bottom_margin=10)
-        self.view.update_property([Gtk.AccessibleProperty.LABEL], ["Kulan Assistant's answer"])
+        self.view.update_property([Gtk.AccessibleProperty.LABEL], ["Kulan Assistant’s answer"])
         scroller = Gtk.ScrolledWindow(child=self.view, vexpand=True, css_classes=["card"])
         box.append(scroller)
 
@@ -103,8 +103,9 @@ class AssistantWindow(Adw.ApplicationWindow):
         self.result = ""
         if self.not_ready():
             return
-        self.set_busy(True, "Starting the assistant…"
-                      if not engine.healthy() else "Writing…")
+        # The worker says "Writing…" once the assistant answers (checking it here
+        # would hold up the window while it's busy).
+        self.set_busy(True, "Starting the assistant…")
         threading.Thread(target=self.worker, args=(self.current_task().id, self.cancel), daemon=True).start()
 
     def worker(self, task_id: str, cancel: threading.Event) -> None:

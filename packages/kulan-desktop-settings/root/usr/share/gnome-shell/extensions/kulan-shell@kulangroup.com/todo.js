@@ -24,7 +24,7 @@ let unsaved = null;
 let openPanel = null; // the panel, while it's open: told when a save fails
 
 function saveFailed() {
-    Main.notify('To-do wasn’t saved', `The change couldn’t be saved (${lastError}). ${failureAdvice(lastError)}`);
+    Main.notify('To-do wasn’t saved', `The change couldn’t be saved because ${lastError}. ${failureAdvice(lastError)}`);
 }
 
 export function readTodos() {
@@ -281,7 +281,7 @@ export class TodoPanel {
         }
         this._clear.visible = items.some(i => i.done);
         this._status.visible = lastError !== null;
-        this._status.text = lastError ? `Couldn’t save the list (${lastError}). ${failureAdvice(lastError)}` : '';
+        this._status.text = lastError ? `Couldn’t save the list because ${lastError}. ${failureAdvice(lastError)}` : '';
     }
 
     close() {

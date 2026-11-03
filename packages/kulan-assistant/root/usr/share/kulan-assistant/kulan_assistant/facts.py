@@ -55,7 +55,7 @@ def plain(name: str, limit: int = 40) -> str:
 # This assistant's own engine: named for what it is, so the answer doesn't
 # blame an unknown "llama-server" (it stops by itself when not in use).
 ENGINE = "llama-server"
-ENGINE_NAME = "Ask Kulan's engine (this assistant, stops by itself a few minutes after the last question)"
+ENGINE_NAME = "Ask Kulan’s engine (this assistant, stops by itself a few minutes after the last question)"
 
 
 def memory_state(total: int, available: int) -> str:

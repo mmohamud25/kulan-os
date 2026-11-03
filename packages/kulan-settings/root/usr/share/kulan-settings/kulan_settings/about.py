@@ -148,8 +148,9 @@ def acceleration_text(on: bool | None, name: str) -> str:
         return ""
     if on:
         return f"On ({name})"
-    return (f"Off, using {name}. Animations can be slow. In a virtual machine, turn on 3D acceleration "
-            "in its display settings. Otherwise a graphics driver may be missing.")
+    # (The renderer's own name, "llvmpipe (LLVM 19…)", means nothing to most people.)
+    return ("Off. Animations can be slow. In a virtual machine, turn on 3D acceleration in its display "
+            "settings. Otherwise a graphics driver may be missing.")
 
 
 def firmware() -> str:
@@ -274,7 +275,7 @@ class AboutPage(Page):
             when = time.strftime("%d %b %Y, %H:%M", time.localtime(last)) if last else "not yet"
             head = Adw.ActionRow(title=GLib.markup_escape_text(f"Managed by {data.get('organisation', '')}"),
                                  subtitle=GLib.markup_escape_text(
-                                     ("Waiting for the organisation's Owner to approve this computer · "
+                                     ("Waiting for the organisation’s Owner to approve this computer · "
                                       if data.get("pending") else "")
                                      + f"Reports to {data.get('server', '')} every hour · last report {when}"
                                      + (f" · last problem: {data['last_error']}" if data.get("last_error") else "")),
@@ -287,18 +288,20 @@ class AboutPage(Page):
                                      subtitle="Never files, browsing, messages or passwords")
             for item in data.get("shared", []):
                 shared.add_row(Adw.ActionRow(title=GLib.markup_escape_text(str(item))))
-            shared.add_row(Adw.ActionRow(
-                title="What the organisation can ask this computer to do",
-                subtitle="Report now, install updates, turn on compliance mode, lock the screen, "
-                         "lock it if it’s lost"
-                         + (", erase it" if data.get("allow_erase") else "")
-                         + ", and restart or shut down with 5 minutes’ notice. It can run Kulan’s fixes"
-                         + (" and its own scripts" if self.scripts_allowed() else "")
-                         + ", show you messages, add Wi-Fi networks and printers, and ask to see your screen, "
-                           "which only happens if you allow it. It manages the accounts it created. Other "
-                           "accounts on this computer are never touched",
-                subtitle_lines=0))
-            rows = [head, shared]
+            can = Adw.ExpanderRow(title="What the organisation can do here",
+                                  subtitle="Only these, and every one is in its activity log")
+            for line in ["Install updates and ask for a report",
+                         "Lock the screen, or lock the computer if it’s lost",
+                         *(["Erase the computer if it’s lost"] if data.get("allow_erase") else []),
+                         "Restart or shut down, with 5 minutes’ notice",
+                         "Turn on compliance mode",
+                         "Run Kulan’s fixes" + (" and its own scripts" if self.scripts_allowed() else ""),
+                         "Show you messages, and add Wi-Fi networks and printers",
+                         "Ask to see your screen (only if you allow it)",
+                         "Manage the accounts it made here, never anyone else’s"]:
+                can.add_row(Adw.ActionRow(title=line))
+            rows_after_shared = [can]
+            rows = [head, shared, *rows_after_shared]
             policy = self.fleet_policy()
             if policy:
                 rows.append(policy)
@@ -478,7 +481,7 @@ class AboutPage(Page):
                                    timeout=300, check=False)
                 ok, msg = r.returncode == 0, failure_text(r.stderr.strip().splitlines())
                 if r.returncode in (126, 127):
-                    msg = "Not changed. The password wasn't entered."
+                    msg = "Not changed. The password wasn’t entered."
             except (OSError, subprocess.TimeoutExpired):
                 ok, msg = False, "That took too long. Try again"
             GLib.idle_add(lambda: (done(ok, msg), False)[1])
@@ -574,15 +577,26 @@ class AboutPage(Page):
                                  body="Scan this with an authenticator app, or type the key below. "
                                       "Then enter the 6-digit code it shows.")
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # The QR code is drawn by qrencode, without waiting for it: it appears when
+        # ready (the key below works anyway).
+        picture = Gtk.Picture(can_shrink=True, visible=False)
+        picture.set_size_request(220, 220)
+        outer.append(picture)
         try:
-            png = subprocess.run(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", uri],
-                                 capture_output=True, timeout=10, check=True).stdout
-            picture = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
-            picture.set_size_request(220, 220)
-            picture.set_can_shrink(True)
-            outer.append(picture)
-        except (OSError, subprocess.SubprocessError, GLib.Error):
-            pass  # the key below still works
+            proc = Gio.Subprocess.new(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", uri],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+
+            def drawn(p: Gio.Subprocess, result: Gio.AsyncResult) -> None:
+                try:
+                    _ok, png, _err = p.communicate_finish(result)
+                    if p.get_successful() and png is not None:
+                        picture.set_paintable(Gdk.Texture.new_from_bytes(png))
+                        picture.set_visible(True)
+                except GLib.Error:
+                    pass
+            proc.communicate_async(None, None, drawn)
+        except GLib.Error:
+            pass
         key = base64.b32encode(secret).decode().rstrip("=")
         outer.append(Gtk.Label(label=" ".join(key[i:i + 4] for i in range(0, len(key), 4)), selectable=True, wrap=True,
                                css_classes=["monospace", "dim-label"]))

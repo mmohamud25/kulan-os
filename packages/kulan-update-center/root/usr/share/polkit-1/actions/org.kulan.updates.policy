@@ -2,9 +2,9 @@
 <!DOCTYPE policyconfig PUBLIC
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
-<!-- Kulan Settings: one administrator password unlocks system changes
-     (updates, restore points, add-ons, security and privacy fixes, storage
-     clean-up) for a few minutes. -->
+<!-- Kulan Settings: one administrator password unlocks everyday system
+     changes (updates, restore points, add-ons, storage clean-up) for a few
+     minutes; security changes ask every time. -->
 <policyconfig>
   <vendor>Kulan OS</vendor>
   <vendor_url>https://github.com/mmohamud25/kulan-os</vendor_url>
@@ -18,5 +18,20 @@
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/kulan/update-run</annotate>
+  </action>
+  <!-- Changes to the computer's security or to who controls it (joining or
+       leaving an organisation, disk unlock, signed start-up off, compliance
+       mode off, opening the firewall): the password every time. A password
+       remembered for the action above counts for any program in the session,
+       so it never covers these. -->
+  <action id="org.kulan.updates.confirm">
+    <description>Change Kulan OS security settings</description>
+    <message>This changes how the computer is protected, so Kulan Settings needs your password each time</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/kulan/update-run-confirm</annotate>
   </action>
 </policyconfig>

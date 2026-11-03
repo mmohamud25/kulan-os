@@ -220,6 +220,17 @@ grub_scripts() {
 	grep -q "^menuentry 'Undo the last update' .*'kulan-undo-update' {" "${T}/menu.cfg" &&
 		grep -q "linux	/vmlinuz-6.12.48+deb13-amd64 root=UUID=5678 ro  splash kulan.undo-update$" "${T}/menu.cfg" &&
 		[[ "$(grep -c '^menuentry' "${T}/menu.cfg")" -eq 1 ]] || { cat "${T}/menu.cfg"; return 1; }
+	# The kernel running when the restore point was taken (still installed): the undo starts
+	# that one, not the update's (which may be what broke start-up). Unknown kernel: the newest.
+	printf '{"point": "x", "undone": "", "time": 1, "kernel": "6.12.43+deb13-amd64"}\n' >"${T}/last.json"
+	local undo
+	undo="$(KULAN_LAST_UPDATE="${T}/last.json" sh "${T}/12")"
+	grep -q "linux	/vmlinuz-6.12.43+deb13-amd64 root=UUID=5678 ro kulan.undo-update$" <<<"${undo}" ||
+		{ echo "the undo didn't start the kernel from before the update: ${undo}"; return 1; }
+	printf '{"point": "x", "undone": "", "time": 1, "kernel": "6.1.0-gone"}\n' >"${T}/last.json"
+	undo="$(KULAN_LAST_UPDATE="${T}/last.json" sh "${T}/12")"
+	grep -q "linux	/vmlinuz-6.12.48+deb13-amd64 .*kulan.undo-update$" <<<"${undo}" ||
+		{ echo "a kernel that's gone: not the newest: ${undo}"; return 1; }
 	# GRUB can't write its block on Btrfs: no save_env (it would show an error at every start).
 	FAKE_FS=btrfs grub_probe="${T}/grub-probe" sh "${T}/01" | grep -q save_env && { echo "save_env on btrfs"; return 1; }
 	# Without kulan-update-center, the file left in /etc/grub.d does nothing.
@@ -238,6 +249,7 @@ boot_ok() {
 	local B="${T}/boot"
 	mkdir -p "${B}/esp/EFI/Linux" "${B}/vars" "${B}/grub"
 	: >"${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64+2-1.efi"
+	: >"${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64~prev.efi"
 	: >"${B}/esp/EFI/Linux/kulan-6.12.43+deb13-amd64.efi"
 	{ printf '\007\000\000\000'; printf '\\EFI\\Linux\\kulan-6.12.48+deb13-amd64+2-1.efi' | iconv -f UTF-8 -t UTF-16LE; printf '\000\000'; } \
 		>"${B}/vars/LoaderBootCountPath-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f"
@@ -257,7 +269,8 @@ boot_ok() {
 	[[ "$(od -An -tx1 "${ONESHOT}" | tr -d ' \n')" == 0700000031003000"0000" ]] || { echo "one-shot timeout: $(od -An -tx1 "${ONESHOT}" 2>&1)"; return 1; }
 	sh "${KULAN}/boot-ok" now || return 1
 	[[ ! -e "${ONESHOT}" ]] || { echo "the menu is still asked for after a start-up that worked"; return 1; }
-	[[ -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64.efi" && ! -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64+2-1.efi" ]] ||
+	[[ -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64.efi" && ! -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64+2-1.efi" &&
+		! -e "${B}/esp/EFI/Linux/kulan-6.12.48+deb13-amd64~prev.efi" ]] ||
 		{ ls "${B}/esp/EFI/Linux"; return 1; }
 	[[ "$(sh "${KULAN}/boot-ok" status)" == ok ]] || return 1
 	if [[ -x /usr/bin/grub-editenv ]]; then  # boot-ok looks only there
@@ -266,7 +279,7 @@ boot_ok() {
 	unset KULAN_ESP KULAN_EFIVARS KULAN_GRUBENV KULAN_BOOT_OK_MARK
 	return 0
 }
-check "a start-up that worked: GRUB's note cleared, the signed start-up file loses its try counter, systemd-boot's menu not asked for" boot_ok
+check "a start-up that worked: GRUB's note cleared, the signed start-up file loses its try counter (and the one kept to fall back on goes), systemd-boot's menu not asked for" boot_ok
 
 # --- restore points: undo needs power; the restore point before automatic updates -----------
 RP="${T}/rp"
@@ -278,51 +291,206 @@ chmod +x "${RP}/bin/"*
 echo "{}" >"${RP}/ts.json"
 sed -e "s|^export PATH=|export PATH=${RP}/bin:|" -e "s|^CONFIG=.*|CONFIG=${RP}/ts.json|" \
 	-e "s/^MIN_FREE_PERCENT=.*/MIN_FREE_PERCENT=0/" -e "s/^MIN_FREE_GIB=.*/MIN_FREE_GIB=0/" "${KULAN}/restore-points" >"${RP}/restore-points"
-undo_power() {
+# The same with a free-space limit (1 GiB), for the "no room" cases.
+sed -e "s/^MIN_FREE_GIB=.*/MIN_FREE_GIB=1/" "${RP}/restore-points" >"${RP}/restore-points-strict"
+undo_env() {
 	export KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="${RP}/snaps" KULAN_RESTORE_USAGE="${RP}/u.json" \
-		KULAN_PAUSE_FILE="${RP}/pause" KULAN_POWER_SUPPLIES="${RP}/power" KULAN_INHIBITED=1
+		KULAN_PAUSE_FILE="${RP}/pause" KULAN_POWER_SUPPLIES="${RP}/power" KULAN_INHIBITED=1 \
+		KULAN_LAST_UPDATE="${RP}/root/var/lib/kulan/last-update.json" KULAN_KEEP_ROOT="${RP}/root" KULAN_KEPT="${RP}/kept"
+	mkdir -p "${RP}/root/var/lib/kulan"
+	# Free space as FAKE_AVAIL says (plenty when unset).
+	cat >"${RP}/bin/df" <<'DF'
+#!/bin/sh
+case "$*" in
+	*--output=avail*) printf 'Avail\n%s\n' "${FAKE_AVAIL:-999999999999}" ;;
+	*) printf 'Size Avail\n%s %s\n' 999999999999 "${FAKE_AVAIL:-999999999999}" ;;
+esac
+DF
+	chmod +x "${RP}/bin/df"
+}
+# A Timeshift stand-in: --create makes a restore point (with its note),
+# --restore runs ${RP}/on-restore (the restore point's older files going
+# back) and, with FAKE_RESTORE_FAIL=1, fails the first time.
+fake_timeshift() {
+	cat >"${RP}/bin/timeshift" <<TS
+#!/bin/bash
+echo "\$0 \$*" >> "${RP}/calls"
+case "\$*" in
+	*--create*)
+		n=2026-11-0\$(( \$(ls "${RP}/snaps" | wc -l) + 1 ))_10-00-00
+		all="\$*"
+		note="\${all##*--comments }"
+		mkdir -p "${RP}/snaps/\${n}"
+		printf '{"tags":"O","comments":"%s"}' "\${note}" >"${RP}/snaps/\${n}/info.json" ;;
+	*--restore*)
+		if [[ -x "${RP}/on-restore" ]]; then "${RP}/on-restore"; fi
+		if [[ "\${FAKE_RESTORE_FAIL:-0}" == 1 && ! -e "${RP}/failed-once" ]]; then touch "${RP}/failed-once"; exit 1; fi ;;
+esac
+exit 0
+TS
+	chmod +x "${RP}/bin/timeshift"
+}
+reset_points() { # one point, taken before the last update, and the record of it
+	rm -rf "${RP}/snaps" "${RP}/calls" "${RP}/kept" "${RP}/failed-once" "${RP}/pause"
+	mkdir -p "${RP}/snaps/2026-01-03_00-00-00"
+	printf '{"tags":"O","comments":"Before installing updates"}' >"${RP}/snaps/2026-01-03_00-00-00/info.json"
+	printf '{"point": "2026-01-03_00-00-00", "undone": "", "time": 1}\n' >"${KULAN_LAST_UPDATE}"
+}
+undo_power() {
+	undo_env
+	fake_timeshift
+	reset_points
 	echo Battery >"${RP}/power/BAT0/type"
 	echo 12 >"${RP}/power/BAT0/capacity"
 	echo Mains >"${RP}/power/AC/type"
 	echo 0 >"${RP}/power/AC/online"
-	rm -f "${RP}/calls"
 	out="$(bash "${RP}/restore-points" undo-update 2>/dev/null)" && { echo "undid on 12% battery"; return 1; }
 	grep -q "^say:Plug in the charger first" <<<"${out}" && [[ ! -e "${RP}/calls" ]] || { echo "${out}"; return 1; }
 	echo 1 >"${RP}/power/AC/online"
 	bash "${RP}/restore-points" undo-update >/dev/null 2>&1 || return 1
-	grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "${RP}/calls" &&
+	grep -q -- "--create --scripted --comments Before undoing an update" "${RP}/calls" &&
+		grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "${RP}/calls" &&
 		grep -q "systemctl reboot --check-inhibitors=no" "${RP}/calls" || { cat "${RP}/calls"; return 1; }
-	# At start-up, on a flat battery: says so, and start-up carries on (exit 0, nothing restored).
-	echo 0 >"${RP}/power/AC/online"
+	# Done once: never again for that update (a start-up that comes back with
+	# the menu's option still set does nothing).
+	grep -q '"point": "", "undone": "2026-01-03_00-00-00"' "${KULAN_LAST_UPDATE}" || { cat "${KULAN_LAST_UPDATE}"; return 1; }
 	rm -f "${RP}/calls"
+	bash "${RP}/restore-points" undo-at-start >/dev/null 2>&1 || { echo "start-up stopped"; return 1; }
+	! grep -q -- "--restore" "${RP}/calls" 2>/dev/null || { echo "undid twice"; return 1; }
+	# At start-up, on a flat battery: says so, and start-up carries on (exit 0, nothing restored).
+	reset_points
+	echo 0 >"${RP}/power/AC/online"
 	bash "${RP}/restore-points" undo-at-start >/dev/null 2>&1 && [[ ! -e "${RP}/calls" ]] || return 1
 	echo 80 >"${RP}/power/BAT0/capacity"
 	bash "${RP}/restore-points" undo-at-start >/dev/null 2>&1 && grep -q -- "--restore --snapshot" "${RP}/calls"
 }
-check "undo the last update: only with the charger or a charged battery; also from the start-up menu" undo_power
-undo_signed() {
-	# Signed start-up: its key stays this computer's (not the restore point's), and
-	# its start-up files are signed again for the restored system's kernels.
-	local SS="${RP}/signed-start"
-	rm -rf "${SS}" "${RP}/kept" "${RP}/calls"
-	mkdir -p "${SS}"
-	echo current-key >"${SS}/kulan.key"
-	# Timeshift putting back the restore point's (older) copy.
-	printf '#!/bin/sh\necho "$0 $*" >> "%s/calls"\ncase "$*" in *--restore*) echo old-key >"%s/kulan.key" ;; esac\n' "${RP}" "${SS}" >"${RP}/bin/timeshift"
-	printf '#!/bin/sh\necho "kulan-signed-start $* key=$(cat %s/kulan.key)" >> "%s/calls"\n' "${SS}" "${RP}" >"${RP}/bin/kulan-signed-start"
-	chmod +x "${RP}/bin/timeshift" "${RP}/bin/kulan-signed-start"
+check "undo the last update: only with the charger or a charged battery; also from the start-up menu; never twice" undo_power
+
+undo_keeps() {
+	# Accounts, passwords, Fleet, lost mode, signed start-up and its key, Wi-Fi:
+	# as they are now, not as the restore point had them. A file that isn't
+	# there now isn't brought back.
+	undo_env
+	fake_timeshift
+	reset_points
+	local R="${RP}/root" ok=0
+	mkdir -p "${R}/etc/kulan" "${R}/var/lib/kulan/signed-start" "${R}/etc/NetworkManager/system-connections"
+	echo 'mo:$y$new' >"${R}/etc/shadow"
+	chmod 0640 "${R}/etc/shadow"
+	echo current-key >"${R}/var/lib/kulan/signed-start/kulan.key"
+	echo '{"phase": "on"}' >"${R}/var/lib/kulan/signed-start.json"
+	echo '{"server": "now"}' >"${R}/etc/kulan/fleet.json"
+	echo wifi >"${R}/etc/NetworkManager/system-connections/Home.nmconnection"
+	rm -f "${R}/etc/nologin"
+	# The restore point's (older) files going back.
+	cat >"${RP}/on-restore" <<OR
+#!/bin/sh
+echo 'mo:\$y\$old' >"${R}/etc/shadow"
+echo old-key >"${R}/var/lib/kulan/signed-start/kulan.key"
+echo '{"phase": "enroll"}' >"${R}/var/lib/kulan/signed-start.json"
+echo '{"server": "then"}' >"${R}/etc/kulan/fleet.json"
+echo lost >"${R}/etc/nologin"
+rm -f "${R}/etc/NetworkManager/system-connections/Home.nmconnection"
+OR
+	chmod +x "${RP}/on-restore"
+	printf '#!/bin/sh\necho "kulan-signed-start $* key=$(cat %s)" >> "%s/calls"\n' "${R}/var/lib/kulan/signed-start/kulan.key" "${RP}" >"${RP}/bin/kulan-signed-start"
+	chmod +x "${RP}/bin/kulan-signed-start"
 	echo 1 >"${RP}/power/AC/online"
-	KULAN_SIGNED_START_DIR="${SS}" KULAN_SIGNED_START_KEEP="${RP}/kept" bash "${RP}/restore-points" undo-update >/dev/null 2>&1 || return 1
-	local ok=0
-	[[ "$(cat "${SS}/kulan.key")" == current-key ]] || { echo "the key went back to the restore point's"; ok=1; }
-	grep -q "^kulan-signed-start rebuild key=current-key$" "${RP}/calls" || { echo "not signed again: $(cat "${RP}/calls")"; ok=1; }
-	[[ "$(grep -n -- '--restore' "${RP}/calls" | cut -d: -f1)" -lt "$(grep -n 'kulan-signed-start' "${RP}/calls" | cut -d: -f1)" ]] || { echo "signed before the restore"; ok=1; }
-	[[ ! -e "${RP}/kept" ]] || { echo "kept copy left in /run"; ok=1; }
-	rm -f "${RP}/bin/kulan-signed-start"
-	printf '#!/bin/sh\necho "$0 $*" >> "%s/calls"\n' "${RP}" >"${RP}/bin/timeshift"
+	bash "${RP}/restore-points" undo-update >/dev/null 2>"${RP}/err" || { echo "undo failed: $(cat "${RP}/err")"; return 1; }
+	grep -qx 'mo:$y$new' "${R}/etc/shadow" || { echo "the old password came back"; ok=1; }
+	[[ "$(stat -c %a "${R}/etc/shadow")" == 640 ]] || { echo "shadow's permissions changed"; ok=1; }
+	[[ "$(cat "${R}/var/lib/kulan/signed-start/kulan.key")" == current-key ]] || { echo "the key went back"; ok=1; }
+	grep -q '"on"' "${R}/var/lib/kulan/signed-start.json" || { echo "signed start-up's state went back (GRUB would return)"; ok=1; }
+	grep -q '"now"' "${R}/etc/kulan/fleet.json" || { echo "Fleet went back"; ok=1; }
+	[[ ! -e "${R}/etc/nologin" ]] || { echo "an old lost mode came back"; ok=1; }
+	[[ -e "${R}/etc/NetworkManager/system-connections/Home.nmconnection" ]] || { echo "a Wi-Fi network was lost"; ok=1; }
+	grep -q "^kulan-signed-start rebuild --after-undo key=current-key$" "${RP}/calls" || { echo "start-up files not signed again: $(cat "${RP}/calls")"; ok=1; }
+	[[ ! -e "${RP}/kept" ]] || { echo "kept copy left behind"; ok=1; }
+	rm -f "${RP}/on-restore" "${RP}/bin/kulan-signed-start"
 	return "${ok}"
 }
-check "undo the last update with signed start-up: the key stays, the start-up files are signed again" undo_signed
+check "undo keeps accounts, passwords, Fleet, lost mode, signed start-up and Wi-Fi as they are now" undo_keeps
+
+undo_safely() {
+	undo_env
+	fake_timeshift
+	local ok=0 out
+	echo 1 >"${RP}/power/AC/online"
+	# No room for the safety point: no undo at all.
+	reset_points
+	out="$(FAKE_AVAIL=1000 bash "${RP}/restore-points-strict" undo-update 2>/dev/null)" && { echo "undid without a safety point"; ok=1; }
+	grep -q "^say:There isn't enough free space" <<<"${out}" || { echo "no room: ${out}"; ok=1; }
+	grep -q -- "--restore" "${RP}/calls" 2>/dev/null && { echo "restored with no safety point"; ok=1; }
+	# The restore stops half-way: back to the safety point, no restart, record untouched.
+	reset_points
+	out="$(FAKE_RESTORE_FAIL=1 bash "${RP}/restore-points" undo-update 2>/dev/null)" && { echo "a failed restore reported success"; ok=1; }
+	grep -q "^say:The update couldn't be undone" <<<"${out}" || { echo "failed restore: ${out}"; ok=1; }
+	grep -q -- "--restore --snapshot 2026-11-02_10-00-00" "${RP}/calls" || { echo "didn't go back to the safety point: $(cat "${RP}/calls")"; ok=1; }
+	grep -q "systemctl reboot" "${RP}/calls" && { echo "restarted after a failed undo"; ok=1; }
+	grep -q '"point": "2026-01-03_00-00-00"' "${KULAN_LAST_UPDATE}" || { echo "record changed"; ok=1; }
+	# Lost mode or an erase waiting: no undo, from Software Update or the menu.
+	reset_points
+	touch "${RP}/root/var/lib/kulan/fleet-lost"
+	bash "${RP}/restore-points" undo-update >/dev/null 2>&1 && { echo "undid in lost mode"; ok=1; }
+	bash "${RP}/restore-points" undo-at-start >/dev/null 2>&1 || { echo "start-up stopped in lost mode"; ok=1; }
+	grep -q -- "--restore" "${RP}/calls" 2>/dev/null && { echo "restored in lost mode"; ok=1; }
+	rm -f "${RP}/root/var/lib/kulan/fleet-lost"
+	# The last update's point was skipped: nothing to undo (not an older one).
+	reset_points
+	printf '{"point": "", "undone": "", "time": 1}\n' >"${KULAN_LAST_UPDATE}"
+	out="$(bash "${RP}/restore-points" undo-update 2>/dev/null)" && { echo "went back to an older point"; ok=1; }
+	grep -q "^say:There's no restore point from the last update" <<<"${out}" || { echo "skipped point: ${out}"; ok=1; }
+	# From before 2.13 (no record): the newest point, only if under a week old.
+	reset_points
+	rm -f "${KULAN_LAST_UPDATE}"
+	bash "${RP}/restore-points" undo-update >/dev/null 2>&1 && { echo "went back to a 10-month-old point"; ok=1; }
+	return "${ok}"
+}
+check "undo: never without a safety point, back to it if the restore stops, not in lost mode, never further than the last update" undo_safely
+
+update_point() {
+	undo_env
+	fake_timeshift
+	rm -rf "${RP}/snaps" "${RP}/calls"
+	mkdir -p "${RP}/snaps"
+	rm -f "${KULAN_LAST_UPDATE}"
+	local ok=0
+	bash "${RP}/restore-points" create "Before installing updates" >/dev/null 2>&1 || { echo "create failed"; ok=1; }
+	grep -q '"point": "2026-11-01_10-00-00"' "${KULAN_LAST_UPDATE}" || { echo "not recorded: $(cat "${KULAN_LAST_UPDATE}" 2>&1)"; ok=1; }
+	# No room: no point, and the record says so (no undo for this update).
+	FAKE_AVAIL=1000 bash "${RP}/restore-points-strict" create "Before installing updates" >/dev/null 2>&1 && { echo "made a point with no room"; ok=1; }
+	grep -q '"point": ""' "${KULAN_LAST_UPDATE}" || { echo "skipped point still offered: $(cat "${KULAN_LAST_UPDATE}")"; ok=1; }
+	return "${ok}"
+}
+check "the restore point before installing updates is recorded; a skipped one isn't offered" update_point
+
+undo_from_older() {
+	# Undoing the upgrade to 2.13 puts back 2.12's kulan-signed-start, which doesn't
+	# know --after-undo: then it signs the start-up files with a plain rebuild.
+	undo_env
+	fake_timeshift
+	reset_points
+	local R="${RP}/root"
+	mkdir -p "${R}/var/lib/kulan"
+	echo '{"phase": "on"}' >"${R}/var/lib/kulan/signed-start.json"
+	printf '#!/bin/sh
+echo "kulan-signed-start $*" >> "%s/calls"
+[ "$2" = --after-undo ] && exit 64
+exit 0
+' "${RP}" >"${RP}/bin/kulan-signed-start"
+	chmod +x "${RP}/bin/kulan-signed-start"
+	echo 1 >"${RP}/power/AC/online"
+	bash "${RP}/restore-points" undo-update >/dev/null 2>&1 || { echo "undo failed"; return 1; }
+	local ok=0
+	grep -qx "kulan-signed-start rebuild --after-undo" "${RP}/calls" && grep -qx "kulan-signed-start rebuild" "${RP}/calls" ||
+		{ echo "no plain rebuild after an older kulan-signed-start: $(cat "${RP}/calls")"; ok=1; }
+	rm -f "${RP}/bin/kulan-signed-start" "${R}/var/lib/kulan/signed-start.json"
+	# Updates installed without a restore point: no undo offered for them.
+	reset_points
+	bash "${RP}/restore-points" forget-update-point && grep -q '"point": ""' "${KULAN_LAST_UPDATE}" || { echo "forget-update-point"; ok=1; }
+	return "${ok}"
+}
+check "undo from 2.13 back to 2.12 signs the start-up files; updates without a restore point aren't undone" undo_from_older
 
 before_auto_update() {
 	export KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="${RP}/snaps" KULAN_RESTORE_USAGE="${RP}/u.json"
@@ -356,6 +524,9 @@ EOF
 	rc=$?
 	[[ ${rc} -eq 75 ]] || { echo "exit ${rc} with no room left (want 75)"; return 1; }
 	grep -q -- "--create --scripted --comments Before installing updates" "${RP}/calls" && [[ -e "${stamp}" ]] || return 1
+	# Updates come first: the point that left too little room is removed again (no undo offered for them).
+	grep -q -- "--delete --snapshot" "${RP}/calls" || { echo "the point wasn't removed to make room"; return 1; }
+	grep -q '"point": ""' "${KULAN_LAST_UPDATE}" || { echo "a removed point still offered"; return 1; }
 	# Once a day.
 	rm -f "${RP}/calls"
 	bash "${RP}/restore-points" before-auto-update && [[ ! -e "${RP}/calls" ]] || return 1
@@ -365,7 +536,7 @@ EOF
 	bash "${RP}/restore-points" before-auto-update && [[ ! -e "${stamp}" ]] || return 1
 	rm -f "${stamp}"
 }
-check "restore point before automatic updates: before their lock, once a day, stamp only when made, room re-checked" before_auto_update
+check "restore point before automatic updates: before their lock, once a day, stamp only when made; removed when the updates need the room" before_auto_update
 
 # --- units: timers, time limits, ordering -------------------------------------------------
 units() {
