@@ -6,6 +6,7 @@
     "items": [
       "Undo the last update is safer: it saves how things are first and goes back to that if anything stops it, goes back only as far as the last update, and keeps your accounts, passwords, Wi-Fi networks and security settings as they are now",
       "Kulan OS always keeps a way to start: the start-up files that worked last stay until the new ones have worked",
+   "With signed start-up, the computer no longer starts Undo the last update by itself after an update; it runs only when you choose it",
       "Updates keep installing on computers with small disks, and old Linux kernels are cleared away so the start-up partition never fills up",
       "Changes to the computer's security ask for your password every time",
       "Kulan Fleet: a computer can no longer change an administrator's password or remove their two-step sign-in",
