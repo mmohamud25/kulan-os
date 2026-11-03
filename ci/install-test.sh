@@ -78,10 +78,14 @@ truncate -s 24G "${WORK}/disk.img"
 LOOP="$(sudo losetup -fP --show "${WORK}/disk.img")" || fail_now "Disk" "no loop device"
 START=$(date +%s)
 PLAN="$(python3 - "${LOOP}" "${WORK}" <<'PY'
-import json, sys
+import json, subprocess, sys
 loop, work = sys.argv[1], sys.argv[2]
+dev = json.loads(subprocess.run(["lsblk", "-J", "-b", "-d", "-o", "PATH,SIZE,MODEL,SERIAL,WWN", loop],
+                                capture_output=True, text=True).stdout)["blockdevices"][0]
+disk_id = {"size": int(dev.get("size") or 0), "model": (dev.get("model") or "").strip(),
+           "serial": (dev.get("serial") or "").strip(), "wwn": (dev.get("wwn") or "").strip()}
 print(json.dumps({
-    "disk": loop, "mode": "erase", "encrypt": False, "locale": "en_US.UTF-8",
+    "disk": loop, "disk_id": disk_id, "mode": "erase", "encrypt": False, "locale": "en_US.UTF-8",
     "keyboard": {"layout": "us", "variant": ""}, "timezone": "America/New_York", "hostname": "kulan-test",
     "user": {"full_name": "Kulan Test", "username": "kulan", "password": "kulan-test-pw", "autologin": True},
     "source": f"{work}/fs.squashfs", "medium": f"{work}/medium", "firmware": "uefi",
@@ -90,6 +94,15 @@ print(json.dumps({
 }))
 PY
 )"
+# The disk named in the plan isn't the one chosen any more (a USB stick plugged
+# in since): refused before anything is touched.
+WRONG="$(python3 -c 'import json, sys; p = json.loads(sys.argv[1]); p["disk_id"]["size"] += 512; print(json.dumps(p))' "${PLAN}")"
+if sudo "${ENGINE}" install <<<"${WRONG}" 2>/dev/null | tail -n 1 | grep -q '"error": "The disks changed since you chose one' &&
+	[[ -z "$(sudo blkid -p "${LOOP}" 2>/dev/null)" ]]; then
+	result pass "Installer: the chosen disk" "a disk whose size, model or serial number changed since it was chosen is refused, untouched"
+else
+	result fail "Installer: the chosen disk" "a changed disk wasn't refused"
+fi
 # shellcheck disable=SC2024  # the logs belong to this user, on purpose
 sudo "${ENGINE}" install <<<"${PLAN}" >"${OUT}/engine.jsonl" 2>"${OUT}/install.log"
 LAST="$(tail -n 1 "${OUT}/engine.jsonl")"

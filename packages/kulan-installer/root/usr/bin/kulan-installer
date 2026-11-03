@@ -596,7 +596,7 @@ class Installer(Adw.ApplicationWindow):
         layout, variant, _d = self.layouts[self.layout_row.get_selected()]
         password = self.password.get_text()
         return {
-            "disk": self.choice["disk"]["path"], "mode": self.choice["mode"],
+            "disk": self.choice["disk"]["path"], "disk_id": self.choice["disk"].get("id"), "mode": self.choice["mode"],
             "encrypt": self.encrypt_row.get_active(), "password": password,
             "locale": self.chosen_locale(), "keyboard": {"layout": layout, "variant": variant},
             "timezone": self.zones[self.zone_row.get_selected()], "hostname": self.hostname.get_text(),
