@@ -18,19 +18,16 @@
     "label": "2.12",
     "title": "Restart when it suits you",
     "items": [
-      "Restart to finish updating, like a Mac: after you install updates that need a restart, a 60-second countdown, with Cancel. After automatic updates, a notice with Restart Now and Later, which asks again 4 hours later. At night, once nobody has used the computer for half an hour, it restarts by itself. An app with unsaved work always stops it",
-      "Profile at the top of Kulan Settings, as on a Mac: your picture and name, Change picture (any photo, cropped to a square), your password and how you sign in. Changing the picture works with any picture now",
+      "Restart when it suits you: after updates that need a restart, choose Restart now or Later. If nobody is using the computer at night, it restarts by itself, and an app with unsaved work always stops it",
+      "Profile at the top of Kulan Settings: your picture and name, your password and how you sign in. Any photo can be your picture",
       "Fingerprint sign-in on laptops with a reader: add a finger in Kulan Settings › Profile, then touch the reader to sign in, unlock the screen and approve changes. Your password always works too, and fingerprints never leave the computer",
-      "Kulan Settings and Setup no longer close straight away on computers with saved Wi-Fi networks",
-      "Chrome, Chromium, Brave and Edge use Kulan's colours and window buttons instead of their own: set once, before the browser is first opened, or in a profile where no theme was chosen. Choosing Classic again in the browser's Settings › Appearance sticks",
-      "One Settings app: GNOME Settings is hidden from the app grid and search, and the gear in the top-right menu opens Kulan Settings. The few GNOME pages Kulan Settings links to still open from there",
-      "Undo the last update works with signed start-up too: the start-up menu has it, and shows after a start-up that didn't reach the desktop",
-      "Signed start-up notes a start-up that worked again, so it never goes back to the previous version by mistake, and undoing an update signs the start-up files for the restored system",
-      "Block ads and trackers works on a new computer straight away, without downloading anything first",
-      "The sign-in screen comes up sooner: it no longer waits for the firmware update service",
-      "The live USB restarts at once in virtual machines, instead of waiting 90 seconds behind the splash",
-      "Kulan Fleet works with Microsoft 365 as well as Google Workspace: connect it once, and mailboxes are made, blocked, renamed and removed along with people's accounts. On their computers, their work email opens in Outlook on the web",
-      "Kulan Fleet: the dashboard and the Fleet app show only the join code to type, with Copy"
+      "Chrome, Chromium, Brave and Edge use Kulan's colours",
+      "One Settings app: GNOME Settings is hidden, and the gear in the top-right menu opens Kulan Settings",
+      "If Kulan OS doesn't start after an update, the start-up menu offers Undo the last update, with signed start-up too",
+      "Block ads and trackers works on a new computer straight away",
+      "Faster start-up, and other fixes",
+      "Kulan Fleet works with Microsoft 365 as well as Google Workspace: mailboxes are made, blocked, renamed and removed along with people's accounts, and work email opens in Outlook on the web",
+      "Kulan Fleet: join codes are shorter and easy to copy"
     ]
   },
   {
@@ -38,7 +35,7 @@
     "label": "2.11.1",
     "title": "Kulan Settings opens again",
     "items": [
-      "Kulan Settings and Setup no longer close straight away on computers with saved Wi-Fi networks"
+      "Kulan Settings and Setup Assistant no longer close straight away on computers with saved Wi-Fi networks"
     ]
   },
   {
@@ -51,13 +48,13 @@
       "If Kulan OS doesn't start all the way, the next start-up shows the start-up menu, with the earlier version and Undo the last update. With signed start-up, the previous version starts by itself after three failed starts",
       "Automatic updates stay out of the way: the restore point is taken before they start, they run mid-day or an hour after you switch on, and Install waits for them instead of failing",
       "Kulan Settings pages open at once and fill in, even when the computer is busy. Kulan Fleet's window appears straight away, and Ask Kulan's Undo never freezes",
-      "Setup helps you get online, offers Ask Kulan, and fills in its app list by itself once you're connected. It's finished only when you finish it",
+      "Setup Assistant helps you get online, offers Ask Kulan, and fills in its app list by itself once you're connected. It's finished only when you finish it",
       "To join your organisation, type just the join code",
       "Wi-Fi: forget a saved network or change its password. The hotspot keeps one password, always shown, with a code your phone can scan",
       "Mail comes with Kulan OS and opens your work email. A new Online accounts page adds Google and Microsoft 365 accounts",
       "Every administrator can add printers, and Document Scanner comes with Kulan OS",
       "Anyone using the computer can download Ask Kulan's model, and computers without enough memory are told plainly",
-      "Plain words everywhere: Ask Kulan, the installer, Setup, Kulan Fleet and its website say what went wrong and what to do, never a program's error message, and nothing asks you to type commands",
+      "Plain words everywhere: Ask Kulan, the installer, Setup Assistant, Kulan Fleet and its website say what went wrong and what to do, never a program's error message, and nothing asks you to type commands",
       "The first start-up after installing is about ten seconds quicker"
     ]
   },
@@ -103,7 +100,7 @@
   },
   {
     "version": "2.9.3",
-    "label": "2.9c",
+    "label": "2.9.3",
     "title": "Get help, and remote desktop in Settings",
     "items": [
       "Get help in Settings: on a computer in an organisation, write what's wrong and add a screenshot if you like. You see the screenshot before it's sent. It reaches your organisation's admins, and their answer appears on your screen",
@@ -114,7 +111,7 @@
   },
   {
     "version": "2.9.2",
-    "label": "2.9b",
+    "label": "2.9.2",
     "title": "Fixes, scripts and messages with Kulan Fleet",
     "items": [
       "Fixes: an organisation's admins can free up disk space, reset Wi-Fi, repair updates, restart printing or check the disk on one computer or a whole group, and see what each fix printed",
@@ -126,7 +123,7 @@
   },
   {
     "version": "2.9.1",
-    "label": "2.9a",
+    "label": "2.9.1",
     "title": "Remote help with Kulan Fleet",
     "items": [
       "Remote help: an organisation's admins can see the screen of someone who needs help, from the Kulan Fleet app or the web dashboard in any browser, including on a phone. With permission, they can also use the mouse and keyboard",
@@ -138,7 +135,7 @@
   },
   {
     "version": "2.8.5",
-    "label": "2.8e",
+    "label": "2.8.5",
     "title": "Work email with Kulan Fleet and Google Workspace",
     "items": [
       "Kulan Fleet connects to an organisation's Google Workspace: adding someone in People can make their mailbox too, and disabling them suspends it",
@@ -150,7 +147,7 @@
   },
   {
     "version": "2.8.4",
-    "label": "2.8d",
+    "label": "2.8.4",
     "title": "Stronger sign-in with Kulan Fleet",
     "items": [
       "Two-step sign-in on an organisation's computers: after the password, a security key you touch (a YubiKey, say) or a 6-digit code from an app on your phone. It works on every one of the organisation's computers you use",
@@ -162,7 +159,7 @@
   },
   {
     "version": "2.8.3",
-    "label": "2.8c",
+    "label": "2.8.3",
     "title": "Security and activity in Kulan Fleet",
     "items": [
       "A weekly security report in Kulan Fleet: which computers need security updates or a restart, which aren't encrypted, have the firewall off, fail compliance or haven't reported for a week, plus people and the week's changes, compared with last week. Save it as a PDF",
@@ -173,7 +170,7 @@
   },
   {
     "version": "2.8.2",
-    "label": "2.8b",
+    "label": "2.8.2",
     "title": "Groups and policies in Kulan Fleet",
     "items": [
       "Groups in Kulan Fleet: put an organisation's computers and people in groups (Office, Finance…), each with a policy of its own. A computer keeps to the organisation's policy and to every group it's in, and the stricter rule always wins",
@@ -186,7 +183,7 @@
   },
   {
     "version": "2.8.1",
-    "label": "2.8a",
+    "label": "2.8.1",
     "title": "People in Kulan Fleet",
     "items": [
       "People in Kulan Fleet: an organisation's own accounts on its computers. An admin adds someone (name, username, role, which computers), and their name is on the sign-in screen of those computers within the hour",
@@ -240,10 +237,10 @@
     "version": "2.5",
     "title": "Ask Kulan, a faster desktop and a more powerful Terminal",
     "items": [
-      "Ask Kulan: press Shift+Cmd+Space (Shift+Windows key+Space on a PC) and ask anything, or say what you'd like done. It answers from what it can see on this computer (\"why is my laptop slow?\"), tidies Downloads or the Desktop into folders, sets reminders that come even after a restart, fixes Wi-Fi and sound, checks what's using space and changes settings. It shows you first and waits for Do it, and most things can be undone. Kulan Assistant runs on this computer: nothing you type leaves it",
+      "Ask Kulan: press Shift+Super+Space (Super is the Windows key) and ask anything, or say what you'd like done. It answers from what it can see on this computer (\"why is my laptop slow?\"), tidies Downloads or the Desktop into folders, sets reminders that come even after a restart, fixes Wi-Fi and sound, checks what's using space and changes settings. It shows you first and waits for Do it, and most things can be undone. Kulan Assistant runs on this computer: nothing you type leaves it",
       "Apps ready sooner: a couple of minutes after you sign in, while the computer is idle, Kulan OS gets Firefox, Files, Terminal and Kulan Settings ready, so the first time you open them is as quick as the next. Only with memory to spare, never on battery, and the memory is given back whenever anything needs it",
       "A more powerful Terminal: Ctrl+R searches everything you've typed before, Ctrl+T finds a file, \"z\" jumps to folders you use, nicer file listings with eza, and ripgrep, fd, bat and btop built in",
-      "One search: Cmd+Space finds apps, files, every setting (printers and sharing too, with nothing listed twice) and sums, and its last result, Ask Kulan, opens Ask Kulan with what you typed",
+      "One search: Super+Space finds apps, files, every setting (printers and sharing too, with nothing listed twice) and sums, and its last result, Ask Kulan, opens Ask Kulan with what you typed",
       "The kulan command: kulan info shows this computer at a glance, kulan update installs updates, kulan doctor checks for common problems and says how to fix them, and kulan settings opens any page",
       "Ask Kulan Assistant in the Terminal: ask how to do something with kulan ask, and after a command fails press Alt+K to hear why and how to fix it. It runs on this computer",
       "Missing commands: type one that isn't installed and the Terminal says which package has it",
@@ -273,93 +270,93 @@
       "A new Control Centre: rounded tiles, thick sliders and Kulan's teal for what's on",
       "Dock and app grid: a rounder navy dock, a wider search in the app grid, rounder folders and night navy behind the overview",
       "Desktop widgets restyled: big Manrope numbers, amber headings, a teal Weather card and a paper-yellow note",
-      "Four new desktop widgets: Clock (with your world clocks from Clocks), System (processor, memory, disk and battery), To-do (tick tasks off right on the desktop) and Now Playing (play, pause and skip). Choose and reorder them in Kulan Settings > Desktop and windows; they flow into a second column when the screen is full",
+      "Four new desktop widgets: Clock (with your world clocks from Clocks), System (processor, memory, disk and battery), To-do (tick tasks off right on the desktop) and Now Playing (play, pause and skip). Choose and reorder them in Kulan Settings › Desktop and windows; they flow into a second column when the screen is full",
       "Fixed: the Calendar widget could say 'Nothing else today' twice, and the Weather widget showed the weather station's name and 'Unknown' instead of your city and the conditions",
       "Lock screen: the clock in Manrope, with a ringed photo and a cleaner password field",
       "One icon family: Kulan's apps and GNOME's apps share the same rounded square, gradient and white symbol",
-      "Compliance mode (Kulan Settings > Security): one switch brings the computer to a security baseline checked against CIS Controls v8 and NIST SP 800-53, keeps the screen lock from being turned off, and saves a report to hand to an auditor or a client",
-      "Fleet management (Kulan Settings > About > Organisation): join your organisation with a one-time code; the computer reports its model, updates, compliance and TPM status every hour, never files, browsing or messages, and the organisation can only ask it to report, install updates, turn compliance mode on, lock the screen or restart",
+      "Compliance mode (Kulan Settings › Security): one switch brings the computer to a security baseline checked against CIS Controls v8 and NIST SP 800-53, keeps the screen lock from being turned off, and saves a report to hand to an auditor or a client",
+      "Fleet management (Kulan Settings › About › Organisation): join your organisation with a one-time code; the computer reports its model, updates, compliance and TPM status every hour, never files, browsing or messages, and the organisation can only ask it to report, install updates, turn compliance mode on, lock the screen or restart",
       "Kulan Assistant can do things for you: say what you'd like (\"dark mode and a smaller dock\", \"make text bigger\", \"find my CV\"), see the plan in plain words, press Do it, and Undo if you change your mind. It runs on this computer and can only use Kulan's own safe actions",
       "Kulan Fleet for administrators: an optional app, not installed by default. Sign in with your email and a one-time code to see your organisation's computers, their compliance results and waiting updates, make join codes, and ask computers to report, install updates, turn compliance mode on, lock the screen or restart"
     ]
   },
   {
     "version": "2.3",
-    "title": "Kulan OS 2.3",
+    "title": "Calmer under pressure, and everyday polish",
     "items": [
       "No more freezing when memory runs out: Kulan OS closes the one app using too much and tells you which",
       "Starts up faster: the update check waits until after you're signed in, and file search indexing only runs when the computer is idle",
-      "Restore points stay small: only the newest two taken before updates are kept, all of them stay within a quarter of the disk, and Kulan Settings > Storage shows their size with Delete All",
+      "Restore points stay small: only the newest two taken before updates are kept, all of them stay within a quarter of the disk, and Kulan Settings › Storage shows their size with Delete All",
       "New installs swap to compressed memory only, with no swap file on the disk",
       "The dock's settings icon opens Kulan Settings, which now links to every GNOME Settings page (notifications, accounts, sharing, accessibility, language); GNOME Settings itself is in the System folder",
-      "Kulan Settings > Desktop and windows: show the Bin, drives and your Home folder on the desktop, and where new items appear, in plain words",
+      "Kulan Settings › Desktop and windows: show the Bin, drives and your Home folder on the desktop, and where new items appear, in plain words",
       "Tidy the app grid: sorts apps from A to Z and closes the gaps between pages (done once automatically for grids with gaps)",
       "The installer in Kulan colours, with rounded fields and buttons",
       "Software Update in Kulan Settings is the one place for every update: Debian, Kulan and your apps (Flatpak) together, installed with one button; the App Store (GNOME Software) no longer shows or downloads updates of its own",
       "Restart to finish updating: after kernel, desktop or driver updates, Software Update and the top bar offer a restart",
       "With automatic updates on, apps update daily too",
-      "Spotlight search: Cmd+Space opens a search bar over your windows for apps, files, sums, characters, Kulan Settings and GNOME Settings pages, and Kulan Assistant answers; arrow keys and Enter, Escape to close (Kulan Settings > Keyboard can open Activities instead)",
+      "Spotlight search: Super+Space opens a search bar over your windows for apps, files, sums, characters, Kulan Settings and GNOME Settings pages, and Kulan Assistant answers; arrow keys and Enter, Escape to close (Kulan Settings › Keyboard can open Activities instead)",
       "Kulan Settings pages appear in search, in Spotlight and Activities",
       "The live session no longer shows a broken installer icon on the desktop; Install Kulan OS is the first icon in the dock",
       "Works well in VMware Fusion and Workstation: shared clipboard, drag and drop, automatic screen size, and the start-up screen shows properly",
       "Firefox's window buttons are round and red, yellow and green, like every other app",
-      "Desktop widgets: Calendar (today and what's next), Weather, Prayer Times (the next prayer, while it's on) and your note, at the top left of the desktop; choose them in Kulan Settings > Desktop and windows",
-      "Quick Note: Cmd+Shift+N opens a note over whatever you're doing, saved as you type and shown in the Note widget",
-      "Tags in Files: right-click > Tags to mark files and folders Red, Orange, Yellow, Green, Blue, Purple or Grey; a coloured dot shows on them, and searching for a colour in Spotlight finds them",
+      "Desktop widgets: Calendar (today and what's next), Weather, Prayer Times (the next prayer, while it's on) and your note, at the top left of the desktop; choose them in Kulan Settings › Desktop and windows",
+      "Quick Note: Super+Shift+N opens a note over whatever you're doing, saved as you type and shown in the Note widget",
+      "Tags in Files: right-click › Tags to mark files and folders Red, Orange, Yellow, Green, Blue, Purple or Grey; a coloured dot shows on them, and searching for a colour in Spotlight finds them",
       "Undo the last update: Software Update can put the system back to how it was before the last update, without touching your files, and pauses automatic updates for 3 days so it doesn't come straight back",
       "Kulan Store: the app store has Kulan's name and icon, with Kulan picks of well-known apps; it no longer shows updates, which are all in Software Update",
       "Chromium add-on: a second browser for sites that work best in Chrome-type browsers, from Debian, with Kulan's privacy settings and ad blocking; Firefox stays the default",
-      "Settings > Sound shows the alert sound (Click) instead of \"Unknown\"; Kulan's other sounds stay",
+      "Settings › Sound shows the alert sound (Click) instead of \"Unknown\"; Kulan's other sounds stay",
       "Restart works in ARM virtual machines (UTM on Apple silicon): instead of freezing at \"Exiting boot services\", Restart goes straight into the new system (kexec). PCs keep that switched off as part of Kulan's kernel hardening",
       "Kulan Settings has its own Wi-Fi and network, Bluetooth, Sound, Battery and power, and Displays pages: join a network, connect headphones, pick speakers and microphone, change resolution, scale or rotation, and choose a power mode without leaving Kulan Settings",
       "In virtual machines the screen no longer shows \"Display output is not active\" after sitting idle: it goes dark and locks as usual, and a key press brings it back",
-      "Kulan Files: a status bar with the folder's path, the number of items and the free space; a preview pane (Shift+Ctrl+P or the toolbar button) with a large preview, tags, size and dates; and a Finder-style sidebar with Favourites, Locations and your Tags",
+      "Kulan Files: a status bar with the folder's path, the number of items and the free space; a preview pane (Shift+Ctrl+P or the toolbar button) with a large preview, tags, size and dates; and a sidebar with Favourites, Locations and your Tags",
       "Encrypted disks: if you mistype the disk password when the computer starts, it simply asks again instead of giving up after three tries",
       "Smaller, calmer icons: Files (64 px, about the Finder's size), the desktop, the dock and the app grid; each can still be made bigger in Kulan Settings or Files",
       "Kulan's red, yellow and green window buttons on more apps: apps from the Kulan Store (Flatpak) and Qt apps such as KeePassXC (they now open through XWayland, where GNOME draws their frame, kept sharp on high-resolution screens)",
       "A new start-up screen: the six dots of the Kulan gathering walk in and meet, the centre lights up, and the ring gently breathes while the computer starts; the disk password is asked right under it",
-      "Apps reopen after a restart: the apps you had open come back when you sign in again, as on a Mac (switch it off in Kulan Settings > Desktop and windows)",
+      "Apps reopen after a restart: the apps you had open come back when you sign in again (switch it off in Kulan Settings › Desktop and windows)",
       "Faster start-up on slower computers: work that used to be redone at every start (about 20 seconds on a 2 GB, 1-processor machine) is now done once when Kulan OS is built, and the update check waits until the desktop has finished loading",
       "Smoother on computers without graphics acceleration (many virtual machines, older PCs): the live blur behind menus and app folders is switched off there and animations are a little shorter; they come back by themselves once acceleration works",
       "The Weather widget stays off the desktop until you've picked a place in Weather",
-      "Kulan Settings' sidebar is grouped like a Mac's: connections, sound and attention, looks, power and space, protection, input and helpers, then updates and About, with a little space between groups"
+      "Kulan Settings' sidebar is grouped's: connections, sound and attention, looks, power and space, protection, input and helpers, then updates and About, with a little space between groups"
     ]
   },
   {
     "version": "2.2",
-    "title": "Kulan OS 2.2",
+    "title": "The gathering logo and Kulan Settings",
     "items": [
       "New Kulan OS logo, the gathering: six people in a circle around one centre",
-      "New Kulan teal waves wallpaper, with the original 1.0 waves as a second choice in Kulan Settings > Appearance",
+      "New Kulan teal waves wallpaper, with the original 1.0 waves as a second choice in Kulan Settings › Appearance",
       "Kulan Settings: one app for appearance, dock, top bar, desktop and windows, Night Light, keyboard, Focus, Assistant, Prayer Times, login items, storage, security, privacy, Parental Controls, updates, add-ons and About",
-      "Kulan Assistant, private and on this computer: writing tools for selected text in any app (Cmd+Shift+W), Summarise in Files, Translate and Explain after Live Text, and search your files with questions in Activities",
-      "Dictation: press Cmd+Shift+D, speak, press it again, and your words are typed where the cursor is, recognised on this computer",
+      "Kulan Assistant, private and on this computer: writing tools for selected text in any app (Shift+Super+W), Summarise in Files, Translate and Explain after Live Text, and search your files with questions in Activities",
+      "Dictation: press Shift+Super+D, speak, press it again, and your words are typed where the cursor is, recognised on this computer",
       "Prayer Times (off until you turn it on): the next prayer in the top bar, today's times and a gentle notification at each prayer, for any of 24,000 cities, worked out on this computer",
       "Parental Controls: choose the apps each child can use, and a family-safe web filter for the whole computer",
       "Files: Kulan teal folders with symbols, Folder Colour on right-click, a Projects folder in the sidebar, New Document templates, large icons with folders first, and the Bin in the dock",
-      "Files and folders on the desktop, as on a Mac",
-      "Terminal: Ptyxis with Kulan colours, a Mac-style prompt with the git branch, history search with the arrow keys, and zsh with suggestions as you type for new accounts",
+      "Files and folders on the desktop",
+      "Terminal: Ptyxis with Kulan colours, a prompt with the git branch, history search with the arrow keys, and zsh with suggestions as you type for new accounts",
       "One look everywhere: older apps and Qt apps (VLC, KeePassXC, the installer) now match the rest, in your accent colour, light or dark",
       "Security: see at a glance if the firewall, disk encryption, updates, restore points, screen lock and backups are on, with one-click fixes, plus a security checkup",
       "Privacy: a private computer name, encrypted DNS that can block ads, trackers or adult sites in every app, camera, microphone and location switches, and a list of what Kulan OS connects to",
       "Browsers: Firefox blocks ads and trackers (uBlock Origin), cookie banners and insecure pages; Chromium and Chrome turn ad tracking off",
       "KeePassXC password manager and Metadata Cleaner are built in",
-      "Mac-style shortcuts: Cmd+Space to search, Cmd+Shift+3/4/5 for screenshots and screen recording, Ctrl+Cmd+Space for emoji",
-      "Live Text: Cmd+Shift+T copies the text from anything on screen, read on your computer",
-      "Clipboard history: Cmd+Shift+V shows what you copied recently (kept until the screen locks)",
+      "shortcuts: Super+Space to search, Super+Shift+3/4/5 for screenshots and screen recording, Ctrl+Super+Space for emoji",
+      "Live Text: Super+Shift+T copies the text from anything on screen, read on your computer",
+      "Clipboard history: Super+Shift+V shows what you copied recently (kept until the screen locks)",
       "Window snapping into halves and quarters, Quick Look (press Space in Files), Weather and Clocks, and display scaling such as 125% and 150%",
       "Focus: Do Not Disturb on a daily schedule",
       "Storage: see how full the disk is and free up space in one click",
-      "Add-ons: Kulan Assistant, a Learning Pack of defensive security tools, Steam (PCs), Phone Link for Android phones, Nearby Share (like AirDrop), a virus scanner, the Developer Kit, and office and media apps",
+      "Add-ons: Kulan Assistant, a Learning Pack of defensive security tools, Steam (PCs), Phone Link for Android phones, Nearby Share, a virus scanner, the Developer Kit, and office and media apps",
       "Faster and lighter: compressed memory, fewer background services, a shorter boot menu, and Wi-Fi, graphics and sound firmware for more laptops",
-      "Window buttons in red, yellow and green with symbols (Mac dots and GNOME standard are a click away); automatic light and dark mode following the sunset",
+      "Window buttons in red, yellow and green with symbols (small dots and GNOME standard are a click away); automatic light and dark mode following the sunset",
       "In virtual machines (UTM, VirtualBox, VMware) the mouse pointer is drawn smoothly at the right size",
       "Apple silicon and other ARM computers: the boot splash and disk password prompt now appear on the screen, without technical messages"
     ]
   },
   {
     "version": "2.1",
-    "title": "Kulan OS 2.1",
+    "title": "The Kulan menu and round window buttons",
     "items": [
       "New Kulan OS logo: people gathered under an acacia tree at sunset",
       "Kulan menu at the top left: About, Settings, Update Center, Lock, Restart and Shut Down",
@@ -375,7 +372,7 @@
   },
   {
     "version": "2.0",
-    "title": "Kulan OS 2.0",
+    "title": "A new Kulan look, and restore points",
     "items": [
       "New Kulan look for the top bar, menus, quick settings, notifications, calendar and lock screen",
       "App grid folders: Office, Internet, Media, Developer, Utilities and System",
