@@ -102,5 +102,46 @@ body size, boot-report /tmp names, sandboxing for oom-notice and autojoin,
 UID check before Fleet changes an account, USB Maker drive fingerprint on
 Mac.
 
+## Done (branch kulan-os-2.13)
+
+Everything under Must fix, Bugs and Wording above, except:
+
+- **F4, F5 (not fixed: a feature, not a fix).** The server can still make an
+  administrator account on the computers, and a computer trusts the first
+  script key it's given. Fixing it needs a new Owner signing step in Kulan
+  Fleet. Written down in fleet/README.md ("What the server is trusted
+  with"). Owner-signed scripts are approved once and then run as often as
+  needed, so a signature without an expiry is the design, not a replay hole.
+- **F1, as built.** A computer never weakens an admin's or the Owner's
+  account (no password from a computer, no second step removed); a second
+  step they set up there is still taken, as it only asks for more.
+- **Can wait:** done where cheap (Fleet join over HTTPS only outside tests,
+  the installer releasing the disk); the rest stays for later.
+- **2.12 screenshot** on the website is the real 2.12 live desktop from CI
+  (site-screenshots, run 41257723774), Appearance page.
+
 ## Tests added
-(filled in as the fixes land)
+- ci/update-recovery-test.sh: undo never twice; keeps accounts, passwords,
+  Fleet, lost mode, signed start-up and Wi-Fi; no safety point, no undo;
+  back to the safety point if the restore stops; not in lost mode; only the
+  last update's point; the point recorded, a skipped one not offered; the
+  point removed when updates need the room; the menu's undo starts the
+  kernel from before the update; ~prev removed once the new file works.
+- ci/signed-start-files-test.py (new): the file that worked is kept to fall
+  back on; failed builds change nothing; low room; after undo; removed
+  kernels; loader.conf not rewritten; off keeps signed start-up without
+  GRUB's menu.
+- ci/install-test.sh: a disk that changed since it was chosen is refused.
+- ci/test-packages.sh: security changes ask every time (three lists equal,
+  the gate); Fleet no plain HTTP; signed start-up files.
+- fleet/test/functions.test.mjs: an admin's password and second steps not
+  changed from a computer; group computers Owner-only with an admin in it;
+  a Kulan Fleet admin's mailbox Owner-only.
+- Kulan Settings self-test: fingerprint closed while claiming; Wi-Fi
+  passwords. Ask Kulan self-test: Undo kept across conversations; deleted
+  stays deleted.
+
+## Releasing
+The Fleet server part (fleet and fleet-admin functions; no migration) is
+deployed with the release. Set the 2.13 release dates in the two metainfo
+files then.
