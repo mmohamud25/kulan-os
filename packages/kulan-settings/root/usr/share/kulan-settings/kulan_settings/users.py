@@ -99,7 +99,13 @@ def change_own_password(current: str, new: str) -> str | None:
                 break
             output += chunk
             # Answer each question once: only text after the last answer counts.
-            if output[asked:].rstrip().lower().endswith("password:") and answers:
+            if output[asked:].rstrip().lower().endswith("password:"):
+                if not answers:
+                    # Asked again after all three answers (the new password was
+                    # refused, and it offers another try): stop now, rather
+                    # than wait out the time limit in silence.
+                    proc.kill()
+                    break
                 os.write(leader, (answers.pop(0) + "\n").encode())
                 asked = len(output)
         try:

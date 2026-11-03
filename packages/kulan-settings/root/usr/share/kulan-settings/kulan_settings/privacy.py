@@ -15,6 +15,7 @@ from .common import (
     choice_row,
     has_key,
     launch,
+    plain_error,
     reset_keys,
     run_async,
     settings,
@@ -319,7 +320,7 @@ class PrivacyPage(Page):
             except GLib.Error as exc:
                 if not self.torn_down:
                     self.toast("Not changed" if "not authorized" in exc.message.lower()
-                               or "dismissed" in exc.message.lower() else exc.message)
+                               or "dismissed" in exc.message.lower() else f"Not changed. {plain_error(exc)}")
                     row.handler_block_by_func(self.on_check)
                     row.set_active(not on)
                     row.handler_unblock_by_func(self.on_check)

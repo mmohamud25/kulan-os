@@ -574,15 +574,26 @@ class AboutPage(Page):
                                  body="Scan this with an authenticator app, or type the key below. "
                                       "Then enter the 6-digit code it shows.")
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        # The QR code is drawn by qrencode, without waiting for it: it appears when
+        # ready (the key below works anyway).
+        picture = Gtk.Picture(can_shrink=True, visible=False)
+        picture.set_size_request(220, 220)
+        outer.append(picture)
         try:
-            png = subprocess.run(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", uri],
-                                 capture_output=True, timeout=10, check=True).stdout
-            picture = Gtk.Picture.new_for_paintable(Gdk.Texture.new_from_bytes(GLib.Bytes.new(png)))
-            picture.set_size_request(220, 220)
-            picture.set_can_shrink(True)
-            outer.append(picture)
-        except (OSError, subprocess.SubprocessError, GLib.Error):
-            pass  # the key below still works
+            proc = Gio.Subprocess.new(["qrencode", "-t", "PNG", "-s", "6", "-m", "2", "-o", "-", uri],
+                                      Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE)
+
+            def drawn(p: Gio.Subprocess, result: Gio.AsyncResult) -> None:
+                try:
+                    _ok, png, _err = p.communicate_finish(result)
+                    if p.get_successful() and png is not None:
+                        picture.set_paintable(Gdk.Texture.new_from_bytes(png))
+                        picture.set_visible(True)
+                except GLib.Error:
+                    pass
+            proc.communicate_async(None, None, drawn)
+        except GLib.Error:
+            pass
         key = base64.b32encode(secret).decode().rstrip("=")
         outer.append(Gtk.Label(label=" ".join(key[i:i + 4] for i in range(0, len(key), 4)), selectable=True, wrap=True,
                                css_classes=["monospace", "dim-label"]))

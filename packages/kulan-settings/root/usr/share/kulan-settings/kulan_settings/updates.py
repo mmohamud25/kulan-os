@@ -21,7 +21,7 @@ from pathlib import Path
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from . import updatelist
-from .common import Page, launch, os_release, plural, read_json, restart_computer
+from .common import Page, in_thread, launch, os_release, plural, read_json, restart_computer
 
 # Kulan Shell's restartprompt.js reads it (ASKED_NOTE there).
 RESTART_ASKED_NOTE = "kulan-restart-asked"
@@ -345,9 +345,14 @@ class UpdatesPage(Page):
         return isinstance(until, (int, float)) and until > time.time()
 
     def render_top(self) -> None:
-        self.auto_value.set_label("Paused" if self.paused() else ("On" if auto_updates_on() else "Off"))
-        runs = history(limit=1)
-        self.history_value.set_label(when_text(runs[0]["time"]) if runs and runs[0]["time"] else "")
+        # apt-config and the whole apt history log: never on the window's thread.
+        def done(found) -> None:
+            if found is None:
+                return
+            on, runs = found
+            self.auto_value.set_label("Paused" if self.paused() else ("On" if on else "Off"))
+            self.history_value.set_label(when_text(runs[0]["time"]) if runs and runs[0]["time"] else "")
+        in_thread(lambda: (auto_updates_on(), history(limit=1)), done, page=self)
 
     def render_status(self) -> None:
         if self.working and self.working != "check":

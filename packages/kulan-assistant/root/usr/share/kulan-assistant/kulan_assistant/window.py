@@ -103,8 +103,9 @@ class AssistantWindow(Adw.ApplicationWindow):
         self.result = ""
         if self.not_ready():
             return
-        self.set_busy(True, "Starting the assistant…"
-                      if not engine.healthy() else "Writing…")
+        # The worker says "Writing…" once the assistant answers (checking it here
+        # would hold up the window while it's busy).
+        self.set_busy(True, "Starting the assistant…")
         threading.Thread(target=self.worker, args=(self.current_task().id, self.cancel), daemon=True).start()
 
     def worker(self, task_id: str, cancel: threading.Event) -> None:

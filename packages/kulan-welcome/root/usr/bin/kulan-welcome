@@ -676,7 +676,11 @@ class WelcomeWindow(Adw.ApplicationWindow):
         dialog.set_default_response("join")
         dialog.set_close_response("cancel")
         dialog.set_response_enabled("join", False)
-        entry.connect("changed", lambda e: dialog.set_response_enabled("join", 8 <= len(e.get_text()) <= 63))
+        # 8 to 63 characters, or the key as 64 hexadecimal digits (WPA3 networks take
+        # any length, but Setup can't tell them apart before joining: the same rule
+        # with no upper limit).
+        entry.connect("changed", lambda e: dialog.set_response_enabled(
+            "join", len(e.get_text()) >= 8 or bool(re.fullmatch(r"[0-9A-Fa-f]{64}", e.get_text()))))
         dialog.connect("response", lambda _d, answer: then(entry.get_text()) if answer == "join" else None)
         dialog.present(self)
         entry.grab_focus()
@@ -1272,8 +1276,8 @@ class WelcomeWindow(Adw.ApplicationWindow):
             self.bitwarden_row.set_subtitle(self.bitwarden_text(False))
             return
 
-        code, out, _ = run(["flatpak", "--default-arch"], timeout=10)
-        arch = out.strip() if code == 0 and out.strip() else None
+        # Flatpak's name for this processor (what "flatpak --default-arch" says), without running it.
+        arch = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(os.uname().machine)
         cmd = ["flatpak", "remote-ls", "--system", "--app", "--columns=application", "flathub"]
         if arch:
             cmd.append(f"--arch={arch}")
@@ -1548,21 +1552,24 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
         group.add(self.status_row("Firewall", "Blocks connections coming in from the network",
                                   self.firewall_enabled()))
-        group.add(self.status_row("Automatic security updates", "Security fixes install every day",
-                                  self.auto_updates_enabled()))
+        # Checked without holding up the window (apt-config and lsblk can be slow):
+        # the rows say On or Off as soon as each answer is in.
+        updates = self.status_row("Automatic security updates", "Security fixes install every day", None)
+        group.add(updates)
+        run_async(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"],
+                  lambda code, out, _e: self.set_state(updates, code == 0 and '"1"' in out), timeout=10)
         if live:
             group.add(self.info_row("Disk encryption", "On by default when you install"))
         else:
-            encrypted = self.disk_encrypted()
-            group.add(
-                self.status_row(
-                    "Disk encryption",
-                    "Your files are locked if this computer is lost"
-                    if encrypted
-                    else "Reinstall with encryption to protect your files if this computer is lost",
-                    encrypted,
-                )
-            )
+            disk = self.status_row("Disk encryption", "Your files are locked if this computer is lost", None)
+            group.add(disk)
+
+            def encrypted(code: int, out: str, _e: str) -> None:
+                on = code == 0 and "crypt" in out.split()
+                self.set_state(disk, on)
+                if not on:
+                    disk.set_subtitle("Reinstall with encryption to protect your files if this computer is lost")
+            run_async(["lsblk", "--noheadings", "--output", "TYPE"], encrypted, timeout=10)
         group.add(self.screen_lock_row())
         if not live and self.automatic_sign_in():
             group.add(self.automatic_sign_in_row())
@@ -1621,16 +1628,25 @@ class WelcomeWindow(Adw.ApplicationWindow):
 
     @staticmethod
     def status_row(title: str, subtitle: str, state: bool | None) -> Adw.ActionRow:
+        """On (True), Off (False) or not known yet (None, set later with set_state)."""
         row = Adw.ActionRow(title=title, subtitle=subtitle)
-        if state is True:
-            row.add_prefix(Gtk.Image(icon_name="object-select-symbolic", css_classes=["success"]))
-            row.add_suffix(Gtk.Label(label="On", css_classes=["success"]))
-        elif state is False:
-            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
-            row.add_suffix(Gtk.Label(label="Off", css_classes=["warning"]))
-        else:
-            row.add_prefix(Gtk.Image(icon_name="dialog-information-symbolic"))
+        row.state_icon = Gtk.Image(icon_name="dialog-information-symbolic")
+        row.state_label = Gtk.Label(visible=False)
+        row.add_prefix(row.state_icon)
+        row.add_suffix(row.state_label)
+        WelcomeWindow.set_state(row, state)
         return row
+
+    @staticmethod
+    def set_state(row: Adw.ActionRow, state: bool | None) -> None:
+        if state is None:
+            return
+        css = "success" if state else "warning"
+        row.state_icon.set_from_icon_name("object-select-symbolic" if state else "dialog-warning-symbolic")
+        row.state_icon.set_css_classes([css])
+        row.state_label.set_label("On" if state else "Off")
+        row.state_label.set_css_classes([css])
+        row.state_label.set_visible(True)
 
     @staticmethod
     def info_row(title: str, subtitle: str) -> Adw.ActionRow:
@@ -1644,16 +1660,6 @@ class WelcomeWindow(Adw.ApplicationWindow):
             return "ENABLED=yes" in Path("/etc/ufw/ufw.conf").read_text().split()
         except OSError:
             return False
-
-    @staticmethod
-    def auto_updates_enabled() -> bool:
-        code, out, _ = run(["apt-config", "dump", "APT::Periodic::Unattended-Upgrade"], timeout=10)
-        return code == 0 and '"1"' in out
-
-    @staticmethod
-    def disk_encrypted() -> bool:
-        code, out, _ = run(["lsblk", "--noheadings", "--output", "TYPE"], timeout=10)
-        return code == 0 and "crypt" in out.split()
 
     # --- 10: done -------------------------------------------------------------------
     def build_done(self) -> Gtk.Widget:

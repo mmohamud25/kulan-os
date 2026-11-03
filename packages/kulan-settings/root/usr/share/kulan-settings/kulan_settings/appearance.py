@@ -1,6 +1,8 @@
 """Appearance: light/dark/automatic, accent colour, wallpaper, window buttons."""
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
@@ -67,7 +69,7 @@ def button_style() -> str:
     """The style the user's GTK 4 gtk.css uses: symbols, dots or gnome."""
     folder = Path(GLib.get_user_config_dir()) / "gtk-4.0"
     try:
-        text = (folder / "gtk.css").read_text()
+        text = (folder / "gtk.css").read_text(encoding="utf-8", errors="replace")
     except OSError:
         return "gnome"
     for style, files in BUTTON_STYLES.items():
@@ -75,7 +77,7 @@ def button_style() -> str:
             return style
     if GTK_IMPORT in text:
         try:
-            first = (folder / GTK_COPY).read_text().split("\n", 1)[0]
+            first = (folder / GTK_COPY).read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
         except OSError:
             return "symbols"
         name = first.removeprefix("/* kulan-style: ").removesuffix(" */").strip()
@@ -90,9 +92,11 @@ def set_button_style(style: str) -> None:
         folder = Path(GLib.get_user_config_dir()) / folder_name
         path = folder / "gtk.css"
         try:
-            current = path.read_text()
-        except OSError:
+            current = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
             current = ""
+        except (OSError, ValueError):
+            continue  # someone's own file Kulan can't read: left exactly as it is
         lines = [x for x in current.splitlines() if x.strip() not in _kulan_lines()]
         css = BUTTON_STYLES.get(style, {}).get(folder_name)
         folder.mkdir(parents=True, exist_ok=True)
@@ -102,13 +106,20 @@ def set_button_style(style: str) -> None:
             except OSError:
                 source = None
             if source is not None:
-                (folder / GTK_COPY).write_text(f"/* kulan-style: {style} */\n{source}")
+                _write(folder / GTK_COPY, f"/* kulan-style: {style} */\n{source}")
                 lines = [GTK_COMMENT, GTK_IMPORT, *lines]
         text = "\n".join(lines).strip("\n")
         if text:
-            path.write_text(text + "\n")
+            _write(path, text + "\n")
         elif path.exists():
             path.unlink()
+
+
+def _write(path: Path, text: str) -> None:
+    """Replaced in one step: never a half-written gtk.css if something stops midway."""
+    tmp = path.with_name(f".{path.name}.kulan-new")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 _swatch_style_added = False

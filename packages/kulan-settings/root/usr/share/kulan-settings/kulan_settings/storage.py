@@ -10,7 +10,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, launch, plain_error
+from .common import in_thread, launch, Page, plain_error
 
 APT_ARCHIVES = Path("/var/cache/apt/archives")
 # Written by /usr/lib/kulan/restore-points (Settings can't read /timeshift).
@@ -218,9 +218,11 @@ class StoragePage(Page):
         dialog.present(self.window)
 
     def clear_thumbnails(self) -> None:
-        shutil.rmtree(Path(self.cache) / "thumbnails", ignore_errors=True)
-        self.toast("Picture previews cleared")
-        self.shown()
+        # Tens of thousands of small files: deleted on a worker thread, not the window's.
+        def done(_result) -> None:
+            self.toast("Picture previews cleared")
+            self.shown()
+        in_thread(lambda: shutil.rmtree(Path(self.cache) / "thumbnails", ignore_errors=True), done, page=self)
 
     def run_user(self, argv: list[str], message: str) -> None:
         try:

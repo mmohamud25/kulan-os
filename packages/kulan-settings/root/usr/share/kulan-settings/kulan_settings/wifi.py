@@ -8,7 +8,7 @@ from __future__ import annotations
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .common import Page, plain_error
-from .netextras import HOTSPOT_ID, NetworkExtras, details_text
+from .netextras import HOTSPOT_ID, NetworkExtras, details_text, password_ok
 
 try:
     import gi
@@ -527,7 +527,7 @@ class WifiPage(Page):
         dialog.set_default_response("save")
         dialog.set_close_response("cancel")
         dialog.set_response_enabled("save", False)
-        entry.connect("changed", lambda e: dialog.set_response_enabled("save", 8 <= len(e.get_text()) <= 63))
+        entry.connect("changed", lambda e: dialog.set_response_enabled("save", password_ok(e.get_text(), kind)))
 
         def answered(_d, response: str) -> None:
             if response == "save":
@@ -611,8 +611,7 @@ class WifiPage(Page):
         dialog.set_response_enabled("join", False)
 
         def changed(_e) -> None:
-            length = len(entry.get_text())
-            dialog.set_response_enabled("join", 8 <= length <= 63)
+            dialog.set_response_enabled("join", password_ok(entry.get_text(), net["security"]))
 
         entry.connect("changed", changed)
 

@@ -334,7 +334,7 @@ class SettingsWindow(Adw.ApplicationWindow):
 
 # Programs the pages ask (self-test: made slow, to show none is waited for on the window's thread).
 SLOW_PROGRAMS = ("lscpu", "lspci", "gnome-shell", "systemctl", "findmnt", "lsblk", "dpkg-query", "flatpak",
-                 "locale", "openssl")
+                 "locale", "openssl", "apt-config", "qrencode")
 SLOW_S = 3
 
 
@@ -484,6 +484,9 @@ class KulanSettings(Adw.Application):
             assert wifi_page.saved_for(card, saved, "Kulan") is None, "its own hotspot isn't a saved network"
             assert wifi_page.saved_for(card, saved, "Cafe") is None and wifi_page.saved_for(card, [], "Home") is None
             assert "filter_connections(" not in open(wifi_page.__file__).read(), "NMDevice.filter_connections is back"
+            from .netextras import password_ok
+            assert password_ok("0123456789abcdef" * 4) and not password_ok("z" * 64) and password_ok("x", "sae"), \
+                "Wi-Fi passwords: a 64-digit key and WPA3's any length"
         except (AssertionError, AttributeError) as exc:
             failures.append(f"wifi: {exc!r}")
         try:  # Fingerprint (2.12): a stand-in fprintd on the session bus, the whole flow

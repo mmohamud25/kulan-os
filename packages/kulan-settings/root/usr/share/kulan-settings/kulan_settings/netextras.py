@@ -3,6 +3,7 @@ older (WEP) Wi-Fi, hidden networks, a hotspot, VPNs, the proxy and the
 connection's details. Uses NetworkManager (libnm) like the Wi-Fi page."""
 from __future__ import annotations
 
+import re
 import secrets
 import shutil
 import string
@@ -11,6 +12,17 @@ from typing import Callable
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from .common import has_key, settings
+
+
+def password_ok(text: str, kind: str = "psk") -> bool:
+    """A password the network can take: WPA2 (psk) 8 to 63 characters, or its key
+    written as 64 hexadecimal digits; WPA3 (sae) any length; WEP 5 or more."""
+    if kind == "sae":
+        return len(text) >= 1
+    if kind == "wep":
+        return len(text) >= 5
+    return 8 <= len(text) <= 63 or bool(re.fullmatch(r"[0-9A-Fa-f]{64}", text))
+
 
 try:
     import gi
@@ -178,7 +190,7 @@ class NetworkExtras:
 
         def ready() -> bool:
             text = password.get_text()
-            return len(text) >= 5 if kind == "wep" else 8 <= len(text) <= 63
+            return password_ok(text, kind)
 
         def go() -> None:
             connection = wifi_connection(ssid, hidden)

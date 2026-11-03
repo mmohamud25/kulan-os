@@ -150,8 +150,14 @@ class Store:
             f.unlink(missing_ok=True)
 
     def trim(self) -> None:
-        for conv in self.list()[MAX_CONVERSATIONS:]:
-            self.delete(conv.id)
+        """The newest MAX_CONVERSATIONS are kept: by when their file was last
+        written (as fast as listing the folder; reading them all was slow)."""
+        try:
+            files = sorted(self.path.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
+        except OSError:
+            return
+        for f in files[MAX_CONVERSATIONS:]:
+            f.unlink(missing_ok=True)
 
 
 def self_test() -> None:
