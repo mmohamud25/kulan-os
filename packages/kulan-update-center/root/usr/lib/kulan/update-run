@@ -324,8 +324,10 @@ remove_old_kernels() {
 }
 
 # Free megabytes on the disk holding a folder (empty when it isn't there).
+# Never fails: the script runs with errexit and pipefail.
 free_mb() {
-	df --output=avail -B1M "$1" 2>/dev/null | tail -n 1 | tr -dc 0-9
+	{ df --output=avail -B1M "$1" 2>/dev/null || true; } | tail -n 1 | tr -dc 0-9
+	return 0
 }
 
 # Room for a new kernel: its start-up image in /boot, and with signed start-up

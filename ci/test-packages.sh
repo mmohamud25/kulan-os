@@ -379,7 +379,8 @@ check "Phone link works with GNOME 48" "Debian's GSConnect (the Phone link add-o
 	apt-get purge -y -q gnome-shell-extension-gsconnect >/dev/null 2>&1; rm -rf /usr/share/gnome-shell/extensions/gsconnect@andyholmes.github.io; exit $ok'
 check "Free-space check before updates" "reads apt's plan (apt answers no and exits 1) into one number, and stops when the disk is too full" bash -c '
 	space() { bash -c "set -euo pipefail; APT_LOCK=(-o DPkg::Lock::Timeout=60); die() { echo \"die: \$*\"; exit 3; }
-		eval \"\$(sed -n \"/^check_space() {/,/^}/p\" /usr/lib/kulan/update-run)\"
+		ROOM_PROBLEM=\"\"; for f in check_space room_for_updates room_for_kernel free_mb remove_old_kernels; do eval \"\$(sed -n \"/^\$f() {/,/^}/p\" /usr/lib/kulan/update-run)\"; done
+		eval \"\$(grep -E \"^KERNEL_(BOOT|ESP)_MB=\" /usr/lib/kulan/update-run)\"
 		$1
 		check_space install $2 && echo ok"; }
 	for pkg in hello cowsay sl figlet; do dpkg -s "$pkg" >/dev/null 2>&1 || break; done
@@ -485,13 +486,14 @@ for css in ("stylesheet-dark.css", "stylesheet-light.css"):
     assert ".kulan-todo-check" in open(os.path.join(d, css)).read(), css
 PY
 # shellcheck disable=SC2016  # expanded by the inner bash
-check "Undo last update" "restores the newest pre-update point after saving the current one, pauses automatic updates, restarts" bash -c '
+check "Undo last update" "restores the last update's point after saving the current one, pauses automatic updates, restarts" bash -c '
 	set -e; D=$(mktemp -d); mkdir -p "$D/bin" "$D/snaps/2026-01-01_00-00-00" "$D/snaps/2026-01-03_00-00-00" "$D/snaps/2026-01-02_00-00-00"
 	printf "#!/bin/sh\necho \"\$0 \$*\" >> \"\$D/calls\"\n" | sed "s|\\\$D|$D|" > "$D/bin/timeshift"; cp "$D/bin/timeshift" "$D/bin/systemctl"; chmod +x "$D/bin/"*
 	for n in 2026-01-01_00-00-00 2026-01-03_00-00-00; do printf "{\"tags\":\"O\",\"comments\":\"Before installing updates\"}" > "$D/snaps/$n/info.json"; done
 	printf "{\"tags\":\"D\",\"comments\":\"\"}" > "$D/snaps/2026-01-02_00-00-00/info.json"
 	sed -e "s|^export PATH=|export PATH=$D/bin:|" -e "s|^CONFIG=.*|CONFIG=$D/ts.json|" -e "s/^MIN_FREE_PERCENT=.*/MIN_FREE_PERCENT=0/" -e "s/^MIN_FREE_GIB=.*/MIN_FREE_GIB=0/" /usr/lib/kulan/restore-points > "$D/rp"; echo "{}" > "$D/ts.json"
-	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" KULAN_POWER_SUPPLIES="$D/no-power-supplies" bash "$D/rp" undo-update >/dev/null
+	mkdir -p "$D/root"; printf "{\"point\": \"2026-01-03_00-00-00\", \"undone\": \"\", \"time\": 1}\n" > "$D/last.json"
+	KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="$D/snaps" KULAN_RESTORE_USAGE="$D/u.json" KULAN_PAUSE_FILE="$D/pause" KULAN_POWER_SUPPLIES="$D/no-power-supplies" KULAN_LAST_UPDATE="$D/last.json" KULAN_KEEP_ROOT="$D/root" KULAN_KEPT="$D/kept" bash "$D/rp" undo-update >/dev/null
 	grep -q -- "--create --scripted --comments Before undoing an update" "$D/calls"
 	grep -q -- "--restore --snapshot 2026-01-03_00-00-00 --scripted --yes --skip-grub" "$D/calls"
 	grep -q "systemctl reboot" "$D/calls"
