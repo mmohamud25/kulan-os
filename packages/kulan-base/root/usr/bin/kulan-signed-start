@@ -400,7 +400,7 @@ def undo_profile(work: Path, x64: str) -> Path | None:
     return out
 
 
-def build_one(version: str) -> None:
+def build_one(version: str, keep_prev: bool = True) -> None:
     kernel, initrd = Path(f"/boot/vmlinuz-{version}"), Path(f"/boot/initrd.img-{version}")
     if not kernel.exists():
         raise RuntimeError(f"no kernel {version}")
@@ -413,10 +413,11 @@ def build_one(version: str) -> None:
     tmp = out.with_name(out.name + ".new")
     tmp.unlink(missing_ok=True)
     good, prev = good_path(version), prev_path(version)
-    # Short of room on the EFI partition: the older file kept to fall back on
-    # goes first, when there's a newer one that worked to take its place.
-    if good.exists() and prev.exists() and esp_free_mb() < UKI_MB:
-        prev.unlink(missing_ok=True)
+    # Short of room on the EFI partition: other kernels' files kept to fall back on go first.
+    if esp_free_mb() < UKI_MB:
+        for old in (ESP / "EFI/Linux").glob(f"{VENDOR}-*{PREV}.efi"):
+            if old != prev:
+                old.unlink(missing_ok=True)
     x64 = names()[0]
     base = ["ukify", "build", f"--linux={kernel}", f"--initrd={initrd}", f"--cmdline=@{CMDLINE}",
             "--os-release=@/usr/lib/os-release", f"--uname={version}",
@@ -441,13 +442,18 @@ def build_one(version: str) -> None:
     # the desktop (never deleted first: a bad start-up image would leave the
     # computer with nothing that starts). Files made since it, not known to
     # work, go.
-    if good.exists():
+    if good.exists() and keep_prev:
         os.replace(good, prev)
         sync_dir(prev.parent)
     put_in_place(tmp, out)
     for other in uki_files(version):
-        if other not in (out, prev):
+        if other not in (out, prev) or (other == prev and not keep_prev):
             other.unlink(missing_ok=True)
+
+
+def version_key(version: str) -> list:
+    """Kernel versions in their natural order (6.12.9 before 6.12.10)."""
+    return [(0, int(p)) if p.isdigit() else (1, p) for p in re.split(r"(\d+)", version) if p]
 
 
 def rebuild(only: str | None = None, after_undo: bool = False) -> None:
@@ -455,12 +461,17 @@ def rebuild(only: str | None = None, after_undo: bool = False) -> None:
     fix_loader_conf()
     if after_undo:
         # Those were the undone system's (its start-up image, its os-release):
-        # not to fall back on now.
+        # never to fall back on now.
         for old in (ESP / "EFI/Linux").glob(f"{VENDOR}-*{PREV}.efi"):
             old.unlink(missing_ok=True)
     versions = [only] if only else kernels()
+    # The file to fall back on is kept for the newest kernel, the one that
+    # starts by default (systemd-boot falls back to it there); older kernels
+    # are a fallback themselves. Never after an undo: the files that worked
+    # were the undone system's.
+    newest = max(kernels() or versions, key=version_key)
     for version in versions:
-        build_one(version)
+        build_one(version, keep_prev=not after_undo and version == newest)
     if not only:  # kernels no longer installed: their files go
         for old in (ESP / "EFI/Linux").glob(f"{VENDOR}-*.efi"):
             if uki_version(old.name) not in versions:

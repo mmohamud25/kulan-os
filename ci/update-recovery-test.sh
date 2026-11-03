@@ -464,6 +464,34 @@ update_point() {
 }
 check "the restore point before installing updates is recorded; a skipped one isn't offered" update_point
 
+undo_from_older() {
+	# Undoing the upgrade to 2.13 puts back 2.12's kulan-signed-start, which doesn't
+	# know --after-undo: then it signs the start-up files with a plain rebuild.
+	undo_env
+	fake_timeshift
+	reset_points
+	local R="${RP}/root"
+	mkdir -p "${R}/var/lib/kulan"
+	echo '{"phase": "on"}' >"${R}/var/lib/kulan/signed-start.json"
+	printf '#!/bin/sh
+echo "kulan-signed-start $*" >> "%s/calls"
+[ "$2" = --after-undo ] && exit 64
+exit 0
+' "${RP}" >"${RP}/bin/kulan-signed-start"
+	chmod +x "${RP}/bin/kulan-signed-start"
+	echo 1 >"${RP}/power/AC/online"
+	bash "${RP}/restore-points" undo-update >/dev/null 2>&1 || { echo "undo failed"; return 1; }
+	local ok=0
+	grep -qx "kulan-signed-start rebuild --after-undo" "${RP}/calls" && grep -qx "kulan-signed-start rebuild" "${RP}/calls" ||
+		{ echo "no plain rebuild after an older kulan-signed-start: $(cat "${RP}/calls")"; ok=1; }
+	rm -f "${RP}/bin/kulan-signed-start" "${R}/var/lib/kulan/signed-start.json"
+	# Updates installed without a restore point: no undo offered for them.
+	reset_points
+	bash "${RP}/restore-points" forget-update-point && grep -q '"point": ""' "${KULAN_LAST_UPDATE}" || { echo "forget-update-point"; ok=1; }
+	return "${ok}"
+}
+check "undo from 2.13 back to 2.12 signs the start-up files; updates without a restore point aren't undone" undo_from_older
+
 before_auto_update() {
 	export KULAN_RESTORE_FORCE=1 KULAN_RESTORE_SNAPSHOTS="${RP}/snaps" KULAN_RESTORE_USAGE="${RP}/u.json"
 	local stamp=/var/lib/kulan/auto-update-restore-point

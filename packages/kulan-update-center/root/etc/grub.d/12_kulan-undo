@@ -18,7 +18,7 @@ KERNEL="$(sed -n 's/.*"kernel": *"\([A-Za-z0-9._+~-]*\)".*/\1/p' "${KULAN_LAST_U
 ENTRY="$(GRUB_DISABLE_SUBMENU=true GRUB_DISABLE_RECOVERY=true "${LINUX_ENTRIES}" 2>/dev/null | awk -v kernel="${KERNEL}" '
 	/^menuentry / { n++; inside = 1; entry = "" }
 	inside { entry = entry $0 "\n" }
-	inside && /^[[:space:]]*linux[[:space:]]/ && kernel != "" && index($2, "/vmlinuz-" kernel) == length($2) - length("/vmlinuz-" kernel) + 1 { match_entry = 1 }
+	inside && /^[[:space:]]*linux[[:space:]]/ && kernel != "" && index($2, "/vmlinuz-" kernel) > 0 && index($2, "/vmlinuz-" kernel) == length($2) - length("/vmlinuz-" kernel) + 1 { match_entry = 1 }
 	inside && /^}/ {
 		inside = 0
 		if (n == 1) first = entry

@@ -270,7 +270,11 @@ repair_dpkg() {
 	echo "An earlier update was interrupted; finishing it first." >&2
 	# A full disk is the usual reason it stopped, and it would stop again.
 	local dir avail
-	for dir in / /var /boot /boot/efi; do
+	local -a dirs=(/ /var /boot)
+	# The EFI partition only matters with signed start-up (its files go there);
+	# with GRUB, a small Windows one being full doesn't stop anything.
+	compgen -G "/boot/efi/EFI/Linux/kulan-*.efi" >/dev/null && dirs+=(/boot/efi)
+	for dir in "${dirs[@]}"; do
 		avail="$(free_mb "${dir}")"
 		if [[ -n "${avail}" ]] && (( avail < 50 )); then
 			case "${dir}" in
@@ -546,6 +550,11 @@ case "${1:-}" in
 				/usr/lib/kulan/restore-points drop-update-point 1>&2 || true
 				check_space --with-new-pkgs upgrade
 			fi
+		elif [[ -x /usr/lib/kulan/restore-points ]] &&
+			grep -q '^Inst ' <<<"$(apt-get -s -q -o Debug::NoLocking=1 --with-new-pkgs upgrade 2>/dev/null || true)"; then
+			# Updates installed without a restore point (the choice is off, or Kulan
+			# Fleet asked): an undo would go back further than them, so none is offered.
+			/usr/lib/kulan/restore-points forget-update-point 1>&2 || true
 		fi
 		# Updates that only take effect after a restart (the Linux kernel,
 		# the C library, systemd, the desktop itself, drivers, microcode).

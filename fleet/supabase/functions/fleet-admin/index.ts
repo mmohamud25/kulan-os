@@ -1394,8 +1394,11 @@ Deno.serve(async (req: Request) => {
         // The group's computers are where the people allowed on it may sign in:
         // for an admin's or the Owner's account, only the Owner changes that.
         if (devices) {
-          const [privileged] = await sql`select 1 as x from fleet.person_groups pg join fleet.people pe on pe.id = pg.person_id
-                                         where pg.group_id = ${g.id} and pe.role <> 'employee' and pe.removed_at is null limit 1`;
+          const had = (await sql`select device_id from fleet.group_devices where group_id = ${g.id}`).map((r) => r.device_id as string);
+          const want = new Set(devices);
+          const changes = want.size !== new Set(had).size || [...want].some((d) => !had.includes(d));
+          const [privileged] = changes ? await sql`select 1 as x from fleet.person_groups pg join fleet.people pe on pe.id = pg.person_id
+                                         where pg.group_id = ${g.id} and pe.role <> 'employee' and pe.removed_at is null limit 1` : [];
           if (privileged && !(await isOwner(org))) {
             return reply(403, { error: "an admin or the Owner signs in on this group's computers, so only the Owner changes them" });
           }

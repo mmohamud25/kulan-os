@@ -21,6 +21,7 @@
 #                                    ("Undo the last update", kulan-undo-at-start.service)
 #   restore-points drop-update-point remove the point just taken before updates
 #                                    (they need the room: updates come first)
+#   restore-points forget-update-point  updates installed without a point: no undo
 #
 # Snapshots made here are Timeshift's on-demand kind (its default for
 # --create; passing "--tags O" is refused by Timeshift 24/25).
@@ -349,7 +350,9 @@ undo_target() {
 # set of passwords or a lifted lost mode. Each is kept exactly: a file that
 # isn't there now is removed from the restored system too. Only files Kulan
 # or the person wrote: never a package's own files (dpkg's records go back
-# with the restore point, and must match).
+# with the restore point, and must match). /etc/gdm3/daemon.conf and
+# /etc/ufw/ufw.conf are configuration files of their packages that compliance
+# mode and the firewall change: kept as changed, as dpkg expects of an edited one.
 KEEP_ROOT="${KULAN_KEEP_ROOT:-}" # tests only
 KEEP=(/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid
 	/etc/kulan /var/lib/kulan /var/lib/AccountsService /var/lib/fprint
@@ -362,8 +365,10 @@ KEEP=(/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid
 	/etc/dconf/db/local.d/locks/50-kulan-compliance /etc/dconf/db/gdm.d/90-kulan-fleet-lost /etc/gdm3/daemon.conf
 	/etc/apt/preferences.d/60-kulan-fleet-blocked /etc/apt/apt.conf.d/20kulan-compliance-updates
 	/etc/ssh/sshd_config.d/50-kulan-compliance.conf /etc/security/pwquality.conf.d/50-kulan-compliance.conf
-	/etc/sysctl.d/60-kulan-hardening.conf)
-KEPT="${KULAN_KEPT:-/run/kulan/undo-kept}"
+)
+# Kept on the system disk, next to the restore points (never part of one, and
+# never restored over): it survives a restart if something stops half-way.
+KEPT="${KULAN_KEPT:-$(dirname "${SNAPSHOTS}")/kulan-undo-kept}"
 keep_state() {
 	rm -rf "${KEPT}"
 	mkdir -p "${KEPT}"
@@ -379,19 +384,49 @@ keep_state() {
 		fi
 	done
 	(( ${#present[@]} )) || return 0
+	# tar says 1 when a file changed while it was read (the Fleet agent writing
+	# its state, say): what it read is still a whole copy of each file.
+	local rc=0
 	tar --create --file "${KEPT}/state.tar" --acls --xattrs --numeric-owner --one-file-system \
-		-C "${KEEP_ROOT:-/}" "${present[@]}"
+		-C "${KEEP_ROOT:-/}" "${present[@]}" || rc=$?
+	(( rc <= 1 ))
 }
 put_state_back() {
 	[[ -d "${KEPT}" ]] || return 0
-	local path ok=0
-	for path in "${KEEP[@]}"; do
-		rm -rf "${KEEP_ROOT}${path}" || ok=1
-	done
-	if [[ -f "${KEPT}/state.tar" ]]; then
-		tar --extract --file "${KEPT}/state.tar" --acls --xattrs --numeric-owner --same-permissions \
-			-C "${KEEP_ROOT:-/}" || ok=1
+	# Unpacked next to where they go first, then each moved into place in one
+	# step: if unpacking fails, nothing of the restored system was touched, and
+	# there's never a moment without /etc/passwd or /etc/shadow.
+	local stage="${KEEP_ROOT}/.kulan-undo-stage" path target ok=0
+	rm -rf "${stage}"
+	mkdir -p "${stage}"
+	chmod 0700 "${stage}"
+	if [[ -f "${KEPT}/state.tar" ]] && ! tar --extract --file "${KEPT}/state.tar" --acls --xattrs --numeric-owner \
+		--same-permissions -C "${stage}"; then
+		rm -rf "${stage}"
+		log "couldn't unpack the kept accounts and settings; they're in ${KEPT}"
+		return 1
 	fi
+	for path in "${KEEP[@]}"; do
+		target="${KEEP_ROOT}${path}"
+		if [[ -e "${stage}${path}" || -L "${stage}${path}" ]]; then
+			mkdir -p "$(dirname "${target}")"
+			if [[ -d "${stage}${path}" && ! -L "${stage}${path}" ]]; then
+				rm -rf "${target}.kulan-old"
+				if [[ -e "${target}" || -L "${target}" ]]; then mv "${target}" "${target}.kulan-old" || { ok=1; continue; }; fi
+				if mv "${stage}${path}" "${target}"; then
+					rm -rf "${target}.kulan-old"
+				else
+					[[ -e "${target}.kulan-old" ]] && mv "${target}.kulan-old" "${target}"
+					ok=1
+				fi
+			else
+				mv -f "${stage}${path}" "${target}" || ok=1
+			fi
+		elif grep -qxF "${path}" "${KEPT}/absent" 2>/dev/null; then
+			rm -rf "${target}" || ok=1
+		fi
+	done
+	rm -rf "${stage}"
 	[[ ${ok} -eq 0 ]] || { log "couldn't put everything kept back; it's in ${KEPT}"; return 1; }
 	rm -rf "${KEPT}"
 	[[ -z "${KEEP_ROOT}" ]] && command -v dconf >/dev/null 2>&1 && { dconf update 2>/dev/null || true; }
@@ -400,7 +435,10 @@ put_state_back() {
 	# newest one would still start the update's kernel, whose modules are gone.
 	if [[ -f "${KEEP_ROOT}/var/lib/kulan/signed-start.json" ]] && command -v kulan-signed-start >/dev/null 2>&1; then
 		echo "pmstatus:undo:90:Signing the start-up files"
-		kulan-signed-start rebuild --after-undo >&2 || log "couldn't sign the start-up files again"
+		# The restored system's kulan-signed-start may be from before 2.13, without
+		# --after-undo: then a plain rebuild.
+		kulan-signed-start rebuild --after-undo >&2 || kulan-signed-start rebuild >&2 ||
+			log "couldn't sign the start-up files again"
 	fi
 	return 0
 }
@@ -630,6 +668,13 @@ case "${1:-}" in
 		fi
 		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || true
 		;;
+	forget-update-point)
+		# update-run, for updates installed without a restore point: an undo now
+		# would go back further than them, so none is offered.
+		[[ $# -eq 1 ]] || { echo 'usage: restore-points forget-update-point' >&2; exit 2; }
+		is_live_or_build && exit 0
+		record_last_update ""
+		;;
 	drop-update-point)
 		# update-run, when the point before installing updates left too little room for them.
 		[[ $# -eq 1 ]] || { echo 'usage: restore-points drop-update-point' >&2; exit 2; }
@@ -658,7 +703,7 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|undo-at-start|before-auto-update|drop-update-point' >&2
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|undo-at-start|before-auto-update|drop-update-point|forget-update-point' >&2
 		exit 2
 		;;
 esac

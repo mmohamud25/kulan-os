@@ -393,6 +393,12 @@ class KulanSettings(Adw.Application):
         finally:
             os.environ["PATH"] = path
         took = time.monotonic() - started
+        # What pages queue up after they're shown (list refreshes) runs now, so the
+        # pass below opens each page again the way someone coming back to it does.
+        settle = time.monotonic() + 1.5
+        while time.monotonic() < settle:
+            GLib.MainContext.default().iteration(False)
+            time.sleep(0.01)
         if took > SLOW_S * 2:
             failures.append(f"opening every page took {took:.1f} s with slow programs: something waits for "
                             "them on the window’s thread")

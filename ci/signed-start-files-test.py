@@ -88,10 +88,12 @@ check((kss.ESP / "loader/loader.conf").exists() is False, "loader.conf made by r
 # They worked (boot-ok's rename).
 for v in (V1, V2):
     (LINUX / f"kulan-{v}+3.efi").rename(LINUX / f"kulan-{v}.efi")
-# Signed again (kulan-tpm, an update): the ones that worked are kept to fall back on.
+# Signed again (kulan-tpm, an update): the newest kernel's file that worked is kept
+# to fall back on (systemd-boot starts the newest); an older kernel is a fallback itself.
 kss.rebuild()
-check(files() == sorted([f"kulan-{V1}+3.efi", f"kulan-{V1}~prev.efi", f"kulan-{V2}+3.efi", f"kulan-{V2}~prev.efi"]),
-      "kept to fall back on")
+check(files() == sorted([f"kulan-{V1}+3.efi", f"kulan-{V2}+3.efi", f"kulan-{V2}~prev.efi"]),
+      "kept to fall back on, for the newest kernel only")
+check(kss.version_key("6.12.9") < kss.version_key("6.12.10"), "versions in their natural order")
 check(kss.uki_version(f"kulan-{V1}~prev.efi") == V1 and kss.uki_version(f"kulan-{V1}+2-1.efi") == V1, "versions")
 # Again, before the new ones worked: the one kept is still the one that worked.
 (LINUX / f"kulan-{V2}+3.efi").rename(LINUX / f"kulan-{V2}+1-2.efi")
@@ -109,16 +111,18 @@ except RuntimeError:
 fail["ukify"] = False
 check(files() == before, "a failed build changed the files")
 check(not list(LINUX.glob("*.new")), "temporary file left")
-# Short of room: the older one kept goes when there's a newer one that worked.
+# Short of room: other kernels' files kept to fall back on go first.
 (LINUX / f"kulan-{V1}+3.efi").rename(LINUX / f"kulan-{V1}.efi")
 kss.esp_free_mb = lambda: 10
 kss.rebuild(V1)
-check(f"kulan-{V1}~prev.efi" in files() and f"kulan-{V1}+3.efi" in files() and f"kulan-{V1}.efi" not in files(),
-      "low on room")
+check(files() == sorted([f"kulan-{V1}+3.efi", f"kulan-{V2}+3.efi"]), "low on room")
 kss.esp_free_mb = lambda: 10_000
-# After an undo: nothing of the undone system's kept.
+# After an undo: nothing of the undone system's kept, not even the files that worked.
+for v in (V1, V2):
+    (LINUX / f"kulan-{v}+3.efi").rename(LINUX / f"kulan-{v}.efi")
+(LINUX / f"kulan-{V2}~prev.efi").write_text("old")
 kss.rebuild(after_undo=True)
-check(not [f for f in files() if "~prev" in f], "after undo")
+check(files() == sorted([f"kulan-{V1}+3.efi", f"kulan-{V2}+3.efi"]), "after undo")
 # A removed kernel: all its files go.
 kss.remove_kernel(V1)
 check(not [f for f in files() if V1 in f], "removed kernel")

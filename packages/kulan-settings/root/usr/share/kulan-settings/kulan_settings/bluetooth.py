@@ -318,9 +318,9 @@ class BluetoothPage(Page):
         # their place as their signal changes.
         shown = (powered, self.discovering, tuple(sorted(self.busy)), repr(devices),
                  tuple(sorted((d["path"], d["name"], d["icon"] or "") for d in nearby[:15])))
-        if shown == getattr(self, "shown", None):
+        if shown == getattr(self, "shown_state", None):
             return GLib.SOURCE_REMOVE
-        self.shown = shown
+        self.shown_state = shown
         for group, row in self.rows:
             group.remove(row)
         self.rows = []

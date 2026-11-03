@@ -313,8 +313,8 @@ class WifiPage(Page):
         # signal bars, connected, saved), and never under an open ⋯ menu: a
         # scan finds or loses networks every few seconds.
         shown = (show_list, device.get_path() if device is not None else None,
-                 tuple((n["ssid"], signal_icon(n["strength"]), n["security"] != "open", n["active"],
-                        bool(self.saved_connection(device, n["ssid"]))) for n in nets))
+                 tuple((n["ssid"], n["ap"].get_path(), signal_icon(n["strength"]), n["security"] != "open",
+                        n["active"], bool(self.saved_connection(device, n["ssid"]))) for n in nets))
         self.menu_buttons = [b for b in self.menu_buttons if b.get_root() is not None]
         if any(b.get_active() for b in self.menu_buttons):
             self.queue_refresh()  # again shortly, once the menu has closed

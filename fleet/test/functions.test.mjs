@@ -621,6 +621,8 @@ ok(r.status === 200 && r.body.recovery_code, "the boss sets an Owner for an olde
   await db`update fleet.people set role = 'admin' where id = ${farah}`;
   r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [A.device_id, B.device_id] });
   ok(r.status === 403, "an admin can't widen where an admin's account signs in through a group", r);
+  r = await admin(HELPER, { op: "edit-group", group_id: finance, name: "Finance", devices: [B.device_id] });
+  ok(r.status === 200, "the same computers (a rename or a new policy): any admin", r);
   await db`update fleet.people set role = 'employee' where id = ${farah}`;
   r = await admin(HELPER, { op: "edit-group", group_id: finance, devices: [A.device_id, B.device_id] });
   ok(r.status === 200, "employees only: any admin changes the group's computers", r);
