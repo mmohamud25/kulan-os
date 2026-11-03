@@ -966,7 +966,7 @@ fail = True
 ok, detail = kf.erase()
 assert not ok and "erase failed on /dev/fake-luks2" in detail and "not switched off" in detail, detail
 assert subprocess.run(["kulan-fleet", "allow-erase", "off"], capture_output=True).returncode == 0
-assert kf.erase() == (False, "not allowed on this computer (Kulan Settings > About > Organisation)")
+assert kf.erase() == (False, "not allowed on this computer (Kulan Settings › About Kulan OS › Organisation)")
 PY
 # Erasing a lost computer (2.7): a notice first, and switching off during
 # it doesn't stop the erase. Stand-ins for the disk: nothing is erased here.
