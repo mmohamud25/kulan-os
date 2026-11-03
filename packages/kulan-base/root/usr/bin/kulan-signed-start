@@ -378,12 +378,27 @@ def uki_files(version: str) -> list[Path]:
 # "Undo the last update" in systemd-boot's menu (as GRUB's 12_kulan-undo): a
 # second profile in the same signed file, the same kernel and start-up image
 # with "kulan.undo-update" added (kulan-undo-at-start.service). systemd-boot
-# lists it as "Kulan OS (Undo the last update)", with the ID
-# kulan-<version>.efi@undo; loader.conf's default (kulan-*.efi) never matches
-# it. Its menu shows after a start-up that didn't reach the desktop
-# (/usr/lib/kulan/boot-ok). Needs ukify and systemd-boot 257 or later.
+# lists it as "Kulan OS (Undo the last update)". Its menu shows after a
+# start-up that didn't reach the desktop (/usr/lib/kulan/boot-ok). Needs ukify
+# and systemd-boot 257 or later.
+#
+# It must never start by itself. Its ID is kulan-<version>.efi@undo, which
+# loader.conf's default (kulan-*.efi) doesn't match, but systemd-boot 257.13
+# drops the "@undo" while the file still has its try counter (+3, a new file),
+# so both entries then have the same ID and the first in the menu starts. The
+# undo profile has its own os-release with a sort key after the normal one's
+# (IMAGE_ID kulan-undo), so it always comes after every normal entry.
 MAIN_PROFILE = "ID=main"  # its title stays "Kulan OS <version>"
 UNDO_PROFILE = "ID=undo\nTITLE=Undo the last update"
+
+
+def undo_os_release() -> str:
+    """os-release for the undo entry: the system's, with a sort key that puts it last."""
+    lines = Path("/usr/lib/os-release").read_text().splitlines()
+    fields = dict(line.split("=", 1) for line in lines if "=" in line and not line.startswith("#"))
+    key = (fields.get("IMAGE_ID") or fields.get("ID") or VENDOR).strip('"\'')
+    kept = [line for line in lines if not line.startswith("IMAGE_ID=")]
+    return "\n".join(kept + [f"IMAGE_ID={key}-undo"]) + "\n"
 
 
 def undo_profile(work: Path, x64: str) -> Path | None:
@@ -392,8 +407,10 @@ def undo_profile(work: Path, x64: str) -> Path | None:
         return None
     out = work / "undo.efi"
     options = CMDLINE.read_text().strip() + " kulan.undo-update"
-    r = run(["ukify", "build", f"--profile={UNDO_PROFILE}", f"--cmdline={options}", f"--stub={stub}",
-             f"--output={out}"], timeout=120)
+    osrel = work / "undo-os-release"
+    osrel.write_text(undo_os_release())
+    r = run(["ukify", "build", f"--profile={UNDO_PROFILE}", f"--cmdline={options}", f"--os-release=@{osrel}",
+             f"--stub={stub}", f"--output={out}"], timeout=120)
     if r.returncode != 0 or not out.exists():
         print(f"kulan-signed-start: no 'Undo the last update' entry: {detail(r, 'ukify failed')}", file=sys.stderr)
         return None
@@ -492,7 +509,8 @@ def copy_if_changed(src: Path, dst: Path) -> None:
     put_in_place(tmp, dst)
 
 
-# The default is the signed file's main entry, never its "@undo" one.
+# The default is the signed file's main entry, never its "@undo" one (and the
+# undo entries sort after every main one: undo_os_release).
 LOADER_CONF = f"timeout 0\ndefault {VENDOR}-*.efi\neditor no\nauto-firmware yes\nconsole-mode keep\n"
 
 

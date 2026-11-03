@@ -37,6 +37,12 @@ Each fix gets a test where the risky path had none.
   pending.
 - **U8** kulan-signed-start.service can run during an undo start-up: not on
   `kulan.undo-update`, after kulan-undo-at-start.
+- **U9** (found by the 2.13 CI run, also in 2.12) With signed start-up, a new
+  signed file (still counted: after an update, TPM, any rebuild) starts
+  "Undo the last update" by itself: systemd-boot 257.13 drops "@undo" from
+  the entry's ID while the file has its try counter, and the undo entry was
+  listed first. The undo entry gets its own os-release sort key so it always
+  comes after every normal entry; files made again when updating from 2.12.
 
 ### Updates
 - **D1** First restore point on a small disk (20 GB installs) leaves no room
@@ -127,6 +133,8 @@ Everything under Must fix, Bugs and Wording above, except:
   last update's point; the point recorded, a skipped one not offered; the
   point removed when updates need the room; the menu's undo starts the
   kernel from before the update; ~prev removed once the new file works.
+- ci/signed-start-test.sh: a new (counted) signed file starts normally;
+  the undo entry starts only when chosen.
 - ci/signed-start-files-test.py (new): the file that worked is kept to fall
   back on; failed builds change nothing; low room; after undo; removed
   kernels; loader.conf not rewritten; off keeps signed start-up without

@@ -3,7 +3,7 @@
 a stand-in EFI partition and stand-ins for ukify, sbverify, dracut and
 update-grub (no VM): the file that worked is kept to fall back on until the
 new one has worked, a failed build leaves everything as it was, files after
-an undo, a removed kernel, unchanged files not rewritten, and "off" keeping
+an undo, the undo entry sorting last, a removed kernel, unchanged files not rewritten, and "off" keeping
 signed start-up when GRUB's menu wasn't made.
 
   python3 -I -B ci/signed-start-files-test.py [path/to/kulan-signed-start]
@@ -48,7 +48,7 @@ def fake_run(argv, input_text=None, env=None, timeout=None):
         if fail["ukify"]:
             rc = 1
         elif out:
-            Path(out).write_text("uki " + next(a for a in argv if a.startswith("--uname=")))
+            Path(out).write_text("uki " + next((a for a in argv if a.startswith("--uname=")), "undo profile"))
     if argv[0] == "update-grub":
         rc = 1 if fail["update-grub"] else 0
     return types.SimpleNamespace(returncode=rc, stdout="", stderr="ukify said no" if rc else "")
@@ -62,10 +62,16 @@ def boot_path(p, *rest):  # /boot/vmlinuz-*, /boot/initrd.img-*: in the stand-in
     s = str(p)
     if s.startswith("/boot/") and not s.startswith("/boot/efi"):
         return real_path(str(boot) + s[len("/boot"):], *rest)
+    if s.startswith("/usr/lib/systemd/boot/efi/"):  # the stubs
+        return real_path(str(stubs) + "/" + s.rsplit("/", 1)[1], *rest)
     return real_path(p, *rest)
 
 
 kss.Path = boot_path
+stubs = tmp / "stubs"
+stubs.mkdir()
+for stub in ("addonx64.efi.stub", "linuxx64.efi.stub"):
+    (stubs / stub).write_text("stub")
 for v in (V1, V2):
     (boot / f"vmlinuz-{v}").write_text("k")
     (boot / f"initrd.img-{v}").write_text("i")
@@ -83,6 +89,18 @@ def check(cond: bool, what: str) -> None:
 
 # First files: counted, nothing to fall back on yet.
 kss.rebuild()
+# The undo entry sorts after every normal one (its own os-release's sort key),
+# so a new file (still counted, when systemd-boot drops "@undo" from its ID) starts normally.
+undo_builds = [c for c in calls if c[0] == "ukify" and any(a.startswith("--profile=ID=undo") for a in c)]
+check(bool(undo_builds) and all(any(a.startswith("--os-release=@") for a in c) for c in undo_builds),
+      "undo entry built without its own os-release")
+rel = kss.undo_os_release()
+ids = [line for line in rel.splitlines() if line.startswith("IMAGE_ID=")]
+system = dict(line.split("=", 1) for line in Path("/usr/lib/os-release").read_text().splitlines() if "=" in line)
+main_key = (system.get("IMAGE_ID") or system.get("ID")).strip('"\'')
+check(len(ids) == 1 and ids[0] == f"IMAGE_ID={main_key}-undo" and main_key < ids[0].split("=", 1)[1],
+      f"undo sort key {ids}")
+check("PRETTY_NAME=" in rel, "undo entry's name")
 check(files() == [f"kulan-{V1}+3.efi", f"kulan-{V2}+3.efi"], "first files")
 check((kss.ESP / "loader/loader.conf").exists() is False, "loader.conf made by rebuild (only fixed)")
 # They worked (boot-ok's rename).
