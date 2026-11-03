@@ -53,7 +53,7 @@
       "Wi-Fi: forget a saved network or change its password. The hotspot keeps one password, always shown, with a code your phone can scan",
       "Mail comes with Kulan OS and opens your work email. A new Online accounts page adds Google and Microsoft 365 accounts",
       "Every administrator can add printers, and Document Scanner comes with Kulan OS",
-      "Anyone using the computer can download Ask Kulan's model, and computers without enough memory are told plainly",
+      "Anyone using the computer can download Ask Kulan's model, and Kulan Settings says plainly when a computer doesn't have enough memory for it",
       "Plain words everywhere: Ask Kulan, the installer, Setup Assistant, Kulan Fleet and its website say what went wrong and what to do, never a program's error message, and nothing asks you to type commands",
       "The first start-up after installing is about ten seconds quicker"
     ]
@@ -199,7 +199,7 @@
     "title": "Ask Kulan, the app, and Kulan's own apps in the Store",
     "items": [
       "Ask Kulan, the app: a conversation with the assistant in its own window. Ask questions, or say what you'd like done, and follow up (\"and the Desktop too\"). Changes still wait for Do it and can be undone. Your conversations are kept only on this computer, listed at the side; turn that off or delete them in Kulan Settings › Assistant",
-      "The Store (formerly Kulan Store): Kulan's picks are its Editor's Choice, and Kulan's own apps are listed there, starting with Kulan Fleet, installed from Kulan's own update channel. Each app's page shows what it can access and who publishes it before you install",
+      "The Store (formerly Kulan Store): Kulan's picks appear as Editor's Choice, and Kulan's own apps are listed there, starting with Kulan Fleet, installed from Kulan's own update channel. Each app's page shows what it can access and who publishes it before you install",
       "Plain names: Terminal, Disk Usage and Firewall in the app grid, dock and search, and Software Update names app updates the same way (Text Editor, Image Viewer, Store…)",
       "Kulan Settings › About shows whether 3D graphics acceleration is on, and what to do if it's off (in a virtual machine, turn on 3D in its display settings)",
       "Kulan Fleet: a lost computer shows a notice 20 seconds before it's erased, and switching it off then doesn't stop the erase",

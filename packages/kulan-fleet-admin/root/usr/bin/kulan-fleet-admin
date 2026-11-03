@@ -2337,8 +2337,8 @@ class FleetWindow(Adw.ApplicationWindow):
     def ask_remove(self, d: dict) -> Adw.AlertDialog:
         name = d.get("hostname") or ""
         dialog = Adw.AlertDialog(heading=f"Remove {name} from the organisation?",
-                                 body="It stops getting accounts, Wi-Fi, printers and requests at once, and its "
-                                      "requests waiting are cancelled. Nothing on it is erased, and it isn’t told. "
+                                 body="It stops getting accounts, Wi-Fi, printers and requests at once, and any "
+                                      "requests waiting for it are cancelled. Nothing on it is erased, and it isn’t told. "
                                       "To join again it needs a new join code. Type the computer’s name to confirm.")
         entry = Adw.EntryRow(title=f"Type {name}")
         box = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.NONE)
