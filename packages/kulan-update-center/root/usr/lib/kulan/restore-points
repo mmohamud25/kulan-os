@@ -19,6 +19,8 @@
 #                                    stays on until it's done.
 #   restore-points undo-at-start     the same, chosen in the start-up menu
 #                                    ("Undo the last update", kulan-undo-at-start.service)
+#   restore-points drop-update-point remove the point just taken before updates
+#                                    (they need the room: updates come first)
 #
 # Snapshots made here are Timeshift's on-demand kind (its default for
 # --create; passing "--tags O" is refused by Timeshift 24/25).
@@ -304,6 +306,16 @@ take_update_point() {
 	fi
 	record_last_update ""
 	return 1
+}
+
+# The point just taken for an update, removed again (updates need the room):
+# this update can't be undone, and Kulan Settings doesn't offer it.
+drop_update_point() {
+	local point
+	point="$(recorded_point 2>/dev/null || true)"
+	[[ -n "${point}" ]] && delete_snapshot "${point}"
+	record_last_update ""
+	log "the restore point before these updates was removed to make room for them"
 }
 
 # The restore point an undo goes back to: the one taken for the last update,
@@ -606,8 +618,19 @@ case "${1:-}" in
 			log "couldn't take a restore point before automatic updates"
 		fi
 		prune_updates || true
+		# Updates come first: a restore point that left too little room for them
+		# goes (on a small disk, the first one can be most of the free space).
+		if ! room_for_updates; then
+			drop_update_point
+			room_for_updates || exit 75
+		fi
 		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || true
-		room_for_updates || exit 75
+		;;
+	drop-update-point)
+		# update-run, when the point before installing updates left too little room for them.
+		[[ $# -eq 1 ]] || { echo 'usage: restore-points drop-update-point' >&2; exit 2; }
+		is_live_or_build && exit 0
+		drop_update_point
 		;;
 	create)
 		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
@@ -631,7 +654,7 @@ case "${1:-}" in
 		fi
 		;;
 	*)
-		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|undo-at-start|before-auto-update' >&2
+		echo 'usage: restore-points setup|scheduled|create "<note>"|status|tidy|usage|delete-all|undo-update|undo-at-start|before-auto-update|drop-update-point' >&2
 		exit 2
 		;;
 esac

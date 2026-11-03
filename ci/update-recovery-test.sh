@@ -485,6 +485,9 @@ EOF
 	rc=$?
 	[[ ${rc} -eq 75 ]] || { echo "exit ${rc} with no room left (want 75)"; return 1; }
 	grep -q -- "--create --scripted --comments Before installing updates" "${RP}/calls" && [[ -e "${stamp}" ]] || return 1
+	# Updates come first: the point that left too little room is removed again (no undo offered for them).
+	grep -q -- "--delete --snapshot" "${RP}/calls" || { echo "the point wasn't removed to make room"; return 1; }
+	grep -q '"point": ""' "${KULAN_LAST_UPDATE}" || { echo "a removed point still offered"; return 1; }
 	# Once a day.
 	rm -f "${RP}/calls"
 	bash "${RP}/restore-points" before-auto-update && [[ ! -e "${RP}/calls" ]] || return 1
@@ -494,7 +497,7 @@ EOF
 	bash "${RP}/restore-points" before-auto-update && [[ ! -e "${stamp}" ]] || return 1
 	rm -f "${stamp}"
 }
-check "restore point before automatic updates: before their lock, once a day, stamp only when made, room re-checked" before_auto_update
+check "restore point before automatic updates: before their lock, once a day, stamp only when made; removed when the updates need the room" before_auto_update
 
 # --- units: timers, time limits, ordering -------------------------------------------------
 units() {
