@@ -97,11 +97,12 @@ PY
 # The disk named in the plan isn't the one chosen any more (a USB stick plugged
 # in since): refused before anything is touched.
 WRONG="$(python3 -c 'import json, sys; p = json.loads(sys.argv[1]); p["disk_id"]["size"] += 512; print(json.dumps(p))' "${PLAN}")"
-if sudo "${ENGINE}" install <<<"${WRONG}" 2>/dev/null | tail -n 1 | grep -q '"error": "The disks changed since you chose one' &&
-	[[ -z "$(sudo blkid -p "${LOOP}" 2>/dev/null)" ]]; then
+REFUSED="$(sudo "${ENGINE}" install <<<"${WRONG}" 2>/dev/null || true)"
+if grep -q '"error": "The disks changed since you chose one' <<<"${REFUSED}" &&
+	[[ -z "$(sudo blkid -p "${LOOP}" 2>/dev/null || true)" ]]; then
 	result pass "Installer: the chosen disk" "a disk whose size, model or serial number changed since it was chosen is refused, untouched"
 else
-	result fail "Installer: the chosen disk" "a changed disk wasn't refused"
+	result fail "Installer: the chosen disk" "a changed disk wasn't refused: $(tail -n 1 <<<"${REFUSED}")"
 fi
 # shellcheck disable=SC2024  # the logs belong to this user, on purpose
 sudo "${ENGINE}" install <<<"${PLAN}" >"${OUT}/engine.jsonl" 2>"${OUT}/install.log"
