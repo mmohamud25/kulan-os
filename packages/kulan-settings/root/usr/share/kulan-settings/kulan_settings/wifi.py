@@ -177,10 +177,10 @@ class WifiPage(Page):
             self.client = NM.Client.new_finish(result)
         except GLib.Error as exc:
             print(f"kulan-settings: NetworkManager: {exc.message}")
-            self.unavailable("NetworkManager isn’t running.")
+            self.unavailable("Wi-Fi and networks aren’t available right now. Restart the computer.")
             return
         if not self.client.get_nm_running():
-            self.unavailable("NetworkManager isn’t running.")
+            self.unavailable("Wi-Fi and networks aren’t available right now. Restart the computer.")
             return
         self.extras = NetworkExtras(self)
         self.install_actions()

@@ -99,7 +99,7 @@ def page(path: str, title: str, description: str, body: str, script: str = "") -
 </main>
 <footer>
 <div class="wrap">
-<span>© 2026 {e(C.get("KULAN_PUBLISHER", "Kulan Group LLC"))} · Kulan means “gathering” in Somali</span>
+<span>© {datetime.date.today().year} {e(C.get("KULAN_PUBLISHER", "Kulan Group LLC"))} · Kulan means “gathering” in Somali</span>
 <nav aria-label="Footer"><a href="/security/">Security</a><a href="/privacy/">Privacy</a><a href="https://github.com/{REPO}">Source code</a><a href="https://kulangroup.com">kulangroup.com</a><a href="/help/#contact">Contact</a></nav>
 </div>
 </footer>
@@ -130,7 +130,7 @@ def home(notes: list[dict]) -> str:
     features = [
         ("shield", "Secure by default", "Signed updates, a firewall, full-disk encryption and a compliance mode "
                                         "checked against CIS and NIST."),
-        ("sparkle", "Kulan Assistant", "Private, and it runs on your computer. Writing tools in any app, and "
+        ("sparkle", "Kulan Assistant", "Private: it runs entirely on your computer. Writing tools in any app, and "
                                        "Ask Kulan to change settings in plain words."),
         ("widgets", "Widgets and a clean desktop", "Weather, calendar, clock, to-do list, now playing and system "
                                                    "status, arranged the way you like."),
@@ -150,7 +150,7 @@ def home(notes: list[dict]) -> str:
 <div class="actions"><a class="btn btn-primary" href="/download/">{ICONS['download']}Download {e(NAME)} {e(LABEL)}</a><a class="btn btn-ghost" href="/install/">How to install</a></div>
 <p class="muted">Free · PC and ARM versions · No account needed</p>
 </div>
-<div class="shot"><img src="/images/desktop-settings.jpg" width="1600" height="900" alt="The {e(NAME)} desktop with Kulan Settings open on the Wi-Fi and network page"></div>
+<div class="shot"><img src="/images/desktop-settings.jpg" width="1600" height="900" alt="The {e(NAME)} desktop with Kulan Settings open on the Appearance page"></div>
 </section>
 <section class="band">
 <div class="wrap">
@@ -338,40 +338,41 @@ def whats_new(notes: list[dict]) -> str:
 
 def help_page() -> str:
     topics = [
-        ("/install/", "Getting started", "Installing, your first sign-in and the Welcome tour."),
-        ("#faq", "Wi-Fi and internet", "Connecting, work and school Wi-Fi, VPNs and hotspots."),
-        ("#faq", "Updates and restore points", "Software Update, automatic updates and undoing an update."),
+        ("/install/", "Getting started", "Installing, your first sign-in and Setup Assistant."),
+        ("#wifi", "Wi-Fi and internet", "Connecting, work and school Wi-Fi, VPNs and hotspots."),
+        ("#updates", "Updates and restore points", "Software Update, automatic updates and undoing an update."),
         ("#security", "Security and encryption", "Disk encryption, compliance mode and the firewall."),
-        ("#faq", "Kulan Assistant", "Writing tools, dictation and Ask Kulan."),
-        ("#faq", "Your files and backups", "Backing up, getting files back, moving from Windows."),
+        ("#assistant", "Kulan Assistant", "Writing tools, dictation and Ask Kulan."),
+        ("#backups", "Your files and backups", "Backing up your files and getting them back."),
     ]
     cards = "".join(f'<a class="card topic" href="{h}"><span>{e(t)}</span><span>{e(d)}</span></a>'
                     for h, t, d in topics)
     faq = [
-        ("Is Kulan OS really free?", "Yes. Download it, use it and share it at no cost, with no account and no ads."),
-        ("Can I keep Windows?", "Yes. Trying Kulan OS from the USB stick changes nothing. To install alongside "
+        ("free", "Is Kulan OS really free?", "Yes. Download it, use it and share it at no cost, with no account and no ads."),
+        ("windows", "Can I keep Windows?", "Yes. Trying Kulan OS from the USB stick changes nothing. To install alongside "
                                 "Windows, first shrink the C: drive by at least 20 GB in Disk Management, then "
                                 "choose Install next to Windows in Kulan Installer. You pick which one to start "
                                 "each time you turn the computer on. The <a href=\"/install/\">install guide</a> "
                                 "has every step."),
-        ("How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic updates there. A "
+        ("updates", "How do I get updates?", "Open Kulan Settings › Software Update, or turn on Automatic updates there. A "
                                   "restore point is taken first, so you can undo an update if anything goes wrong."),
-        ("How do I connect to work or school Wi-Fi?", "Open Kulan Settings › Wi-Fi and network. It handles networks "
+        ("wifi", "How do I connect to work or school Wi-Fi?", "Open Kulan Settings › Wi-Fi and network. It handles networks "
                                                       "that need a sign-in, like eduroam, as well as hidden "
                                                       "networks, VPNs and hotspots."),
-        ("I forgot my disk encryption password", "It can’t be recovered, not even by us. That’s what keeps your "
+        ("encryption-password", "I forgot my disk encryption password", "It can’t be recovered, not even by us. That’s what keeps your "
                                                  "files safe. Without it, the disk has to be erased and Kulan OS "
                                                  "installed again."),
-        ("Does Kulan Assistant send my text anywhere?", "No. It runs on your computer. Select text and press "
+        ("assistant", "Does Kulan Assistant send my text anywhere?", "No. It runs on your computer. Select text and press "
                                                         "Shift+Super+W for writing tools, or Shift+Super+D to dictate. "
                                                         "(Super is the Windows key, or ⌘ on a Mac.)"),
-        ("How do I back up my files?", "Open Backups from the app grid and choose an external drive or network "
-                                       "folder. It can back up automatically every day."),
-        ("My computer won’t start from the USB stick", "Try another USB port, make the stick again with "
+        ("backups", "How do I back up my files?", "Open Kulan Settings › Backups and choose an external drive or "
+                                                  "network folder. It can back up automatically every day, and "
+                                                  "brings back any file you lose from there."),
+        ("usb", "My computer won’t start from the USB stick", "Try another USB port, make the stick again with "
                                                        "Kulan USB Maker, and check the boot-menu key for your computer "
                                                        "in the <a href=\"/install/\">install guide</a>."),
     ]
-    items = "".join(f"<details><summary>{e(q)}</summary><p>{a}</p></details>" for q, a in faq)
+    items = "".join(f'<details id="{i}"><summary>{e(q)}</summary><p>{a}</p></details>' for i, q, a in faq)
     body = f"""
 <section class="wrap stack" style="padding-bottom:32px">
 <h1>How can we help?</h1>
@@ -399,6 +400,13 @@ def help_page() -> str:
     none.hidden = shown > 0;
     if (words.length) { document.getElementById("faq").scrollIntoView({ block: "start" }); }
   });
+  // A topic card points at one question: open it.
+  function openFromHash() {
+    var d = location.hash && document.getElementById(location.hash.slice(1));
+    if (d && d.tagName === "DETAILS") { d.open = true; d.scrollIntoView({ block: "center" }); }
+  }
+  window.addEventListener("hashchange", openFromHash);
+  openFromHash();
 })();
 </script>"""
     return page("/help/", "Help", f"Answers to common questions about {NAME}, and how to contact us.", body, script)
@@ -457,7 +465,7 @@ def security() -> str:
 Kulan Fleet, the installer, Kulan USB Maker or this website? Please tell us privately first, at
 <a href="mailto:{SECURITY}">{SECURITY}</a>, before telling anyone else.</p>
 <ul><li>Say what you found and how to repeat it, and which version you used (Kulan Settings › About Kulan OS).</li>
-<li>We confirm we got it, keep you told as we fix it, and release the fix as an update. Tell us if you’d like
+<li>We confirm we got it, keep you updated as we fix it, and release the fix as an update. Tell us if you’d like
 to be thanked by name in the release notes.</li>
 <li>Please don’t look at, change or keep other people’s data, or test against computers or organisations that
 aren’t yours.</li></ul>

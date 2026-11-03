@@ -135,7 +135,7 @@ class DesktopPage(Page):
         if has_key(self.kulan, "reopen-apps"):
             session = self.add_group("Restarting")
             self.add_rows(session, switch_row(self.kulan, "reopen-apps", "Reopen apps after a restart",
-                                              "Opens the apps you had open before a restart or "
+                                              "Opens the apps you had open before you restarted or "
                                               "shut down"))
 
         motion = self.add_group("Motion")

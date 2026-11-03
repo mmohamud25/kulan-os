@@ -13,7 +13,7 @@ import shutil
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
-from .common import Page, choice_row, has_key, launch, plain_error, settings
+from .common import Page, choice_row, has_key, launch, plain_error, plural, settings
 
 DEJA_DUP = "org.gnome.DejaDup"
 APP_ID = "org.gnome.DejaDup.desktop"
@@ -164,7 +164,7 @@ class BackupsPage(Page):
             skipped = " and ".join(name for key, name in (("$DOWNLOAD", "Downloads"), ("$TRASH", "the bin"))
                                    if key in exclude)
             return "Your home folder" + (f", except {skipped}" if skipped else "") + ". Change in the Backups app"
-        return f"{len(include)} folder(s), {len(exclude)} left out. Change in the Backups app"
+        return f"{plural(len(include), 'folder')}, {len(exclude)} left out. Change in the Backups app"
 
     # --- where ------------------------------------------------------------------------
     def fill_places(self) -> None:

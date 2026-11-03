@@ -148,8 +148,9 @@ def acceleration_text(on: bool | None, name: str) -> str:
         return ""
     if on:
         return f"On ({name})"
-    return (f"Off, using {name}. Animations can be slow. In a virtual machine, turn on 3D acceleration "
-            "in its display settings. Otherwise a graphics driver may be missing.")
+    # (The renderer's own name, "llvmpipe (LLVM 19…)", means nothing to most people.)
+    return ("Off. Animations can be slow. In a virtual machine, turn on 3D acceleration in its display "
+            "settings. Otherwise a graphics driver may be missing.")
 
 
 def firmware() -> str:
@@ -287,18 +288,20 @@ class AboutPage(Page):
                                      subtitle="Never files, browsing, messages or passwords")
             for item in data.get("shared", []):
                 shared.add_row(Adw.ActionRow(title=GLib.markup_escape_text(str(item))))
-            shared.add_row(Adw.ActionRow(
-                title="What the organisation can ask this computer to do",
-                subtitle="Report now, install updates, turn on compliance mode, lock the screen, "
-                         "lock it if it’s lost"
-                         + (", erase it" if data.get("allow_erase") else "")
-                         + ", and restart or shut down with 5 minutes’ notice. It can run Kulan’s fixes"
-                         + (" and its own scripts" if self.scripts_allowed() else "")
-                         + ", show you messages, add Wi-Fi networks and printers, and ask to see your screen, "
-                           "which only happens if you allow it. It manages the accounts it created. Other "
-                           "accounts on this computer are never touched",
-                subtitle_lines=0))
-            rows = [head, shared]
+            can = Adw.ExpanderRow(title="What the organisation can do here",
+                                  subtitle="Only these, and every one is in its activity log")
+            for line in ["Install updates and ask for a report",
+                         "Lock the screen, or lock the computer if it’s lost",
+                         *(["Erase the computer if it’s lost"] if data.get("allow_erase") else []),
+                         "Restart or shut down, with 5 minutes’ notice",
+                         "Turn on compliance mode",
+                         "Run Kulan’s fixes" + (" and its own scripts" if self.scripts_allowed() else ""),
+                         "Show you messages, and add Wi-Fi networks and printers",
+                         "Ask to see your screen (only if you allow it)",
+                         "Manage the accounts it made here, never anyone else’s"]:
+                can.add_row(Adw.ActionRow(title=line))
+            rows_after_shared = [can]
+            rows = [head, shared, *rows_after_shared]
             policy = self.fleet_policy()
             if policy:
                 rows.append(policy)

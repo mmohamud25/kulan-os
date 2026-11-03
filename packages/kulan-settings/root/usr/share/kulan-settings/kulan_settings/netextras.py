@@ -470,7 +470,7 @@ class NetworkExtras:
             self.client.activate_connection_async(existing, device, None, None,
                                                   self.page.finish_quietly("activate_connection_finish",
                                                                            "Couldn’t start the hotspot"))
-            self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
+            self.page.toast("Starting the hotspot. Wi-Fi leaves other networks while it’s on.")
             return
         password = "".join(secrets.choice(string.ascii_lowercase + string.digits) for _ in range(12))
         name = f"{GLib.get_host_name()} hotspot"[:32]
@@ -490,7 +490,7 @@ class NetworkExtras:
         self.hotspot_password = password
         self.hotspot_details.set_subtitle(GLib.markup_escape_text(f"{name} · password {password}"))
         self.hotspot_details.set_visible(True)
-        self.page.toast("Starting hotspot. Wi-Fi leaves other networks while it’s on.")
+        self.page.toast("Starting the hotspot. Wi-Fi leaves other networks while it’s on.")
 
     # --- proxy -----------------------------------------------------------------------------
     def build_proxy(self) -> None:

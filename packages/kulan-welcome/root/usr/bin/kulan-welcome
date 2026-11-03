@@ -932,7 +932,7 @@ class WelcomeWindow(Adw.ApplicationWindow):
         # A standard account can still ask an administrator to type their password.
         group = Adw.PreferencesGroup(description="" if self.admin or self.live else
                                      "Changing the computer name, ad blocking and the anonymous count needs an "
-                                     "administrator’s password: ask one to type it when it’s asked for.")
+                                     "administrator’s password. If you’re not an administrator, ask one to type it.")
         location = settings("org.gnome.system.location")
         if has_key(location, "enabled"):
             loc = Adw.SwitchRow(title="Location services", subtitle="Lets apps like Maps and Weather use your location")

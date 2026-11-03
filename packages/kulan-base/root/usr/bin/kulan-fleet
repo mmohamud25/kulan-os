@@ -149,13 +149,13 @@ NOLOGIN = Path("/etc/nologin")
 LOST_MARK = "Kulan Fleet lost mode"
 LOST_BANNER = Path("/etc/dconf/db/gdm.d/90-kulan-fleet-lost")
 LOST_NOTICE_S = 20
-SHARED = ["Computer model, processor, memory and disk space", "Kulan OS version and kernel",
+SHARED = ["Computer model, processor, memory and disk space", "Kulan OS and Linux versions",
           "Waiting updates and whether a restart is needed", "Compliance mode results", "TPM unlock on or off",
           "Disk encryption and firewall on or off", "Names and versions of installed apps (once a day)",
-          "Host name and when it last started",
+          "The computer’s name and when it last started",
           "For accounts the organisation manages, a scrambled copy of a new password, never the password itself",
           "If the organisation controls USB drives, the maker, model, serial number and name of drives you "
-          "plug in. Nothing about what's on them",
+          "plug in. Nothing about what’s on them",
           "Each account's username and when it was last used. Not what anyone does",
           "If you set up two-step sign-in, your security key's public key or your phone code's secret, so it "
           "works on your organisation's other computers",
