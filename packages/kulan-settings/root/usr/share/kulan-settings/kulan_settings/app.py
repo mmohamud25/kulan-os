@@ -593,7 +593,7 @@ def fingerprint_self_test(window) -> None:
     bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
     node = Gio.DBusNodeInfo.new_for_xml(FPRINT_XML)
     dev_path = "/net/reactivated/Fprint/Device/0"
-    fake = {"fingers": [], "claimed": False, "calls": []}
+    fake = {"fingers": [], "claimed": False, "calls": [], "slow_claim": False}
 
     def emit(result: str, done: bool) -> bool:
         bus.emit_signal(None, dev_path, "net.reactivated.Fprint.Device", "EnrollStatus",
@@ -613,7 +613,10 @@ def fingerprint_self_test(window) -> None:
                 inv.return_dbus_error("net.reactivated.Fprint.Error.NoEnrolledPrints", "none")
         elif method == "Claim":
             fake["claimed"] = True
-            inv.return_value(None)
+            if fake["slow_claim"]:  # as when fprintd asks for permission first
+                GLib.timeout_add(300, lambda: (inv.return_value(None), False)[1])
+            else:
+                inv.return_value(None)
         elif method == "Release":
             fake["claimed"] = False
             inv.return_value(None)
@@ -659,6 +662,15 @@ def fingerprint_self_test(window) -> None:
         assert wait(lambda: page.finger_rows and "Right index finger" in page.finger_rows[0].get_subtitle()), \
             "the new fingerprint isn't listed"
         page.finger_dialog.force_close()
+        # Closed while the reader is still being claimed: it's given back, nothing starts.
+        fake["slow_claim"] = True
+        calls = len(fake["calls"])
+        page.reader.enroll("left-index-finger", lambda *_a: None, lambda *_a: None)
+        page.reader.stop()
+        assert wait(lambda: "Release" in fake["calls"][calls:] and not fake["claimed"]), \
+            ("the reader stayed claimed after closing early", fake["calls"][calls:])
+        assert "EnrollStart" not in fake["calls"][calls:], fake["calls"][calls:]
+        fake["slow_claim"] = False
         done = []
         page.reader.delete_all(done.append)
         assert wait(lambda: done and not fake["claimed"]) and done == [None] and not fake["fingers"], (done, fake)

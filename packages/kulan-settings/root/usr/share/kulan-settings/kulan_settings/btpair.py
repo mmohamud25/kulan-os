@@ -54,9 +54,16 @@ class Agent:
         self.dialog: Adw.AlertDialog | None = None
         info = Gio.DBusNodeInfo.new_for_xml(AGENT_XML)
         self.registration = connection.register_object(AGENT_PATH, info.interfaces[0], self.on_call, None, None)
-        connection.call_sync(BLUEZ, "/org/bluez", "org.bluez.AgentManager1", "RegisterAgent",
-                             GLib.Variant("(os)", (AGENT_PATH, "KeyboardDisplay")), None,
-                             Gio.DBusCallFlags.NONE, 5000, None)
+        try:
+            connection.call_sync(BLUEZ, "/org/bluez", "org.bluez.AgentManager1", "RegisterAgent",
+                                 GLib.Variant("(os)", (AGENT_PATH, "KeyboardDisplay")), None,
+                                 Gio.DBusCallFlags.NONE, 5000, None)
+        except GLib.Error:
+            # Bluetooth wasn't ready: the next try starts clean (else it says
+            # "already exported" until Kulan Settings is restarted).
+            connection.unregister_object(self.registration)
+            self.registration = 0
+            raise
 
     def close(self) -> None:
         self.close_dialog()

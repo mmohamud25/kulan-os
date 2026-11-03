@@ -124,7 +124,10 @@ class WifiPage(Page):
     def __init__(self, window) -> None:
         super().__init__(window)
         self.client = None
-        self.rows: list[Gtk.Widget] = []
+        self.rows: list[tuple[Gtk.Widget, Gtk.Widget]] = []
+        self.shown_networks: tuple | None = None
+        self.shown_wired: tuple | None = None
+        self.menu_buttons: list[Gtk.MenuButton] = []
         self.refresh_id = 0
 
         self.device_watches: list[tuple] = []
@@ -262,9 +265,6 @@ class WifiPage(Page):
 
     def refresh(self) -> bool:
         self.refresh_id = 0
-        for group, row in self.rows:
-            group.remove(row)
-        self.rows = []
         device = self.wifi_device()
         enabled = self.client.wireless_get_enabled()
         hardware = self.client.wireless_hardware_get_enabled()
@@ -299,6 +299,7 @@ class WifiPage(Page):
 
         show_list = device is not None and enabled and hardware
         self.networks.set_visible(show_list)
+        nets: list[dict] = []
         if show_list:
             points = []
             for ap in device.get_access_points():
@@ -307,16 +308,34 @@ class WifiPage(Page):
                     "security": security_kind(ap.get_flags(), ap.get_wpa_flags(), ap.get_rsn_flags()),
                     "active": active_ap is not None and ap.get_path() == active_ap.get_path(),
                 })
-            nets = strongest_per_network(points)
-            if not nets:
+            nets = strongest_per_network(points)[:20]
+        # Rebuilt only when what it shows changed (a network came or went, its
+        # signal bars, connected, saved), and never under an open ⋯ menu: a
+        # scan finds or loses networks every few seconds.
+        shown = (show_list, device.get_path() if device is not None else None,
+                 tuple((n["ssid"], signal_icon(n["strength"]), n["security"] != "open", n["active"],
+                        bool(self.saved_connection(device, n["ssid"]))) for n in nets))
+        self.menu_buttons = [b for b in self.menu_buttons if b.get_root() is not None]
+        if any(b.get_active() for b in self.menu_buttons):
+            self.queue_refresh()  # again shortly, once the menu has closed
+        elif shown != self.shown_networks:
+            self.shown_networks = shown
+            self.clear_rows(self.networks)
+            if show_list and not nets:
                 self.add_row(self.networks, Adw.ActionRow(title="Looking for networks…"))
-            for net in nets[:20]:
+            for net in nets:
                 self.add_row(self.networks, self.network_row(device, net))
 
         self.fill_known(device)
 
         wired = self.wired_devices()
         self.wired_group.set_visible(bool(wired))
+        shown = tuple((dev.get_iface(), int(dev.get_state()), self.address_text(dev)) for dev in wired)
+        if shown == self.shown_wired:
+            wired = []
+        else:
+            self.shown_wired = shown
+            self.clear_rows(self.wired_group)
         for dev in wired:
             state = dev.get_state()
             if state == NM.DeviceState.ACTIVATED:
@@ -352,6 +371,11 @@ class WifiPage(Page):
     def add_row(self, group: Adw.PreferencesGroup, row: Gtk.Widget) -> None:
         group.add(row)
         self.rows.append((group, row))
+
+    def clear_rows(self, group: Adw.PreferencesGroup) -> None:
+        for g, row in [r for r in self.rows if r[0] is group]:
+            g.remove(row)
+        self.rows = [r for r in self.rows if r[0] is not group]
 
     @staticmethod
     def address_text(device) -> str:
@@ -391,6 +415,7 @@ class WifiPage(Page):
         button = Gtk.MenuButton(icon_name="view-more-symbolic", menu_model=menu, valign=Gtk.Align.CENTER,
                                 css_classes=["flat"], tooltip_text="Options")
         button.update_property([Gtk.AccessibleProperty.LABEL], [f"Options for {name}"])
+        self.menu_buttons.append(button)  # while one is open, the list under it stays as it is
         return button
 
     def fill_known(self, device) -> None:

@@ -131,9 +131,19 @@ class BluetoothPage(Page):
             self.manager = None
         if self.manager is not None:
             for signal in ("object-added", "object-removed", "interface-added", "interface-removed",
-                           "interface-proxy-properties-changed", "notify::name-owner"):
+                           "notify::name-owner"):
                 self.watch(self.manager, signal, lambda *_a: self.queue_refresh())
+            self.watch(self.manager, "interface-proxy-properties-changed", self.on_properties)
         self.queue_refresh()
+
+    # Signal strength and adverts change several times a second while searching:
+    # nothing shown depends on them closely enough to rebuild the lists for.
+    NOISE = {"RSSI", "TxPower", "ManufacturerData", "ServiceData", "AdvertisingFlags", "AdvertisingData"}
+
+    def on_properties(self, _manager, _obj, _proxy, changed: GLib.Variant, invalidated) -> None:
+        keys = set(changed.keys()) if changed is not None else set()
+        if (keys | set(invalidated or [])) - self.NOISE:
+            self.queue_refresh()
 
     def teardown(self) -> None:
         if self.refresh_id:
@@ -277,9 +287,6 @@ class BluetoothPage(Page):
 
     def refresh(self) -> bool:
         self.refresh_id = 0
-        for group, row in self.rows:
-            group.remove(row)
-        self.rows = []
         adapter = self.adapter()
         airplane = self.airplane()
         powered = bool(adapter and adapter[1].get("Powered")) and airplane is not True
@@ -303,9 +310,21 @@ class BluetoothPage(Page):
 
         self.devices.set_visible(powered)
         self.nearby.set_visible(powered)
+        objects = self.objects() if powered else {}
+        devices = paired_devices(objects) if powered else []
+        nearby = nearby_devices(objects, adapter[0]) if powered else []
+        # The same devices in the same state: the rows stay (a click on one
+        # mustn't land on a row that's just been replaced). Nearby devices keep
+        # their place as their signal changes.
+        shown = (powered, self.discovering, tuple(sorted(self.busy)), repr(devices),
+                 tuple(sorted((d["path"], d["name"], d["icon"] or "") for d in nearby[:15])))
+        if shown == getattr(self, "shown", None):
+            return GLib.SOURCE_REMOVE
+        self.shown = shown
+        for group, row in self.rows:
+            group.remove(row)
+        self.rows = []
         if powered:
-            objects = self.objects()
-            devices = paired_devices(objects)
             if not devices:
                 self.add_row(Adw.ActionRow(title="No devices yet",
                                            subtitle="Pair headphones, a mouse or a keyboard from Nearby devices."))
@@ -317,7 +336,6 @@ class BluetoothPage(Page):
                 GLib.idle_add(lambda: (self.discover(), False)[1])
             self.searching.set_visible(self.discovering)
             self.look_again.set_visible(not self.discovering)
-            nearby = nearby_devices(objects, adapter[0])
             if not nearby:
                 row = Adw.ActionRow(title="Looking for devices…" if self.discovering else "No devices found")
                 self.nearby.add(row)

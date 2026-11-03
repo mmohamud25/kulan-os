@@ -84,6 +84,7 @@ class Reader:
         self.stages = 0
         self.signal_id = 0
         self.claimed = False
+        self.cancelled = False  # stop() while the reader was still being claimed
 
     def call(self, path: str, iface: str, method: str, args: GLib.Variant | None,
              done: Callable[[GLib.Variant | None, GLib.Error | None], None], timeout_ms: int = 30000) -> None:
@@ -155,6 +156,9 @@ class Reader:
             if error:
                 failed(error)
                 return
+            if self.cancelled:  # closed meanwhile: give the reader back at once
+                self.release()
+                return
             self.signal_id = self.bus.signal_subscribe(NAME, DEVICE, "EnrollStatus", self.path, None,
                                                        Gio.DBusSignalFlags.NONE, on_signal)
             self.call(self.path, DEVICE, "EnrollStart", GLib.Variant("(s)", (finger,)), started)
@@ -163,9 +167,11 @@ class Reader:
             if error is not None:
                 self.stop(release=True)
                 failed(plain(error))
+        self.cancelled = False
         self.claim(claimed)
 
     def stop(self, release: bool = True) -> None:
+        self.cancelled = True
         if self.signal_id:
             self.bus.signal_unsubscribe(self.signal_id)
             self.signal_id = 0
