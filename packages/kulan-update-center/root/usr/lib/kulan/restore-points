@@ -198,9 +198,11 @@ prune_updates() {
 		[[ "${kind}" == update ]] && updates+=("${name}")
 		[[ "${kind}" == undo ]] && undos+=("${name}")
 	done < <(list_snapshots)
-	local extra=$(( ${#updates[@]} - KEEP_UPDATE_POINTS ))
+	local extra=$(( ${#updates[@]} - KEEP_UPDATE_POINTS )) protected
+	protected="$(recorded_point 2>/dev/null || true)"
 	local i
 	for (( i = 0; i < extra; i++ )); do
+		[[ "${updates[i]}" == "${protected}" ]] && continue
 		delete_snapshot "${updates[i]}"
 	done
 	# One "before undoing" point is enough to redo an update.
@@ -221,8 +223,10 @@ enforce_cap() {
 		size="$(used_bytes)"
 		(( size * 100 > total * MAX_PERCENT )) || break
 		local -a auto=()
+		local protected
+		protected="$(recorded_point 2>/dev/null || true)"
 		while read -r name kind; do
-			[[ "${kind}" != own ]] && auto+=("${name}")
+			[[ "${kind}" != own && "${name}" != "${protected}" ]] && auto+=("${name}")
 		done < <(list_snapshots)
 		(( ${#auto[@]} > 1 )) || break
 		delete_snapshot "${auto[0]}"
@@ -266,64 +270,178 @@ enough_power() {
 	(( batteries == 0 || charged == 1 ))
 }
 
-# The restore point an undo goes back to: the newest one from before an update.
-undo_target() {
-	local name kind target=""
-	while read -r name kind; do
-		[[ "${kind}" == update ]] && target="${name}"
-	done < <(list_snapshots)
-	echo "${target}"
+# Which restore point protects the last update: written when the point
+# before installing updates is taken (here, for Kulan Settings and automatic
+# updates), so an undo goes back to that one and no further. When the point
+# was skipped (low space, Timeshift busy), no point: the undo isn't offered,
+# rather than quietly going back weeks. After an undo, none either (the
+# update it protected is gone).
+LAST_UPDATE="${KULAN_LAST_UPDATE:-/var/lib/kulan/last-update.json}"
+record_last_update() { # record_last_update <point or ""> [undone point]
+	mkdir -p "$(dirname "${LAST_UPDATE}")"
+	local tmp="${LAST_UPDATE}.tmp"
+	printf '{"point": "%s", "undone": "%s", "time": %d}\n' "$1" "${2:-}" "$(date +%s)" >"${tmp}"
+	chmod 0644 "${tmp}"
+	mv -f "${tmp}" "${LAST_UPDATE}"
+}
+recorded_point() { # prints the recorded point; fails when nothing was ever recorded
+	[[ -f "${LAST_UPDATE}" ]] || return 1
+	sed -n 's/.*"point": *"\([0-9_-]*\)".*/\1/p' "${LAST_UPDATE}" | head -n 1
 }
 
-# Signed start-up (kulan-signed-start): its key and state are this computer's
-# now (the key is the one the firmware trusts), so they're kept as they are,
-# not put back to the restore point's. Its start-up files on the EFI
-# partition (not part of restore points) are signed again for the kernels the
-# restored system has: otherwise the newest one would still start the
-# update's kernel, whose modules are gone.
-SIGNED_START_DIR="${KULAN_SIGNED_START_DIR:-/var/lib/kulan/signed-start}"
-SIGNED_START_KEEP="${KULAN_SIGNED_START_KEEP:-/run/kulan/signed-start-kept}"
-keep_signed_start() {
-	rm -rf "${SIGNED_START_KEEP}"
-	[[ -d "${SIGNED_START_DIR}" ]] || return 0
-	mkdir -p "$(dirname "${SIGNED_START_KEEP}")"
-	cp -a "${SIGNED_START_DIR}" "${SIGNED_START_KEEP}" || { log "couldn't keep signed start-up's key aside"; rm -rf "${SIGNED_START_KEEP}"; }
+# Takes the restore point before installing updates and records it.
+take_update_point() {
+	local before newest name kind
+	before="$(list_snapshots)"
+	if have_space && timeshift --create --scripted --comments "${UPDATE_NOTE}" >&2; then
+		newest=""
+		while read -r name kind; do
+			[[ "${kind}" == update ]] && ! grep -qx "${name} update" <<<"${before}" && newest="${name}"
+		done < <(list_snapshots)
+		record_last_update "${newest}"
+		[[ -n "${newest}" ]] && return 0
+		return 1
+	fi
+	record_last_update ""
+	return 1
 }
-signed_start_after_undo() {
-	[[ -d "${SIGNED_START_KEEP}" ]] || return 0
-	rm -rf "${SIGNED_START_DIR}.new"
-	if cp -a "${SIGNED_START_KEEP}" "${SIGNED_START_DIR}.new"; then
-		rm -rf "${SIGNED_START_DIR}" && mv "${SIGNED_START_DIR}.new" "${SIGNED_START_DIR}"
+
+# The restore point an undo goes back to: the one taken for the last update,
+# if it's still there. Computers updated from before 2.13 have no record yet:
+# the newest one from before an update, if it's less than a week old.
+undo_target() {
+	local name kind newest="" recorded
+	while read -r name kind; do
+		[[ "${kind}" == update ]] && newest="${name}"
+	done < <(list_snapshots)
+	if recorded="$(recorded_point)"; then
+		[[ -n "${recorded}" ]] && list_snapshots | grep -qx "${recorded} update" && echo "${recorded}"
+		return 0
 	fi
-	rm -rf "${SIGNED_START_KEEP}"
-	if command -v kulan-signed-start >/dev/null 2>&1; then
+	[[ -n "${newest}" ]] || return 0
+	local made
+	made="$(date -d "$(sed -E 's/^([0-9-]+)_([0-9]+)-([0-9]+)-([0-9]+)$/\1 \2:\3:\4/' <<<"${newest}")" +%s 2>/dev/null || echo 0)"
+	(( $(date +%s) - made < 7 * 86400 )) && echo "${newest}"
+	return 0
+}
+
+# What an undo never puts back: who can sign in and with what password, and
+# the computer's security and organisation settings (Fleet, lost mode, a
+# waiting erase, two-step sign-in, disk unlock, signed start-up and its key,
+# the firewall, USB rules, compliance mode, Wi-Fi networks, fingerprints).
+# They're kept as they are now: an undo puts back the software, not an older
+# set of passwords or a lifted lost mode. Each is kept exactly: a file that
+# isn't there now is removed from the restored system too. Only files Kulan
+# or the person wrote: never a package's own files (dpkg's records go back
+# with the restore point, and must match).
+KEEP_ROOT="${KULAN_KEEP_ROOT:-}" # tests only
+KEEP=(/etc/passwd /etc/shadow /etc/group /etc/gshadow /etc/subuid /etc/subgid
+	/etc/kulan /var/lib/kulan /var/lib/AccountsService /var/lib/fprint
+	/etc/nologin /etc/crypttab /etc/kernel/cmdline /etc/default/grub
+	/etc/dracut.conf.d/50-kulan-tpm.conf /etc/dracut.conf.d/40-kulan-signed-start.conf
+	/etc/ufw/ufw.conf /etc/ufw/user.rules /etc/ufw/user6.rules
+	/etc/udev/rules.d/60-kulan-fleet-usb.rules /etc/NetworkManager/system-connections
+	/etc/dconf/db/local.d/40-kulan-fleet /etc/dconf/db/local.d/60-kulan-fleet /etc/dconf/db/local.d/50-kulan-compliance
+	/etc/dconf/db/local.d/locks/40-kulan-fleet /etc/dconf/db/local.d/locks/60-kulan-fleet
+	/etc/dconf/db/local.d/locks/50-kulan-compliance /etc/dconf/db/gdm.d/90-kulan-fleet-lost /etc/gdm3/daemon.conf
+	/etc/apt/preferences.d/60-kulan-fleet-blocked /etc/apt/apt.conf.d/20kulan-compliance-updates
+	/etc/ssh/sshd_config.d/50-kulan-compliance.conf /etc/security/pwquality.conf.d/50-kulan-compliance.conf
+	/etc/sysctl.d/60-kulan-hardening.conf)
+KEPT="${KULAN_KEPT:-/run/kulan/undo-kept}"
+keep_state() {
+	rm -rf "${KEPT}"
+	mkdir -p "${KEPT}"
+	chmod 0700 "${KEPT}"
+	local path
+	: >"${KEPT}/absent"
+	local -a present=()
+	for path in "${KEEP[@]}"; do
+		if [[ -e "${KEEP_ROOT}${path}" || -L "${KEEP_ROOT}${path}" ]]; then
+			present+=("${path#/}")
+		else
+			echo "${path}" >>"${KEPT}/absent"
+		fi
+	done
+	(( ${#present[@]} )) || return 0
+	tar --create --file "${KEPT}/state.tar" --acls --xattrs --numeric-owner --one-file-system \
+		-C "${KEEP_ROOT:-/}" "${present[@]}"
+}
+put_state_back() {
+	[[ -d "${KEPT}" ]] || return 0
+	local path ok=0
+	for path in "${KEEP[@]}"; do
+		rm -rf "${KEEP_ROOT}${path}" || ok=1
+	done
+	if [[ -f "${KEPT}/state.tar" ]]; then
+		tar --extract --file "${KEPT}/state.tar" --acls --xattrs --numeric-owner --same-permissions \
+			-C "${KEEP_ROOT:-/}" || ok=1
+	fi
+	[[ ${ok} -eq 0 ]] || { log "couldn't put everything kept back; it's in ${KEPT}"; return 1; }
+	rm -rf "${KEPT}"
+	[[ -z "${KEEP_ROOT}" ]] && command -v dconf >/dev/null 2>&1 && { dconf update 2>/dev/null || true; }
+	# The start-up files on the EFI partition (not part of restore points) are
+	# signed again for the kernels the restored system has: otherwise the
+	# newest one would still start the update's kernel, whose modules are gone.
+	if [[ -f "${KEEP_ROOT}/var/lib/kulan/signed-start.json" ]] && command -v kulan-signed-start >/dev/null 2>&1; then
 		echo "pmstatus:undo:90:Signing the start-up files"
-		kulan-signed-start rebuild >&2 || log "couldn't sign the start-up files again"
+		kulan-signed-start rebuild --after-undo >&2 || log "couldn't sign the start-up files again"
 	fi
+	return 0
+}
+
+# Lost mode or an erase waiting: an undo isn't the way out of either.
+locked_by_organisation() {
+	[[ -e "${KEEP_ROOT}/var/lib/kulan/fleet-lost" || -e "${KEEP_ROOT}/var/lib/kulan/fleet-erase-pending" ]]
 }
 
 undo_update() {
 	is_live_or_build && { log "not available in the live session"; exit 1; }
+	if locked_by_organisation; then
+		log "lost mode or an erase is waiting: not undoing"
+		echo "say:Your organisation has locked this computer, so updates can't be undone."
+		exit 1
+	fi
 	TARGET="$(undo_target)"
-	[[ -n "${TARGET}" ]] || { log "there is no restore point from before an update"; echo "say:There's no restore point from before an update to go back to."; exit 1; }
+	[[ -n "${TARGET}" ]] || { log "there is no restore point from the last update"; echo "say:There's no restore point from the last update to go back to."; exit 1; }
 	[[ "${TARGET}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{2}-[0-9]{2}-[0-9]{2}$ ]] || { log "unexpected restore point name"; exit 1; }
 	if ! enough_power; then
 		log "not enough battery to undo the update"
 		echo "say:Plug in the charger first. Undoing an update takes a few minutes and mustn't stop half-way."
 		exit 1
 	fi
-	# How things are now, so the undo can itself be undone (best effort:
-	# skipped when the disk is low on space).
+	# How things are now, first: if the restore stops half-way (a full disk,
+	# an error), the computer goes back to this. No point, no undo.
 	echo "pmstatus:undo:10:Saving how things are now"
-	if have_space; then
-		timeshift --create --scripted --comments "${UNDO_NOTE}" >&2 || log "couldn't save the current state; undoing anyway"
+	local before safety="" name kind
+	before="$(list_snapshots)"
+	if ! have_space; then
+		echo "say:There isn't enough free space to undo the update safely. Free up some space (Kulan Settings › Storage), then try again."
+		exit 1
 	fi
+	if ! timeshift --create --scripted --comments "${UNDO_NOTE}" >&2; then
+		echo "say:Kulan OS couldn't save how things are now, so the update wasn't undone. Restart the computer and try again."
+		exit 1
+	fi
+	while read -r name kind; do
+		[[ "${kind}" == undo ]] && ! grep -qx "${name} undo" <<<"${before}" && safety="${name}"
+	done < <(list_snapshots)
 	echo "pmstatus:undo:40:Putting the system back to before the update"
-	# Only the system is restored (Timeshift leaves home folders alone);
-	# the boot loader stays as it is.
-	keep_signed_start
-	timeshift --restore --snapshot "${TARGET}" --scripted --yes --skip-grub >&2
-	signed_start_after_undo
+	keep_state || { log "couldn't keep accounts and security settings aside"; echo "say:The update couldn't be undone. Restart the computer and try again."; exit 1; }
+	# Only the system is restored (Timeshift leaves home folders alone); the
+	# boot loader stays as it is.
+	if ! timeshift --restore --snapshot "${TARGET}" --scripted --yes --skip-grub >&2; then
+		log "the restore stopped; going back to ${safety:-how things were}"
+		if [[ -n "${safety}" ]]; then
+			timeshift --restore --snapshot "${safety}" --scripted --yes --skip-grub >&2 || log "going back failed too"
+		fi
+		put_state_back || true
+		echo "say:The update couldn't be undone, so nothing was changed. Restart the computer to finish."
+		exit 1
+	fi
+	put_state_back || log "some kept settings are waiting in ${KEPT}"
+	# Done: never again for this update (and a start-up that comes back with
+	# the menu's option still set does nothing).
+	record_last_update "" "${TARGET}"
 	# The same updates would install themselves again tonight: pause
 	# automatic updates for 3 days (update-status lifts the pause after
 	# that; turning automatic updates on in Kulan Settings lifts it now).
@@ -342,8 +460,8 @@ record_usage() {
 	while read -r name kind; do
 		count=$((count + 1))
 		[[ "${kind}" == own ]] && own=$((own + 1))
-		[[ "${kind}" == update ]] && last_update="${name}"
 	done < <(list_snapshots)
+	last_update="$(undo_target)"
 	size="$(used_bytes)"
 	total="$(df --output=size -B1 / | tail -n 1)"
 	mkdir -p "$(dirname "${USAGE_FILE}")"
@@ -403,7 +521,7 @@ case "${1:-}" in
 		is_live_or_build && exit 0
 		setup
 		if have_space; then
-			timeshift --check --scripted
+			timeshift --check --scripted || log "Timeshift's scheduled restore point failed; tidying up anyway"
 		fi
 		prune_updates
 		enforce_cap
@@ -437,8 +555,13 @@ case "${1:-}" in
 			log "$1"
 			plymouth display-message --text="$1" 2>/dev/null || true
 		}
+		if locked_by_organisation; then
+			show "Your organisation has locked this computer, so updates can't be undone. Starting Kulan OS as it is."
+			sleep 5
+			exit 0
+		fi
 		if [[ -z "$(undo_target)" ]]; then
-			show "There's no restore point from before an update. Starting Kulan OS as it is."
+			show "There's no restore point from the last update. Starting Kulan OS as it is."
 			sleep 5
 			exit 0
 		fi
@@ -474,8 +597,9 @@ case "${1:-}" in
 			exit 0
 		fi
 		auto_update_due || exit 0
-		have_space || exit 0
-		if timeshift --create --scripted --comments "${UPDATE_NOTE}" >&2; then
+		# Low on space: no point (and no undo offered for these updates), and
+		# the updates still install.
+		if take_update_point; then
 			mkdir -p /var/lib/kulan
 			touch "${STAMP}" # once a day: only once it's really made
 		else
@@ -489,8 +613,12 @@ case "${1:-}" in
 		[[ $# -eq 2 && -n "$2" ]] || { echo 'usage: restore-points create "<note>"' >&2; exit 2; }
 		is_live_or_build && { log "not available in the live session"; exit 1; }
 		setup
-		have_space || exit 1
-		timeshift --create --scripted --comments "$2"
+		if [[ "$2" == "${UPDATE_NOTE}" ]]; then
+			take_update_point || exit 1
+		else
+			have_space || exit 1
+			timeshift --create --scripted --comments "$2"
+		fi
 		prune_updates
 		# Measuring can take a minute: done afterwards, at idle priority.
 		systemctl start --no-block kulan-restore-points-tidy.service 2>/dev/null || { enforce_cap; record_usage; }

@@ -81,6 +81,8 @@ bless_signed_start() {
 	if mv "${dir}/${name}" "${dir}/${good}"; then
 		sync -f "${dir}" 2>/dev/null || sync
 		log "signed start-up file ${good} works"
+		# The file kept to fall back on (kulan-signed-start) isn't needed now.
+		rm -f "${dir}/${good%.efi}~prev.efi"
 	else
 		log "couldn't mark ${name} as working"
 	fi

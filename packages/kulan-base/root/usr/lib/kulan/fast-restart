@@ -69,7 +69,11 @@ load() {
 		return 0
 	fi
 	# Same options as this start, without the boot loader's own entry.
-	APPEND="$(sed -e 's/\(^\| \)BOOT_IMAGE=[^ ]*//' -e 's/^ *//' /proc/cmdline)"
+	# One-time options (from a start-up menu entry chosen once, like "Undo the
+	# last update") aren't carried over: else the undo would run again after
+	# every fast restart.
+	APPEND="$(sed -e 's/\(^\| \)BOOT_IMAGE=[^ ]*//' -e 's/\(^\| \)kulan\.undo-update\( \|$\)/\1/g' \
+		-e 's/  */ /g' -e 's/^ *//' -e 's/ *$//' /proc/cmdline)"
 	# The signed-kernel method first (works with Secure Boot), then the older one.
 	if "${KEXEC}" -s -l "${KERNEL}" --initrd="${INITRD}" --append="${APPEND}" 2>/dev/null ||
 		"${KEXEC}" -l "${KERNEL}" --initrd="${INITRD}" --append="${APPEND}"; then

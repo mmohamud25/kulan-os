@@ -1,7 +1,10 @@
 [Unit]
 Description=Signed start-up: the next step after a restart (Kulan OS)
 ConditionPathExists=/var/lib/kulan/signed-start/state.json
-After=local-fs.target
+# Not while "Undo the last update" (from the start-up menu) puts the system
+# back: the undo signs the start-up files itself once it's done.
+ConditionKernelCommandLine=!kulan.undo-update
+After=local-fs.target kulan-undo-at-start.service
 
 [Service]
 Type=oneshot

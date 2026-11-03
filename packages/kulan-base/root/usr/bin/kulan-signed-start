@@ -7,6 +7,8 @@
                                        at every start)
   kulan-signed-start rebuild [VERSION] sign the start-up files again (root; kernel and
                                        start-up image updates, kulan-tpm)
+  kulan-signed-start rebuild --after-undo  the same after "Undo the last update" (the
+                                       files kept to fall back on were the undone system's)
   kulan-signed-start update-loader     copy updated shim and systemd-boot to the EFI partition
                                        (root; their packages' updates)
   kulan-signed-start off               back to GRUB (root)
@@ -113,14 +115,50 @@ def names() -> tuple[str, str, str]:
     return ARCHES.get(arch(), ARCHES["amd64"])
 
 
-def write_file(path: Path, text: str, mode: int = 0o644) -> None:
+def sync_dir(folder: Path) -> None:
+    """The rename itself on the disk (the EFI partition is FAT: no journal)."""
+    try:
+        fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def put_in_place(tmp: Path, path: Path) -> None:
+    """tmp, already written, becomes path in one step that survives a power cut:
+    its contents on the disk first, then the rename, then the folder."""
+    with open(tmp, "rb+") as fh:
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    sync_dir(path.parent)
+
+
+def write_bytes(path: Path, data: bytes, mode: int = 0o644) -> None:
+    """Writes path (never in place), unless it already holds exactly that."""
+    try:
+        if path.read_bytes() == data:
+            return
+    except OSError:
+        pass
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".kulan-new")
     tmp.unlink(missing_ok=True)
-    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode), "w") as fh:
-        fh.write(text)
-    os.chmod(tmp, mode)
-    os.replace(tmp, path)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode), "wb") as fh:
+        fh.write(data)
+    try:
+        os.chmod(tmp, mode)
+    except OSError:
+        pass  # FAT (the EFI partition) has no permissions to set
+    put_in_place(tmp, path)
+
+
+def write_file(path: Path, text: str, mode: int = 0o644) -> None:
+    write_bytes(path, text.encode(), mode)
 
 
 def load_state() -> dict:
@@ -306,9 +344,26 @@ def uki_path(version: str) -> Path:
     return ESP / "EFI/Linux" / f"{VENDOR}-{version}+{BOOT_TRIES}.efi"
 
 
+# The file a version had before it was signed again (an update, kulan-tpm),
+# kept until the new one has reached the desktop: kulan-<version>~prev.efi.
+# systemd-boot sorts "~" below everything, so the new file stays the default
+# while it has tries left; after three starts that didn't reach the desktop,
+# this one is. boot-ok removes it once the new one works.
+PREV = "~prev"
+
+
+def prev_path(version: str) -> Path:
+    return ESP / "EFI/Linux" / f"{VENDOR}-{version}{PREV}.efi"
+
+
+def good_path(version: str) -> Path:
+    return ESP / "EFI/Linux" / f"{VENDOR}-{version}.efi"
+
+
 def uki_version(name: str) -> str | None:
-    """The kernel version of one of our signed start-up files, with or without its counter."""
-    match = re.fullmatch(rf"{VENDOR}-(.+?)(\+\d+(-\d+)?)?\.efi", name)
+    """The kernel version of one of our signed start-up files: with or without its
+    counter, or kept to fall back on."""
+    match = re.fullmatch(rf"{VENDOR}-(.+?)({re.escape(PREV)}|\+\d+(-\d+)?)?\.efi", name)
     return match.group(1) if match else None
 
 
@@ -357,6 +412,11 @@ def build_one(version: str) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_name(out.name + ".new")
     tmp.unlink(missing_ok=True)
+    good, prev = good_path(version), prev_path(version)
+    # Short of room on the EFI partition: the older file kept to fall back on
+    # goes first, when there's a newer one that worked to take its place.
+    if good.exists() and prev.exists() and esp_free_mb() < UKI_MB:
+        prev.unlink(missing_ok=True)
     x64 = names()[0]
     base = ["ukify", "build", f"--linux={kernel}", f"--initrd={initrd}", f"--cmdline=@{CMDLINE}",
             "--os-release=@/usr/lib/os-release", f"--uname={version}",
@@ -377,17 +437,27 @@ def build_one(version: str) -> None:
     if run(["sbverify", "--cert", str(CERT), str(tmp)]).returncode != 0:
         tmp.unlink(missing_ok=True)
         raise RuntimeError("the signed start-up file didn't pass its own check")
-    os.replace(tmp, out)
-    # The file it replaces (made before, maybe counted down or known to work):
-    # the new one has to show it works by itself.
+    # The one that worked is kept to fall back on, until the new one has reached
+    # the desktop (never deleted first: a bad start-up image would leave the
+    # computer with nothing that starts). Files made since it, not known to
+    # work, go.
+    if good.exists():
+        os.replace(good, prev)
+        sync_dir(prev.parent)
+    put_in_place(tmp, out)
     for other in uki_files(version):
-        if other != out:
+        if other not in (out, prev):
             other.unlink(missing_ok=True)
 
 
-def rebuild(only: str | None = None) -> None:
+def rebuild(only: str | None = None, after_undo: bool = False) -> None:
     write_file(CMDLINE, cmdline() + "\n")
     fix_loader_conf()
+    if after_undo:
+        # Those were the undone system's (its start-up image, its os-release):
+        # not to fall back on now.
+        for old in (ESP / "EFI/Linux").glob(f"{VENDOR}-*{PREV}.efi"):
+            old.unlink(missing_ok=True)
     versions = [only] if only else kernels()
     for version in versions:
         build_one(version)
@@ -408,7 +478,7 @@ def copy_if_changed(src: Path, dst: Path) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name(dst.name + ".new")
     shutil.copyfile(src, tmp)
-    os.replace(tmp, dst)
+    put_in_place(tmp, dst)
 
 
 # The default is the signed file's main entry, never its "@undo" one.
@@ -419,10 +489,8 @@ def fix_loader_conf() -> None:
     """loader.conf from before 2.12 says "default kulan-*", which would match the
     undo entry too: corrected before the first file with one is made."""
     loader = ESP / "loader/loader.conf"
-    if loader.exists() and loader.read_text() != LOADER_CONF:
-        tmp = loader.with_name("loader.conf.new")
-        tmp.write_text(LOADER_CONF)
-        os.replace(tmp, loader)
+    if loader.exists():
+        write_file(loader, LOADER_CONF)
 
 
 def install_loader() -> None:
@@ -440,11 +508,9 @@ def install_loader() -> None:
             copy_if_changed(Path(f"/usr/lib/shim/mm{x64}.efi.signed"), folder / f"mm{x64}.efi")
     # For shim's fallback (fb), should the firmware forget the entry.
     csv = f"shim{x64}.efi,{LABEL},\\EFI\\{VENDOR}\\systemd-boot{x64}.efi \\0,{LABEL}\n"
-    (here / f"BOOT{X64}.CSV").write_bytes(csv.encode("utf-16-le"))
+    write_bytes(here / f"BOOT{X64}.CSV", csv.encode("utf-16-le"))
     # No menu (hold Space to see it); the newest Kulan OS; no editing the options.
-    loader = ESP / "loader/loader.conf"
-    loader.parent.mkdir(parents=True, exist_ok=True)
-    loader.write_text(LOADER_CONF)
+    write_file(ESP / "loader/loader.conf", LOADER_CONF)
 
 
 def esp_disk() -> tuple[str, str] | None:
@@ -709,7 +775,7 @@ def update_loader() -> int:
     return 0
 
 
-def rebuild_command(version: str | None, removed: bool = False) -> int:
+def rebuild_command(version: str | None, removed: bool = False, after_undo: bool = False) -> int:
     need_root()
     if load_state().get("phase") not in ("enroll", "switch", "on"):
         return 0
@@ -721,7 +787,7 @@ def rebuild_command(version: str | None, removed: bool = False) -> int:
         if removed and version:
             remove_kernel(version)
         else:
-            rebuild(version)
+            rebuild(version, after_undo=after_undo)
     except (RuntimeError, OSError) as e:
         state["problem"] = f"Kulan OS couldn't sign its start-up files after an update ({str(e)[:200]}). " \
                            "It still starts the version it had"
@@ -760,7 +826,17 @@ def turn_off() -> int:
     if r.returncode != 0:
         say(detail(r, "GRUB couldn't be set up"))
         return 1
-    run(["update-grub"])
+    # GRUB's menu must be there before anything that starts the computer now
+    # is removed: without it, GRUB stops at "grub rescue>". grub-install put
+    # GRUB first in the firmware's list, so Kulan OS's entry goes first again.
+    r = run(["update-grub"])
+    grub_cfg = Path("/boot/grub/grub.cfg")
+    if r.returncode != 0 or not grub_cfg.exists() or grub_cfg.stat().st_size == 0:
+        entry = kulan_entry()
+        if entry:
+            put_first(entry)
+        say(detail(r, "GRUB's start-up menu couldn't be made, so signed start-up stays on"))
+        return 1
     run(["mokutil", "--revoke-import"])
     entry = kulan_entry()
     if entry:
@@ -798,6 +874,8 @@ def main(argv: list[str]) -> int:
         return finish()
     if command == "update-loader" and len(argv) == 2:
         return update_loader()
+    if command == "rebuild" and argv[2:] == ["--after-undo"]:
+        return rebuild_command(None, after_undo=True)
     if command == "rebuild" and len(argv) in (2, 3):
         return rebuild_command(argv[2] if len(argv) == 3 else None)
     if command == "remove-kernel" and len(argv) == 3:
