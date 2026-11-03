@@ -1,0 +1,134 @@
+1 s: Display output is not active. 
+MOK screen after 3 s: Booting in 10 seconds  Shim UEFI key management  Press any key to perform MOK managenent  
+1 s: Display output is not active. 
+11 s: Display output is not active. 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+31 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/html/latest/adm
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 10 s. 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 3s. 
+21 s: { Sk J] Finished systemd-pcrphase-sysinit...- TPM PCR Barrier (Initialization). [ Ok 1 Reached target basic.target - Basic System. Starting accounts-daemon.serv
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 10 s. 
+1 s: 
+11 s: 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+31 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 5s. 
+51 s: 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+11 s: 
+21 s: 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+41 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/htnl/late and_p
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+1 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/html/latest/adm
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+31 s: 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+51 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied?  Speculative Return Stack Overflow: WARNING: See http:  kernel] .org/doc/html/ late  an
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 5s. 
+11 s: 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+1 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/htnl/late and_p
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+21 s: 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+51 s: Display output is not active. 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+11 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+31 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied?  Speculative Return Stack Overflow: WARNING: See http:  kernel] .org/doc/html/ late  an
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+51 s: 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 10 s. 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 3s. 
+21 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 6 s. 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 10 s. 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+11 s: Broadcast message from rootekulan-signed-test (Tue 2026-11-03 07:26:10 UTC):  The system will reboot now! 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 5s. 
+31 s: 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 9s. 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+1 s: Starting ezscrub_reap.service - Re.ne extd Metadata Check Snapshots...  Starting grub-common.service - Record successful boot for GRUB...  Starting Im-sensors.s
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 5s. 
+21 s: 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+41 s: 
+51 s: 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+11 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+31 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied?  Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/html/latest/ad
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+51 s: 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 9s. 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+21 s: { Sk J] Finished systemd-pcrphase-sysinit...- TPM PCR Barrier (Initialization). [ Ok 1 Reached target basic.target - Basic System. Starting accounts-daemon.serv
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+1 s: 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 9s. 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+31 s: Starting dracut-shutdown.service -..store /run/initramfs on shutdown  Starting e2scrub_reap.service - Re.ne extd Metadata Check Snapshots  Starting grub-common.
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+51 s: 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 6 s. 
+11 s: 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 9s. 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+41 s: { ok ] Started low-memory-monitor.service - Low Memory Monitor.  Starting switcheroo-contral.servic..suitcheroa Contral Proxy service... Starting systemd-logind
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 5s. 
+1 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/htnl/late and_p
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+21 s: 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 10 s. 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 3s. 
+51 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/htnl/late and_p
+1 s: 
+11 s: 
+21 s: 
+31 s: 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 10 s. 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+21 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 6 s. 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+1 s: 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 6 s. 
+21 s: 
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 9s. 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+51 s: Starting ezscrub_reap.service - Re.ne extd Metadata Check Snapshots...  Starting grub-common.service - Record successful boot for GRUB...  Starting Im-sensors.s
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 2s. 
+11 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 6 s. 
+31 s: 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+51 s: 
+1 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 8 s. 
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+21 s: Broadcast message from rootekulan-signed-test (Tue 2026-11-03 07:45:12 UTC): The system will reboot now!  [ 27.416606] watchdog: watchdogd: watchdog did not sto
+31 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+41 s: 
+51 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in? s. 
+1 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied?  Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/html/latest/ad
+11 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 9s. 
+21 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 1s. 
+31 s: Starting avahi-daemon.service - Avahi mDNS/DNS-SD Stack... [ Ok 1] Started cron.service - Regular background program processing daemon. Starting dbus.service - 
+41 s: Kulan 0S 2.13 (Undo the last update)  Kulan OS 2.13 EFI Default Loader Reboot Into Firmware Interface  Boot in 4s. 
+51 s: Speculative Return Stack Overflow: IBPB-extending microcode not applied? Speculative Return Stack Overflow: WARNING: See https://kernel .org/doc/htnl/late and_p
