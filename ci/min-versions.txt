@@ -1,0 +1,8 @@
+# The oldest version of a Debian package an ISO may have: one with a known
+# serious flaw fails the build (ci/min-versions.sh), even when Debian's
+# security tracker can't be reached for ci/vuln-scan.sh. Add a line when a
+# serious flaw is fixed in Debian; versions are Debian's (debian/changelog).
+#
+# source package(s), separated by |    oldest allowed    why
+linux|linux-signed-amd64|linux-signed-arm64	6.12.113-1	CVE-2026-98432: a remote takeover through TCP connection requests (DSA-6568-1, October 2026)
+apt	3.0.4	CVE-2026-109518: a package swapped on the way could run as root (DSA-6607-1, November 2026)

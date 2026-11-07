@@ -44,6 +44,17 @@ sleep 5 # let the session settle
 	echo "swap=$(swapon --show=NAME,SIZE --noheadings 2>/dev/null | tr -s ' ' | tr '\n' ';')"
 	# Names through systemd-resolved (Kulan Settings' encrypted DNS), and whether a lookup works.
 	echo "dns=$(readlink /etc/resolv.conf 2>/dev/null || echo file) $(systemctl is-active systemd-resolved.service 2>/dev/null) lookup=$(timeout 8 getent hosts deb.debian.org >/dev/null 2>&1 && echo yes || echo no)"
+	# Debian's package servers (2.14: HTTPS) and whether the update check
+	# works with them (into a folder of its own; the real lists are untouched).
+	# Only Debian's sources are checked (the test's own update channel may
+	# not be reachable from the test machine).
+	LISTS="$(mktemp -d)" && mkdir -p "${LISTS}/partial" "${LISTS}/parts"
+	for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+		[ -f "$f" ] && grep -q 'debian\.org' "$f" && cp "$f" "${LISTS}/parts/"
+	done
+	echo "aptsources=$(cat /etc/apt/sources.list "${LISTS}"/parts/* 2>/dev/null | grep -v '^[[:space:]]*#' | grep -oE 'https?://[a-z.]*debian\.org[^[:space:]]*' | sort -u | tr '\n' ' ')"
+	echo "aptcheck=$(timeout 120 apt-get -q -o Dir::State::Lists="${LISTS}" -o Dir::Etc::SourceParts="${LISTS}/parts" -o Dir::Cache::pkgcache= -o Dir::Cache::srcpkgcache= update >"${LISTS}/log" 2>&1 && ! grep -q '^[WE]:' "${LISTS}/log" && echo ok || echo "failed: $(grep -m2 '^[WE]:' "${LISTS}/log" | tr '\n' ' ' | cut -c1-200)")"
+	rm -rf "${LISTS}"
 	echo "oomd=$(systemctl is-active systemd-oomd.service 2>/dev/null) $(systemctl is-active kulan-oom-notice.service 2>/dev/null)"
 	# Kernel loading switched off (1) on PCs; left on (0) with fast restart
 	# set up in ARM VMs, where a normal restart freezes.

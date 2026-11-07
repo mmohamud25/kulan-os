@@ -235,6 +235,19 @@ if [[ "${FIT}" =~ ^([0-9]+)\ ([0-9]+)\ ([0-9]+)\ ([0-9]+)$ ]]; then
 else
 	result fail "Windows fit the screen" "no test window: ${FIT:-not reported}"
 fi
+APT_SOURCES="$(field aptsources)"
+APT_CHECK="$(field aptcheck)"
+if [[ -z "${APT_SOURCES// /}" ]]; then
+	result fail "Debian over HTTPS" "no Debian package sources found"
+elif [[ "${APT_SOURCES}" == *"http://"* ]]; then
+	result fail "Debian over HTTPS" "plain HTTP still used: ${APT_SOURCES}"
+elif [[ "${APT_CHECK}" == ok ]]; then
+	result pass "Debian over HTTPS" "the update check works with ${APT_SOURCES}"
+elif [[ "$(field dns)" == *lookup=no* ]]; then
+	result info "Debian over HTTPS" "${APT_SOURCES}(not checked: no network in the test machine)"
+else
+	result fail "Debian over HTTPS" "the update check failed with ${APT_SOURCES}: ${APT_CHECK:-not reported}"
+fi
 LIGHT="$(field lighter)"
 if [[ -z "${LIGHT}" ]]; then
 	result info "Lighter mode" "not reported"

@@ -1,0 +1,33 @@
+#!/bin/sh
+# Debian's own package servers over HTTPS (2.14).
+#
+# Before 2.14, new computers fetched Debian's packages over plain HTTP
+# (Debian's default). Packages are signed, so a changed package is refused,
+# but an APT flaw in November 2026 (CVE-2026-109518) showed that someone who
+# can change the traffic on the way (a bad Wi-Fi network or proxy) can still
+# get their own package installed. Over HTTPS they can't change it at all.
+# New computers have HTTPS from the start (auto/config); this moves computers
+# installed before 2.14. Only deb.debian.org and security.debian.org: another
+# mirror someone chose is theirs, and may not offer HTTPS. Not with a proxy
+# for APT set (a package cache such as apt-cacher-ng only works over HTTP).
+#
+# Exit 0: done (or nothing to change). Exit 1: can't yet (no certificates).
+set -eu
+
+[ -r /etc/ssl/certs/ca-certificates.crt ] || exit 1
+if [ -n "$(apt-config dump --format '%v' Acquire::http::Proxy 2>/dev/null)" ]; then
+	exit 0
+fi
+
+PATTERN='http://(deb|security)\.debian\.org([/[:space:]]|$)'
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+	[ -f "$f" ] || continue
+	grep -qE "${PATTERN}" "$f" || continue
+	# security.debian.org's top folder (what live-build wrote before 2.14)
+	# becomes the folder Debian names for it, debian-security.
+	sed -E -e "s#${PATTERN}#https://\\1.debian.org\\2#g" \
+		-e 's#https://security\.debian\.org/?([[:space:]]|$)#https://security.debian.org/debian-security\1#g' \
+		"$f" >"$f.kulan-new"
+	chmod --reference="$f" "$f.kulan-new"
+	mv "$f.kulan-new" "$f"
+done

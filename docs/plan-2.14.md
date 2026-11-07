@@ -14,6 +14,18 @@ Started from what Chrome looked like on the ThinkPad after 2.13.
   or partly off it (Chrome opens at its last size): its bottom ran under the
   dock. Kulan Shell (windowfit.js) moves such a window, and makes it smaller if
   needed, to fit between the top bar and the dock, when it opens only.
+- **Debian's package servers over HTTPS.** Installed computers fetched Debian's
+  packages over plain HTTP (Debian's default). An APT flaw in November 2026
+  (CVE-2026-109518, fixed in APT 3.0.4) let someone changing the traffic on the
+  way swap a package. New computers use HTTPS from the start (auto/config's
+  --mirror-binary); computers from before move when they update (kulan-base's
+  apt-https, once): only deb.debian.org and security.debian.org, never another
+  mirror someone chose, and not with an APT proxy (package caches are HTTP
+  only). kulan-base now depends on ca-certificates.
+- **Oldest allowed versions.** ci/min-versions.txt: an ISO with a Debian package
+  older than a known serious fix fails the build, even when Debian's security
+  tracker can't be reached (ci/vuln-scan.sh then passes with a warning). First
+  entries: the kernel's TCP flaw (CVE-2026-98432, 6.12.113-1) and APT's.
 
 ## Tests added
 - ci/browser-look-test.py: Chrome's own colours get the GTK theme once, even
@@ -22,3 +34,7 @@ Started from what Chrome looked like on the ThinkPad after 2.13.
   bigger than the screen, off to the side, second screen).
 - Boot test: a window asking for 5000x5000 opens to fit the screen, in the
   live session.
+- ci/apt-https-test.sh (package tests): what apt-https changes and leaves alone.
+- Boot test and upgrade test: Debian's sources are HTTPS only, and the update
+  check works with them (a new computer, and one updated from an older release).
+- ci/min-versions.sh in the ISO job.

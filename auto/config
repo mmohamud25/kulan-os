@@ -90,6 +90,11 @@ if ! ls config/packages.chroot/kulan-base_*.deb >/dev/null 2>&1; then
 	die "Kulan packages missing from config/packages.chroot - run packages/build-debs.sh and copy dist/debs/*.deb there (build.sh does this)"
 fi
 
+# The installed computer fetches Debian's packages over HTTPS (2.14; before,
+# plain HTTP, Debian's default): someone changing the traffic on the way can't
+# swap a package (CVE-2026-109518). Computers from before move when they
+# update (kulan-base's apt-https). The build itself still uses Debian's
+# defaults, before the certificates are in the image.
 lb config noauto \
 	--mode debian \
 	--distribution "${KULAN_DEBIAN_SUITE}" \
@@ -98,6 +103,8 @@ lb config noauto \
 	--archive-areas "main contrib non-free non-free-firmware" \
 	--security true \
 	--updates true \
+	--mirror-binary "https://deb.debian.org/debian/" \
+	--mirror-binary-security "https://security.debian.org/debian-security/" \
 	--apt-recommends true \
 	--bootloaders "${BOOTLOADERS}" \
 	--binary-image "${IMAGE_TYPE}" \

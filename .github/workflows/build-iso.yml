@@ -502,6 +502,11 @@ jobs:
           sudo apt-get install -y -q debsecan
           ci/vuln-scan.sh "${{ runner.temp }}/dpkg-status"
 
+      # Versions with a known serious flaw (ci/min-versions.txt) fail the
+      # build, even when the security tracker can't be reached.
+      - name: Oldest allowed versions
+        run: ci/min-versions.sh "${{ runner.temp }}/dpkg-status"
+
       - name: Upload ISO
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f  # v6.0.0
         with:

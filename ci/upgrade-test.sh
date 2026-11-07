@@ -329,6 +329,20 @@ if [[ -n "${R2}" ]]; then
 	else
 		result pass "After the update: services" "none failed"
 	fi
+	# 2.14: a computer from before moves to Debian's servers over HTTPS.
+	APT_SOURCES="$(field "${R2}" aptsources)"
+	APT_CHECK="$(field "${R2}" aptcheck)"
+	if [[ -z "${APT_SOURCES// /}" ]]; then
+		result fail "After the update: Debian over HTTPS" "no Debian package sources found"
+	elif [[ "${APT_SOURCES}" == *"http://"* ]]; then
+		result fail "After the update: Debian over HTTPS" "plain HTTP still used: ${APT_SOURCES}"
+	elif [[ "${APT_CHECK}" == ok ]]; then
+		result pass "After the update: Debian over HTTPS" "moved to HTTPS, and the update check works: ${APT_SOURCES}"
+	elif [[ "$(field "${R2}" dns)" == *lookup=no* ]]; then
+		result info "After the update: Debian over HTTPS" "${APT_SOURCES}(not checked: no network in the test machine)"
+	else
+		result fail "After the update: Debian over HTTPS" "the update check failed with ${APT_SOURCES}: ${APT_CHECK:-not reported}"
+	fi
 fi
 
 # 2.11: updates as their own service, the start-up noted as good, a power cut repaired at start-up.

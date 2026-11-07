@@ -52,6 +52,14 @@ case "$1" in
 			deb-systemd-invoke start kulan-fast-restart.service >/dev/null 2>&1 || true
 		fi
 
+		# 2.14: Debian's package servers over HTTPS on computers installed
+		# before (new ones have it from the start). Only when updating, never
+		# while an image is built. Done once, so someone who later chooses
+		# HTTP keeps their choice.
+		if [ -n "$2" ] && [ ! -e /var/lib/kulan/apt-https-set ] && /usr/lib/kulan/apt-https; then
+			mkdir -p /var/lib/kulan && touch /var/lib/kulan/apt-https-set
+		fi
+
 		# Encrypted disks: a mistyped password at start-up asks again instead
 		# of giving up after three tries (cryptsetup's default). Only lines
 		# without their own tries= setting; the start-up image is rebuilt.
