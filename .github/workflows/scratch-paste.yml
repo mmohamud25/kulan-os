@@ -1,0 +1,21 @@
+name: scratch paste
+on:
+  push:
+    branches: [scratch-paste-test]
+jobs:
+  paste:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update -q && apt-get install -y -q zsh zsh-autosuggestions zsh-syntax-highlighting fzf python3 eza zoxide >/dev/null
+      - run: dpkg -l zsh zsh-autosuggestions zsh-syntax-highlighting fzf | tail -4
+      - run: |
+          cd ci/scratch
+          echo true > plain.zsh
+          for rc in plain.zsh kulan.zsh; do for m in ahead slow typed aftercmd; do echo -n "$rc "; python3 paste.py $PWD/$rc $m; done; done
+          # bisect: kulan.zsh without each part
+          sed '/zsh-autosuggestions.zsh ]]; then/,/^fi/d' kulan.zsh > no-sugg.zsh
+          sed '/zsh-syntax-highlighting.zsh ]]/,/zsh-syntax-highlighting.zsh$/d' kulan.zsh > no-hl.zsh
+          sed '/key-bindings.zsh \/usr/s/^/: /;/source \$file/s/^/: /' kulan.zsh > no-fzf.zsh
+          for rc in no-sugg.zsh no-hl.zsh no-fzf.zsh; do for m in ahead aftercmd; do echo -n "$rc "; python3 paste.py $PWD/$rc $m; done; done
